@@ -31,3 +31,16 @@ export {
   unionMasks,
   type Mask,
 } from './mask';
+export {
+  applyMosaic,
+  effectiveBlockSize,
+  MAX_BLOCKS_ACROSS,
+  MIN_BLOCK_SIZE,
+  type MosaicOptions,
+} from './mosaic';
+export {
+  magicWand,
+  traceMaskOutline,
+  type MagicWandOptions,
+  type MagicWandResult,
+} from './magic-wand';
