@@ -8,7 +8,10 @@ export type ExportErrorCode =
   | 'unsupported_destination'
   | 'upload_not_found'
   | 'upload_invalid_state'
-  | 'upload_cancelled';
+  | 'upload_cancelled'
+  | 'host_key_unpinned'
+  | 'host_key_mismatch'
+  | 'remote_exists';
 
 /** Base class for errors raised by this package. Messages never contain secrets. */
 export class ExportError extends Error {
@@ -19,6 +22,41 @@ export class ExportError extends Error {
     this.name = 'ExportError';
     this.code = code;
   }
+}
+
+/**
+ * Failure that retrying cannot fix (bad credentials, an unpinned or mismatched
+ * host key, an existing remote file, an invalid destination path). The queue
+ * marks it failed on the first attempt.
+ */
+export class NonRetryableUploadError extends ExportError {
+  constructor(
+    code: Extract<
+      ExportErrorCode,
+      | 'missing_credentials'
+      | 'invalid_path'
+      | 'host_key_unpinned'
+      | 'host_key_mismatch'
+      | 'remote_exists'
+      | 'unsupported_destination'
+    >,
+    message: string,
+    options?: ErrorOptions,
+  ) {
+    super(code, message, options);
+    this.name = 'NonRetryableUploadError';
+  }
+}
+
+/** True when a failure must not be retried automatically. */
+export function isNonRetryableUploadError(error: unknown): boolean {
+  return (
+    error instanceof NonRetryableUploadError ||
+    (error instanceof ExportError &&
+      (error.code === 'missing_credentials' ||
+        error.code === 'invalid_path' ||
+        error.code === 'unsupported_destination'))
+  );
 }
 
 /** Thrown inside the queue when a running upload is cancelled. */

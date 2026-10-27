@@ -90,6 +90,27 @@ describe('SFTP uploads', () => {
     await expect(access(`${finalPath}.part`)).rejects.toThrow();
   });
 
+  it('refuses to upload without a pinned fingerprint', async () => {
+    const localPath = path.join(dir, 'unpinned.jpg');
+    await writeFile(localPath, 'x');
+
+    queue = new UploadQueue({
+      dbPath: path.join(dir, 'queue-unpinned.sqlite'),
+      hooks: hooksWith(server.password),
+      retryBaseDelayMs: 1,
+      maxAttempts: 1,
+    });
+    await queue.enqueue(photoId, localPath, [sftpDestination(server.port)]);
+    queue.start();
+    await queue.waitForIdle();
+
+    const [item] = queue.list();
+    expect(item?.state).toBe('failed');
+    expect(item?.attempts).toBe(1);
+    expect(item?.error ?? '').toMatch(/pinned host key/);
+    await expect(access(path.join(server.root, 'inbox', 'unpinned.jpg'))).rejects.toThrow();
+  });
+
   it('trusts the host key on first use and returns its fingerprint', async () => {
     const destination = sftpDestination(server.port);
     const result = await testDestination(destination, hooksWith(server.password));

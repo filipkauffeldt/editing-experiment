@@ -8,7 +8,12 @@ export {
   type PreviewFindingKind,
 } from './jpeg/previews';
 export { exportPhoto, type ExportPhotoOptions, type ExportedPhoto } from './export';
-export { ExportError, UploadCancelledError, type ExportErrorCode } from './errors';
+export {
+  ExportError,
+  NonRetryableUploadError,
+  UploadCancelledError,
+  type ExportErrorCode,
+} from './errors';
 export {
   createPathTemplateContext,
   defaultExpandPathTemplate,

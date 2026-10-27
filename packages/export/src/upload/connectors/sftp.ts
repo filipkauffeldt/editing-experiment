@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 import path from 'node:path';
 import SftpClient from 'ssh2-sftp-client';
 import type { CredentialSecret, SftpDestination } from '@ee/contracts';
-import { ExportError, UploadCancelledError } from '../../errors';
+import { NonRetryableUploadError, UploadCancelledError } from '../../errors';
 import { normalizeRemotePath, tempRemotePath } from '../paths';
 import type { DestinationConnector, DestinationTestResult, UploadRequest } from '../types';
 
@@ -28,7 +28,7 @@ export function createSftpConnector(destination: SftpDestination): DestinationCo
       request.signal.addEventListener('abort', abort, { once: true });
 
       try {
-        await connect(client, destination, request.secret, () => undefined);
+        await connect(client, destination, request.secret, () => undefined, false);
         if (request.signal.aborted) throw new UploadCancelledError();
 
         const cwd = await client.cwd();
@@ -67,9 +67,15 @@ export function createSftpConnector(destination: SftpDestination): DestinationCo
       const client = createClient();
       let fingerprint: string | undefined;
       try {
-        await connect(client, destination, secret, (value) => {
-          fingerprint = value;
-        });
+        await connect(
+          client,
+          destination,
+          secret,
+          (value) => {
+            fingerprint = value;
+          },
+          true,
+        );
         const cwd = await client.cwd();
         return {
           ok: true,
@@ -102,11 +108,18 @@ async function connect(
   destination: SftpDestination,
   secret: CredentialSecret,
   onFingerprint: (fingerprint: string) => void,
+  allowUnpinned: boolean,
 ): Promise<void> {
   if (typeof secret.password !== 'string' && typeof secret.privateKey !== 'string') {
-    throw new ExportError(
+    throw new NonRetryableUploadError(
       'missing_credentials',
       'SFTP destination has neither a password nor a private key',
+    );
+  }
+  if (!allowUnpinned && destination.hostKeyFingerprint === undefined) {
+    throw new NonRetryableUploadError(
+      'host_key_unpinned',
+      'SFTP upload requires a pinned host key fingerprint',
     );
   }
 
@@ -114,24 +127,38 @@ async function connect(
     destination.hostKeyFingerprint === undefined
       ? undefined
       : normalizeHostKeyFingerprint(destination.hostKeyFingerprint);
+  let rejectedHostKey = false;
 
   const hostVerifier = (hashedKey: string | Buffer): boolean => {
     const hex = typeof hashedKey === 'string' ? hashedKey : hashedKey.toString('hex');
     const fingerprint = fingerprintFromSha256Hex(hex);
     onFingerprint(fingerprint);
-    return pinned === undefined || normalizeHostKeyFingerprint(fingerprint) === pinned;
+    const matches = pinned === undefined || normalizeHostKeyFingerprint(fingerprint) === pinned;
+    if (!matches) rejectedHostKey = true;
+    return matches;
   };
 
-  await client.connect({
-    host: destination.host,
-    port: destination.port,
-    username: destination.username,
-    ...(secret.password === undefined ? {} : { password: secret.password }),
-    ...(secret.privateKey === undefined ? {} : { privateKey: secret.privateKey }),
-    ...(secret.passphrase === undefined ? {} : { passphrase: secret.passphrase }),
-    hostHash: 'sha256',
-    hostVerifier,
-  });
+  try {
+    await client.connect({
+      host: destination.host,
+      port: destination.port,
+      username: destination.username,
+      ...(secret.password === undefined ? {} : { password: secret.password }),
+      ...(secret.privateKey === undefined ? {} : { privateKey: secret.privateKey }),
+      ...(secret.passphrase === undefined ? {} : { passphrase: secret.passphrase }),
+      hostHash: 'sha256',
+      hostVerifier,
+    });
+  } catch (error) {
+    if (rejectedHostKey) {
+      throw new NonRetryableUploadError(
+        'host_key_mismatch',
+        'SFTP host key does not match the pinned fingerprint',
+        { cause: error },
+      );
+    }
+    throw error;
+  }
 }
 
 /** Exposed for tests: the SHA256 fingerprint of a public key blob. */
