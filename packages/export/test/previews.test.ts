@@ -15,6 +15,8 @@ import {
   insertXmpThumbnail,
   jfifThumbnailSegment,
   jfxxThumbnailSegment,
+  malformedExifSegment,
+  malformedPhotoshopSegment,
   mpfSegment,
   withSegment,
   xmpThumbnailUtf16Segment,
@@ -110,6 +112,21 @@ describe('embedded preview detection', () => {
     const findings = inspectJpegPreviews(withSegment(cleanJpeg, segment.marker, segment.payload));
     expect(findings.map((finding) => finding.kind)).toContain('xmp-thumbnail');
   });
+
+  it.each(['magic', 'ifd'] as const)('fails closed on malformed EXIF (%s)', (kind) => {
+    const segment = malformedExifSegment(kind);
+    const findings = inspectJpegPreviews(withSegment(cleanJpeg, segment.marker, segment.payload));
+    expect(findings.map((finding) => finding.kind)).toContain('malformed-exif');
+  });
+
+  it.each(['signature', 'truncated'] as const)(
+    'fails closed on malformed Photoshop IRB (%s)',
+    (kind) => {
+      const segment = malformedPhotoshopSegment(kind);
+      const findings = inspectJpegPreviews(withSegment(cleanJpeg, segment.marker, segment.payload));
+      expect(findings.map((finding) => finding.kind)).toContain('malformed-photoshop');
+    },
+  );
 
   it('reports the offending file and findings', async () => {
     const file = path.join(dir, 'dirty.jpg');
