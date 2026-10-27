@@ -52,9 +52,10 @@ export async function atomicReplace(
         throw new AggregateError(
           [swapError, restoreError],
           `Could not replace ${finalPath}; the previous file is at ${backupPath}`,
+          { cause: restoreError },
         );
       }
-      throw swapError;
+      throw new Error(`Could not rename ${tempPath} to ${finalPath}`, { cause: swapError });
     }
 
     await ops.rm(backupPath, { force: true }).catch(() => undefined);
