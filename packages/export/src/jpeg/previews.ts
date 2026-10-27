@@ -75,7 +75,6 @@ const TAG_STRIP_OFFSETS = 0x0111;
 const TAG_STRIP_BYTE_COUNTS = 0x0117;
 const TAG_JPEG_FROM_RAW = 0x002e;
 const TAG_PREVIEW_IMAGE = 0xc51b;
-const TAG_XMP = 0x02bc;
 
 /**
  * Finds anything that could carry a preview of the original image.
@@ -375,14 +374,6 @@ function inspectTiff(tiff: Uint8Array, findings: PreviewFinding[]): void {
           });
         }
       }
-      if (tag === TAG_XMP) {
-        const offsets = readOffsets(tiff, little, type, valueCount, entry);
-        if (offsets === undefined) {
-          findings.push({ kind: 'malformed-exif', detail: 'invalid XMP tag data' });
-        }
-        continue;
-      }
-
       if (tag === TAG_EXIF_IFD || tag === TAG_GPS_IFD || tag === TAG_INTEROP_IFD) {
         const offsets = readOffsets(tiff, little, type, valueCount, entry);
         if (offsets === undefined || offsets.length === 0) {
