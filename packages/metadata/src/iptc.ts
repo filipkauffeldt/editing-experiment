@@ -209,27 +209,27 @@ export async function writeIptc(
     if (mapping === undefined) continue;
 
     if (mapping.date === true) {
-      writeDate(tags, mapping, value);
+      writeDate(tags, mapping, value, embedded);
       continue;
     }
 
     if (isEmptyValue(value)) {
       tags[mapping.xmp] = null;
-      if (mapping.iim !== undefined) tags[mapping.iim] = null;
+      if (embedded && mapping.iim !== undefined) tags[mapping.iim] = null;
       continue;
     }
 
     if (mapping.list === true) {
       const list = Array.isArray(value) ? value : [String(value)];
       tags[mapping.xmp] = list;
-      if (mapping.iim !== undefined) tags[mapping.iim] = list;
+      if (embedded && mapping.iim !== undefined) tags[mapping.iim] = list;
       continue;
     }
 
     if (Array.isArray(value)) continue;
     const text = String(value);
     tags[mapping.xmp] = mapping.xmpList === true ? [text] : text;
-    if (mapping.iim !== undefined) tags[mapping.iim] = text;
+    if (embedded && mapping.iim !== undefined) tags[mapping.iim] = text;
   }
 
   if (Object.keys(tags).length === 0) return;
@@ -241,13 +241,16 @@ function writeDate(
   tags: Record<string, ExifToolTagValue>,
   mapping: IptcTagMapping,
   value: IptcFields[keyof IptcFields],
+  embedded: boolean,
 ): void {
   if (Array.isArray(value)) return;
   const text = value === undefined ? '' : String(value);
   if (text === '') {
     tags[mapping.xmp] = null;
-    tags['IPTC:DateCreated'] = null;
-    tags['IPTC:TimeCreated'] = null;
+    if (embedded) {
+      tags['IPTC:DateCreated'] = null;
+      tags['IPTC:TimeCreated'] = null;
+    }
     return;
   }
   const parts = splitIsoDate(text);
@@ -258,6 +261,8 @@ function writeDate(
     );
   }
   tags[mapping.xmp] = text;
-  tags['IPTC:DateCreated'] = parts.date;
-  tags['IPTC:TimeCreated'] = parts.time ?? null;
+  if (embedded) {
+    tags['IPTC:DateCreated'] = parts.date;
+    tags['IPTC:TimeCreated'] = parts.time ?? null;
+  }
 }

@@ -149,6 +149,8 @@ describe('IPTC read/write', () => {
       });
 
       expect(await fileExists(sidecarPathFor(nef))).toBe(true);
+      const sidecarTags = await service.read(sidecarPathFor(nef));
+      expect(Object.keys(sidecarTags).filter((key) => key.startsWith('IPTC:'))).toEqual([]);
       expect(await sha256File(nef)).toBe(before);
     });
 
