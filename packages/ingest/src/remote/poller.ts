@@ -11,6 +11,13 @@ import type { ExpandTemplate } from '../template';
 import type { FileCopier, IngestHooks } from '../types';
 import type { RemoteConnection, RemoteConnectionFactory, RemoteEntry, RemoteSource } from './types';
 
+const MAX_FILE_ATTEMPTS = 5;
+
+interface FileFailure {
+  attempts: number;
+  nextAttemptAt: number;
+}
+
 export interface RemotePollerCallbacks {
   setState(state: IngestJobState): void;
   /** `filesTotal` is the number of image files discovered so far. */
@@ -202,6 +209,7 @@ export async function pollRemoteSource(deps: RemotePollerDeps): Promise<void> {
   const { signal, source, callbacks } = deps;
   const observed = new Map<string, number>();
   const discovered = new Set<string>();
+  const failures = new Map<string, FileFailure>();
   let connection: RemoteConnection | undefined;
   let backoff = deps.retryBaseDelayMs;
 
@@ -223,14 +231,18 @@ export async function pollRemoteSource(deps: RemotePollerDeps): Promise<void> {
 
         const stable = new Set<string>();
         for (const [path, entry] of current) {
-          if (observed.get(path) === entry.size) {
+          const previousSize = observed.get(path);
+          if (previousSize === entry.size) {
             stable.add(path);
+          } else if (previousSize !== undefined) {
+            failures.delete(path);
           }
           observed.set(path, entry.size);
         }
         for (const path of observed.keys()) {
           if (!current.has(path)) {
             observed.delete(path);
+            failures.delete(path);
           }
         }
 
@@ -251,6 +263,13 @@ export async function pollRemoteSource(deps: RemotePollerDeps): Promise<void> {
                 mtimeMs: entry.mtimeMs,
               }),
           )
+          .filter((entry) => {
+            const failure = failures.get(entry.path);
+            if (!failure) {
+              return true;
+            }
+            return failure.attempts < MAX_FILE_ATTEMPTS && Date.now() >= failure.nextAttemptAt;
+          })
           .sort((a, b) => naturalCompare(a.path, b.path));
 
         for (const entry of candidates) {
@@ -264,10 +283,17 @@ export async function pollRemoteSource(deps: RemotePollerDeps): Promise<void> {
           callbacks.reportProgress(discovered.size, entry.path);
           try {
             await ingestRemoteEntry(deps, connection, entry, sidecar.entry);
+            failures.delete(entry.path);
           } catch (error) {
             if (isAbortError(error) || signal.aborted) {
               throw error;
             }
+            const attempts = (failures.get(entry.path)?.attempts ?? 0) + 1;
+            const delay = Math.min(
+              deps.retryBaseDelayMs * 2 ** (attempts - 1),
+              deps.retryMaxDelayMs,
+            );
+            failures.set(entry.path, { attempts, nextAttemptAt: Date.now() + delay });
             callbacks.reportError(error);
           }
         }

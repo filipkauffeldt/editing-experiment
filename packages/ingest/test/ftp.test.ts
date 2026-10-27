@@ -3,7 +3,8 @@ import { join } from 'node:path';
 import { asSourceId, type FtpSource, type JobEvent } from '@ee/contracts';
 import { afterEach, describe, expect, it } from 'vitest';
 import { startIngest } from '../src/engine';
-import type { IngestHandle } from '../src/types';
+import { hashFile } from '../src/hash';
+import type { FileCopier, IngestHandle } from '../src/types';
 import { delay, ingestConfig, pathExists, waitFor } from './helpers/engine';
 import { startFtpServer, type TestFtpServer } from './helpers/ftp-server';
 import { cleanupTempDirs, makeTempDir } from './helpers/temp';
@@ -187,6 +188,39 @@ describe('FTP source', { timeout: 15_000 }, () => {
 
     expect(await readFile(join(destination, '_DSC9_01.NEF'), 'utf8')).toBe('original');
     expect(await readFile(remote, 'utf8')).toBe('original changed');
+  });
+
+  it('caps retries and backs off for a permanently failing file', async () => {
+    const setupResult = await setup({ pollIntervalMs: 40 });
+    const { root, destination } = setupResult;
+    await writeFile(join(root, '_DSC5.NEF'), 'raw-five');
+    const corrupting: FileCopier = {
+      async copy(from, to) {
+        await writeFile(to, 'corrupted');
+        return {
+          sourceHash: await hashFile(from),
+          destinationHash: await hashFile(to),
+        };
+      },
+    };
+    const events: JobEvent[] = [];
+    const handle = start(setupResult, {
+      fileCopier: corrupting,
+      retryBaseDelayMs: 10,
+    });
+    handle.on((event) => events.push(event));
+
+    const errors = (): number =>
+      events.filter(
+        (event) => event.type === 'job.error' && event.message.includes('Hash mismatch'),
+      ).length;
+    await waitFor(() => errors() >= 5, 'five failed attempts', 8_000);
+    const afterFive = errors();
+    await delay(300);
+
+    expect(errors()).toBe(afterFive);
+    expect(afterFive).toBe(5);
+    expect(await readdir(destination)).toEqual([]);
   });
 
   it('never puts credentials in events or status errors', async () => {
