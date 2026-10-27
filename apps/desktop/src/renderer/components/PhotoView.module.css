@@ -1,20 +1,54 @@
 .view {
   display: flex;
-  align-items: center;
-  justify-content: center;
+  flex-direction: column;
   min-width: 0;
   min-height: 0;
-  padding: 16px;
-  background: #101011;
+  background: radial-gradient(circle at 50% 42%, #1b1b1f 0%, #101012 70%);
 }
 
-.image {
-  max-width: 100%;
-  max-height: 100%;
-  object-fit: contain;
-  box-shadow: 0 4px 24px rgb(0 0 0 / 0.5);
+.canvasArea {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  align-items: center;
+  justify-content: center;
+  padding: 18px 22px;
 }
 
-.empty {
+.footer {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex: none;
+  height: 28px;
+  padding: 0 12px;
+  border-top: 1px solid var(--border);
+  background: var(--panel);
   color: var(--text-dim);
+  font-size: 10px;
+}
+
+.fileName {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--text);
+}
+
+.spacer {
+  flex: 1;
+}
+
+.detail {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 240px;
+}
+
+.zoom {
+  padding: 1px 6px;
+  border: 1px solid var(--border);
+  border-radius: 2px;
+  color: var(--text);
 }

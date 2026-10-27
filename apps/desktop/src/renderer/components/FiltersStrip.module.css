@@ -1,0 +1,119 @@
+.strip {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 30px;
+  padding: 0 2px;
+  min-width: 0;
+}
+
+.quick {
+  display: flex;
+  gap: 4px;
+  min-width: 0;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.quick::-webkit-scrollbar {
+  display: none;
+}
+
+.filter {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  flex: none;
+  padding: 3px 9px;
+  border: 1px solid var(--border);
+  border-radius: 11px;
+  background: transparent;
+  color: var(--text-dim);
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.filter:hover {
+  border-color: var(--border-strong);
+  color: var(--text);
+}
+
+.active {
+  border-color: var(--accent);
+  background: var(--accent-dim);
+  color: #eaf4ff;
+}
+
+.count {
+  color: var(--text-faint);
+  font-family: var(--mono);
+  font-size: 10px;
+}
+
+.active .count {
+  color: #bcd9f8;
+}
+
+.spacer {
+  flex: 1;
+  min-width: 8px;
+}
+
+.selectWrap {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  flex: none;
+}
+
+.selectLabel {
+  color: var(--text-faint);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.select {
+  max-width: 150px;
+  height: 23px;
+  padding: 0 4px;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  background: var(--panel-raised);
+  color: var(--text);
+  font-size: 11px;
+}
+
+.sort {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  flex: none;
+}
+
+.sortButton {
+  padding: 2px 7px;
+  border: 1px solid transparent;
+  border-radius: 3px;
+  background: transparent;
+  color: var(--text-dim);
+  font-size: 11px;
+}
+
+.sortButton:hover {
+  color: var(--text);
+}
+
+.sortButton.active {
+  border-color: var(--border-strong);
+  background: var(--panel-raised);
+  color: var(--text);
+}
+
+.visibleCount {
+  flex: none;
+  color: var(--text-faint);
+  font-family: var(--mono);
+  font-size: 10px;
+}
