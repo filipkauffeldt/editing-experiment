@@ -11,3 +11,81 @@ export declare const __napiBindingTarget: 'native' | 'wasm32-wasi' | 'wasm32-was
 
 /** Version of the native core addon, so JS can tell which binary it loaded. */
 export declare function coreVersion(): string
+
+/**
+ * Decodes a raw to demosaiced linear camera RGB (see "Linear image format"
+ * in `docs/ARCHITECTURE.md`).
+ */
+export declare function decodeLinear(path: string, options?: DecodeLinearOptions | undefined | null): Promise<NativeLinearImage>
+
+export interface DecodeLinearOptions {
+  /** Longest edge of the result; never upscales. Default: full size. */
+  maxEdge?: number
+  /** `'f16'` (default) or `'f32'`. */
+  sampleType?: string
+}
+
+/** Extracts the largest embedded preview as a JPEG. */
+export declare function extractPreview(path: string): Promise<RawPreview>
+
+export interface Multipliers {
+  r: number
+  g: number
+  b: number
+}
+
+export interface NativeLinearImage {
+  header: NativeLinearImageHeader
+  /** `width * height * 4` RGBA samples, little-endian. */
+  data: Buffer
+}
+
+/** Same fields as `LinearImageHeader` in `packages/contracts`. */
+export interface NativeLinearImageHeader {
+  width: number
+  height: number
+  sourceWidth: number
+  sourceHeight: number
+  sampleType: string
+  asShotMultipliers: Multipliers
+  cameraToSrgb: Array<number>
+  xyzToCamera: Array<number>
+}
+
+/** Camera, exposure and geometry metadata of a raw file. */
+export interface RawInfo {
+  make: string
+  model: string
+  lens?: string
+  serial?: string
+  /** Camera local time `YYYY-MM-DDTHH:MM:SS` (no zone, EXIF has none). */
+  captureTime?: string
+  iso?: number
+  /** Exposure time in seconds. */
+  shutter?: number
+  /** F-number. */
+  aperture?: number
+  /** Focal length in millimetres. */
+  focalLength?: number
+  /** EXIF orientation, 1..=8. */
+  orientation: number
+  /** Sensor readout size including masked border pixels. */
+  rawWidth: number
+  rawHeight: number
+  /** Size of the displayed image (orientation applied). */
+  width: number
+  height: number
+}
+
+/** The largest embedded preview of a raw file. */
+export interface RawPreview {
+  /** A complete JPEG file. */
+  jpeg: Buffer
+  width: number
+  height: number
+  /** EXIF orientation (1..=8) to apply for display. */
+  orientation: number
+}
+
+/** Reads metadata of a raw file without decoding pixels. */
+export declare function readRawInfo(path: string): Promise<RawInfo>

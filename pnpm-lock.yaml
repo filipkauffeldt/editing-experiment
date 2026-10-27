@@ -235,6 +235,10 @@ importers:
         version: 7.3.7(@types/node@24.19.2)(lightningcss@1.33.0)
 
   crates/core:
+    dependencies:
+      '@ee/contracts':
+        specifier: workspace:*
+        version: link:../../packages/contracts
     devDependencies:
       '@napi-rs/cli':
         specifier: 3.10.9

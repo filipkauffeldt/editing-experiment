@@ -15,6 +15,7 @@ pnpm lint && pnpm typecheck && pnpm test
 cargo fmt --check && cargo clippy --all-targets -- -D warnings && cargo test
 pnpm screenshot          # builds, launches the app with mock data, writes screenshots/*.png
 pnpm fetch-fixtures      # CC0 Nikon NEF samples into fixtures/raw/ (gitignored)
+EE_SAMPLE_NEF_DIR=~/nefs pnpm test   # optionally also run the raw tests on your own NEFs
 ```
 
 | Path                 | What                                                          |
@@ -29,7 +30,7 @@ pnpm fetch-fixtures      # CC0 Nikon NEF samples into fixtures/raw/ (gitignored)
 Needed on the development machine (the repo itself never installs system packages):
 
 - **Node 24** and **pnpm** (the version is pinned by `packageManager` in `package.json`).
-- **Rust stable** via rustup (edition 2024), plus a C/C++ toolchain (`gcc`, `g++`; `clang`/`cmake`/`pkg-config` for the LibRaw build later).
+- **Rust stable** via rustup (edition 2024), plus a C/C++ compiler (`gcc`/`g++` or `clang`; MSVC on Windows). LibRaw is vendored in `crates/core/vendor/libraw` and compiled by `build.rs`, so no LibRaw, cmake or pkg-config install is needed.
 - **Electron runtime libraries.** On Debian/Ubuntu: `sudo apt install libgtk-3-0t64 libpango-1.0-0` (older releases call the first package `libgtk-3-0`).
 - **Xvfb** for headless runs on a machine without a display (`pnpm screenshot`, Playwright e2e): `sudo apt install xvfb xauth`. `pnpm screenshot` re-runs itself under `xvfb-run` when `DISPLAY` is unset.
 
