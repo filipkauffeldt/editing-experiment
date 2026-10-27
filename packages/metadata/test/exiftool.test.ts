@@ -1,6 +1,8 @@
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
+import { readdir } from 'node:fs/promises';
 import { join } from 'node:path';
 import { ExifToolService } from '../src/exiftool';
+import { ensureXmpFile } from '../src/paths';
 import { MetadataError } from '../src/errors';
 import { cleanupTempDirs, makeJpeg, makeTempDir } from './helpers';
 
@@ -57,6 +59,19 @@ describe('ExifToolService', () => {
     const results = await Promise.all(files.map((file) => service.read(file)));
     expect(results).toHaveLength(8);
     expect(results.every((tags) => tags['File:FileType'] === 'JPEG')).toBe(true);
+  });
+
+  it('does not leave ExifTool _original backups', async () => {
+    const dir = await makeTempDir();
+    const jpeg = join(dir, 'photo.jpg');
+    await makeJpeg(jpeg);
+    await service.write(jpeg, { 'XMP-dc:Title': 'JPEG title' });
+    expect(await readdir(dir)).toEqual(['photo.jpg']);
+
+    const sidecar = join(dir, 'photo.xmp');
+    await ensureXmpFile(sidecar);
+    await service.write(sidecar, { 'XMP-dc:Title': 'Sidecar title' });
+    expect((await readdir(dir)).sort()).toEqual(['photo.jpg', 'photo.xmp']);
   });
 
   it('rejects work after close and closes idempotently', async () => {

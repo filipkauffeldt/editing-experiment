@@ -118,7 +118,9 @@ export class ExifToolService {
     }
     if (Object.keys(encoded).length === 0) return;
     await this.#withLimit(async () => {
-      await this.#et.write(path, encoded);
+      // ExifTool otherwise leaves `<file>_original` backups next to the user's
+      // photos/sidecars.
+      await this.#et.write(path, encoded, { writeArgs: ['-overwrite_original'] });
     });
   }
 
