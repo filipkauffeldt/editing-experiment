@@ -216,7 +216,6 @@ export async function pollRemoteSource(deps: RemotePollerDeps): Promise<void> {
   try {
     while (!signal.aborted) {
       try {
-        callbacks.setState('running');
         connection ??= await deps.connect(source, deps.credentials, signal);
         const entries = await connection.list(source.remotePath);
         backoff = deps.retryBaseDelayMs;
@@ -272,6 +271,9 @@ export async function pollRemoteSource(deps: RemotePollerDeps): Promise<void> {
           })
           .sort((a, b) => naturalCompare(a.path, b.path));
 
+        if (candidates.length > 0) {
+          callbacks.setState('running');
+        }
         for (const entry of candidates) {
           if (signal.aborted) {
             break;

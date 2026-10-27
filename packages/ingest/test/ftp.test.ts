@@ -190,6 +190,26 @@ describe('FTP source', { timeout: 15_000 }, () => {
     expect(await readFile(remote, 'utf8')).toBe('original changed');
   });
 
+  it('does not emit state changes while idle between polls', async () => {
+    const setupResult = await setup({ pollIntervalMs: 40 });
+    const { root, destination } = setupResult;
+    const events: JobEvent[] = [];
+    const handle = start(setupResult);
+    handle.on((event) => events.push(event));
+    await waitForWatching(handle);
+
+    const states = (): string[] =>
+      events.flatMap((event) => (event.type === 'ingest.state' ? [event.state] : []));
+    const idleCount = states().length;
+    await delay(200);
+    expect(states().length).toBe(idleCount);
+
+    await writeFile(join(root, '_DSC3.NEF'), 'raw-three');
+    await waitFor(() => pathExists(join(destination, '_DSC3_01.NEF')), 'download');
+
+    expect(states().slice(idleCount)).toEqual(['running', 'watching']);
+  });
+
   it('caps retries and backs off for a permanently failing file', async () => {
     const setupResult = await setup({ pollIntervalMs: 40 });
     const { root, destination } = setupResult;
