@@ -7,6 +7,7 @@ export {
   type PreviewFinding,
   type PreviewFindingKind,
 } from './jpeg/previews';
+export { exportPhoto, type ExportPhotoOptions, type ExportedPhoto } from './export';
 export { ExportError, UploadCancelledError, type ExportErrorCode } from './errors';
 export {
   createPathTemplateContext,
