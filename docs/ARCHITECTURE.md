@@ -45,7 +45,8 @@ Renderer (React)  ── typed IPC (contracts) ──>  Main (thin: windows, rou
 - `app://thumb/<photoId>`, `app://preview/<photoId>` serve cached JPEGs;
   `app://linear/<photoId>?maxEdge=N` serves the decoded linear image
   (see "Linear image format").
-- SQLite (better-sqlite3) in the utility process: photo index, source state
+- SQLite (built-in `node:sqlite`, `DatabaseSync`; no native module to rebuild per
+  Electron ABI) in the utility process: photo index, source state
   (seen remote files), upload queue. It is a cache: XMP sidecars are the
   source of truth for metadata and edits.
 
