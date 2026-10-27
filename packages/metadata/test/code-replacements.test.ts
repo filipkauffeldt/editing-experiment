@@ -30,21 +30,22 @@ describe('code replacements', () => {
     expect(table.lookup('// player codes')).toBeUndefined();
   });
 
-  it('expands the default column, explicit #1 and other columns', () => {
+  it('defaults to = and expands the default column, #1 and other columns', () => {
     const set = new CodeReplacementSet([parseCodeReplacementFile(sample)]);
-    expect(expandCodeReplacements('\\wc8\\', set)).toEqual({
+    expect(set.delimiter).toBe('=');
+    expect(expandCodeReplacements('=wc8=', set)).toEqual({
       text: 'Alex Ovechkin',
       unknownCodes: [],
     });
-    expect(expandCodeReplacements('\\wc8#1\\', set).text).toBe('Alex Ovechkin');
-    expect(expandCodeReplacements('\\wc8#2\\', set).text).toBe('Alex Ovechkin, Left wing');
-    expect(expandCodeReplacements('\\wc8#3\\', set).text).toBe('Ovi');
+    expect(expandCodeReplacements('=wc8#1=', set).text).toBe('Alex Ovechkin');
+    expect(expandCodeReplacements('=wc8#2=', set).text).toBe('Alex Ovechkin, Left wing');
+    expect(expandCodeReplacements('=wc8#3=', set).text).toBe('Ovi');
   });
 
   it('leaves unknown codes verbatim and reports them', () => {
     const set = new CodeReplacementSet([parseCodeReplacementFile(sample)]);
-    expect(expandCodeReplacements('Hi \\nope\\ and \\wc8#9\\', set)).toEqual({
-      text: 'Hi \\nope\\ and \\wc8#9\\',
+    expect(expandCodeReplacements('Hi =nope= and =wc8#9=', set)).toEqual({
+      text: 'Hi =nope= and =wc8#9=',
       unknownCodes: ['nope', 'wc8#9'],
     });
   });
@@ -53,7 +54,7 @@ describe('code replacements', () => {
     const set = new CodeReplacementSet([parseCodeReplacementFile(sample)], {
       defaultReplacement: 'UNKNOWN',
     });
-    expect(expandCodeReplacements('Hi \\nope\\', set)).toEqual({
+    expect(expandCodeReplacements('Hi =nope=', set)).toEqual({
       text: 'Hi UNKNOWN',
       unknownCodes: ['nope'],
     });
@@ -61,18 +62,19 @@ describe('code replacements', () => {
 
   it('does not treat an empty pair or an unpaired delimiter as a code', () => {
     const set = new CodeReplacementSet([parseCodeReplacementFile(sample)]);
-    expect(expandCodeReplacements('\\\\', set)).toEqual({ text: '\\\\', unknownCodes: [] });
-    expect(expandCodeReplacements('one \\ two', set)).toEqual({
-      text: 'one \\ two',
+    expect(expandCodeReplacements('==', set)).toEqual({ text: '==', unknownCodes: [] });
+    expect(expandCodeReplacements('one = two', set)).toEqual({
+      text: 'one = two',
       unknownCodes: [],
     });
   });
 
-  it('keeps delimiters inside ordinary text and reports the accidental code', () => {
+  it('leaves backslashes in ordinary text untouched with the default delimiter', () => {
     const set = new CodeReplacementSet([parseCodeReplacementFile(sample)]);
-    const result = expandCodeReplacements('C:\\Users\\file.jpg', set);
-    expect(result.text).toBe('C:\\Users\\file.jpg');
-    expect(result.unknownCodes).toEqual(['Users']);
+    expect(expandCodeReplacements('C:\\a\\b', set)).toEqual({
+      text: 'C:\\a\\b',
+      unknownCodes: [],
+    });
   });
 
   it('lets later files override earlier ones', async () => {
@@ -84,20 +86,20 @@ describe('code replacements', () => {
 
     const set = await loadCodeReplacements([first, second]);
     expect(set.size).toBe(2);
-    expect(expandCodeReplacements('\\code\\ \\other\\', set).text).toBe('from second kept');
+    expect(expandCodeReplacements('=code= =other=', set).text).toBe('from second kept');
   });
 
   it('supports a custom delimiter', () => {
-    const set = new CodeReplacementSet([parseCodeReplacementFile(sample)], { delimiter: '=' });
-    expect(expandCodeReplacements('=wc8= and ==', set)).toEqual({
-      text: 'Alex Ovechkin and ==',
+    const set = new CodeReplacementSet([parseCodeReplacementFile(sample)], { delimiter: '\\' });
+    expect(expandCodeReplacements('\\wc8\\ and \\\\', set)).toEqual({
+      text: 'Alex Ovechkin and \\\\',
       unknownCodes: [],
     });
   });
 
   it('expands variables in the code before lookup and in the replacement after', () => {
     const months = parseCodeReplacementFile('July\tJulio\nmydate\t{day} {monthname} {year4}');
-    const result = expandCaption('\\{monthname}\\ on \\mydate\\', {
+    const result = expandCaption('={monthname}= on =mydate=', {
       codeReplacements: [months],
       captureTime: '2024-07-06T12:00:00',
     });
@@ -108,13 +110,13 @@ describe('code replacements', () => {
 
   it('reports unknown codes and variables together, with delimiters intact', () => {
     const set = new CodeReplacementSet([parseCodeReplacementFile(sample)]);
-    const result = expandCaption('\\nope\\ {nosuch}', {
+    const result = expandCaption('=nope= {nosuch}', {
       codeReplacementSet: set,
       fields: {},
     });
-    expect(result.text).toBe('\\nope\\ {nosuch}');
+    expect(result.text).toBe('=nope= {nosuch}');
     expect(result.unknownCodes).toEqual(['nope']);
     expect(result.unknownVariables).toEqual(['nosuch']);
-    expect(result.unresolved).toEqual(['\\nope\\', '{nosuch}']);
+    expect(result.unresolved).toEqual(['=nope=', '{nosuch}']);
   });
 });

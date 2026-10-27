@@ -65,7 +65,7 @@ export async function loadCodeReplacementFile(path: string): Promise<CodeReplace
 }
 
 export interface CodeReplacementSetOptions {
-  /** PM's configurable delimiter; one character. Defaults to `\`. */
+  /** PM's configurable delimiter; one character. Defaults to `=` (PM 6+). */
   delimiter?: string;
   /**
    * Optional PM "default replacement" used for unknown codes. When absent,
@@ -85,7 +85,7 @@ export class CodeReplacementSet {
   readonly #entries: ReadonlyMap<string, readonly string[]>;
 
   constructor(tables: readonly CodeReplacementTable[], options: CodeReplacementSetOptions = {}) {
-    const delimiter = options.delimiter ?? '\\';
+    const delimiter = options.delimiter ?? '=';
     if (delimiter.length !== 1) {
       throw new MetadataError('INVALID_CODE_REPLACEMENTS', 'Delimiter must be one character');
     }
@@ -151,15 +151,15 @@ function selectReplacement(
 }
 
 /**
- * Expand `\code\` / `\code#N\` tokens.
+ * Expand `=code=` / `=code#N=` tokens (delimiter configurable).
  *
  * PM semantics implemented here (see the code replacement article linked in
  * `parseCodeReplacementFile`): the field selector `#N` picks a column
  * (`#1` is the default), unknown codes are left verbatim (unless a default
- * replacement is configured), and an empty pair (`\\`) is not evaluated.
+ * replacement is configured), and an empty pair (`==`) is not evaluated.
  * PM does not document an escape syntax; we deliberately do not invent one, so
  * a delimiter inside ordinary text (e.g. a Windows path) stays untouched and
- * is reported when it happens to look like a code.
+ * is reported only when it happens to look like a code.
  */
 export function expandCodeReplacements(
   text: string,

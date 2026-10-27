@@ -10,7 +10,7 @@ export interface ExpandCaptionOptions extends CaptionContext {
   codeReplacements?: readonly CodeReplacementTable[];
   /** A pre-built set (takes precedence over `codeReplacements`). */
   codeReplacementSet?: CodeReplacementSet;
-  /** PM's delimiter character, default `\`. */
+  /** PM's delimiter character, default `=` (PM 6+). */
   delimiter?: string;
   /** PM default replacement for unknown codes; absent = leave verbatim. */
   defaultReplacement?: string;
@@ -56,7 +56,7 @@ export function expandCaption(
         });
   const variableResult = expandVariables(codeResult.text, context);
 
-  const delimiter = set?.delimiter ?? context.delimiter ?? '\\';
+  const delimiter = set?.delimiter ?? context.delimiter ?? '=';
   const unresolved = [
     ...codeResult.unknownCodes.map((code) => `${delimiter}${code}${delimiter}`),
     ...variableResult.unknownVariables.map((name) => `{${name}}`),
