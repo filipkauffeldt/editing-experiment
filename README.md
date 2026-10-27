@@ -33,20 +33,21 @@ Needed on the development machine (the repo itself never installs system package
 - **Electron runtime libraries.** On Debian/Ubuntu: `sudo apt install libgtk-3-0t64 libpango-1.0-0` (older releases call the first package `libgtk-3-0`).
 - **Xvfb** for headless runs on a machine without a display (`pnpm screenshot`, Playwright e2e): `sudo apt install xvfb xauth`. `pnpm screenshot` re-runs itself under `xvfb-run` when `DISPLAY` is unset.
 
-### Running Electron on Ubuntu 24.04: `EE_NO_SANDBOX`
+### Running Electron on Ubuntu 24.04: `--no-sandbox` (dev and tests only)
 
 Ubuntu 24.04 restricts unprivileged user namespaces with AppArmor, and the SUID
 `chrome-sandbox` helper that Electron ships is not set up in a `node_modules`
-install, so Electron aborts at startup with a sandbox error. For **development and
-tests only**, set `EE_NO_SANDBOX=1` to start Electron with `--no-sandbox`:
+install, so Electron aborts at startup with "The SUID sandbox helper binary was found,
+but is not configured correctly". For **development and tests only**, start Electron
+with `--no-sandbox`:
 
 ```sh
-EE_NO_SANDBOX=1 pnpm dev
+EE_NO_SANDBOX=1 pnpm dev     # apps/desktop/scripts/dev.ts passes --no-sandbox to Electron
 ```
 
-`pnpm screenshot` and e2e tests set it themselves. The main process honours the
-variable only when `app.isPackaged` is false, so packaged builds always run sandboxed.
-Do not `chown`/`chmod` the sandbox binary.
+`pnpm screenshot` and Playwright e2e launch through Playwright's `_electron`, which
+already passes `--no-sandbox`. The flag is a launch argument and is never baked into
+the app, so packaged builds always run sandboxed. Do not `chown`/`chmod` the sandbox binary.
 
 ### Mock mode
 

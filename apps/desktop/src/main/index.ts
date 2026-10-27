@@ -16,12 +16,6 @@ import { createMainWindow } from './window';
 
 const mock = process.env.EE_MOCK === '1';
 
-// Chromium's sandbox needs either a SUID helper or unprivileged user namespaces, and
-// Ubuntu 24.04 restricts both. Dev and test launches may opt out; a packaged build never does.
-if (process.env.EE_NO_SANDBOX === '1' && !app.isPackaged) {
-  app.commandLine.appendSwitch('no-sandbox');
-}
-
 registerAppScheme();
 
 /** Handlers served in this process. Everything else is forwarded to the jobs process. */

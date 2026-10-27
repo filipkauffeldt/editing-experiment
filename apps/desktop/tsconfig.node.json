@@ -3,7 +3,8 @@
   "compilerOptions": {
     "module": "ESNext",
     "moduleResolution": "Bundler",
-    "types": ["node"]
+    "types": ["node"],
+    "allowImportingTsExtensions": true
   },
   "include": [
     "electron.vite.config.ts",
@@ -12,6 +13,7 @@
     "src/preload",
     "src/jobs",
     "src/shared",
+    "scripts",
     "test"
   ]
 }

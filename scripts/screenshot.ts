@@ -50,8 +50,6 @@ async function main(): Promise<void> {
     env: {
       ...process.env,
       EE_MOCK: '1',
-      // Ubuntu 24.04 restricts the Chromium sandbox; the app only honours this when not packaged.
-      EE_NO_SANDBOX: '1',
     },
   });
   try {
