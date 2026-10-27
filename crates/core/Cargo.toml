@@ -13,6 +13,7 @@ crate-type = ["cdylib", "rlib"]
 napi = { version = "3", default-features = false, features = ["napi9"] }
 napi-derive = "3"
 thiserror = "2"
+half = "2"
 jpeg-encoder = "0.7"
 
 [dev-dependencies]

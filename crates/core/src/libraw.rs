@@ -213,6 +213,10 @@ impl LibRaw {
     pub fn cam_mul(&self) -> [f32; 4] {
         std::array::from_fn(|i| unsafe { ffi::ee_cam_mul(self.ptr.as_ptr(), i as c_int) })
     }
+    /// Daylight white balance multipliers LibRaw derived from the colour matrix.
+    pub fn pre_mul(&self) -> [f32; 4] {
+        std::array::from_fn(|i| unsafe { ffi::ee_pre_mul(self.ptr.as_ptr(), i as c_int) })
+    }
     /// Row-major 3x3 camera-to-sRGB matrix (`rgb_cam`).
     pub fn rgb_cam(&self) -> [f32; 9] {
         std::array::from_fn(|i| unsafe {
