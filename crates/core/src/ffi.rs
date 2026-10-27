@@ -69,6 +69,8 @@ unsafe extern "C" {
     pub fn ee_normalized_model(lr: *mut LibRawData) -> *const c_char;
     pub fn ee_lens_name(lr: *mut LibRawData) -> *const c_char;
     pub fn ee_makernotes_lens_name(lr: *mut LibRawData) -> *const c_char;
+    pub fn ee_min_focal(lr: *mut LibRawData) -> c_float;
+    pub fn ee_max_focal(lr: *mut LibRawData) -> c_float;
     pub fn ee_body_serial(lr: *mut LibRawData) -> *const c_char;
     pub fn ee_internal_body_serial(lr: *mut LibRawData) -> *const c_char;
 

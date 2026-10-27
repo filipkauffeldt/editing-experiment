@@ -142,6 +142,15 @@ impl LibRaw {
     pub fn makernotes_lens_name(&self) -> String {
         unsafe { cstr(ffi::ee_makernotes_lens_name(self.ptr.as_ptr())) }
     }
+    /// Focal range of the lens as reported by the camera; (0, 0) when unknown.
+    pub fn lens_focal_range(&self) -> (f32, f32) {
+        unsafe {
+            (
+                ffi::ee_min_focal(self.ptr.as_ptr()),
+                ffi::ee_max_focal(self.ptr.as_ptr()),
+            )
+        }
+    }
     pub fn body_serial(&self) -> String {
         unsafe { cstr(ffi::ee_body_serial(self.ptr.as_ptr())) }
     }

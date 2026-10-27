@@ -3,7 +3,12 @@
 
 pub mod error;
 pub mod ffi;
+pub mod info;
 pub mod libraw;
+pub mod orient;
+
+#[cfg(test)]
+mod testutil;
 
 use napi_derive::napi;
 

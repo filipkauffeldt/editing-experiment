@@ -43,6 +43,8 @@ const char *ee_normalized_make(libraw_data_t *lr) { return lr->idata.normalized_
 const char *ee_normalized_model(libraw_data_t *lr) { return lr->idata.normalized_model; }
 const char *ee_lens_name(libraw_data_t *lr) { return lr->lens.Lens; }
 const char *ee_makernotes_lens_name(libraw_data_t *lr) { return lr->lens.makernotes.Lens; }
+float ee_min_focal(libraw_data_t *lr) { return lr->lens.MinFocal; }
+float ee_max_focal(libraw_data_t *lr) { return lr->lens.MaxFocal; }
 const char *ee_body_serial(libraw_data_t *lr) { return lr->shootinginfo.BodySerial; }
 const char *ee_internal_body_serial(libraw_data_t *lr) { return lr->shootinginfo.InternalBodySerial; }
 

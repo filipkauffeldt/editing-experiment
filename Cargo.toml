@@ -11,3 +11,8 @@ publish = false
 [profile.release]
 lto = true
 strip = "symbols"
+
+# LibRaw, JPEG codecs and our resampling loops are unusably slow unoptimised,
+# which makes `cargo test` on 24 MP raws take minutes. Debug assertions stay on.
+[profile.dev]
+opt-level = 2
