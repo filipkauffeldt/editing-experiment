@@ -385,7 +385,7 @@ export class UploadQueue {
   private scheduleRetryTimer(): void {
     this.clearRetryTimer();
     if (!this.started || this.closed) return;
-    const next = this.store.nextQueuedAt();
+    const next = this.store.nextQueuedAt(this.now());
     if (next === undefined) return;
     const delay = Math.max(0, next - this.now());
     this.retryTimer = setTimeout(() => {

@@ -188,10 +188,13 @@ export class UploadStore {
       .map((row) => toItem(row as unknown as UploadRow));
   }
 
-  nextQueuedAt(): number | undefined {
+  /** Earliest future retry time; due rows are driven by slot releases, not timers. */
+  nextQueuedAt(after: number): number | undefined {
     const row = this.db
-      .prepare("SELECT MIN(next_attempt_at) AS next FROM upload_items WHERE state = 'queued'")
-      .get() as { next: number | null } | undefined;
+      .prepare(
+        "SELECT MIN(next_attempt_at) AS next FROM upload_items WHERE state = 'queued' AND next_attempt_at > ?",
+      )
+      .get(after) as { next: number | null } | undefined;
     return row?.next === null || row?.next === undefined ? undefined : row.next;
   }
 

@@ -214,6 +214,47 @@ describe('UploadQueue', () => {
     expect(listed.attempts).toBe(3);
   });
 
+  it('does not busy-loop retry timers for due rows blocked by concurrency', async () => {
+    const destination = folderDestination('dest-busy', path.join(dir, 'busy'));
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const queueInstance = queue({
+      concurrencyPerDestination: 1,
+      retryBaseDelayMs: 0,
+      connectorFactory: factoryFor(async (request) => {
+        await new Promise<void>((resolve, reject) => {
+          request.signal.addEventListener('abort', () => reject(new Error('aborted')), {
+            once: true,
+          });
+          void gate.then(resolve);
+        });
+      }),
+    });
+
+    const [first] = await queueInstance.enqueue(photoId, await localFile('busy-1.jpg'), [
+      destination,
+    ]);
+    queueInstance.start();
+    await queueInstance.enqueue(photoId, await localFile('busy-2.jpg'), [destination]);
+
+    const internal = queueInstance as unknown as { pump: () => void };
+    const original = internal.pump.bind(queueInstance);
+    let pumps = 0;
+    internal.pump = () => {
+      pumps++;
+      original();
+    };
+
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    expect(pumps).toBeLessThan(20);
+
+    release();
+    await queueInstance.waitForIdle();
+    expect(requireItem(queueInstance.list(), first!.id).state).toBe('done');
+  });
+
   it('marks the item failed after maxAttempts and allows a manual retry', async () => {
     const localPath = await localFile('failed.jpg');
     const destination = folderDestination('dest-failed', path.join(dir, 'failed'));
