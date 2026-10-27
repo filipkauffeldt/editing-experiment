@@ -54,6 +54,7 @@ async function setup(options: SetupOptions = {}): Promise<Setup> {
       remotePath: '/',
       pollIntervalMs: options.pollIntervalMs ?? 80,
       deleteAfterDownload: options.deleteAfterDownload ?? false,
+      hostKeyFingerprint: server.hostKeyFingerprint,
     },
   };
 }

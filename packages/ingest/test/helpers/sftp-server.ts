@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { mkdir, readFile, readdir, rename, rm, stat, unlink } from 'node:fs/promises';
 import type { AddressInfo } from 'node:net';
 import { posix, resolve, sep } from 'node:path';
@@ -27,6 +28,7 @@ export interface TestSftpServerOptions {
 export interface TestSftpServer {
   readonly root: string;
   readonly port: number;
+  readonly hostKeyFingerprint: string;
   readdirRequests(): number;
   dropConnections(): void;
   close(): Promise<void>;
@@ -224,6 +226,14 @@ export async function startSftpServer(options: TestSftpServerOptions): Promise<T
   const username = options.username ?? 'user';
   const password = options.password ?? 'secret';
   const hostKey = utils.generateKeyPairSync('ed25519').private;
+  const parsedHostKey = utils.parseKey(hostKey);
+  if (parsedHostKey instanceof Error) {
+    throw parsedHostKey;
+  }
+  const hostKeyFingerprint = `SHA256:${createHash('sha256')
+    .update(parsedHostKey.getPublicSSH())
+    .digest('base64')
+    .replace(/=+$/, '')}`;
   const clients: Connection[] = [];
   const state = { readdirRequests: 0 };
 
@@ -266,6 +276,7 @@ export async function startSftpServer(options: TestSftpServerOptions): Promise<T
   return {
     root: options.root,
     port: (address as AddressInfo).port,
+    hostKeyFingerprint,
     readdirRequests(): number {
       return state.readdirRequests;
     },

@@ -278,6 +278,12 @@ export async function pollRemoteSource(deps: RemotePollerDeps): Promise<void> {
         if (isAbortError(error) || signal.aborted) {
           return;
         }
+        if (
+          error instanceof IngestError &&
+          (error.code === 'missing-host-key' || error.code === 'unsupported-source')
+        ) {
+          throw error;
+        }
         callbacks.reportError(error);
         callbacks.setState('watching');
         if (connection) {

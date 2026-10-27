@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 import { posix } from 'node:path';
 import SftpClient from 'ssh2-sftp-client';
 import type { CredentialSecret, SftpSource } from '@ee/contracts';
-import { IngestAbortError, throwIfAborted } from '../errors';
+import { IngestAbortError, IngestError, throwIfAborted } from '../errors';
 import type { RemoteConnection, RemoteEntry, RemoteFileStat } from './types';
 
 function fingerprint(key: Buffer): string {
@@ -68,12 +68,25 @@ class SftpRemoteConnection implements RemoteConnection {
   }
 }
 
+export interface SftpConnectOptions {
+  /** Only for `testSource`: connect without a pin and report the fingerprint. */
+  allowUnpinnedHostKey?: boolean;
+  onHostKey?: (hostKeyFingerprint: string) => void;
+}
+
 export async function openSftpConnection(
   source: SftpSource,
   credentials: CredentialSecret,
   signal: AbortSignal,
+  options: SftpConnectOptions = {},
 ): Promise<RemoteConnection> {
   throwIfAborted(signal);
+  if (!source.hostKeyFingerprint && !options.allowUnpinnedHostKey) {
+    throw new IngestError(
+      'SFTP requires a pinned host key fingerprint (trust the server in sources:test first)',
+      'missing-host-key',
+    );
+  }
   const client = new SftpClient('ee-ingest');
   const onAbort = (): void => {
     void client.end().catch(() => undefined);
@@ -90,9 +103,14 @@ export async function openSftpConnection(
       readyTimeout: 20_000,
       keepaliveInterval: 10_000,
       keepaliveCountMax: 3,
-      ...(source.hostKeyFingerprint
-        ? { hostVerifier: (key: Buffer) => fingerprint(key) === source.hostKeyFingerprint }
-        : {}),
+      hostVerifier: (key: Buffer) => {
+        const actual = fingerprint(key);
+        options.onHostKey?.(actual);
+        if (source.hostKeyFingerprint) {
+          return actual === source.hostKeyFingerprint;
+        }
+        return options.allowUnpinnedHostKey === true;
+      },
     });
   } catch (error) {
     signal.removeEventListener('abort', onAbort);
