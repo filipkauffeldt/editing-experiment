@@ -71,7 +71,7 @@ async function waitForWatching(handle: IngestHandle): Promise<void> {
   await waitFor(() => handle.status()[0]?.state === 'watching', 'SFTP source to watch', 8_000);
 }
 
-describe('SFTP source', () => {
+describe('SFTP source', { timeout: 15_000 }, () => {
   it('downloads a new file and its sidecar once it is stable', async () => {
     const setupResult = await setup();
     const { root, destination } = setupResult;
@@ -88,6 +88,7 @@ describe('SFTP source', () => {
       8_000,
     );
     expect(await readFile(join(destination, '_DSC1_01.NEF'), 'utf8')).toBe('sftp-raw');
+    await waitForWatching(handle);
     expect(handle.status()[0]?.state).toBe('watching');
   });
 

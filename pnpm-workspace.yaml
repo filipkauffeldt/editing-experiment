@@ -4,8 +4,9 @@ packages:
   - crates/*
 
 # Only these dependencies may run install scripts (esbuild unpacks a platform
-# binary); everything else stays blocked. Electron has no install script: it
-# downloads its binary on first use (`require('electron')`).
+# binary); everything else stays blocked. ssh2 and cpu-features fall back to
+# pure JS, and bunyan's dtrace-provider is optional, so all three are denied.
+# Electron has no install script: it downloads its binary on first use.
 allowBuilds:
   cpu-features: false
   dtrace-provider: false

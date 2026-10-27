@@ -318,7 +318,12 @@ export function startIngest(config: IngestConfig, hooks: IngestHooks = {}): Inge
     }
   };
 
-  const runs = jobs.map((job) => runJob(job));
+  const jobRuns = new Map<JobRuntime, Promise<void>>();
+  const runs = jobs.map((job) => {
+    const run = runJob(job);
+    jobRuns.set(job, run);
+    return run;
+  });
   const done = Promise.all(runs)
     .then(() => {
       ownedStore?.close();
@@ -339,7 +344,12 @@ export function startIngest(config: IngestConfig, hooks: IngestHooks = {}): Inge
       for (const job of targets) {
         job.controller.abort();
       }
-      await done;
+      await Promise.all(
+        targets.map((job) => jobRuns.get(job)).filter((run): run is Promise<void> => Boolean(run)),
+      );
+      if (!sourceId) {
+        await done;
+      }
     },
     status(): IngestJobInfo[] {
       return jobs.map(jobInfo);

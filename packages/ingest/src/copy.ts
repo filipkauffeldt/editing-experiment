@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { createReadStream, createWriteStream } from 'node:fs';
-import { link, mkdir, rm, stat } from 'node:fs/promises';
+import { constants, copyFile, link, mkdir, rm, stat } from 'node:fs/promises';
 import { basename, dirname, join } from 'node:path';
 import { pipeline } from 'node:stream/promises';
 import { CollisionError, VerificationError, throwIfAborted } from './errors';
@@ -108,10 +108,25 @@ async function copyVerifiedToFinal(
     try {
       await link(tempPath, finalPath);
     } catch (error) {
-      if ((error as NodeJS.ErrnoException).code === 'EEXIST') {
+      const code = (error as NodeJS.ErrnoException).code;
+      if (code === 'EEXIST') {
         throw new CollisionError(`Destination already exists: ${finalPath}`);
       }
-      throw error;
+      // Hard links are not available on every filesystem a photographer may
+      // use (exFAT, some network shares). Copy with O_EXCL instead so we still
+      // never overwrite a file.
+      if (code === 'EPERM' || code === 'ENOTSUP' || code === 'EOPNOTSUPP' || code === 'EXDEV') {
+        try {
+          await copyFile(tempPath, finalPath, constants.COPYFILE_EXCL);
+        } catch (copyError) {
+          if ((copyError as NodeJS.ErrnoException).code === 'EEXIST') {
+            throw new CollisionError(`Destination already exists: ${finalPath}`);
+          }
+          throw copyError;
+        }
+      } else {
+        throw error;
+      }
     }
     const info = await stat(finalPath);
     return { sha256: outcome.destinationHash, size: info.size };

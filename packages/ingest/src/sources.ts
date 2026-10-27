@@ -94,6 +94,20 @@ export async function listImageFiles(
 /** Lists the files one local source will ingest, in copy order. */
 export async function listSourceFiles(source: FolderSource | CardSource): Promise<SourceFile[]> {
   if (source.kind === 'folder') {
+    try {
+      const info = await stat(source.path);
+      if (!info.isDirectory()) {
+        throw new IngestError(`Folder source is not a directory: ${source.path}`, 'not-a-folder');
+      }
+    } catch (error) {
+      if (error instanceof IngestError) {
+        throw error;
+      }
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+        throw new IngestError(`Folder source does not exist: ${source.path}`, 'not-a-folder');
+      }
+      throw error;
+    }
     return listImageFiles(source.path, { recursive: source.recursive ?? false });
   }
   const dcim = join(source.mountPath, 'DCIM');

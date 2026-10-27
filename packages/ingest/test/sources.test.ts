@@ -70,6 +70,16 @@ describe('listSourceFiles', () => {
     await expect(listSourceFiles(source)).rejects.toBeInstanceOf(IngestError);
   });
 
+  it('rejects a missing folder source instead of silently doing nothing', async () => {
+    const source: FolderSource = {
+      kind: 'folder',
+      id: asSourceId('folder'),
+      name: 'Folder',
+      path: join(await makeTempDir(), 'missing'),
+    };
+    await expect(listSourceFiles(source)).rejects.toBeInstanceOf(IngestError);
+  });
+
   it('honours the recursive option for folder sources', async () => {
     const root = await makeTempDir();
     await write(join(root, 'nested', 'a.NEF'));

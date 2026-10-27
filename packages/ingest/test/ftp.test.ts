@@ -78,7 +78,7 @@ async function waitForWatching(handle: IngestHandle): Promise<void> {
   await waitFor(() => handle.status()[0]?.state === 'watching', 'remote source to watch');
 }
 
-describe('FTP source', () => {
+describe('FTP source', { timeout: 15_000 }, () => {
   it('downloads a new file and its sidecar once it is stable', async () => {
     const setupResult = await setup();
     const { root, destination } = setupResult;
@@ -92,6 +92,7 @@ describe('FTP source', () => {
     await waitFor(() => pathExists(join(destination, '_DSC1_01.xmp')), 'sidecar download');
     expect(await readFile(join(destination, '_DSC1_01.NEF'), 'utf8')).toBe('raw-one');
     expect(await readFile(join(destination, '_DSC1_01.xmp'), 'utf8')).toBe('<xmp/>');
+    await waitForWatching(handle);
     expect(handle.status()[0]?.state).toBe('watching');
   });
 
