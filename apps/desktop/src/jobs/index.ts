@@ -10,9 +10,12 @@ import { createJobsHandlers } from './handlers';
 const parentPort = process.parentPort;
 const send = (message: JobsOutgoingMessage): void => parentPort.postMessage(message);
 
+const mock = process.env.EE_MOCK === '1';
 const handlers = createJobsHandlers({
-  mock: process.env.EE_MOCK === '1',
+  mock,
   appVersion: process.env.EE_APP_VERSION ?? '0.0.0',
+  // Mock mode plays ingest and upload progress so the UI can be exercised live.
+  simulate: mock,
   emit: (channel, payload) => send({ kind: 'event', channel, payload }),
 });
 
