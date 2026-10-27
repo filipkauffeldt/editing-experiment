@@ -3,6 +3,7 @@
 import { _electron as electron } from '@playwright/test';
 import { spawnSync } from 'node:child_process';
 import { mkdirSync } from 'node:fs';
+import { createRequire } from 'node:module';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -40,7 +41,11 @@ async function main(): Promise<void> {
   const outDir = parseOutDir(process.argv.slice(2));
   mkdirSync(outDir, { recursive: true });
 
+  // Resolve electron from the desktop app (not the repo root); on first use this
+  // downloads the binary, since Electron has no install script.
+  const desktopRequire = createRequire(join(root, 'apps/desktop/package.json'));
   const app = await electron.launch({
+    executablePath: desktopRequire('electron') as string,
     args: [join(root, 'apps/desktop')],
     env: {
       ...process.env,
