@@ -143,14 +143,15 @@ export class UploadStore {
       .run(error, now, id);
   }
 
-  scheduleRetry(id: string, error: string, nextAttemptAt: number, now: number): void {
+  scheduleRetry(id: string, nextAttemptAt: number, now: number): void {
     this.db
       .prepare(
         `UPDATE upload_items
-           SET state = 'queued', error = ?, next_attempt_at = ?, updated_at = ?
+           SET state = 'queued', bytes_sent = 0, error = NULL,
+               next_attempt_at = ?, updated_at = ?
          WHERE id = ? AND state = 'uploading'`,
       )
-      .run(error, nextAttemptAt, now, id);
+      .run(nextAttemptAt, now, id);
   }
 
   markCancelled(id: string, now: number): boolean {

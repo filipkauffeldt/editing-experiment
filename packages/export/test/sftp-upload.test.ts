@@ -36,13 +36,13 @@ function hooksWith(password: string): ExportHooks {
   return { getSecret: async () => ({ password }) };
 }
 
-function waitForEvent(
-  queue: UploadQueue,
-  predicate: (event: JobEvent) => boolean,
-): Promise<JobEvent> {
+function waitForRetryEvent(queue: UploadQueue): Promise<JobEvent> {
+  let sawUploading = false;
   return new Promise((resolve) => {
     const off = queue.events.on((event) => {
-      if (predicate(event)) {
+      if (event.type !== 'upload.state') return;
+      if (event.state === 'uploading') sawUploading = true;
+      if (sawUploading && event.state === 'queued') {
         off();
         resolve(event);
       }
@@ -125,11 +125,7 @@ describe('SFTP uploads', () => {
       maxAttempts: 3,
     });
 
-    const retrying = waitForEvent(
-      queue,
-      (event) =>
-        event.type === 'upload.state' && event.state === 'queued' && event.error !== undefined,
-    );
+    const retrying = waitForRetryEvent(queue);
     await queue.enqueue(photoId, localPath, [
       sftpDestination(server.port, { hostKeyFingerprint: server.fingerprint }),
     ]);

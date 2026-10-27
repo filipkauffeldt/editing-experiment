@@ -375,7 +375,7 @@ export class UploadQueue {
         this.retryBaseDelayMs * 2 ** Math.max(0, current.attempts - 1),
         this.retryMaxDelayMs,
       );
-      this.store.scheduleRetry(item.id, message, now + delay, now);
+      this.store.scheduleRetry(item.id, now + delay, now);
       const updated = this.store.get(item.id);
       if (updated !== undefined) this.emitState(updated, now);
       this.scheduleRetryTimer();
