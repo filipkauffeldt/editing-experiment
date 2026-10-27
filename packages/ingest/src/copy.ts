@@ -204,7 +204,13 @@ async function copyWithBase(
 
   const placed: string[] = [];
   try {
-    const primary = await copyVerifiedToFinal(request.sourcePath, primaryPath, copier, placement, signal);
+    const primary = await copyVerifiedToFinal(
+      request.sourcePath,
+      primaryPath,
+      copier,
+      placement,
+      signal,
+    );
     placed.push(primaryPath);
 
     if (backupPath) {
@@ -217,7 +223,13 @@ async function copyWithBase(
       placed.push(sidecarPath);
     }
     if (request.sidecarSourcePath && backupSidecarPath) {
-      await copyVerifiedToFinal(request.sidecarSourcePath, backupSidecarPath, copier, placement, signal);
+      await copyVerifiedToFinal(
+        request.sidecarSourcePath,
+        backupSidecarPath,
+        copier,
+        placement,
+        signal,
+      );
       placed.push(backupSidecarPath);
     }
 

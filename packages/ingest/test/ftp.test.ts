@@ -161,6 +161,34 @@ describe('FTP source', { timeout: 15_000 }, () => {
     }
   });
 
+  it('refuses to delete a remote file that changed after download', async () => {
+    const setupResult = await setup({ deleteAfterDownload: true });
+    const { root, destination } = setupResult;
+    const remote = join(root, '_DSC9.NEF');
+    const events: JobEvent[] = [];
+    const handle = start(setupResult, {
+      onFileIngested: async () => {
+        await appendFile(remote, ' changed');
+      },
+    });
+    handle.on((event) => events.push(event));
+    await waitForWatching(handle);
+    await writeFile(remote, 'original');
+
+    await waitFor(() => pathExists(join(destination, '_DSC9_01.NEF')), 'download');
+    await waitFor(
+      () =>
+        events.some(
+          (event) =>
+            event.type === 'job.error' && event.message.includes('changed before deletion'),
+        ),
+      'changed-file error',
+    );
+
+    expect(await readFile(join(destination, '_DSC9_01.NEF'), 'utf8')).toBe('original');
+    expect(await readFile(remote, 'utf8')).toBe('original changed');
+  });
+
   it('never puts credentials in events or status errors', async () => {
     const secret = 'super-secret-123';
     const setupResult = await setup({ echoPasswordOnFailure: true });

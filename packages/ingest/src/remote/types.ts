@@ -10,8 +10,16 @@ export interface RemoteEntry {
   isDirectory: boolean;
 }
 
+/** Fresh metadata for a remote file, used before destructive operations. */
+export interface RemoteFileStat {
+  size: number;
+  /** Undefined when the server cannot report a reliable modification time. */
+  mtimeMs?: number;
+}
+
 export interface RemoteConnection {
   list(remotePath: string): Promise<RemoteEntry[]>;
+  stat(remotePath: string): Promise<RemoteFileStat>;
   download(remotePath: string, localPath: string, signal: AbortSignal): Promise<void>;
   delete(remotePath: string): Promise<void>;
   close(): Promise<void>;

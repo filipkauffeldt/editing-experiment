@@ -158,10 +158,32 @@ async function ingestRemoteEntry(
     }
 
     if (deps.source.deleteAfterDownload) {
+      const toDelete = sidecar ? [entry, sidecar] : [entry];
       try {
-        await connection.delete(entry.path);
-        if (sidecar) {
-          await connection.delete(sidecar.path);
+        const current = await Promise.all(
+          toDelete.map(async (candidate) => ({
+            candidate,
+            stat: await connection.stat(candidate.path),
+          })),
+        );
+        const changed = current.find(
+          ({ candidate, stat }) =>
+            stat.size !== candidate.size ||
+            (candidate.mtimeMs > 0 &&
+              stat.mtimeMs !== undefined &&
+              stat.mtimeMs !== candidate.mtimeMs),
+        );
+        if (changed) {
+          deps.callbacks.reportError(
+            new IngestError(
+              `Remote file changed before deletion: ${changed.candidate.path}`,
+              'remote-changed',
+            ),
+          );
+        } else {
+          for (const candidate of toDelete) {
+            await connection.delete(candidate.path);
+          }
         }
       } catch (error) {
         deps.callbacks.reportError(error);

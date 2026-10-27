@@ -3,7 +3,7 @@ import { posix } from 'node:path';
 import SftpClient from 'ssh2-sftp-client';
 import type { CredentialSecret, SftpSource } from '@ee/contracts';
 import { IngestAbortError, throwIfAborted } from '../errors';
-import type { RemoteConnection, RemoteEntry } from './types';
+import type { RemoteConnection, RemoteEntry, RemoteFileStat } from './types';
 
 function fingerprint(key: Buffer): string {
   return `SHA256:${createHash('sha256').update(key).digest('base64').replace(/=+$/, '')}`;
@@ -46,6 +46,11 @@ class SftpRemoteConnection implements RemoteConnection {
       mtimeMs: entry.modifyTime || 0,
       isDirectory: entry.type === 'd',
     }));
+  }
+
+  async stat(remotePath: string): Promise<RemoteFileStat> {
+    const info = await abortable(this.client.stat(remotePath), this.signal);
+    return { size: info.size, mtimeMs: info.modifyTime };
   }
 
   async download(remotePath: string, localPath: string, signal: AbortSignal): Promise<void> {

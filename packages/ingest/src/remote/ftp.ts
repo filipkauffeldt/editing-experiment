@@ -2,7 +2,7 @@ import { posix } from 'node:path';
 import { Client } from 'basic-ftp';
 import type { CredentialSecret, FtpSource } from '@ee/contracts';
 import { IngestAbortError, throwIfAborted } from '../errors';
-import type { RemoteConnection, RemoteEntry } from './types';
+import type { RemoteConnection, RemoteEntry, RemoteFileStat } from './types';
 
 class FtpRemoteConnection implements RemoteConnection {
   constructor(private readonly client: Client) {}
@@ -18,6 +18,15 @@ class FtpRemoteConnection implements RemoteConnection {
         mtimeMs: entry.modifiedAt?.getTime() ?? 0,
         isDirectory: entry.isDirectory,
       }));
+  }
+
+  async stat(remotePath: string): Promise<RemoteFileStat> {
+    const size = await this.client.size(remotePath);
+    try {
+      return { size, mtimeMs: (await this.client.lastMod(remotePath)).getTime() };
+    } catch {
+      return { size };
+    }
   }
 
   async download(remotePath: string, localPath: string, signal: AbortSignal): Promise<void> {
