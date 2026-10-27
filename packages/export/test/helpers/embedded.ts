@@ -116,3 +116,92 @@ export function insertPhotoshopThumbnail(jpeg: Buffer): Buffer {
 }
 
 export { SOI };
+
+export function jfifThumbnailSegment(): { marker: number; payload: Buffer } {
+  const thumbnailWidth = 8;
+  const thumbnailHeight = 8;
+  const payload = Buffer.alloc(14 + thumbnailWidth * thumbnailHeight * 3, 0x80);
+  payload.write('JFIF\0', 0, 'latin1');
+  payload[5] = 1; // version 1.1
+  payload[6] = 1;
+  payload[7] = 0; // units
+  payload.writeUInt16BE(1, 8);
+  payload.writeUInt16BE(1, 10);
+  payload[12] = thumbnailWidth;
+  payload[13] = thumbnailHeight;
+  return { marker: 0xe0, payload };
+}
+
+export function jfxxThumbnailSegment(thumbnail: Buffer): { marker: number; payload: Buffer } {
+  return {
+    marker: 0xe0,
+    payload: Buffer.concat([Buffer.from('JFXX\0', 'latin1'), Buffer.from([0x10]), thumbnail]),
+  };
+}
+
+export function mpfSegment(): { marker: number; payload: Buffer } {
+  return {
+    marker: 0xe2,
+    payload: Buffer.concat([
+      Buffer.from('MPF\0', 'latin1'),
+      // Minimal TIFF-ish payload; the scanner must reject the whole segment.
+      Buffer.from('MM\0*\0\0\0\x08\0\0\0\0\0', 'latin1'),
+    ]),
+  };
+}
+
+export function xmpThumbnailUtf16Segment(): { marker: number; payload: Buffer } {
+  const xml = `<?xml version="1.0" encoding="UTF-16"?>
+<x:xmpmeta xmlns:x="adobe:ns:meta/">
+  <rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
+    <rdf:Description xmlns:xmp="http://ns.adobe.com/xap/1.0/" xmlns:xmpGImg="http://ns.adobe.com/xap/1.0/g/img/">
+      <xmp:Thumbnails><rdf:Alt><rdf:li><xmpGImg:image>/9j/4AAQ</xmpGImg:image></rdf:li></rdf:Alt></xmp:Thumbnails>
+    </rdf:Description>
+  </rdf:RDF>
+</x:xmpmeta>`;
+  return {
+    marker: 0xe1,
+    payload: Buffer.concat([
+      Buffer.from('http://ns.adobe.com/xap/1.0/\0', 'latin1'),
+      Buffer.from([0xff, 0xfe]),
+      Buffer.from(xml, 'utf16le'),
+    ]),
+  };
+}
+
+export function malformedExifSegment(kind: 'magic' | 'ifd'): { marker: number; payload: Buffer } {
+  const tiff = Buffer.alloc(16);
+  tiff.write('II', 0, 'latin1');
+  tiff.writeUInt16LE(kind === 'magic' ? 41 : 42, 2);
+  tiff.writeUInt32LE(kind === 'ifd' ? 9999 : 8, 4);
+  tiff.writeUInt16LE(0, 8);
+  tiff.writeUInt32LE(0, 10);
+  return {
+    marker: 0xe1,
+    payload: Buffer.concat([Buffer.from('Exif\0\0', 'latin1'), tiff]),
+  };
+}
+
+export function malformedPhotoshopSegment(kind: 'signature' | 'truncated'): {
+  marker: number;
+  payload: Buffer;
+} {
+  if (kind === 'truncated') {
+    return {
+      marker: 0xed,
+      payload: Buffer.concat([
+        Buffer.from('Photoshop 3.0\0', 'latin1'),
+        Buffer.from('8BIM', 'latin1'),
+        Buffer.from([0x04, 0x04, 0x00]),
+      ]),
+    };
+  }
+  return {
+    marker: 0xed,
+    payload: Buffer.concat([
+      Buffer.from('Photoshop 3.0\0', 'latin1'),
+      Buffer.from('NOPE', 'latin1'),
+      Buffer.alloc(12),
+    ]),
+  };
+}

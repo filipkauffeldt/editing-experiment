@@ -13,6 +13,11 @@ import {
   insertExifThumbnail,
   insertPhotoshopThumbnail,
   insertXmpThumbnail,
+  jfifThumbnailSegment,
+  jfxxThumbnailSegment,
+  mpfSegment,
+  withSegment,
+  xmpThumbnailUtf16Segment,
 } from './helpers/embedded';
 import { testImage } from './helpers/images';
 
@@ -71,6 +76,39 @@ describe('embedded preview detection', () => {
   it('detects a Photoshop IRB thumbnail', () => {
     const findings = inspectJpegPreviews(insertPhotoshopThumbnail(cleanJpeg));
     expect(findings.map((finding) => finding.kind)).toContain('photoshop-thumbnail');
+  });
+
+  it('rejects a JFIF APP0 thumbnail', () => {
+    const segment = jfifThumbnailSegment();
+    const findings = inspectJpegPreviews(withSegment(cleanJpeg, segment.marker, segment.payload));
+    expect(findings.map((finding) => finding.kind)).toContain('jfif-thumbnail');
+  });
+
+  it('rejects a JFXX APP0 block with an embedded JPEG', () => {
+    const segment = jfxxThumbnailSegment(thumbnailJpeg);
+    const findings = inspectJpegPreviews(withSegment(cleanJpeg, segment.marker, segment.payload));
+    expect(findings.map((finding) => finding.kind)).toContain('unexpected-app0');
+  });
+
+  it('rejects an MPF APP2 block', () => {
+    const segment = mpfSegment();
+    const findings = inspectJpegPreviews(withSegment(cleanJpeg, segment.marker, segment.payload));
+    expect(findings.map((finding) => finding.kind)).toContain('unexpected-app2');
+  });
+
+  it('rejects bytes and a second JPEG after EOI', () => {
+    const trailing = inspectJpegPreviews(Buffer.concat([cleanJpeg, Buffer.from([1, 2, 3])]));
+    expect(trailing.map((finding) => finding.kind)).toContain('trailing-data');
+
+    const appended = inspectJpegPreviews(Buffer.concat([cleanJpeg, thumbnailJpeg]));
+    expect(appended.map((finding) => finding.kind)).toContain('second-soi');
+    expect(appended.map((finding) => finding.kind)).toContain('trailing-data');
+  });
+
+  it('rejects UTF-16 XMP with a thumbnail', () => {
+    const segment = xmpThumbnailUtf16Segment();
+    const findings = inspectJpegPreviews(withSegment(cleanJpeg, segment.marker, segment.payload));
+    expect(findings.map((finding) => finding.kind)).toContain('xmp-thumbnail');
   });
 
   it('reports the offending file and findings', async () => {
