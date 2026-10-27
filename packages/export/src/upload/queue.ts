@@ -9,7 +9,7 @@ import {
   type UploadId,
   type UploadItem,
 } from '@ee/contracts';
-import { ExportError } from '../errors';
+import { ExportError, isNonRetryableUploadError } from '../errors';
 import { createPathTemplateContext, resolveExpandPathTemplate, type ExportHooks } from '../hooks';
 import {
   createConnector,
@@ -379,7 +379,7 @@ export class UploadQueue {
         item.destination.kind === 'folder' ? undefined : item.destination.username,
       ]);
       const now = this.now();
-      if (current.attempts >= this.maxAttempts) {
+      if (isNonRetryableUploadError(error) || current.attempts >= this.maxAttempts) {
         this.store.markFailed(item.id, claimToken, message, now);
         const updated = this.store.get(item.id);
         if (updated !== undefined) this.emitState(updated, now);

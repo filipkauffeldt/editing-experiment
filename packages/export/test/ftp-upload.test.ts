@@ -92,7 +92,7 @@ describe('FTP uploads', () => {
     queue = new UploadQueue({
       dbPath: path.join(dir, 'queue-exists.sqlite'),
       hooks: hooksWith(server!.password),
-      maxAttempts: 1,
+      maxAttempts: 5,
       retryBaseDelayMs: 1,
     });
     await queue.enqueue(photoId, localPath, [ftpDestination(server!.port)]);
@@ -101,6 +101,7 @@ describe('FTP uploads', () => {
 
     const [item] = queue.list();
     expect(item?.state).toBe('failed');
+    expect(item?.attempts).toBe(1);
     expect(item?.error ?? '').toMatch(/already exists/);
     expect(await readFile(finalPath, 'utf8')).toBe('original remote contents');
   });
@@ -169,6 +170,25 @@ describe('FTP uploads', () => {
     expect(item?.state).toBe('failed');
     expect(item?.error ?? '').not.toContain(marker);
     expect(item?.error?.length ?? 0).toBeGreaterThan(0);
+  });
+
+  it('does not retry when credentials are missing', async () => {
+    const localPath = path.join(dir, 'no-credential.jpg');
+    await writeFile(localPath, 'x');
+
+    queue = new UploadQueue({
+      dbPath: path.join(dir, 'queue-no-credential.sqlite'),
+      maxAttempts: 5,
+      retryBaseDelayMs: 1,
+    });
+    await queue.enqueue(photoId, localPath, [ftpDestination(server!.port)]);
+    queue.start();
+    await queue.waitForIdle();
+
+    const [item] = queue.list();
+    expect(item?.state).toBe('failed');
+    expect(item?.attempts).toBe(1);
+    expect(item?.error ?? '').toMatch(/credential provider/);
   });
 
   it('redacts secrets from errors raised by a connector', async () => {

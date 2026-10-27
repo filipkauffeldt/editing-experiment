@@ -101,7 +101,7 @@ describe('SFTP uploads', () => {
     queue = new UploadQueue({
       dbPath: path.join(dir, 'queue-exists.sqlite'),
       hooks: hooksWith(server.password),
-      maxAttempts: 1,
+      maxAttempts: 5,
       retryBaseDelayMs: 1,
     });
     await queue.enqueue(photoId, localPath, [
@@ -112,6 +112,7 @@ describe('SFTP uploads', () => {
 
     const [item] = queue.list();
     expect(item?.state).toBe('failed');
+    expect(item?.attempts).toBe(1);
     expect(item?.error ?? '').toMatch(/already exists/);
     expect(await readFile(finalPath, 'utf8')).toBe('original remote contents');
   });
@@ -124,7 +125,7 @@ describe('SFTP uploads', () => {
       dbPath: path.join(dir, 'queue-unpinned.sqlite'),
       hooks: hooksWith(server.password),
       retryBaseDelayMs: 1,
-      maxAttempts: 1,
+      maxAttempts: 5,
     });
     await queue.enqueue(photoId, localPath, [sftpDestination(server.port)]);
     queue.start();
@@ -187,6 +188,29 @@ describe('SFTP uploads', () => {
     expect(queue.list()[0]?.state).toBe('done');
     expect((await stat(finalPath)).size).toBe(contents.length);
     await expect(access(`${finalPath}.part`)).rejects.toThrow();
+  });
+
+  it('does not retry a pinned host key mismatch', async () => {
+    const localPath = path.join(dir, 'mismatch.jpg');
+    await writeFile(localPath, 'x');
+    queue = new UploadQueue({
+      dbPath: path.join(dir, 'queue-mismatch.sqlite'),
+      hooks: hooksWith(server.password),
+      retryBaseDelayMs: 1,
+      maxAttempts: 5,
+    });
+    await queue.enqueue(photoId, localPath, [
+      sftpDestination(server.port, {
+        hostKeyFingerprint: 'SHA256:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA',
+      }),
+    ]);
+    queue.start();
+    await queue.waitForIdle();
+
+    const [item] = queue.list();
+    expect(item?.state).toBe('failed');
+    expect(item?.attempts).toBe(1);
+    expect(item?.error ?? '').toMatch(/does not match/);
   });
 
   it('normalizes fingerprints for comparison', () => {
