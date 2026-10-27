@@ -24,6 +24,7 @@ afterEach(async () => {
 interface SetupOptions {
   pollIntervalMs?: number;
   deleteAfterDownload?: boolean;
+  stallReadDir?: boolean;
 }
 
 interface Setup {
@@ -36,7 +37,7 @@ interface Setup {
 async function setup(options: SetupOptions = {}): Promise<Setup> {
   const root = await makeTempDir();
   const destination = await makeTempDir();
-  const server = await startSftpServer({ root });
+  const server = await startSftpServer({ root, stallReadDir: options.stallReadDir });
   servers.push(server);
   return {
     root,
@@ -125,6 +126,18 @@ describe('SFTP source', { timeout: 15_000 }, () => {
     await rename(temp, join(root, '_DSC5.NEF'));
     await waitFor(() => pathExists(join(destination, '_DSC5_01.NEF')), 'renamed SFTP file', 8_000);
     expect(await readFile(join(destination, '_DSC5_01.NEF'), 'utf8')).toBe('complete-photo');
+  });
+
+  it('stops promptly when the server never answers readdir', async () => {
+    const setupResult = await setup({ stallReadDir: true });
+    const handle = start(setupResult);
+
+    await waitFor(() => setupResult.server.readdirRequests() > 0, 'SFTP list request', 8_000);
+    const started = Date.now();
+    await handle.stop();
+
+    expect(Date.now() - started).toBeLessThan(2_000);
+    expect(handle.status()[0]?.state).toBe('stopped');
   });
 
   it('reconnects and keeps watching after the connection drops', async () => {

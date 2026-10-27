@@ -20,11 +20,14 @@ export interface TestSftpServerOptions {
   root: string;
   username?: string;
   password?: string;
+  /** Accept OPENDIR but never answer it, to exercise abort handling. */
+  stallReadDir?: boolean;
 }
 
 export interface TestSftpServer {
   readonly root: string;
   readonly port: number;
+  readdirRequests(): number;
   dropConnections(): void;
   close(): Promise<void>;
 }
@@ -54,7 +57,12 @@ async function entryFor(directory: string, name: string, isDirectory: boolean): 
   };
 }
 
-function attachHandlers(sftp: SFTPWrapper, root: string): void {
+function attachHandlers(
+  sftp: SFTPWrapper,
+  root: string,
+  options: TestSftpServerOptions,
+  state: { readdirRequests: number },
+): void {
   const handles = new Map<string, OpenHandle>();
   let nextHandle = 1;
 
@@ -149,6 +157,10 @@ function attachHandlers(sftp: SFTPWrapper, root: string): void {
   });
 
   sftp.on('OPENDIR', (reqid, path) => {
+    state.readdirRequests += 1;
+    if (options.stallReadDir) {
+      return;
+    }
     const directory = localPath(root, path);
     void readdir(directory, { withFileTypes: true })
       .then(async (entries) => {
@@ -213,6 +225,7 @@ export async function startSftpServer(options: TestSftpServerOptions): Promise<T
   const password = options.password ?? 'secret';
   const hostKey = utils.generateKeyPairSync('ed25519').private;
   const clients: Connection[] = [];
+  const state = { readdirRequests: 0 };
 
   const server = new Server({ hostKeys: [hostKey] }, (client) => {
     clients.push(client);
@@ -232,7 +245,7 @@ export async function startSftpServer(options: TestSftpServerOptions): Promise<T
       client.on('session', (accept) => {
         const session = accept();
         session.on('sftp', (acceptSftp) => {
-          attachHandlers(acceptSftp(), options.root);
+          attachHandlers(acceptSftp(), options.root, options, state);
         });
       });
     });
@@ -253,6 +266,9 @@ export async function startSftpServer(options: TestSftpServerOptions): Promise<T
   return {
     root: options.root,
     port: (address as AddressInfo).port,
+    readdirRequests(): number {
+      return state.readdirRequests;
+    },
     dropConnections(): void {
       for (const client of clients.splice(0)) {
         client.end();
