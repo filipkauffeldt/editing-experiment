@@ -1,11 +1,15 @@
-import { IngestError } from '../errors';
 import type { CredentialSecret } from '@ee/contracts';
+import { IngestError } from '../errors';
+import { openFtpConnection } from './ftp';
 import type { RemoteConnection, RemoteSource } from './types';
 
 export async function connectRemote(
-  _source: RemoteSource,
-  _credentials: CredentialSecret,
-  _signal: AbortSignal,
+  source: RemoteSource,
+  credentials: CredentialSecret,
+  signal: AbortSignal,
 ): Promise<RemoteConnection> {
-  throw new IngestError('Remote ingest is not wired yet', 'unsupported-source');
+  if (source.kind === 'ftp') {
+    return openFtpConnection(source, credentials, signal);
+  }
+  throw new IngestError(`Remote source kind ${source.kind} is not supported`, 'unsupported-source');
 }
