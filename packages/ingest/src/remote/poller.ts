@@ -1,11 +1,11 @@
 import { stat, mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { basename, join, posix } from 'node:path';
+import { join, posix } from 'node:path';
 import type { CredentialSecret, IngestConfig, IngestJobState, JobId } from '@ee/contracts';
 import { IngestAbortError, IngestError, isAbortError, throwIfAborted } from '../errors';
 import { isImageFileName, isRawFileName } from '../formats';
 import { ingestFile } from '../ingest-file';
-import { isTemporaryName, naturalCompare, splitName } from '../naming';
+import { isTemporaryName, naturalCompare, safeLocalFileName, splitName } from '../naming';
 import type { SeenStore } from '../seen-store';
 import type { ExpandTemplate } from '../template';
 import type { FileCopier, IngestHooks } from '../types';
@@ -108,12 +108,12 @@ async function ingestRemoteEntry(
   throwIfAborted(deps.signal);
   const tempDirectory = await mkdtemp(join(tmpdir(), 'ee-ingest-remote-'));
   try {
-    const localMain = join(tempDirectory, basename(entry.name));
+    const localMain = join(tempDirectory, safeLocalFileName(entry.name));
     await downloadVerified(connection, entry, localMain, deps.signal);
 
     let localSidecar: string | undefined;
     if (sidecar) {
-      localSidecar = join(tempDirectory, basename(sidecar.name));
+      localSidecar = join(tempDirectory, safeLocalFileName(sidecar.name));
       await downloadVerified(connection, sidecar, localSidecar, deps.signal);
     }
 
@@ -253,7 +253,7 @@ export async function pollRemoteSource(deps: RemotePollerDeps): Promise<void> {
         callbacks.reportProgress(discovered.size);
 
         const candidates = images
-          .filter((entry) => stable.has(entry.path))
+          .filter((entry) => stable.has(entry.path) && entry.size > 0)
           .filter(
             (entry) =>
               !deps.seenStore.has({

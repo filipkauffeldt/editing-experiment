@@ -113,6 +113,22 @@ describe('FTP source', { timeout: 15_000 }, () => {
     expect(await readFile(join(destination, '_DSC2_01.NEF'), 'utf8')).toBe('0123456789abcdefghij');
   });
 
+  it('waits for a zero-byte file to receive data', async () => {
+    const setupResult = await setup({ pollIntervalMs: 50 });
+    const { root, destination } = setupResult;
+    const remote = join(root, '_DSC4.NEF');
+    await writeFile(remote, '');
+    const handle = start(setupResult);
+    await waitForWatching(handle);
+
+    await delay(220);
+    expect(await readdir(destination)).toEqual([]);
+
+    await writeFile(remote, 'now-has-bytes');
+    await waitFor(() => pathExists(join(destination, '_DSC4_01.NEF')), 'zero-byte file download');
+    expect(await readFile(join(destination, '_DSC4_01.NEF'), 'utf8')).toBe('now-has-bytes');
+  });
+
   it('ignores temp names and picks up the file after it is renamed', async () => {
     const setupResult = await setup();
     const { root, destination } = setupResult;

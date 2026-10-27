@@ -168,7 +168,7 @@ async function copyVerifiedToFinal(
 ): Promise<{ sha256: string; size: number }> {
   throwIfAborted(signal);
   await mkdir(dirname(finalPath), { recursive: true });
-  const tempPath = join(dirname(finalPath), `.${randomUUID()}-${basename(finalPath)}.ingest-tmp`);
+  const tempPath = join(dirname(finalPath), `.${randomUUID()}.ingest-tmp`);
   try {
     const outcome = await copier.copy(source, tempPath, { signal });
     if (outcome.sourceHash !== outcome.destinationHash) {

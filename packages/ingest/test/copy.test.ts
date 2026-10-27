@@ -84,6 +84,21 @@ describe('copyPhotoLocal', () => {
     expect(await readFile(result.backupSidecarPath ?? '', 'utf8')).toBe('<xmp>caption</xmp>');
   });
 
+  it('keeps the temp name short even when the final name is long', async () => {
+    const { source, destination } = await setup();
+    const longBase = 'a'.repeat(240);
+
+    const result = await copyPhotoLocal({
+      sourcePath: join(source, '_DSC9.NEF'),
+      sourceFileName: '_DSC9.NEF',
+      finalBase: longBase,
+      primaryDirectory: destination,
+    });
+
+    expect(result.fileName).toBe(`${longBase}.NEF`);
+    expect(await readdir(destination)).toEqual([`${longBase}.NEF`]);
+  });
+
   it('fails and leaves no final file when the copy does not verify', async () => {
     const { source, destination } = await setup();
     const corrupting: FileCopier = {

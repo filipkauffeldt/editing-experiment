@@ -4,6 +4,7 @@ import {
   isTemporaryName,
   naturalCompare,
   safeFileBase,
+  safeLocalFileName,
   safeSubfolder,
   splitName,
 } from '../src/naming';
@@ -53,5 +54,27 @@ describe('safe names', () => {
     expect(() => safeSubfolder('../outside')).toThrow(PathTraversalError);
     expect(() => safeSubfolder('/absolute')).toThrow(PathTraversalError);
     expect(() => safeSubfolder('a//b')).toThrow(PathTraversalError);
+  });
+});
+
+describe('safeLocalFileName', () => {
+  it('strips path segments and Windows-invalid characters', () => {
+    expect(safeLocalFileName('..\\evil:name?.NEF')).toBe('evil_name_.NEF');
+    expect(safeLocalFileName('folder/photo.NEF')).toBe('photo.NEF');
+  });
+
+  it('avoids Windows reserved device names', () => {
+    expect(safeLocalFileName('CON.NEF')).toBe('_CON.NEF');
+    expect(safeLocalFileName('lpt1')).toBe('_lpt1');
+  });
+
+  it('keeps the name below the filesystem limit, preserving the extension', () => {
+    const safe = safeLocalFileName(`${'a'.repeat(300)}.NEF`);
+    expect(Buffer.byteLength(safe)).toBeLessThan(255);
+    expect(Buffer.byteLength(safe)).toBeLessThanOrEqual(240);
+    expect(safe.endsWith('.NEF')).toBe(true);
+
+    const multibyte = safeLocalFileName(`${'é'.repeat(300)}.NEF`);
+    expect(Buffer.byteLength(multibyte)).toBeLessThanOrEqual(240);
   });
 });

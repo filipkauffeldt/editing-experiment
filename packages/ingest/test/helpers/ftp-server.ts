@@ -53,6 +53,9 @@ function internal(server: FtpSrv): {
 }
 
 export async function startFtpServer(options: TestFtpServerOptions): Promise<TestFtpServer> {
+  // ftp-srv installs one process-level SIG* handler per server instance and
+  // never removes it; individual tests create several short-lived servers.
+  process.setMaxListeners(Math.max(process.getMaxListeners(), 50));
   const username = options.username ?? 'user';
   const password = options.password ?? 'secret';
   const pasvMin = 20_000 + Math.floor(Math.random() * 20_000);

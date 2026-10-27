@@ -150,3 +150,49 @@ export function withCollisionSuffix(base: string, suffix: number): string {
 export function fileNameOf(path: string): string {
   return basename(path);
 }
+
+const WINDOWS_RESERVED = /^(con|prn|aux|nul|com[1-9]|lpt[1-9])(\..*)?$/i;
+const INVALID_FILE_CHARS = new Set(['<', '>', ':', '"', '/', '\\', '|', '?', '*']);
+
+function truncateUtf8(value: string, maxBytes: number): string {
+  let result = '';
+  let bytes = 0;
+  for (const character of value) {
+    const size = Buffer.byteLength(character);
+    if (bytes + size > maxBytes) {
+      break;
+    }
+    result += character;
+    bytes += size;
+  }
+  return result;
+}
+
+/**
+ * Makes a remote file name safe to create as a local temp file on every
+ * platform: strips path segments, replaces Windows-invalid characters, avoids
+ * reserved device names, and keeps the whole name below the filesystem limit.
+ */
+export function safeLocalFileName(name: string, maxBytes = 240): string {
+  const leaf = name.split(/[\\/]/).pop() ?? '';
+  let cleaned = '';
+  for (const character of leaf) {
+    if (character.charCodeAt(0) < 32) {
+      cleaned += '_';
+    } else {
+      cleaned += INVALID_FILE_CHARS.has(character) ? '_' : character;
+    }
+  }
+  cleaned = cleaned.replace(/[. ]+$/, '');
+  if (cleaned.length === 0) {
+    cleaned = 'file';
+  }
+  if (WINDOWS_RESERVED.test(cleaned)) {
+    cleaned = `_${cleaned}`;
+  }
+  const { base, extension } = splitName(cleaned);
+  const ext = truncateUtf8(extension, Math.max(0, maxBytes - 1));
+  const maxBaseBytes = Math.max(1, maxBytes - Buffer.byteLength(ext));
+  const shortened = truncateUtf8(base, maxBaseBytes);
+  return `${shortened || 'file'}${ext}`;
+}
