@@ -1,9 +1,12 @@
 import { createRequire } from 'node:module';
 import { dirname, join } from 'node:path';
+import type { LinearImageHeader } from '@ee/contracts';
 import type * as Native from '../index.cjs';
 
 /** Shape of the compiled addon, taken from the napi-generated declarations (`index.d.cts`). */
 export type NativeBinding = typeof Native;
+
+export type { RawInfo, RawPreview } from '../index.cjs';
 
 let cached: NativeBinding | undefined;
 
@@ -35,4 +38,54 @@ export function loadCore(): NativeBinding {
 /** Version of the native core, so callers can tell which binary was loaded. */
 export function coreVersion(): string {
   return loadCore().coreVersion();
+}
+
+/**
+ * Camera, exposure and geometry metadata. `captureTime` is the camera's local
+ * wall-clock time (`YYYY-MM-DDTHH:MM:SS`, no zone: EXIF has none).
+ *
+ * The work runs on the libuv threadpool; the promise rejects with a descriptive
+ * `Error` if the file is missing, unreadable or not a supported raw.
+ */
+export function readRawInfo(path: string): Promise<Native.RawInfo> {
+  return loadCore().readRawInfo(path);
+}
+
+/**
+ * The largest embedded preview as a complete JPEG (bitmap previews are encoded
+ * to JPEG). Embedded previews are stored in sensor orientation: apply `orientation`
+ * (EXIF 1..8) for display.
+ */
+export function extractPreview(path: string): Promise<Native.RawPreview> {
+  return loadCore().extractPreview(path);
+}
+
+export interface DecodeLinearOptions {
+  /** Longest edge of the result in pixels. Never upscales. Default: full size. */
+  maxEdge?: number;
+  /** Default `'f16'`. */
+  sampleType?: 'f16' | 'f32';
+}
+
+/** A decoded image: `data` is `width * height * 4` RGBA samples as described by `header`. */
+export interface LinearImage {
+  header: LinearImageHeader;
+  data: Buffer;
+}
+
+/**
+ * Decodes a raw to demosaiced linear camera RGB (unity white balance, black
+ * level subtracted, white level = 1.0), rotated to display orientation. See
+ * {@link LinearImageHeader} for the exact format.
+ */
+export async function decodeLinear(
+  path: string,
+  options: DecodeLinearOptions = {},
+): Promise<LinearImage> {
+  const { header, data } = await loadCore().decodeLinear(path, options);
+  const { sampleType } = header;
+  if (sampleType !== 'f16' && sampleType !== 'f32') {
+    throw new Error(`native core returned unknown sample type '${sampleType}'`);
+  }
+  return { header: { ...header, sampleType }, data };
 }
