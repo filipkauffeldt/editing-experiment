@@ -1,0 +1,14 @@
+node_modules/
+dist/
+out/
+target/
+*.node
+.turbo/
+coverage/
+fixtures/raw/
+screenshots/
+test-results/
+playwright-report/
+.env*
+*.log
+.DS_Store
