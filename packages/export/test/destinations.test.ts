@@ -1,7 +1,7 @@
 import { access, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { asDestinationId, asPhotoId } from '@ee/contracts';
+import { asDestinationId, asPhotoId, type FolderDestination } from '@ee/contracts';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
   assertSafeFileName,
@@ -11,7 +11,6 @@ import {
   redactSecrets,
   resolveFolderDestinationPath,
   testDestination,
-  type FolderDestination,
 } from '../src/index';
 
 describe('destination paths', () => {
