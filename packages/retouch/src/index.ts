@@ -1,2 +1,33 @@
-// Placeholder: the owning workstream replaces this with the real public API.
-export const PACKAGE_NAME = '@ee/retouch';
+export {
+  clamp,
+  clampRect,
+  expandRect,
+  pointInPolygon,
+  pointToNormalized,
+  pointToPixel,
+  polygonBounds,
+  rectToPixels,
+  rectToPolygon,
+  pixelRectToNormalized,
+  shapeBounds,
+  shapesBounds,
+  simplifyPolygon,
+  simplifyPolyline,
+  toNormalized,
+  toPixel,
+  type PixelRect,
+  type Size,
+} from './geometry';
+export {
+  countMask,
+  maskBounds,
+  rasterizePolygon,
+  rasterizePolygonPixels,
+  rasterizeRect,
+  rasterizeRectPixels,
+  rasterizeShape,
+  rasterizeShapes,
+  unionMaskInto,
+  unionMasks,
+  type Mask,
+} from './mask';
