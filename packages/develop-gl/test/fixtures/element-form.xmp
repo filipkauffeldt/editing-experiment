@@ -1,0 +1,23 @@
+<x:xmpmeta xmlns:x="adobe:ns:meta/">
+ <rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
+  <rdf:Description rdf:about="" xmlns:camera-raw-settings="http://ns.adobe.com/camera-raw-settings/1.0/">
+   <camera-raw-settings:Exposure2012>-9.5</camera-raw-settings:Exposure2012>
+   <camera-raw-settings:Highlights2012>-150</camera-raw-settings:Highlights2012>
+   <camera-raw-settings:WhiteBalance>Daylight</camera-raw-settings:WhiteBalance>
+   <camera-raw-settings:Temperature>1000</camera-raw-settings:Temperature>
+   <camera-raw-settings:Vibrance>nonsense</camera-raw-settings:Vibrance>
+   <camera-raw-settings:ToneCurvePV2012>
+    <rdf:Seq>
+     <rdf:li>255, 255</rdf:li>
+     <rdf:li>0, 300</rdf:li>
+     <rdf:li>garbage</rdf:li>
+    </rdf:Seq>
+   </camera-raw-settings:ToneCurvePV2012>
+   <camera-raw-settings:ParametricCurve>
+    <rdf:Seq>
+     <rdf:li>1</rdf:li>
+    </rdf:Seq>
+   </camera-raw-settings:ParametricCurve>
+  </rdf:Description>
+ </rdf:RDF>
+</x:xmpmeta>
