@@ -51,7 +51,8 @@ export function normalizeRemotePath(remotePath: string): string {
     normalized === '/' ||
     normalized === '..' ||
     normalized.startsWith('../') ||
-    normalized.endsWith('/')
+    normalized.endsWith('/') ||
+    normalized.includes('\0')
   ) {
     throw new ExportError('invalid_path', `Invalid remote path: ${JSON.stringify(remotePath)}`);
   }
