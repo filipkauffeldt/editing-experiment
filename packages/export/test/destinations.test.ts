@@ -45,6 +45,10 @@ describe('destination paths', () => {
     expect(resolveFolderDestinationPath('/photos', '2026/frame.jpg')).toBe(
       path.resolve('/photos/2026/frame.jpg'),
     );
+    const root = path.parse(path.resolve('/')).root;
+    expect(resolveFolderDestinationPath(root, 'nested/frame.jpg')).toBe(
+      path.resolve(root, 'nested/frame.jpg'),
+    );
     expect(() => resolveFolderDestinationPath('/photos', '../escape.jpg')).toThrowError(/escapes/);
     expect(() => resolveFolderDestinationPath('/photos', '/')).toThrowError(/empty|base/);
   });

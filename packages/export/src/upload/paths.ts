@@ -26,13 +26,14 @@ export function resolveFolderDestinationPath(basePath: string, remotePath: strin
   }
   const base = path.resolve(basePath);
   const resolved = path.resolve(base, relative.replace(/[\\/]+/g, path.sep));
-  if (resolved !== base && !resolved.startsWith(base + path.sep)) {
+  const fromBase = path.relative(base, resolved);
+  if (fromBase === '..' || fromBase.startsWith(`..${path.sep}`) || path.isAbsolute(fromBase)) {
     throw new ExportError(
       'invalid_path',
       `Destination path escapes its base directory: ${remotePath}`,
     );
   }
-  if (resolved === base) {
+  if (fromBase === '') {
     throw new ExportError(
       'invalid_path',
       'Destination path template expanded to the base directory',
