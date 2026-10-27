@@ -1,0 +1,18 @@
+{
+  "name": "@ee/retouch",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Selections, mosaic op, face detection.",
+  "license": "GPL-3.0-or-later",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@ee/contracts": "workspace:*"
+  }
+}

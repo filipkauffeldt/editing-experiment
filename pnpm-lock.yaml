@@ -202,6 +202,36 @@ importers:
 
   packages/contracts: {}
 
+  packages/develop-gl:
+    dependencies:
+      '@ee/contracts':
+        specifier: workspace:*
+        version: link:../contracts
+
+  packages/export:
+    dependencies:
+      '@ee/contracts':
+        specifier: workspace:*
+        version: link:../contracts
+
+  packages/ingest:
+    dependencies:
+      '@ee/contracts':
+        specifier: workspace:*
+        version: link:../contracts
+
+  packages/metadata:
+    dependencies:
+      '@ee/contracts':
+        specifier: workspace:*
+        version: link:../contracts
+
+  packages/retouch:
+    dependencies:
+      '@ee/contracts':
+        specifier: workspace:*
+        version: link:../contracts
+
 packages:
 
   '@babel/code-frame@7.29.7':
