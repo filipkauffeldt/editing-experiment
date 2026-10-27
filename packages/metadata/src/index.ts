@@ -5,3 +5,5 @@ export * from './exiftool';
 export * from './paths';
 export * from './values';
 export * from './iptc';
+export * from './develop';
+export * from './retouch';
