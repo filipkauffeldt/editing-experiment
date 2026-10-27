@@ -1,2 +1,54 @@
-// Placeholder: the owning workstream replaces this with the real public API.
-export const PACKAGE_NAME = '@ee/develop-gl';
+/**
+ * @ee/develop-gl: the develop pipeline (white balance, tone, curves, colour),
+ * as a WebGL2 renderer plus a CPU reference of the same maths, and the
+ * Lightroom preset parser. Framework agnostic; React bindings are in
+ * `@ee/develop-gl/react`.
+ */
+
+// WebGL2 renderer
+export { createDevelopRenderer, DevelopGlError } from './renderer';
+export type { DevelopRenderer, DevelopRendererOptions } from './renderer';
+
+// Parameter model
+export { resolveUniforms, buildCurveLut } from './params';
+export type { DevelopCamera, DevelopUniforms } from './params';
+export { TUNING } from './tuning';
+
+// White balance
+export {
+  asShotTemperatureTint,
+  multipliersFromTemperatureTint,
+  resolveWhiteBalance,
+  temperatureTintFromMultipliers,
+  temperatureTintToXY,
+  xyToTemperatureTint,
+  WHITE_BALANCE_PRESETS,
+} from './wb';
+export type {
+  Multipliers,
+  ResolvedWhiteBalance,
+  TemperatureTint,
+  WhiteBalanceCamera,
+  XY,
+} from './wb';
+
+// CPU reference (tests, export fallback)
+export { developPixel, renderCpu, renderCpuFloat } from './cpu';
+export type { RenderSize } from './cpu';
+export * as ops from './ops';
+export { createMonotoneSpline, isIdentityCurve } from './spline';
+export type { Spline } from './spline';
+
+// Image buffers
+export { floatToHalf, halfToFloat, quantizeToHalf, toFloat32Samples } from './image';
+export type { LinearImageBuffer } from './image';
+
+// Lightroom presets
+export {
+  applyPreset,
+  parsePreset,
+  parsePresetLrtemplate,
+  parsePresetXmp,
+  PresetParseError,
+} from './preset';
+export type { ParsedPreset, ParseOptions } from './preset';

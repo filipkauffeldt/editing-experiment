@@ -12,3 +12,4 @@ playwright-report/
 .env*
 *.log
 .DS_Store
+.vitest/
