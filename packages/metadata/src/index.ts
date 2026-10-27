@@ -7,3 +7,4 @@ export * from './values';
 export * from './iptc';
 export * from './develop';
 export * from './retouch';
+export * from './template';
