@@ -192,6 +192,51 @@ describe('UploadQueue', () => {
     await expect(access(destinationDir)).rejects.toThrow();
   });
 
+  it('refuses retry while a cancelled run is active and claims a fresh token', async () => {
+    const localPath = await localFile('race.jpg');
+    const destination = folderDestination('dest-race', path.join(dir, 'race'));
+    let attempts = 0;
+    const tokens: string[] = [];
+    const queueInstance = queue({
+      retryBaseDelayMs: 1,
+      connectorFactory: factoryFor((request) => {
+        attempts++;
+        tokens.push(request.claimToken);
+        if (attempts === 1) {
+          return new Promise<void>((_resolve, reject) => {
+            request.signal.addEventListener(
+              'abort',
+              () => {
+                setTimeout(() => reject(new Error('aborted')), 100);
+              },
+              { once: true },
+            );
+          });
+        }
+        return Promise.resolve();
+      }),
+    });
+
+    const uploading = waitForEvent(
+      queueInstance,
+      (event) => event.type === 'upload.state' && event.state === 'uploading',
+    );
+    const [item] = await queueInstance.enqueue(photoId, localPath, [destination]);
+    queueInstance.start();
+    await uploading;
+
+    queueInstance.cancel(item!.id);
+    expect(() => queueInstance.retry(item!.id)).toThrowError(/still in progress/);
+
+    await new Promise((resolve) => setTimeout(resolve, 150));
+    queueInstance.retry(item!.id);
+    await queueInstance.waitForIdle();
+
+    expect(requireItem(queueInstance.list(), item!.id).state).toBe('done');
+    expect(tokens).toHaveLength(2);
+    expect(tokens[0]).not.toBe(tokens[1]);
+  });
+
   it('retries with backoff and succeeds', async () => {
     const localPath = await localFile('retry.jpg');
     const destination = folderDestination('dest-retry', path.join(dir, 'retry'));

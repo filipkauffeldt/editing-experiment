@@ -23,6 +23,7 @@ interface UploadRow {
   bytes_total: number;
   attempts: number;
   error: string | null;
+  claim_token: string | null;
   created_at: number;
   next_attempt_at: number;
 }
@@ -42,7 +43,8 @@ CREATE TABLE IF NOT EXISTS upload_items (
   error TEXT,
   created_at INTEGER NOT NULL,
   updated_at INTEGER NOT NULL,
-  next_attempt_at INTEGER NOT NULL DEFAULT 0
+  next_attempt_at INTEGER NOT NULL DEFAULT 0,
+  claim_token TEXT
 );
 CREATE INDEX IF NOT EXISTS upload_items_pending
   ON upload_items (state, next_attempt_at, created_at);
@@ -65,6 +67,7 @@ export class UploadStore {
     this.db.exec('PRAGMA synchronous = NORMAL');
     this.db.exec('PRAGMA busy_timeout = 5000');
     this.db.exec(SCHEMA);
+    this.ensureClaimTokenColumn();
     this.requeueUploading();
   }
 
@@ -107,62 +110,78 @@ export class UploadStore {
   }
 
   /** Atomically moves a queued row to `uploading` and counts the attempt. */
-  claim(id: string, now: number): boolean {
+  claim(id: string, token: string, now: number): boolean {
     const result = this.db
       .prepare(
         `UPDATE upload_items
-           SET state = 'uploading', attempts = attempts + 1, error = NULL, updated_at = ?
+           SET state = 'uploading', attempts = attempts + 1, error = NULL,
+               claim_token = ?, updated_at = ?
          WHERE id = ? AND state = 'queued'`,
       )
-      .run(now, id);
+      .run(token, now, id);
     return result.changes > 0;
   }
 
-  setProgress(id: string, bytesSent: number, now: number): void {
+  setProgress(id: string, token: string, bytesSent: number, now: number): void {
     this.db
-      .prepare('UPDATE upload_items SET bytes_sent = ?, updated_at = ? WHERE id = ?')
-      .run(Math.max(0, Math.floor(bytesSent)), now, id);
+      .prepare(
+        `UPDATE upload_items SET bytes_sent = ?, updated_at = ?
+         WHERE id = ? AND state = 'uploading' AND claim_token = ?`,
+      )
+      .run(Math.max(0, Math.floor(bytesSent)), now, id, token);
   }
 
-  markDone(id: string, bytesTotal: number, now: number): void {
+  markDone(id: string, token: string, bytesTotal: number, now: number): void {
     this.db
       .prepare(
         `UPDATE upload_items
-           SET state = 'done', bytes_sent = ?, bytes_total = ?, error = NULL, updated_at = ?
-         WHERE id = ? AND state = 'uploading'`,
+           SET state = 'done', bytes_sent = ?, bytes_total = ?, error = NULL,
+               claim_token = NULL, updated_at = ?
+         WHERE id = ? AND state = 'uploading' AND claim_token = ?`,
       )
-      .run(bytesTotal, bytesTotal, now, id);
+      .run(bytesTotal, bytesTotal, now, id, token);
   }
 
-  markFailed(id: string, error: string, now: number): void {
+  markFailed(id: string, token: string, error: string, now: number): void {
     this.db
       .prepare(
-        `UPDATE upload_items SET state = 'failed', error = ?, updated_at = ?
-         WHERE id = ? AND state = 'uploading'`,
+        `UPDATE upload_items SET state = 'failed', error = ?, claim_token = NULL, updated_at = ?
+         WHERE id = ? AND state = 'uploading' AND claim_token = ?`,
       )
-      .run(error, now, id);
+      .run(error, now, id, token);
   }
 
-  scheduleRetry(id: string, nextAttemptAt: number, now: number): void {
+  scheduleRetry(id: string, token: string, nextAttemptAt: number, now: number): void {
     this.db
       .prepare(
         `UPDATE upload_items
-           SET state = 'queued', bytes_sent = 0, error = NULL,
+           SET state = 'queued', bytes_sent = 0, error = NULL, claim_token = NULL,
                next_attempt_at = ?, updated_at = ?
-         WHERE id = ? AND state = 'uploading'`,
+         WHERE id = ? AND state = 'uploading' AND claim_token = ?`,
       )
-      .run(nextAttemptAt, now, id);
+      .run(nextAttemptAt, now, id, token);
   }
 
   markCancelled(id: string, now: number): boolean {
     const result = this.db
       .prepare(
         `UPDATE upload_items
-           SET state = 'cancelled', error = NULL, updated_at = ?
+           SET state = 'cancelled', error = NULL, claim_token = NULL, updated_at = ?
          WHERE id = ? AND state IN ('queued', 'uploading', 'failed')`,
       )
       .run(now, id);
     return result.changes > 0;
+  }
+
+  /** Marks a run cancelled only while it still owns the row. */
+  markCancelledForClaim(id: string, token: string, now: number): void {
+    this.db
+      .prepare(
+        `UPDATE upload_items
+           SET state = 'cancelled', error = NULL, claim_token = NULL, updated_at = ?
+         WHERE id = ? AND state = 'uploading' AND claim_token = ?`,
+      )
+      .run(now, id, token);
   }
 
   retry(id: string, now: number): boolean {
@@ -170,7 +189,7 @@ export class UploadStore {
       .prepare(
         `UPDATE upload_items
            SET state = 'queued', attempts = 0, bytes_sent = 0, error = NULL,
-               next_attempt_at = ?, updated_at = ?
+               claim_token = NULL, next_attempt_at = ?, updated_at = ?
          WHERE id = ? AND state IN ('failed', 'cancelled')`,
       )
       .run(now, now, id);
@@ -207,7 +226,8 @@ export class UploadStore {
     this.db
       .prepare(
         `UPDATE upload_items
-           SET state = 'queued', bytes_sent = 0, next_attempt_at = 0, updated_at = ?
+           SET state = 'queued', bytes_sent = 0, next_attempt_at = 0,
+               claim_token = NULL, updated_at = ?
          WHERE state = 'uploading'`,
       )
       .run(Date.now());
@@ -225,6 +245,15 @@ export class UploadStore {
     if (this.closed) return;
     this.closed = true;
     this.db.close();
+  }
+
+  private ensureClaimTokenColumn(): void {
+    const columns = this.db.prepare('PRAGMA table_info(upload_items)').all() as {
+      name: string;
+    }[];
+    if (!columns.some((column) => column.name === 'claim_token')) {
+      this.db.exec('ALTER TABLE upload_items ADD COLUMN claim_token TEXT');
+    }
   }
 }
 
@@ -256,6 +285,7 @@ function toItem(row: UploadRow): StoredUploadItem {
     bytesTotal: Number(row.bytes_total),
     attempts: Number(row.attempts),
     ...(row.error === null ? {} : { error: row.error }),
+    ...(row.claim_token === null ? {} : { claimToken: row.claim_token }),
     nextAttemptAt: Number(row.next_attempt_at),
   };
 }

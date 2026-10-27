@@ -17,6 +17,9 @@ export interface DestinationTestResult extends ConnectionTestResult {
 /** Everything a destination connector needs for one transfer. */
 export interface UploadRequest {
   destination: Destination;
+  uploadId: UploadId;
+  /** Unique per run; also used to make the `.part` name collision-free. */
+  claimToken: string;
   localPath: string;
   /** Expanded path on the destination, file name included. */
   remotePath: string;
@@ -41,6 +44,8 @@ export interface StoredUploadItem extends UploadItem {
   destination: Destination;
   /** Epoch ms before which a retry must not be attempted. */
   nextAttemptAt: number;
+  /** Identifies the current run, so a cancelled run cannot touch its successor. */
+  claimToken?: string;
 }
 
 export interface EnqueueContext {

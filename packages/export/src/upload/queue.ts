@@ -42,6 +42,7 @@ export interface UploadQueueOptions {
 interface ActiveUpload {
   controller: AbortController;
   destinationId: string;
+  claimToken: string;
   promise: Promise<void>;
 }
 
@@ -168,6 +169,9 @@ export class UploadQueue {
     if (item.state === 'done') {
       throw new ExportError('upload_invalid_state', `Upload ${id} has already completed`);
     }
+    if (this.active.has(id)) {
+      throw new ExportError('upload_invalid_state', `Upload ${id} is still in progress`);
+    }
     if (item.state !== 'failed' && item.state !== 'cancelled') return;
 
     this.store.retry(id, this.now());
@@ -251,17 +255,21 @@ export class UploadQueue {
         progressed = false;
         const now = this.now();
         for (const item of this.store.queued(now)) {
+          if (this.active.has(item.id)) continue;
           if ((this.activePerDestination.get(item.destinationId) ?? 0) >= this.concurrency) {
             continue;
           }
-          if (!this.store.claim(item.id, now)) continue;
+          const claimToken = randomUUID();
+          if (!this.store.claim(item.id, claimToken, now)) continue;
 
           const controller = new AbortController();
           this.activePerDestination.set(
             item.destinationId,
             (this.activePerDestination.get(item.destinationId) ?? 0) + 1,
           );
-          const promise = this.runItem(item, controller).finally(() => {
+          const promise = this.runItem(item, controller, claimToken).finally(() => {
+            const active = this.active.get(item.id);
+            if (active?.claimToken !== claimToken) return;
             this.active.delete(item.id);
             const remaining = (this.activePerDestination.get(item.destinationId) ?? 1) - 1;
             if (remaining <= 0) this.activePerDestination.delete(item.destinationId);
@@ -272,6 +280,7 @@ export class UploadQueue {
           this.active.set(item.id, {
             controller,
             destinationId: item.destinationId,
+            claimToken,
             promise,
           });
           this.emitState(
@@ -293,7 +302,11 @@ export class UploadQueue {
     this.notifyIfIdle();
   }
 
-  private async runItem(item: StoredUploadItem, controller: AbortController): Promise<void> {
+  private async runItem(
+    item: StoredUploadItem,
+    controller: AbortController,
+    claimToken: string,
+  ): Promise<void> {
     let secret: CredentialSecret = {};
     let lastSent = -1;
     let lastPersisted = 0;
@@ -311,7 +324,7 @@ export class UploadQueue {
       ) {
         lastPersisted = sent;
         lastEmitted = now;
-        this.store.setProgress(item.id, sent, now);
+        this.store.setProgress(item.id, claimToken, sent, now);
         this.events.emit({
           type: 'upload.progress',
           at: now,
@@ -331,6 +344,8 @@ export class UploadQueue {
       const connector = this.connectorFactory(item.destination);
       await connector.upload({
         destination: item.destination,
+        uploadId: item.id,
+        claimToken,
         localPath: item.localPath,
         remotePath: item.remotePath,
         bytesTotal: item.bytesTotal,
@@ -341,20 +356,20 @@ export class UploadQueue {
 
       if (this.closed) return;
       const current = this.store.get(item.id);
-      if (current === undefined || current.state !== 'uploading') return;
+      if (current === undefined || !ownsRun(current, claimToken)) return;
 
       const now = this.now();
-      this.store.markDone(item.id, item.bytesTotal, now);
+      this.store.markDone(item.id, claimToken, item.bytesTotal, now);
       const updated = this.store.get(item.id);
       if (updated !== undefined) this.emitState(updated, now);
     } catch (error) {
       if (this.closed) return;
 
       const current = this.store.get(item.id);
-      if (current === undefined || current.state !== 'uploading') return;
+      if (current === undefined || !ownsRun(current, claimToken)) return;
 
       if (controller.signal.aborted) {
-        this.store.markCancelled(item.id, this.now());
+        this.store.markCancelledForClaim(item.id, claimToken, this.now());
         const updated = this.store.get(item.id);
         if (updated !== undefined) this.emitState(updated, this.now());
         return;
@@ -365,7 +380,7 @@ export class UploadQueue {
       ]);
       const now = this.now();
       if (current.attempts >= this.maxAttempts) {
-        this.store.markFailed(item.id, message, now);
+        this.store.markFailed(item.id, claimToken, message, now);
         const updated = this.store.get(item.id);
         if (updated !== undefined) this.emitState(updated, now);
         return;
@@ -375,7 +390,7 @@ export class UploadQueue {
         this.retryBaseDelayMs * 2 ** Math.max(0, current.attempts - 1),
         this.retryMaxDelayMs,
       );
-      this.store.scheduleRetry(item.id, now + delay, now);
+      this.store.scheduleRetry(item.id, claimToken, now + delay, now);
       const updated = this.store.get(item.id);
       if (updated !== undefined) this.emitState(updated, now);
       this.scheduleRetryTimer();
@@ -422,4 +437,8 @@ export class UploadQueue {
       ...(item.error === undefined ? {} : { error: item.error }),
     });
   }
+}
+
+function ownsRun(item: StoredUploadItem, claimToken: string): boolean {
+  return item.state === 'uploading' && item.claimToken === claimToken;
 }
