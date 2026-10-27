@@ -128,6 +128,7 @@ describe('FTP source', { timeout: 15_000 }, () => {
 
     await writeFile(sidecar, '<xmp/>');
     await waitFor(() => pathExists(join(destination, '_DSC6_01.NEF')), 'raw with sidecar');
+    await waitFor(() => pathExists(join(destination, '_DSC6_01.xmp')), 'sidecar with raw');
     expect(await readFile(join(destination, '_DSC6_01.xmp'), 'utf8')).toBe('<xmp/>');
   });
 
