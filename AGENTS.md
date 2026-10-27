@@ -26,10 +26,10 @@ No sudo is available. Do not add dependencies that need system packages;
 vendor/compile C/C++ sources via the `cc` crate instead (no bindgen; hand-write
 the small FFI surface).
 
-If something genuinely needs a system install, do not work around it
-silently: put a line starting with `NEEDS INSTALL:` and the exact command
-(e.g. `sudo apt install xvfb`) in your reply and the PR description, then
-continue with what you can do meanwhile. Keep the "System dependencies"
+If something genuinely needs a system install, **stop immediately** and end
+your turn with a line starting with `NEEDS INSTALL:` and the exact command
+(e.g. `sudo apt install xvfb`). Do not work around it or continue with other
+work; you will be told to continue once it is installed. Keep the "System dependencies"
 section of `README.md` up to date.
 
 ## Ownership and contracts
