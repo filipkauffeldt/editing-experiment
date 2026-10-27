@@ -1,0 +1,32 @@
+s = {
+	id = "6E3F0F8E-0C6A-4A4B-8E0D-8F3B2C1A9D77",
+	internalName = "Flat Portrait",
+	title = "Flat Portrait",
+	type = "Develop",
+	value = {
+		settings = {
+			-- a comment
+			Exposure2012 = 0.25,
+			Contrast2012 = -20,
+			Highlights2012 = -35,
+			Shadows2012 = 40,
+			Whites2012 = 0,
+			Vibrance = 15,
+			Saturation = -5,
+			ProcessVersion = "6.7",
+			WhiteBalance = "Flash",
+			Clarity2012 = 10,
+			ConvertToGrayscale = false,
+			ToneCurvePV2012 = {
+				0,
+				10,
+				128,
+				140,
+				255,
+				250,
+			},
+			ToneCurveName2012 = "Custom",
+		},
+	},
+	version = 0,
+}
