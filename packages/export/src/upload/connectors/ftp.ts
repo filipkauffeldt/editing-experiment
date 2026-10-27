@@ -1,7 +1,7 @@
 import path from 'node:path';
 import { Client } from 'basic-ftp';
 import type { CredentialSecret, FtpDestination } from '@ee/contracts';
-import { ExportError, UploadCancelledError } from '../../errors';
+import { ExportError, NonRetryableUploadError, UploadCancelledError } from '../../errors';
 import { normalizeRemotePath, tempRemotePath } from '../paths';
 import type { DestinationConnector, DestinationTestResult, UploadRequest } from '../types';
 
@@ -11,6 +11,8 @@ export function createFtpConnector(destination: FtpDestination): DestinationConn
       const client = new Client(30_000);
       const abort = (): void => client.close();
       request.signal.addEventListener('abort', abort, { once: true });
+      let tempPath: string | undefined;
+      let renamed = false;
       try {
         await connect(client, destination, request.secret);
         if (request.signal.aborted) throw new UploadCancelledError();
@@ -20,7 +22,18 @@ export function createFtpConnector(destination: FtpDestination): DestinationConn
         const directory = path.posix.dirname(finalPath);
         if (directory !== '.' && directory !== '/') await client.ensureDir(directory);
 
-        const tempPath = tempRemotePath(finalPath);
+        const alreadyExists = await client.size(finalPath).then(
+          () => true,
+          () => false,
+        );
+        if (alreadyExists) {
+          throw new NonRetryableUploadError(
+            'remote_exists',
+            `Remote file already exists: ${finalPath}`,
+          );
+        }
+
+        tempPath = tempRemotePath(finalPath, request.uploadId, request.claimToken);
         client.trackProgress((info) => {
           request.report(Math.min(info.bytesOverall, request.bytesTotal));
         });
@@ -28,8 +41,30 @@ export function createFtpConnector(destination: FtpDestination): DestinationConn
         client.trackProgress();
         if (request.signal.aborted) throw new UploadCancelledError();
 
-        await client.rename(tempPath, finalPath);
+        try {
+          await client.rename(tempPath, finalPath);
+        } catch (error) {
+          if (request.signal.aborted) throw new UploadCancelledError();
+          const targetExists = await client.size(finalPath).then(
+            () => true,
+            () => false,
+          );
+          if (targetExists) {
+            throw new NonRetryableUploadError(
+              'remote_exists',
+              `Remote file already exists: ${finalPath}`,
+              { cause: error },
+            );
+          }
+          throw error;
+        }
+        renamed = true;
         request.report(request.bytesTotal);
+      } catch (error) {
+        if (!renamed && tempPath !== undefined) {
+          await client.remove(tempPath).catch(() => undefined);
+        }
+        throw error;
       } finally {
         client.trackProgress();
         request.signal.removeEventListener('abort', abort);

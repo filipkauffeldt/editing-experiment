@@ -62,7 +62,10 @@ export function normalizeRemotePath(remotePath: string): string {
   return normalized;
 }
 
-/** Name used while a transfer is in flight; renamed to the final name when complete. */
-export function tempRemotePath(finalPath: string): string {
-  return `${finalPath}.part`;
+/**
+ * Name used while a transfer is in flight. The upload id and claim token make
+ * it unique per run, so a cancelled run can never write over its successor.
+ */
+export function tempRemotePath(finalPath: string, uploadId: string, claimToken: string): string {
+  return `${finalPath}.${uploadId}.${claimToken.slice(0, 8)}.part`;
 }

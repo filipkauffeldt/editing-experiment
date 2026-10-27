@@ -40,23 +40,39 @@ export function createSftpConnector(destination: SftpDestination): DestinationCo
         const directory = path.posix.dirname(finalPath);
         if (directory !== '.' && directory !== '/') await client.mkdir(directory, true);
 
-        const tempPath = tempRemotePath(finalPath);
-        await client.fastPut(request.localPath, tempPath, {
-          step: (transferred) => request.report(Math.min(transferred, request.bytesTotal)),
-        });
-        if (request.signal.aborted) throw new UploadCancelledError();
-
-        try {
-          await client.rename(tempPath, finalPath);
-        } catch (error) {
-          // Plain SFTP rename may refuse to overwrite; OpenSSH's posix-rename
-          // replaces atomically. Never delete the existing remote file.
-          if (request.signal.aborted) throw new UploadCancelledError();
-          await client.posixRename(tempPath, finalPath).catch(() => {
-            throw error;
-          });
+        const alreadyExists = await client.exists(finalPath);
+        if (alreadyExists !== false) {
+          throw new NonRetryableUploadError(
+            'remote_exists',
+            `Remote file already exists: ${finalPath}`,
+          );
         }
-        request.report(request.bytesTotal);
+
+        const tempPath = tempRemotePath(finalPath, request.uploadId, request.claimToken);
+        try {
+          await client.fastPut(request.localPath, tempPath, {
+            step: (transferred) => request.report(Math.min(transferred, request.bytesTotal)),
+          });
+          if (request.signal.aborted) throw new UploadCancelledError();
+
+          const existing = await client.exists(finalPath);
+          if (existing !== false) {
+            throw new NonRetryableUploadError(
+              'remote_exists',
+              `Remote file already exists: ${finalPath}`,
+            );
+          }
+          try {
+            await client.rename(tempPath, finalPath);
+          } catch (error) {
+            if (request.signal.aborted) throw new UploadCancelledError();
+            throw error;
+          }
+          request.report(request.bytesTotal);
+        } catch (error) {
+          await client.delete(tempPath, true).catch(() => undefined);
+          throw error;
+        }
       } finally {
         request.signal.removeEventListener('abort', abort);
         await client.end().catch(() => undefined);

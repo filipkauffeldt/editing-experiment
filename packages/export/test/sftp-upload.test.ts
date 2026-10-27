@@ -1,4 +1,4 @@
-import { access, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
+import { access, mkdir, mkdtemp, readFile, readdir, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { asDestinationId, asPhotoId, type JobEvent, type SftpDestination } from '@ee/contracts';
@@ -87,7 +87,33 @@ describe('SFTP uploads', () => {
     expect(queue.list()[0]?.state).toBe('done');
     const finalPath = path.join(server.root, 'inbox', 'frame.jpg');
     expect(await readFile(finalPath)).toEqual(contents);
-    await expect(access(`${finalPath}.part`)).rejects.toThrow();
+    const files = await readdir(path.dirname(finalPath));
+    expect(files.filter((name) => name.endsWith('.part'))).toEqual([]);
+  });
+
+  it('fails without overwriting an existing remote file', async () => {
+    const localPath = path.join(dir, 'frame.jpg');
+    await writeFile(localPath, 'new contents');
+    const finalPath = path.join(server.root, 'inbox', 'frame.jpg');
+    await mkdir(path.dirname(finalPath), { recursive: true });
+    await writeFile(finalPath, 'original remote contents');
+
+    queue = new UploadQueue({
+      dbPath: path.join(dir, 'queue-exists.sqlite'),
+      hooks: hooksWith(server.password),
+      maxAttempts: 1,
+      retryBaseDelayMs: 1,
+    });
+    await queue.enqueue(photoId, localPath, [
+      sftpDestination(server.port, { hostKeyFingerprint: server.fingerprint }),
+    ]);
+    queue.start();
+    await queue.waitForIdle();
+
+    const [item] = queue.list();
+    expect(item?.state).toBe('failed');
+    expect(item?.error ?? '').toMatch(/already exists/);
+    expect(await readFile(finalPath, 'utf8')).toBe('original remote contents');
   });
 
   it('refuses to upload without a pinned fingerprint', async () => {

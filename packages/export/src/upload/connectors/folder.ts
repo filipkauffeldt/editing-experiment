@@ -13,7 +13,7 @@ export function createFolderConnector(destination: FolderDestination): Destinati
   return {
     async upload(request: UploadRequest): Promise<void> {
       const finalPath = resolveFolderDestinationPath(destination.path, request.remotePath);
-      const tempPath = tempRemotePath(finalPath);
+      const tempPath = tempRemotePath(finalPath, request.uploadId, request.claimToken);
       await mkdir(path.dirname(finalPath), { recursive: true });
 
       const source = createReadStream(request.localPath);

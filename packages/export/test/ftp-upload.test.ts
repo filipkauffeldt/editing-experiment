@@ -1,4 +1,4 @@
-import { access, mkdir, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
+import { access, mkdir, mkdtemp, readFile, readdir, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { asDestinationId, asPhotoId, type FtpDestination, type JobEvent } from '@ee/contracts';
@@ -77,7 +77,32 @@ describe('FTP uploads', () => {
     expect(queue.list()[0]?.id).toBe(item?.id);
     const finalPath = path.join(server!.root, 'photos', 'frame.jpg');
     expect(await readFile(finalPath)).toEqual(contents);
-    await expect(access(`${finalPath}.part`)).rejects.toThrow();
+    const files = await readdir(path.dirname(finalPath));
+    expect(files.filter((name) => name.endsWith('.part'))).toEqual([]);
+  });
+
+  it('fails without overwriting an existing remote file', async () => {
+    const localPath = path.join(dir, 'frame.jpg');
+    const contents = Buffer.from('new contents');
+    await writeFile(localPath, contents);
+    const finalPath = path.join(server!.root, 'photos', 'frame.jpg');
+    await mkdir(path.dirname(finalPath), { recursive: true });
+    await writeFile(finalPath, 'original remote contents');
+
+    queue = new UploadQueue({
+      dbPath: path.join(dir, 'queue-exists.sqlite'),
+      hooks: hooksWith(server!.password),
+      maxAttempts: 1,
+      retryBaseDelayMs: 1,
+    });
+    await queue.enqueue(photoId, localPath, [ftpDestination(server!.port)]);
+    queue.start();
+    await queue.waitForIdle();
+
+    const [item] = queue.list();
+    expect(item?.state).toBe('failed');
+    expect(item?.error ?? '').toMatch(/already exists/);
+    expect(await readFile(finalPath, 'utf8')).toBe('original remote contents');
   });
 
   it('reports connection test results without leaking the password', async () => {
