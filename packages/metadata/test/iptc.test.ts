@@ -97,6 +97,20 @@ describe('IPTC read/write', () => {
     expect(await readIptc(jpeg, service)).toEqual({ headline: 'Second' });
   });
 
+  it('removes IIM TimeCreated when DateCreated becomes date-only', async () => {
+    const dir = await makeTempDir();
+    const jpeg = join(dir, 'date-only.jpg');
+    await makeJpeg(jpeg);
+
+    await writeIptc(jpeg, { dateCreated: '2024-05-06T19:08:09+02:00' }, { service });
+    expect((await service.read(jpeg))['IPTC:TimeCreated']).toBeDefined();
+
+    await writeIptc(jpeg, { dateCreated: '2024-05-06' }, { service });
+    const tags = await service.read(jpeg);
+    expect(tags['IPTC:TimeCreated']).toBeUndefined();
+    expect(await readIptc(jpeg, service)).toEqual({ dateCreated: '2024-05-06' });
+  });
+
   it('rejects a date that is not ISO 8601', async () => {
     const dir = await makeTempDir();
     const jpeg = join(dir, 'date.jpg');
