@@ -37,8 +37,25 @@ const sliderValue = (params: EditParams, name: SliderParam): number => {
   return Math.min(spec.max, Math.max(spec.min, value));
 };
 
-/** Builds the combined RGBA curve table, or null when every curve is identity. */
-export function buildCurveLut(params: EditParams, size = TUNING.curveLutSize): Float32Array | null {
+let memo: { key: string; lut: Float32Array | null } | undefined;
+
+/**
+ * Builds the combined RGBA curve table, or null when every curve is identity.
+ * The last result is memoised so dragging an unrelated slider keeps returning
+ * the same array (callers can compare by reference to skip re-uploading it).
+ */
+export function buildCurveLut(params: EditParams): Float32Array | null {
+  const key = JSON.stringify([
+    params.ToneCurvePV2012,
+    params.ToneCurvePV2012Red,
+    params.ToneCurvePV2012Green,
+    params.ToneCurvePV2012Blue,
+  ]);
+  if (memo?.key !== key) memo = { key, lut: computeCurveLut(params, TUNING.curveLutSize) };
+  return memo.lut;
+}
+
+export function computeCurveLut(params: EditParams, size: number): Float32Array | null {
   const curves = [
     params.ToneCurvePV2012,
     params.ToneCurvePV2012Red,
@@ -47,9 +64,11 @@ export function buildCurveLut(params: EditParams, size = TUNING.curveLutSize): F
   ];
   if (curves.every(isIdentityCurve)) return null;
   const master = sampleCurve(params.ToneCurvePV2012, size);
-  const channels = [params.ToneCurvePV2012Red, params.ToneCurvePV2012Green, params.ToneCurvePV2012Blue].map(
-    (points) => sampleCurve(points, size),
-  );
+  const channels = [
+    params.ToneCurvePV2012Red,
+    params.ToneCurvePV2012Green,
+    params.ToneCurvePV2012Blue,
+  ].map((points) => sampleCurve(points, size));
   const lut = new Float32Array(size * 4);
   for (let i = 0; i < size; i++) {
     const afterMaster = master[i] ?? 0;
@@ -80,7 +99,11 @@ export function resolveUniforms(camera: DevelopCamera, params: EditParams): Deve
     colorMatrix,
     exposureGain: exposureGain(sliderValue(params, 'Exposure2012')),
     toneActive:
-      contrast !== 0 || tone.highlights !== 0 || tone.shadows !== 0 || tone.whites !== 0 || tone.blacks !== 0,
+      contrast !== 0 ||
+      tone.highlights !== 0 ||
+      tone.shadows !== 0 ||
+      tone.whites !== 0 ||
+      tone.blacks !== 0,
     tone,
     vibrance: sliderValue(params, 'Vibrance') / 100,
     saturation: sliderValue(params, 'Saturation') / 100,
