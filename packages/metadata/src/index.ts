@@ -9,3 +9,5 @@ export * from './develop';
 export * from './retouch';
 export * from './template';
 export * from './variables';
+export * from './code-replacements';
+export * from './caption';
