@@ -1,2 +1,12 @@
-// Placeholder: the owning workstream replaces this with the real public API.
-export const PACKAGE_NAME = '@ee/export';
+export { encodeJpeg, type EncodedJpeg } from './jpeg/encode';
+export { ExportError, UploadCancelledError, type ExportErrorCode } from './errors';
+export {
+  createPathTemplateContext,
+  defaultExpandPathTemplate,
+  resolveExpandPathTemplate,
+  type ExpandPathTemplate,
+  type ExportHooks,
+  type GetSecretHook,
+  type PathTemplateContext,
+  type WriteMetadataHook,
+} from './hooks';
