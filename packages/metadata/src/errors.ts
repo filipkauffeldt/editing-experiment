@@ -2,6 +2,7 @@
 export type MetadataErrorCode =
   | 'EXIFTOOL'
   | 'UNSUPPORTED_TARGET'
+  | 'FILE_NOT_FOUND'
   | 'SIDECAR_MISSING'
   | 'INVALID_XMP'
   | 'INVALID_TEMPLATE'

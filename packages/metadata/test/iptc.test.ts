@@ -74,6 +74,16 @@ describe('IPTC read/write', () => {
     expect(await readIptc(jpeg, service)).toEqual(fields);
   });
 
+  it('refuses to create a missing JPEG or TIFF', async () => {
+    const dir = await makeTempDir();
+    const missing = join(dir, 'missing.jpg');
+
+    await expect(writeIptc(missing, { headline: 'nope' }, { service })).rejects.toMatchObject({
+      code: 'FILE_NOT_FOUND',
+    });
+    expect(await fileExists(missing)).toBe(false);
+  });
+
   it('leaves unlisted fields alone and deletes empty ones', async () => {
     const dir = await makeTempDir();
     const jpeg = join(dir, 'partial.jpg');

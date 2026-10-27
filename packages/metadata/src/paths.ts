@@ -1,6 +1,7 @@
 import { access, mkdir, writeFile } from 'node:fs/promises';
 import { constants } from 'node:fs';
 import { dirname, extname, join, parse } from 'node:path';
+import { MetadataError } from './errors';
 
 /**
  * Camera raw extensions whose metadata belongs in a sidecar. DNG is included:
@@ -106,7 +107,12 @@ export async function ensureSidecar(path: string): Promise<string> {
  */
 export async function ensureMetadataTarget(path: string): Promise<string> {
   if (isEmbeddedMetadataPath(path) || isXmpPath(path)) {
-    await ensureXmpFile(path);
+    // Never invent an embedded file (or an XMP file) from nothing; only a raw
+    // photo gets a new sidecar. Writing XMP text into a file named .jpg would
+    // corrupt the user's photo.
+    if (!(await fileExists(path))) {
+      throw new MetadataError('FILE_NOT_FOUND', `File not found: ${path}`);
+    }
     return path;
   }
   return ensureSidecar(path);
