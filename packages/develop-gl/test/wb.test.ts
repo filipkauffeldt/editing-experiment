@@ -10,15 +10,14 @@ import {
   WHITE_BALANCE_PRESETS,
   type WhiteBalanceCamera,
 } from '../src/wb';
+import { Z6_XYZ_TO_CAMERA } from './support';
 
-/** Nikon Z 6 colour matrix (Adobe ColorMatrix2, D65), the kind of matrix LibRaw reports as `cam_xyz`. */
-export const Z6_XYZ_TO_CAMERA = [0.821, -0.2534, -0.0683, -0.5355, 1.3338, 0.2212, -0.1143, 0.193, 0.6464];
 
 const D65_XY = { x: 0.3127, y: 0.329 };
 const D50_XY = { x: 0.3457, y: 0.3585 };
 
 /** A camera whose as-shot white balance is exactly the neutral of `temperature`/`tint`. */
-export function cameraShotAt(temperature: number, tint = 0, xyzToCamera = Z6_XYZ_TO_CAMERA): WhiteBalanceCamera {
+function cameraShotAt(temperature: number, tint = 0, xyzToCamera = Z6_XYZ_TO_CAMERA): WhiteBalanceCamera {
   return {
     xyzToCamera,
     asShotMultipliers: multipliersFromTemperatureTint(xyzToCamera, temperature, tint),
