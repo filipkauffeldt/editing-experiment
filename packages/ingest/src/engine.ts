@@ -189,6 +189,7 @@ export function startIngest(config: IngestConfig, hooks: IngestHooks = {}): Inge
             sourceFileName: file.name,
             sourceDisplayPath: file.path,
             ...(sidecar ? { sidecarSourcePath: sidecar } : {}),
+            ...(sidecarInfo ? { sidecarSize: sidecarInfo.size } : {}),
             seq: job.seq,
             size: file.size,
             mtimeMs: file.mtimeMs,

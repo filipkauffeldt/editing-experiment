@@ -1,7 +1,8 @@
-import { mkdir, readdir, readFile, utimes, writeFile } from 'node:fs/promises';
+import { mkdir, readdir, readFile, rm, utimes, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { asSourceId, type FolderSource, type IngestConfig, type JobEvent } from '@ee/contracts';
 import { afterEach, describe, expect, it } from 'vitest';
+import { nodeFileCopier } from '../src/copy';
 import { startIngest } from '../src/engine';
 import { hashFile } from '../src/hash';
 import { MemorySeenStore } from '../src/seen-store';
@@ -155,6 +156,48 @@ describe('startIngest', () => {
     await utimes(first, new Date(), new Date());
     await startIngest(config([folderSource('a', source)], destination), hooks).done;
     expect(ingested).toEqual(['_DSC1.NEF']);
+  });
+
+  it('keeps the pre-copy sidecar stat in the seen store', async () => {
+    const root = await makeTempDir();
+    const source = join(root, 'source');
+    const destination = join(root, 'destination');
+    const raw = join(source, '_DSC1.NEF');
+    const sidecar = join(source, '_DSC1.xmp');
+    await createFile(raw, 'raw');
+    await createFile(sidecar, 'sidecar-bytes');
+    const seenStore = new MemorySeenStore();
+    const ingested: IngestedFileInfo[] = [];
+    let copies = 0;
+    const deletingCopier: FileCopier = {
+      async copy(from, to, options) {
+        copies += 1;
+        const outcome = await nodeFileCopier.copy(from, to, options);
+        if (from.endsWith('.xmp')) {
+          await rm(from, { force: true });
+        }
+        return outcome;
+      },
+    };
+    const hooks = {
+      seenStore,
+      fileCopier: deletingCopier,
+      onFileIngested: async (info: IngestedFileInfo) => {
+        ingested.push(info);
+      },
+    };
+
+    const first = startIngest(config([folderSource('a', source)], destination), hooks);
+    await first.done;
+    expect(first.status()[0]?.state).toBe('finished');
+    expect(ingested[0]?.sidecarSize).toBe('sidecar-bytes'.length);
+
+    const copiesAfterFirst = copies;
+    await startIngest(config([folderSource('a', source)], destination), hooks).done;
+
+    expect(copies).toBe(copiesAfterFirst);
+    expect(ingested).toHaveLength(1);
+    expect(await readdir(destination)).toHaveLength(2);
   });
 
   it('reports a verification failure without leaving a file behind', async () => {

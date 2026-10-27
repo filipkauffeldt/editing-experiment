@@ -126,6 +126,7 @@ async function ingestRemoteEntry(
         sourceDisplayPath: entry.path,
         ...(localSidecar ? { sidecarSourcePath: localSidecar } : {}),
         ...(sidecar ? { sidecarDisplayPath: sidecar.path } : {}),
+        ...(sidecar ? { sidecarSize: sidecar.size } : {}),
         seq: deps.nextSeq(),
         size: entry.size,
         mtimeMs: entry.mtimeMs,

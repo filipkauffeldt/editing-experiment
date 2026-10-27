@@ -1,5 +1,4 @@
 import { randomUUID } from 'node:crypto';
-import { stat } from 'node:fs/promises';
 import { join } from 'node:path';
 import {
   asPhotoId,
@@ -35,6 +34,8 @@ export interface IngestFileRequest {
   sourceDisplayPath: string;
   sidecarSourcePath?: string;
   sidecarDisplayPath?: string;
+  /** Size captured before the copy, so a later stat cannot drop the seen entry. */
+  sidecarSize?: number;
   seq: number;
   size: number;
   mtimeMs: number;
@@ -88,11 +89,6 @@ export async function ingestFile(
     },
   );
 
-  let sidecarSize: number | undefined;
-  if (request.sidecarSourcePath) {
-    sidecarSize = (await stat(request.sidecarSourcePath)).size;
-  }
-
   return {
     photoId: asPhotoId(randomUUID()),
     jobId: request.jobId,
@@ -107,7 +103,7 @@ export async function ingestFile(
     ...(result.backupPath ? { backupPath: result.backupPath } : {}),
     ...(result.backupSidecarPath ? { backupSidecarPath: result.backupSidecarPath } : {}),
     size: result.size,
-    ...(sidecarSize !== undefined ? { sidecarSize } : {}),
+    ...(request.sidecarSize !== undefined ? { sidecarSize: request.sidecarSize } : {}),
     mtimeMs: request.mtimeMs,
     sha256: result.sha256,
     seq: request.seq,
