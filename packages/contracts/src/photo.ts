@@ -1,0 +1,67 @@
+import type { EditParams } from './develop';
+import type { PhotoId, SourceId, VersionId } from './ids';
+import type { RetouchOp } from './retouch';
+
+/** Camera information read from EXIF. */
+export interface CameraInfo {
+  make?: string;
+  model?: string;
+  lens?: string;
+  serialNumber?: string;
+}
+
+/** Where a photo is in the ingest pipeline. */
+export type IngestState = 'pending' | 'copying' | 'verifying' | 'done' | 'failed';
+/** Export (full-resolution render + encode) state. */
+export type ExportState = 'none' | 'rendering' | 'encoding' | 'done' | 'failed';
+/** Upload state of the photo's most recent export, aggregated over destinations. */
+export type UploadState = 'none' | 'queued' | 'uploading' | 'done' | 'failed';
+
+/** Per-photo progress flags shown as badges in the film strip. */
+export interface PhotoStatus {
+  ingest: IngestState;
+  /** Develop or retouch edits exist. */
+  edited: boolean;
+  /** Embedded/sidecar metadata no longer matches the template applied at ingest. */
+  metadataDiffersFromTemplate: boolean;
+  export: ExportState;
+  upload: UploadState;
+}
+
+/** A develop variant of a photo: a full set of {@link EditParams}. */
+export interface DevelopVersion {
+  id: VersionId;
+  kind: 'develop';
+  name?: string;
+  ops: EditParams;
+}
+
+/** A retouch variant of a photo: an ordered list of {@link RetouchOp}s applied after develop. */
+export interface RetouchVersion {
+  id: VersionId;
+  kind: 'retouch';
+  name?: string;
+  ops: RetouchOp[];
+}
+
+/** An edit version of a photo, persisted in the sidecar (`crs:` for develop, `ee:` for retouch). */
+export type PhotoVersion = DevelopVersion | RetouchVersion;
+
+/** One ingested photo. The index is a cache; the sidecar is the source of truth. */
+export interface Photo {
+  id: PhotoId;
+  /** Absolute path of the ingested original in the ingest destination. Never modified. */
+  path: string;
+  /** Absolute path of the XMP sidecar (raws) or `path` itself (JPEG with embedded XMP). */
+  sidecarPath: string;
+  fileName: string;
+  /** Capture time as ISO 8601; local time without offset when the camera recorded none. */
+  captureTime?: string;
+  camera?: CameraInfo;
+  /** Pixel size of the oriented full-resolution image, once known. */
+  width?: number;
+  height?: number;
+  sourceId: SourceId;
+  status: PhotoStatus;
+  versions: PhotoVersion[];
+}

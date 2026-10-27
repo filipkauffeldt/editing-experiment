@@ -1,0 +1,440 @@
+import type { EditParams, EditPreset } from './develop';
+import type {
+  CredentialSecret,
+  Destination,
+  FinishAction,
+  RenderedImage,
+  UploadItem,
+} from './export';
+import type { DestinationId, PhotoId, SourceId, UploadId, VersionId } from './ids';
+import type { IptcFields } from './iptc';
+import type { JobEvent, IngestJobInfo } from './jobs';
+import type { Photo, PhotoVersion } from './photo';
+import type { Rect } from './geometry';
+import type { FaceDetection, RetouchOp } from './retouch';
+import type { DetectedCard, IngestConfig, SourceConfig } from './sources';
+
+// ---------------------------------------------------------------------------
+// Request / response payloads
+// ---------------------------------------------------------------------------
+
+/** Result of `system:ping`: proves renderer → main → jobs → main → renderer. */
+export interface PingResult {
+  /** The message that was sent, echoed by the jobs process. */
+  echo: string;
+  /** Process id of the jobs utility process that answered. */
+  jobsPid: number;
+  /** `Date.now()` in the jobs process when it answered. */
+  jobsTime: number;
+}
+
+/** Static facts about the running app. */
+export interface SystemInfo {
+  appVersion: string;
+  /** Version reported by the native core addon. */
+  coreVersion: string;
+  platform: string;
+  /** True when started with `EE_MOCK=1`: photos are generated, nothing touches disk. */
+  mock: boolean;
+}
+
+/** Arguments of `photos:list`. */
+export interface ListPhotosArgs {
+  /** Only photos from this source. */
+  sourceId?: SourceId;
+}
+
+/** Outcome of probing a source or destination. */
+export interface ConnectionTestResult {
+  ok: boolean;
+  /** Human-readable detail, e.g. the server banner or the failure reason. */
+  message?: string;
+}
+
+/** Arguments of `metadata:write`. */
+export interface WriteMetadataArgs {
+  photoId: PhotoId;
+  /** Fields to set; fields not listed are left as they are. */
+  fields: Partial<IptcFields>;
+}
+
+/** How a metadata template merges into existing metadata. */
+export type TemplateApplyMode = 'replace' | 'fillEmpty';
+
+/** Arguments of `metadata:applyTemplate`. */
+export interface ApplyTemplateArgs {
+  photoIds: PhotoId[];
+  templatePath: string;
+  /** `replace` overwrites every field the template sets; `fillEmpty` only empty ones. */
+  mode: TemplateApplyMode;
+}
+
+/** Outcome of `metadata:applyTemplate`; partial failure does not reject. */
+export interface ApplyTemplateResult {
+  updated: PhotoId[];
+  failed: { photoId: PhotoId; message: string }[];
+}
+
+/** Arguments of `metadata:expandCaption`. */
+export interface ExpandCaptionArgs {
+  /** Photo whose metadata/EXIF feeds the `{variables}`. */
+  photoId: PhotoId;
+  /** Caption text containing code replacements (`\name\`) and `{variables}`. */
+  text: string;
+  /** Overrides the code replacement files configured in settings. */
+  codeReplacementPaths?: string[];
+}
+
+/** Outcome of `metadata:expandCaption`. */
+export interface ExpandCaptionResult {
+  /** Fully expanded text. */
+  text: string;
+  /** Code replacement names and `{variables}` that could not be resolved (left verbatim). */
+  unresolved: string[];
+}
+
+/** Addresses one version of a photo; omit `versionId` for the active develop/retouch version. */
+export interface VersionRef {
+  photoId: PhotoId;
+  versionId?: VersionId;
+}
+
+/** Arguments of `photos:createVersion`. */
+export interface CreateVersionArgs {
+  photoId: PhotoId;
+  kind: PhotoVersion['kind'];
+  name?: string;
+}
+
+/** Arguments of `retouch:detectFaces`. */
+export interface DetectFacesArgs {
+  photoId: PhotoId;
+  /** Only look inside this region (normalized coordinates); absent = whole image. */
+  region?: Rect;
+}
+
+/** Arguments of `export:photo`. */
+export interface ExportPhotoArgs extends VersionRef {
+  /** Full-resolution render of the develop pipeline with retouch ops applied. */
+  rendered: RenderedImage;
+  /** Absent = use `AppSettings.finishAction`. */
+  action?: FinishAction;
+}
+
+/** Outcome of `export:photo`. */
+export interface ExportPhotoResult {
+  /** Absolute path of the exported JPEG. */
+  path: string;
+  /** Upload queue entries created, one per destination that needs an upload. */
+  uploads: UploadItem[];
+}
+
+/** Ingest options that are not tied to the set of sources. */
+export type IngestSettings = Omit<IngestConfig, 'sources'>;
+
+/** Persisted user settings. */
+export interface AppSettings {
+  ingest: IngestSettings;
+  finishAction: FinishAction;
+}
+
+/** Arguments of `dialog:pick`. */
+export interface PickPathArgs {
+  kind: 'file' | 'folder';
+  title?: string;
+  /** File name extensions without the dot, e.g. `['xmp']`. */
+  extensions?: string[];
+  multiple?: boolean;
+}
+
+// ---------------------------------------------------------------------------
+// The IPC map
+// ---------------------------------------------------------------------------
+
+/**
+ * Every request/response channel between renderer and the backend.
+ *
+ * Conventions:
+ * - Channel names are `<namespace>:<action>`. The namespace decides which
+ *   process serves the channel (see the routing table in `apps/desktop`).
+ * - Each channel takes at most one argument object and returns a Promise.
+ * - Failures reject with an {@link IpcError}; never resolve with an error value.
+ * - Binary data is passed as `Uint8Array`; large images are served over
+ *   `app://` instead (see `appUrl`).
+ *
+ * Adding a channel: add it here, add its name to {@link INVOKE_CHANNELS} (a
+ * type test fails if you forget), then implement it in exactly one handler.
+ */
+export interface IpcApi {
+  // --- system ---
+  'system:ping': (args: { message: string }) => Promise<PingResult>;
+  'system:info': () => Promise<SystemInfo>;
+
+  // --- photos (the index) ---
+  'photos:list': (args?: ListPhotosArgs) => Promise<Photo[]>;
+  'photos:get': (args: { photoId: PhotoId }) => Promise<Photo>;
+  'photos:createVersion': (args: CreateVersionArgs) => Promise<PhotoVersion>;
+
+  // --- ingest ---
+  /** Start ingesting every source in the config, in parallel. Returns one job per source. */
+  'ingest:start': (args: { config: IngestConfig }) => Promise<IngestJobInfo[]>;
+  /** Stop one source's run, or all runs when `sourceId` is omitted. Idempotent. */
+  'ingest:stop': (args?: { sourceId?: SourceId }) => Promise<void>;
+  'ingest:status': () => Promise<IngestJobInfo[]>;
+
+  // --- sources (CRUD of configured sources) ---
+  'sources:list': () => Promise<SourceConfig[]>;
+  /** Insert or update (matched by `id`). */
+  'sources:save': (args: { source: SourceConfig }) => Promise<SourceConfig>;
+  'sources:remove': (args: { sourceId: SourceId }) => Promise<void>;
+  'sources:test': (args: { source: SourceConfig }) => Promise<ConnectionTestResult>;
+  /** Removable volumes that look like camera cards. Platform specific. */
+  'sources:detectCards': () => Promise<DetectedCard[]>;
+
+  // --- destinations (CRUD of upload/export destinations) ---
+  'destinations:list': () => Promise<Destination[]>;
+  'destinations:save': (args: { destination: Destination }) => Promise<Destination>;
+  'destinations:remove': (args: { destinationId: DestinationId }) => Promise<void>;
+  'destinations:test': (args: { destination: Destination }) => Promise<ConnectionTestResult>;
+
+  // --- credentials (write-only from the renderer) ---
+  /** Store a secret via `safeStorage`; returns the `credentialRef` to put in a source/destination. */
+  'credentials:set': (args: { secret: CredentialSecret; ref?: string }) => Promise<{ ref: string }>;
+  'credentials:remove': (args: { ref: string }) => Promise<void>;
+
+  // --- metadata ---
+  'metadata:read': (args: { photoId: PhotoId }) => Promise<IptcFields>;
+  /** Write fields to the sidecar (raw) or file (JPEG); returns the updated photo. */
+  'metadata:write': (args: WriteMetadataArgs) => Promise<Photo>;
+  /** Parse a Photo Mechanic `.XMP` template without applying it. */
+  'metadata:readTemplate': (args: { path: string }) => Promise<IptcFields>;
+  'metadata:applyTemplate': (args: ApplyTemplateArgs) => Promise<ApplyTemplateResult>;
+  'metadata:expandCaption': (args: ExpandCaptionArgs) => Promise<ExpandCaptionResult>;
+
+  // --- develop ---
+  'develop:getParams': (args: VersionRef) => Promise<EditParams>;
+  /** Replaces the whole parameter set of the version. */
+  'develop:setParams': (args: VersionRef & { params: EditParams }) => Promise<void>;
+  'develop:listPresets': () => Promise<EditPreset[]>;
+  /** Parse a Lightroom/Camera Raw `.xmp` preset and remember it. */
+  'develop:importPreset': (args: { path: string }) => Promise<EditPreset>;
+
+  // --- retouch ---
+  'retouch:get': (args: VersionRef) => Promise<RetouchOp[]>;
+  /** Replaces the whole op list of the version. */
+  'retouch:set': (args: VersionRef & { ops: RetouchOp[] }) => Promise<void>;
+  'retouch:detectFaces': (args: DetectFacesArgs) => Promise<FaceDetection[]>;
+
+  // --- export ("Finish & next"; advancing to the next photo is the renderer's job) ---
+  'export:photo': (args: ExportPhotoArgs) => Promise<ExportPhotoResult>;
+
+  // --- upload queue ---
+  'upload:list': () => Promise<UploadItem[]>;
+  'upload:retry': (args: { uploadId: UploadId }) => Promise<void>;
+  'upload:cancel': (args: { uploadId: UploadId }) => Promise<void>;
+
+  // --- settings & dialogs (served by the main process) ---
+  'settings:get': () => Promise<AppSettings>;
+  /** Shallow-merges the given top-level keys; returns the result. */
+  'settings:set': (args: Partial<AppSettings>) => Promise<AppSettings>;
+  /** Native open dialog. Resolves with an empty array when cancelled. */
+  'dialog:pick': (args: PickPathArgs) => Promise<string[]>;
+}
+
+/** Push channels (backend → renderer): channel name → payload. */
+export interface IpcEvents {
+  'photos:added': Photo;
+  'photos:updated': Photo;
+  'jobs:event': JobEvent;
+}
+
+// ---------------------------------------------------------------------------
+// Channel registry (runtime) and derived helper types
+// ---------------------------------------------------------------------------
+
+/** Every request/response channel name. Must list exactly the keys of {@link IpcApi}. */
+export const INVOKE_CHANNELS = [
+  'system:ping',
+  'system:info',
+  'photos:list',
+  'photos:get',
+  'photos:createVersion',
+  'ingest:start',
+  'ingest:stop',
+  'ingest:status',
+  'sources:list',
+  'sources:save',
+  'sources:remove',
+  'sources:test',
+  'sources:detectCards',
+  'destinations:list',
+  'destinations:save',
+  'destinations:remove',
+  'destinations:test',
+  'credentials:set',
+  'credentials:remove',
+  'metadata:read',
+  'metadata:write',
+  'metadata:readTemplate',
+  'metadata:applyTemplate',
+  'metadata:expandCaption',
+  'develop:getParams',
+  'develop:setParams',
+  'develop:listPresets',
+  'develop:importPreset',
+  'retouch:get',
+  'retouch:set',
+  'retouch:detectFaces',
+  'export:photo',
+  'upload:list',
+  'upload:retry',
+  'upload:cancel',
+  'settings:get',
+  'settings:set',
+  'dialog:pick',
+] as const satisfies readonly (keyof IpcApi)[];
+
+/** Every push channel name. Must list exactly the keys of {@link IpcEvents}. */
+export const EVENT_CHANNELS = [
+  'photos:added',
+  'photos:updated',
+  'jobs:event',
+] as const satisfies readonly (keyof IpcEvents)[];
+
+/** Name of a request/response channel. */
+export type InvokeChannel = keyof IpcApi;
+/** Name of a push channel. */
+export type EventChannel = keyof IpcEvents;
+
+/** Parameter list of a channel: `[]`, `[args]` or `[args?]`. Spread it into `invoke`. */
+export type ArgsOf<C extends InvokeChannel> = Parameters<IpcApi[C]>;
+/** Resolved value of a channel. */
+export type ResultOf<C extends InvokeChannel> = Awaited<ReturnType<IpcApi[C]>>;
+/** Payload of a push channel. */
+export type EventPayload<E extends EventChannel> = IpcEvents[E];
+
+/** Namespace part of a channel name (`'photos'` for `'photos:list'`). */
+export type IpcNamespace = InvokeChannel extends infer C
+  ? C extends `${infer N}:${string}`
+    ? N
+    : never
+  : never;
+/** Channels of one namespace. */
+export type NamespaceChannels<N extends IpcNamespace> = Extract<InvokeChannel, `${N}:${string}`>;
+
+/**
+ * Handler implementations for a set of channels. The full set of handlers is
+ * `IpcHandlers`; split by namespace with `NamespaceHandlers<'photos'>` so each
+ * module implements (and is type-checked against) only its own channels.
+ */
+export type IpcHandlers = { [C in InvokeChannel]: IpcApi[C] };
+/** Handlers for one namespace. */
+export type NamespaceHandlers<N extends IpcNamespace> = Pick<IpcApi, NamespaceChannels<N>>;
+
+/** Namespace of a channel name at runtime. */
+export function channelNamespace(channel: InvokeChannel): IpcNamespace {
+  return channel.slice(0, channel.indexOf(':')) as IpcNamespace;
+}
+
+// ---------------------------------------------------------------------------
+// Errors and the wire envelope
+// ---------------------------------------------------------------------------
+
+/** Machine-readable failure classes. */
+export type IpcErrorCode =
+  | 'not_implemented'
+  | 'not_found'
+  | 'invalid_argument'
+  | 'cancelled'
+  | 'io'
+  | 'network'
+  | 'auth'
+  | 'internal';
+
+/** Serializable form of an {@link IpcError}; this is what crosses process boundaries. */
+export interface IpcErrorShape {
+  code: IpcErrorCode;
+  message: string;
+}
+
+/** Typed error thrown by handlers and rethrown on the renderer side of a failed invoke. */
+export class IpcError extends Error {
+  readonly code: IpcErrorCode;
+
+  constructor(code: IpcErrorCode, message: string, options?: ErrorOptions) {
+    super(message, options);
+    this.name = 'IpcError';
+    this.code = code;
+  }
+
+  toShape(): IpcErrorShape {
+    return { code: this.code, message: this.message };
+  }
+}
+
+/**
+ * Envelope used on the wire. Electron flattens errors thrown inside
+ * `ipcMain.handle` to a message string, so handlers' failures travel as data
+ * and the preload bridge turns them back into {@link IpcError}s.
+ */
+export type IpcResult<T> = { ok: true; value: T } | { ok: false; error: IpcErrorShape };
+
+/** Run a handler and capture its outcome (or its error) as an {@link IpcResult}. */
+export async function toIpcResult<T>(run: () => Promise<T>): Promise<IpcResult<T>> {
+  try {
+    return { ok: true, value: await run() };
+  } catch (error) {
+    if (error instanceof IpcError) return { ok: false, error: error.toShape() };
+    const message = error instanceof Error ? error.message : String(error);
+    return { ok: false, error: { code: 'internal', message } };
+  }
+}
+
+/** Turn an {@link IpcResult} back into a value, or throw the {@link IpcError}. */
+export function unwrapIpcResult<T>(result: IpcResult<T>): T {
+  if (result.ok) return result.value;
+  throw new IpcError(result.error.code, result.error.message);
+}
+
+/** A handler for a channel that is declared but not built yet. Rejects `not_implemented`. */
+export function notImplemented(channel: InvokeChannel): () => Promise<never> {
+  return () => Promise.reject(new IpcError('not_implemented', `${channel} is not implemented yet`));
+}
+
+// ---------------------------------------------------------------------------
+// Preload bridge
+// ---------------------------------------------------------------------------
+
+/** Stops a subscription. */
+export type Unsubscribe = () => void;
+
+/** The typed API the preload script exposes as `window.ee`. */
+export interface EeBridge {
+  /** Call a backend channel. Rejects with {@link IpcError}. */
+  invoke<C extends InvokeChannel>(channel: C, ...args: ArgsOf<C>): Promise<ResultOf<C>>;
+  /** Subscribe to a push channel. */
+  on<E extends EventChannel>(channel: E, listener: (payload: EventPayload<E>) => void): Unsubscribe;
+}
+
+/**
+ * The untyped transport underneath the bridge. In Electron this is a thin
+ * wrapper over `ipcRenderer.invoke` / `ipcRenderer.on`; in tests it can be an
+ * in-memory fake.
+ */
+export interface BridgeTransport {
+  invoke(channel: InvokeChannel, args: unknown[]): Promise<IpcResult<unknown>>;
+  subscribe(channel: EventChannel, listener: (payload: unknown) => void): Unsubscribe;
+}
+
+/** Build the typed {@link EeBridge} on top of a {@link BridgeTransport}. */
+export function createBridge(transport: BridgeTransport): EeBridge {
+  return {
+    async invoke(channel, ...args) {
+      const result = await transport.invoke(channel, args);
+      return unwrapIpcResult(result) as never;
+    },
+    on(channel, listener) {
+      return transport.subscribe(channel, (payload) => listener(payload as never));
+    },
+  };
+}
