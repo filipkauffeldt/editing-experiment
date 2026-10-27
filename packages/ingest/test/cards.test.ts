@@ -1,6 +1,8 @@
-import { posix, win32 } from 'node:path';
-import { describe, expect, it } from 'vitest';
+import { mkdir, writeFile } from 'node:fs/promises';
+import { join, posix, win32 } from 'node:path';
+import { afterEach, describe, expect, it } from 'vitest';
 import { detectCards, type CardEntry, type CardFileSystem } from '../src/cards';
+import { cleanupTempDirs, makeTempDir } from './helpers/temp';
 
 class FakeCardFs implements CardFileSystem {
   readonly #directories = new Set<string>();
@@ -53,7 +55,21 @@ function addVolume(
   return mount;
 }
 
+afterEach(cleanupTempDirs);
+
 describe('detectCards', () => {
+  it('finds a card on a real Linux mount root', async () => {
+    const parent = await makeTempDir();
+    const card = join(parent, 'NIKON_Z9');
+    const folder = join(card, 'DCIM', '100NCZ');
+    await mkdir(folder, { recursive: true });
+    await writeFile(join(folder, '_DSC9.NEF'), 'raw');
+
+    const cards = await detectCards({ platform: 'linux', mountRoots: [parent] });
+
+    expect(cards).toEqual([{ mountPath: card, volumeLabel: 'NIKON_Z9', imageCount: 1 }]);
+  });
+
   it('finds Linux volumes with a DCIM folder', async () => {
     const fs = new FakeCardFs();
     fs.addDirectory('/media/filip', '/', 'filip');

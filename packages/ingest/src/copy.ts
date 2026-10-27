@@ -105,6 +105,7 @@ async function copyVerifiedToFinal(
         `Hash mismatch while copying ${basename(source)}: source ${outcome.sourceHash}, destination ${outcome.destinationHash}`,
       );
     }
+    let copied = false;
     try {
       await link(tempPath, finalPath);
     } catch (error) {
@@ -118,6 +119,7 @@ async function copyVerifiedToFinal(
       if (code === 'EPERM' || code === 'ENOTSUP' || code === 'EOPNOTSUPP' || code === 'EXDEV') {
         try {
           await copyFile(tempPath, finalPath, constants.COPYFILE_EXCL);
+          copied = true;
         } catch (copyError) {
           if ((copyError as NodeJS.ErrnoException).code === 'EEXIST') {
             throw new CollisionError(`Destination already exists: ${finalPath}`);
@@ -126,6 +128,12 @@ async function copyVerifiedToFinal(
         }
       } else {
         throw error;
+      }
+    }
+    if (copied) {
+      const finalHash = await hashFile(finalPath, signal);
+      if (finalHash !== outcome.destinationHash) {
+        throw new VerificationError(`Hash mismatch after copying to ${finalPath}`);
       }
     }
     const info = await stat(finalPath);
