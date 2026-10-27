@@ -6,6 +6,8 @@ target/
 .turbo/
 coverage/
 fixtures/raw/
+fixtures/models/
+fixtures/retouch/
 screenshots/
 test-results/
 playwright-report/

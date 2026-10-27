@@ -43,6 +43,17 @@ jobs:
 
       - run: pnpm fetch-fixtures
 
+      # YuNet model and the public-domain face-detection photos. Small, but
+      # cached so a PR does not depend on Wikimedia/GitHub availability.
+      - uses: actions/cache@v6
+        with:
+          path: |
+            fixtures/models
+            fixtures/retouch
+          key: fixtures-retouch-${{ hashFiles('scripts/fetch-retouch.ts') }}
+
+      - run: pnpm fetch-retouch
+
       - name: Lint
         run: pnpm lint
 
