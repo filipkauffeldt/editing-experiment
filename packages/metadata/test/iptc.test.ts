@@ -165,9 +165,12 @@ describe('IPTC read/write', () => {
     });
   });
 
-  it('handles the user’s Nikon Z 6 files from EE_SAMPLE_NEF_DIR', async () => {
+  it('handles the user’s Nikon Z 6 files from EE_SAMPLE_NEF_DIR', async ({ skip }) => {
     const sample = await sampleNefPath();
-    if (sample === undefined) return; // skipped cleanly when unset
+    if (sample === undefined) {
+      skip();
+      return;
+    }
 
     const dir = await makeTempDir();
     const nef = join(dir, basename(sample));
