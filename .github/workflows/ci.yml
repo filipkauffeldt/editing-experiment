@@ -34,6 +34,15 @@ jobs:
 
       - run: pnpm install --frozen-lockfile
 
+      # CC0 Nikon NEF samples used by the raw core tests (about 90 MB). The
+      # cache key follows the fixture list, so changing it refetches.
+      - uses: actions/cache@v6
+        with:
+          path: fixtures/raw
+          key: fixtures-raw-${{ hashFiles('scripts/fetch-fixtures.ts') }}
+
+      - run: pnpm fetch-fixtures
+
       - name: Lint
         run: pnpm lint
 
@@ -45,6 +54,10 @@ jobs:
           cargo fmt --check
           cargo clippy --all-targets -- -D warnings
           cargo test
+
+      # The develop-gl WebGL parity tests run in headless Chromium (software GL via SwiftShader).
+      - name: Install Playwright Chromium
+        run: pnpm --filter @ee/develop-gl exec playwright install --with-deps chromium
 
       # Builds the native addon first (see root package.json), then runs vitest.
       - name: Test

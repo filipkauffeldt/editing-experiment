@@ -15,6 +15,7 @@ pnpm lint && pnpm typecheck && pnpm test
 cargo fmt --check && cargo clippy --all-targets -- -D warnings && cargo test
 pnpm screenshot          # builds, launches the app with mock data, writes screenshots/*.png
 pnpm fetch-fixtures      # CC0 Nikon NEF samples into fixtures/raw/ (gitignored)
+EE_SAMPLE_NEF_DIR=~/nefs pnpm test   # optionally also run the raw tests on your own NEFs
 ```
 
 | Path                 | What                                                          |
@@ -29,8 +30,9 @@ pnpm fetch-fixtures      # CC0 Nikon NEF samples into fixtures/raw/ (gitignored)
 Needed on the development machine (the repo itself never installs system packages):
 
 - **Node 24** and **pnpm** (the version is pinned by `packageManager` in `package.json`).
-- **Rust stable** via rustup (edition 2024), plus a C/C++ toolchain (`gcc`, `g++`; `clang`/`cmake`/`pkg-config` for the LibRaw build later).
+- **Rust stable** via rustup (edition 2024), plus a C/C++ compiler (`gcc`/`g++` or `clang`; MSVC on Windows). LibRaw is vendored in `crates/core/vendor/libraw` and compiled by `build.rs`, so no LibRaw, cmake or pkg-config install is needed.
 - **Electron runtime libraries.** On Debian/Ubuntu: `sudo apt install libgtk-3-0t64 libpango-1.0-0` (older releases call the first package `libgtk-3-0`).
+- **Chromium for Playwright** (WebGL parity tests of `packages/develop-gl` run in headless Chromium with software GL, no GPU needed): `pnpm --filter @ee/develop-gl exec playwright install chromium` (add `--with-deps` on a fresh Linux box; that part needs sudo).
 - **Xvfb** for headless runs on a machine without a display (`pnpm screenshot`, Playwright e2e): `sudo apt install xvfb xauth`. `pnpm screenshot` re-runs itself under `xvfb-run` when `DISPLAY` is unset.
 
 ### Running Electron on Ubuntu 24.04: `--no-sandbox` (dev and tests only)
