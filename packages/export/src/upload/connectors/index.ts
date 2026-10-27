@@ -42,11 +42,19 @@ export async function getDestinationSecret(
 export async function testDestination(
   destination: Destination,
   hooks?: ExportHooks,
+  connectorFactory: ConnectorFactory = createConnector,
 ): Promise<DestinationTestResult> {
   let secret: CredentialSecret = {};
   try {
     secret = await getDestinationSecret(destination, hooks);
-    return await createConnector(destination).test(secret);
+    const result = await connectorFactory(destination).test(secret);
+    if (result.ok || result.message === undefined) return result;
+    return {
+      ...result,
+      message: safeErrorMessage(result.message, secret, [
+        destination.kind === 'folder' ? undefined : destination.username,
+      ]),
+    };
   } catch (error) {
     return {
       ok: false,

@@ -11,6 +11,7 @@ import {
   redactSecrets,
   resolveFolderDestinationPath,
   testDestination,
+  type ConnectorFactory,
 } from '../src/index';
 
 describe('destination paths', () => {
@@ -111,6 +112,34 @@ describe('destination paths', () => {
     });
     expect(result.ok).toBe(false);
     expect(result.message).toContain('credential provider');
+  });
+
+  it('redacts secrets from ok:false connection test messages', async () => {
+    const marker = 'test-message-secret';
+    const factory: ConnectorFactory = () => ({
+      async upload(): Promise<void> {},
+      async test() {
+        return { ok: false, message: `login failed for ${marker}` };
+      },
+    });
+    const result = await testDestination(
+      {
+        id: asDestinationId('dest-redact'),
+        name: 'Remote',
+        kind: 'ftp',
+        host: '127.0.0.1',
+        port: 21,
+        username: 'photo',
+        credentialRef: 'cred',
+        security: 'none',
+        remotePathTemplate: '{fileName}',
+      },
+      { getSecret: async () => ({ password: marker }) },
+      factory,
+    );
+    expect(result.ok).toBe(false);
+    expect(result.message).toContain('[redacted]');
+    expect(result.message ?? '').not.toContain(marker);
   });
 
   it('redacts credential material', () => {

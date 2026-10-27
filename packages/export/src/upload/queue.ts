@@ -199,7 +199,7 @@ export class UploadQueue {
 
   /** Probes a destination, scrubbing credentials from failures. */
   testDestination(destination: Destination): Promise<DestinationTestResult> {
-    return probeDestination(destination, this.hooks);
+    return probeDestination(destination, this.hooks, this.connectorFactory);
   }
 
   /** Resolves when no queued or uploading rows remain. */
