@@ -1,0 +1,17 @@
+[package]
+name = "ee-core"
+description = "Native core of editing-experiment: raw decode and previews, exposed to Node via napi-rs."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+napi = { version = "3", default-features = false, features = ["napi9"] }
+napi-derive = "3"
+
+[build-dependencies]
+napi-build = "2"

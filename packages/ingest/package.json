@@ -1,0 +1,18 @@
+{
+  "name": "@ee/ingest",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Ingest sources (folder/card, FTP/SFTP poller), copy workers, rename, verify.",
+  "license": "GPL-3.0-or-later",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@ee/contracts": "workspace:*"
+  }
+}

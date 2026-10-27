@@ -1,0 +1,89 @@
+.bar {
+  display: flex;
+  align-items: stretch;
+  gap: 12px;
+  padding: 8px 12px;
+  background: var(--panel);
+  border-top: 1px solid var(--border);
+}
+
+.strips {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+
+.filters {
+  display: flex;
+  gap: 6px;
+}
+
+.filter {
+  padding: 2px 10px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: transparent;
+  color: var(--text-dim);
+  cursor: default;
+}
+
+.filterActive {
+  border-color: var(--accent);
+  color: var(--text);
+}
+
+.film {
+  display: flex;
+  gap: 6px;
+  overflow-x: auto;
+  padding-bottom: 4px;
+}
+
+.thumb {
+  position: relative;
+  flex: none;
+  padding: 0;
+  border: 2px solid transparent;
+  border-radius: 3px;
+  background: none;
+  cursor: pointer;
+}
+
+.thumbSelected {
+  border-color: var(--accent);
+}
+
+.thumb img {
+  display: block;
+  width: 120px;
+  height: 80px;
+  object-fit: cover;
+}
+
+.badges {
+  position: absolute;
+  right: 3px;
+  bottom: 3px;
+  display: flex;
+  gap: 3px;
+}
+
+.badge {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+}
+
+.finish {
+  align-self: flex-end;
+  padding: 12px 22px;
+  border: 0;
+  border-radius: 4px;
+  background: var(--accent);
+  color: #0b1a2b;
+  font-size: 14px;
+  font-weight: 700;
+  cursor: pointer;
+}

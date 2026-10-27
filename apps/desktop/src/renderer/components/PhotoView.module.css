@@ -1,0 +1,20 @@
+.view {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 0;
+  min-height: 0;
+  padding: 16px;
+  background: #101011;
+}
+
+.image {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+  box-shadow: 0 4px 24px rgb(0 0 0 / 0.5);
+}
+
+.empty {
+  color: var(--text-dim);
+}
