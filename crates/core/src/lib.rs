@@ -1,7 +1,9 @@
 //! Native core of editing-experiment: raw decode and previews on top of a
 //! vendored LibRaw, exposed to Node via napi-rs.
 
+pub mod error;
 pub mod ffi;
+pub mod libraw;
 
 use napi_derive::napi;
 
