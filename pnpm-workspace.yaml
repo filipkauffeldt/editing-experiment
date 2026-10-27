@@ -3,8 +3,13 @@ packages:
   - packages/*
   - crates/*
 
-# Electron, esbuild and the napi CLI ship install scripts that download or
-# unpack binaries; everything else stays blocked.
-onlyBuiltDependencies:
-  - electron
-  - esbuild
+# Only these dependencies may run install scripts (electron downloads its binary,
+# esbuild unpacks a platform binary); everything else stays blocked.
+allowBuilds:
+  electron: true
+  esbuild: true
+
+# pnpm refuses very fresh releases by default; electron 45.1.0 was pinned before
+# the cool-down elapsed.
+minimumReleaseAgeExclude:
+  - electron@45.1.0

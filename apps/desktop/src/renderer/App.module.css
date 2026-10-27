@@ -1,0 +1,26 @@
+.app {
+  display: grid;
+  height: 100%;
+  grid-template-columns: 300px minmax(0, 1fr) 280px;
+  grid-template-rows: 30px minmax(0, 1fr) auto;
+  grid-template-areas:
+    'status status status'
+    'meta photo develop'
+    'bottom bottom bottom';
+}
+
+.status {
+  grid-area: status;
+}
+.meta {
+  grid-area: meta;
+}
+.photo {
+  grid-area: photo;
+}
+.develop {
+  grid-area: develop;
+}
+.bottom {
+  grid-area: bottom;
+}

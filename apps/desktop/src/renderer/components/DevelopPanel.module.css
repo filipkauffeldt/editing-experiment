@@ -1,0 +1,25 @@
+.presets {
+  margin-bottom: 16px;
+  padding: 10px;
+  border: 1px dashed var(--border);
+  border-radius: 3px;
+  color: var(--text-dim);
+}
+
+.slider {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 2px 8px;
+  margin-bottom: 10px;
+}
+
+.slider input {
+  grid-column: 1 / -1;
+  width: 100%;
+  accent-color: var(--accent);
+}
+
+.value {
+  color: var(--text-dim);
+  font-variant-numeric: tabular-nums;
+}
