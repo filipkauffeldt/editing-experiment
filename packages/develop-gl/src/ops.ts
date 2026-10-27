@@ -133,7 +133,12 @@ export function shoulder(x: number): number {
 }
 
 /** Looks up a tone curve table (`size` values in 0..1) at encoded value `e` with linear interpolation. */
-export function lookupCurve(table: ArrayLike<number>, offset: number, stride: number, e: number): number {
+export function lookupCurve(
+  table: ArrayLike<number>,
+  offset: number,
+  stride: number,
+  e: number,
+): number {
   const size = Math.floor(table.length / stride);
   const p = clamp(e, 0, 1) * (size - 1);
   const i0 = Math.min(Math.floor(p), size - 2);

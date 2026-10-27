@@ -18,7 +18,17 @@ export function developPixel(
   b: number,
   u: DevelopUniforms,
 ): [number, number, number] {
-  const m = u.colorMatrix as [number, number, number, number, number, number, number, number, number];
+  const m = u.colorMatrix as [
+    number,
+    number,
+    number,
+    number,
+    number,
+    number,
+    number,
+    number,
+    number,
+  ];
   const k = u.exposureGain;
   let lr = (m[0] * r + m[1] * g + m[2] * b) * k;
   let lg = (m[3] * r + m[4] * g + m[5] * b) * k;
@@ -85,9 +95,12 @@ export function renderCpuFloat(
         const xa = Math.min(sw - 1, Math.max(0, x0));
         const xb = Math.min(sw - 1, Math.max(0, x0 + 1));
         for (let c = 0; c < 3; c++) {
-          const top = (samples[(ya * sw + xa) * 4 + c] ?? 0) * (1 - wx) + (samples[(ya * sw + xb) * 4 + c] ?? 0) * wx;
+          const top =
+            (samples[(ya * sw + xa) * 4 + c] ?? 0) * (1 - wx) +
+            (samples[(ya * sw + xb) * 4 + c] ?? 0) * wx;
           const bottom =
-            (samples[(yb * sw + xa) * 4 + c] ?? 0) * (1 - wx) + (samples[(yb * sw + xb) * 4 + c] ?? 0) * wx;
+            (samples[(yb * sw + xa) * 4 + c] ?? 0) * (1 - wx) +
+            (samples[(yb * sw + xb) * 4 + c] ?? 0) * wx;
           px[c] = top * (1 - wy) + bottom * wy;
         }
       }
@@ -114,4 +127,3 @@ export function renderCpu(
   for (let i = 0; i < f.length; i++) out[i] = Math.round(clamp01(f[i] ?? 0) * 255);
   return out;
 }
-

@@ -1,7 +1,12 @@
 import type { EditParams, LinearImageHeader, WhiteBalanceMode } from '@ee/contracts';
 import { SLIDER_SPECS } from '@ee/contracts';
 import { invert, mulMatVec, type Mat3 } from '../mat3';
-import { temperatureTintToXY, xyToTemperatureTint, type TemperatureTint, type XY } from './temperature';
+import {
+  temperatureTintToXY,
+  xyToTemperatureTint,
+  type TemperatureTint,
+  type XY,
+} from './temperature';
 
 export { temperatureTintToXY, xyToTemperatureTint } from './temperature';
 export type { TemperatureTint, XY } from './temperature';
@@ -28,9 +33,7 @@ export interface ResolvedWhiteBalance extends TemperatureTint {
  * (Adobe's generic values; Lightroom itself refines them per camera).
  * `As Shot`, `Auto` and `Custom` are not fixed and are absent here.
  */
-export const WHITE_BALANCE_PRESETS: Readonly<
-  Partial<Record<WhiteBalanceMode, TemperatureTint>>
-> = {
+export const WHITE_BALANCE_PRESETS: Readonly<Partial<Record<WhiteBalanceMode, TemperatureTint>>> = {
   Daylight: { temperature: 5500, tint: 10 },
   Cloudy: { temperature: 6500, tint: 10 },
   Shade: { temperature: 7500, tint: 10 },
@@ -41,7 +44,8 @@ export const WHITE_BALANCE_PRESETS: Readonly<
 
 /** XYZ (D65) to linear sRGB; stands in for cameras that ship no usable matrix. */
 const XYZ_TO_SRGB: readonly number[] = [
-  3.2404542, -1.5371385, -0.4985314, -0.969266, 1.8760108, 0.041556, 0.0556434, -0.2040259, 1.0572252,
+  3.2404542, -1.5371385, -0.4985314, -0.969266, 1.8760108, 0.041556, 0.0556434, -0.2040259,
+  1.0572252,
 ];
 
 function usableMatrix(m: readonly number[]): Mat3 {

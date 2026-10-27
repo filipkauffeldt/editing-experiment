@@ -3,7 +3,9 @@ import { floatToHalf, halfToFloat } from '../src/image';
 import { multipliersFromTemperatureTint } from '../src/wb';
 
 /** Nikon Z 6 colour matrix (Adobe ColorMatrix2, D65), the kind of matrix LibRaw reports as `cam_xyz`. */
-export const Z6_XYZ_TO_CAMERA = [0.821, -0.2534, -0.0683, -0.5355, 1.3338, 0.2212, -0.1143, 0.193, 0.6464];
+export const Z6_XYZ_TO_CAMERA = [
+  0.821, -0.2534, -0.0683, -0.5355, 1.3338, 0.2212, -0.1143, 0.193, 0.6464,
+];
 
 /** Z 6-like camera -> sRGB matrix (rows sum to 1 so camera white after WB is sRGB white). */
 export const Z6_CAMERA_TO_SRGB = [1.7, -0.5, -0.2, -0.2, 1.4, -0.2, 0.05, -0.55, 1.5];
@@ -40,7 +42,10 @@ export function rng(seed: number): () => number {
  * as-shot multipliers have to be applied by the pipeline): a luminance ramp with
  * superwhites, coloured patches and noise-like detail. Values are exact half floats.
  */
-export function makeChart(width: number, height: number): { header: LinearImageHeader; data: Uint16Array; samples: Float32Array } {
+export function makeChart(
+  width: number,
+  height: number,
+): { header: LinearImageHeader; data: Uint16Array; samples: Float32Array } {
   const header = makeHeader(width, height, 'f16');
   const m = header.asShotMultipliers;
   const rand = rng(7);
@@ -65,7 +70,11 @@ export function makeChart(width: number, height: number): { header: LinearImageH
           return Math.min(1, Math.max(0, t));
         };
         const base = 0.35;
-        rgb = [base * (1 - sat + sat * k(0)) / m.r, base * (1 - sat + sat * k(4)) / m.g, base * (1 - sat + sat * k(2)) / m.b];
+        rgb = [
+          (base * (1 - sat + sat * k(0))) / m.r,
+          (base * (1 - sat + sat * k(4))) / m.g,
+          (base * (1 - sat + sat * k(2))) / m.b,
+        ];
       }
       const noise = 1 + (rand() - 0.5) * 0.05;
       for (let c = 0; c < 3; c++) {

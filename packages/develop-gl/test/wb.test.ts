@@ -12,12 +12,15 @@ import {
 } from '../src/wb';
 import { Z6_XYZ_TO_CAMERA } from './support';
 
-
 const D65_XY = { x: 0.3127, y: 0.329 };
 const D50_XY = { x: 0.3457, y: 0.3585 };
 
 /** A camera whose as-shot white balance is exactly the neutral of `temperature`/`tint`. */
-function cameraShotAt(temperature: number, tint = 0, xyzToCamera = Z6_XYZ_TO_CAMERA): WhiteBalanceCamera {
+function cameraShotAt(
+  temperature: number,
+  tint = 0,
+  xyzToCamera = Z6_XYZ_TO_CAMERA,
+): WhiteBalanceCamera {
   return {
     xyzToCamera,
     asShotMultipliers: multipliersFromTemperatureTint(xyzToCamera, temperature, tint),
@@ -118,7 +121,9 @@ describe('white balance multipliers', () => {
   it('resolves named white balances to their fixed values unless overridden', () => {
     const camera = cameraShotAt(4300);
     for (const [mode, expected] of Object.entries(WHITE_BALANCE_PRESETS)) {
-      const wb = resolveWhiteBalance(camera, { WhiteBalance: mode as keyof typeof WHITE_BALANCE_PRESETS });
+      const wb = resolveWhiteBalance(camera, {
+        WhiteBalance: mode as keyof typeof WHITE_BALANCE_PRESETS,
+      });
       expect(wb.temperature).toBe(expected.temperature);
       expect(wb.tint).toBe(expected.tint);
     }

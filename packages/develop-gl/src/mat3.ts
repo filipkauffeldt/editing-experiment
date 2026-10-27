@@ -4,8 +4,22 @@ export type Vec3 = readonly [number, number, number];
 export type Mat3 = readonly number[];
 
 export function mulMatVec(m: Mat3, v: Vec3): [number, number, number] {
-  const [a, b, c, d, e, f, g, h, i] = m as [number, number, number, number, number, number, number, number, number];
-  return [a * v[0] + b * v[1] + c * v[2], d * v[0] + e * v[1] + f * v[2], g * v[0] + h * v[1] + i * v[2]];
+  const [a, b, c, d, e, f, g, h, i] = m as [
+    number,
+    number,
+    number,
+    number,
+    number,
+    number,
+    number,
+    number,
+    number,
+  ];
+  return [
+    a * v[0] + b * v[1] + c * v[2],
+    d * v[0] + e * v[1] + f * v[2],
+    g * v[0] + h * v[1] + i * v[2],
+  ];
 }
 
 export function mulMat(a: Mat3, b: Mat3): number[] {
@@ -22,7 +36,17 @@ export function mulMat(a: Mat3, b: Mat3): number[] {
 
 /** Inverse of a 3x3 matrix; throws on a singular matrix. */
 export function invert(m: Mat3): number[] {
-  const [a, b, c, d, e, f, g, h, i] = m as [number, number, number, number, number, number, number, number, number];
+  const [a, b, c, d, e, f, g, h, i] = m as [
+    number,
+    number,
+    number,
+    number,
+    number,
+    number,
+    number,
+    number,
+    number,
+  ];
   const A = e * i - f * h;
   const B = -(d * i - f * g);
   const C = d * h - e * g;

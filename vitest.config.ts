@@ -4,6 +4,12 @@ import { defineConfig } from 'vitest/config';
 // vitest.config.ts; packages without one run with defaults.
 export default defineConfig({
   test: {
-    projects: ['packages/*', 'apps/*', 'crates/*'],
+    projects: [
+      'packages/*',
+      'apps/*',
+      'crates/*',
+      // WebGL parity tests need a real browser, so they are a second project of the same package.
+      'packages/develop-gl/vitest.browser.config.ts',
+    ],
   },
 });

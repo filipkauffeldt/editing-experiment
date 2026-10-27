@@ -29,13 +29,20 @@ describe('half float helpers', () => {
 
   it('reads f16 and f32 buffers, including unaligned views, and rejects wrong sizes', () => {
     const h16 = makeHeader(1, 1, 'f16');
-    const half = new Uint16Array([floatToHalf(0.25), floatToHalf(0.5), floatToHalf(1), floatToHalf(1)]);
+    const half = new Uint16Array([
+      floatToHalf(0.25),
+      floatToHalf(0.5),
+      floatToHalf(1),
+      floatToHalf(1),
+    ]);
     expect(Array.from(toFloat32Samples(h16, half))).toEqual([0.25, 0.5, 1, 1]);
     const padded = new Uint8Array(half.byteLength + 1);
     padded.set(new Uint8Array(half.buffer), 1);
     expect(Array.from(toFloat32Samples(h16, padded.subarray(1)))).toEqual([0.25, 0.5, 1, 1]);
     const h32 = makeHeader(1, 1, 'f32');
-    expect(Array.from(toFloat32Samples(h32, new Float32Array([1, 2, 3, 1]).buffer))).toEqual([1, 2, 3, 1]);
+    expect(Array.from(toFloat32Samples(h32, new Float32Array([1, 2, 3, 1]).buffer))).toEqual([
+      1, 2, 3, 1,
+    ]);
     expect(() => toFloat32Samples(h32, new Float32Array(3))).toThrow(/expected 16/);
   });
 });
@@ -67,12 +74,22 @@ describe('develop pixel', () => {
   });
 
   it('applies tone curves: master, then per channel', () => {
-    const invert: EditParams = { ToneCurvePV2012: [[0, 255], [255, 0]] };
+    const invert: EditParams = {
+      ToneCurvePV2012: [
+        [0, 255],
+        [255, 0],
+      ],
+    };
     const [r, g, b] = pixel([0.18, 0.18, 0.18], invert);
     expect(r).toBeCloseTo(1 - srgbEncode(0.18), 3);
     expect(g).toBeCloseTo(r, 9);
     expect(b).toBeCloseTo(r, 9);
-    const [r2, g2] = pixel([0.18, 0.18, 0.18], { ToneCurvePV2012Red: [[0, 0], [255, 128]] });
+    const [r2, g2] = pixel([0.18, 0.18, 0.18], {
+      ToneCurvePV2012Red: [
+        [0, 0],
+        [255, 128],
+      ],
+    });
     expect(r2).toBeCloseTo(srgbEncode(0.18) / 2, 2);
     expect(g2).toBeCloseTo(srgbEncode(0.18), 6); // the table is float32
   });
@@ -87,18 +104,28 @@ describe('develop pixel', () => {
   });
 
   it('clamps slider values to their ranges', () => {
-    expect(pixel([0.1, 0.1, 0.1], { Exposure2012: 99 })).toEqual(pixel([0.1, 0.1, 0.1], { Exposure2012: 5 }));
-    expect(pixel([0.4, 0.2, 0.1], { Saturation: -500 })).toEqual(pixel([0.4, 0.2, 0.1], { Saturation: -100 }));
+    expect(pixel([0.1, 0.1, 0.1], { Exposure2012: 99 })).toEqual(
+      pixel([0.1, 0.1, 0.1], { Exposure2012: 5 }),
+    );
+    expect(pixel([0.4, 0.2, 0.1], { Saturation: -500 })).toEqual(
+      pixel([0.4, 0.2, 0.1], { Saturation: -100 }),
+    );
   });
 
   it('applies white balance before the colour matrix', () => {
-    const header: LinearImageHeader = { ...identityHeader(), asShotMultipliers: { r: 2, g: 1, b: 1.5 } };
+    const header: LinearImageHeader = {
+      ...identityHeader(),
+      asShotMultipliers: { r: 2, g: 1, b: 1.5 },
+    };
     const camera: [number, number, number] = [0.1, 0.2, 0.2 / 1.5];
     const [r, g, b] = developPixel(...camera, resolveUniforms(header, {}));
     expect(r).toBeCloseTo(g, 9);
     expect(b).toBeCloseTo(g, 9);
     // Overriding the temperature changes the gains, so the neutral stops being neutral.
-    const warm = developPixel(...camera, resolveUniforms(makeHeader(1, 1, 'f32'), { Temperature: 3000 }));
+    const warm = developPixel(
+      ...camera,
+      resolveUniforms(makeHeader(1, 1, 'f32'), { Temperature: 3000 }),
+    );
     expect(warm[0]).not.toBeCloseTo(warm[2], 2);
   });
 });

@@ -102,7 +102,10 @@ export function isIdentityCurve(points: readonly ToneCurvePoint[] | undefined): 
 }
 
 /** Samples a curve into `size` values in 0..1 over input 0..1. */
-export function sampleCurve(points: readonly ToneCurvePoint[] | undefined, size: number): Float32Array {
+export function sampleCurve(
+  points: readonly ToneCurvePoint[] | undefined,
+  size: number,
+): Float32Array {
   const spline = createMonotoneSpline(points ?? []);
   const out = new Float32Array(size);
   for (let i = 0; i < size; i++) {

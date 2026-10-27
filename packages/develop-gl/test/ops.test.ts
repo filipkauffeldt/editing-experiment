@@ -14,16 +14,24 @@ import {
   type ToneParams,
 } from '../src/ops';
 
-const NEUTRAL_TONE: ToneParams = { contrastGamma: 1, highlights: 0, shadows: 0, whites: 0, blacks: 0 };
+const NEUTRAL_TONE: ToneParams = {
+  contrastGamma: 1,
+  highlights: 0,
+  shadows: 0,
+  whites: 0,
+  blacks: 0,
+};
 const MID = srgbEncode(0.18);
-const grid = (n: number, max: number): number[] => Array.from({ length: n + 1 }, (_, i) => (i / n) * max);
+const grid = (n: number, max: number): number[] =>
+  Array.from({ length: n + 1 }, (_, i) => (i / n) * max);
 
 describe('sRGB transfer', () => {
   it('encodes known values and round-trips', () => {
     expect(srgbEncode(0)).toBe(0);
     expect(srgbEncode(1)).toBeCloseTo(1, 6);
     expect(srgbEncode(0.18)).toBeCloseTo(0.4614, 3);
-    for (const x of [0.001, 0.02, 0.18, 0.5, 1, 3]) expect(srgbDecode(srgbEncode(x))).toBeCloseTo(x, 6);
+    for (const x of [0.001, 0.02, 0.18, 0.5, 1, 3])
+      expect(srgbDecode(srgbEncode(x))).toBeCloseTo(x, 6);
     expect(srgbEncode(-1)).toBe(0);
     expect(srgbDecode(-1)).toBe(0);
   });
@@ -63,7 +71,8 @@ describe('contrast', () => {
 
   it('undoes itself with the reciprocal gamma', () => {
     const g = contrastGamma(0.7);
-    for (const e of grid(30, 1)) expect(contrastCurve(contrastCurve(e, g), 1 / g)).toBeCloseTo(e, 9);
+    for (const e of grid(30, 1))
+      expect(contrastCurve(contrastCurve(e, g), 1 / g)).toBeCloseTo(e, 9);
   });
 });
 
@@ -85,7 +94,12 @@ describe('highlights / shadows', () => {
   });
 
   it('stays monotone at the extremes so tones never invert', () => {
-    for (const [h, s] of [[-1, -1], [-1, 1], [1, -1], [1, 1]] as const) {
+    for (const [h, s] of [
+      [-1, -1],
+      [-1, 1],
+      [1, -1],
+      [1, 1],
+    ] as const) {
       let last = -1;
       for (const y of grid(2000, 4)) {
         const out = highlightsShadows(y, h, s);
@@ -108,7 +122,12 @@ describe('whites / blacks', () => {
   });
 
   it('is monotone at the extremes', () => {
-    for (const [w, b] of [[-1, -1], [-1, 1], [1, -1], [1, 1]] as const) {
+    for (const [w, b] of [
+      [-1, -1],
+      [-1, 1],
+      [1, -1],
+      [1, 1],
+    ] as const) {
       let last = -Infinity;
       for (const e of grid(500, 1)) {
         const out = whitesBlacks(e, w, b);
@@ -121,7 +140,8 @@ describe('whites / blacks', () => {
 
 describe('combined tone mapping', () => {
   it('is the identity for neutral parameters', () => {
-    for (const y of [0.001, 0.05, 0.18, 0.7, 1, 2.5]) expect(toneLuminance(y, NEUTRAL_TONE)).toBeCloseTo(y, 6);
+    for (const y of [0.001, 0.05, 0.18, 0.7, 1, 2.5])
+      expect(toneLuminance(y, NEUTRAL_TONE)).toBeCloseTo(y, 6);
   });
 
   it('is monotone for every extreme slider corner', () => {
@@ -131,11 +151,19 @@ describe('combined tone mapping', () => {
         for (const w of signs)
           for (const b of signs)
             for (const c of signs) {
-              const t: ToneParams = { contrastGamma: contrastGamma(c), highlights: h, shadows: s, whites: w, blacks: b };
+              const t: ToneParams = {
+                contrastGamma: contrastGamma(c),
+                highlights: h,
+                shadows: s,
+                whites: w,
+                blacks: b,
+              };
               let last = -Infinity;
               for (const y of grid(1500, 3)) {
                 const out = toneLuminance(Math.max(y, 1e-4), t);
-                expect(out, `h${h} s${s} w${w} b${b} c${c} y${y}`).toBeGreaterThanOrEqual(last - 1e-9);
+                expect(out, `h${h} s${s} w${w} b${b} c${c} y${y}`).toBeGreaterThanOrEqual(
+                  last - 1e-9,
+                );
                 last = out;
               }
             }

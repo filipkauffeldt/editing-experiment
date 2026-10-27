@@ -51,7 +51,10 @@ export function bytesOf(data: LinearImageBuffer): Uint8Array {
 }
 
 /** Validates the buffer against the header and returns it as typed samples (f16 as raw `Uint16Array` bits). */
-export function samplesView(header: LinearImageHeader, data: LinearImageBuffer): Uint16Array | Float32Array {
+export function samplesView(
+  header: LinearImageHeader,
+  data: LinearImageBuffer,
+): Uint16Array | Float32Array {
   const bytes = bytesOf(data);
   const bytesPerSample = header.sampleType === 'f16' ? 2 : 4;
   const expected = header.width * header.height * 4 * bytesPerSample;
@@ -61,8 +64,7 @@ export function samplesView(header: LinearImageHeader, data: LinearImageBuffer):
     );
   }
   // Typed array views need aligned offsets; copy only when the input is not.
-  const aligned =
-    bytes.byteOffset % bytesPerSample === 0 ? bytes : new Uint8Array(bytes);
+  const aligned = bytes.byteOffset % bytesPerSample === 0 ? bytes : new Uint8Array(bytes);
   return header.sampleType === 'f16'
     ? new Uint16Array(aligned.buffer, aligned.byteOffset, aligned.byteLength / 2)
     : new Float32Array(aligned.buffer, aligned.byteOffset, aligned.byteLength / 4);
