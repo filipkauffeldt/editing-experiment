@@ -44,8 +44,8 @@ export interface LinearImageHeader {
    */
   cameraToSrgb: number[];
   /**
-   * 3x3 row-major matrix taking CIE XYZ (D50) to linear camera RGB (the 3x3 part
-   * of LibRaw `cam_xyz`). Used to convert temperature/tint to and from white balance
+   * 3x3 row-major matrix taking CIE XYZ (D65) to linear camera RGB (the 3x3 part
+   * of LibRaw `cam_xyz`, which like dcraw's matrices is D65-referenced). Used to convert temperature/tint to and from white balance
    * multipliers the way the DNG SDK does. Length 9.
    */
   xyzToCamera: number[];

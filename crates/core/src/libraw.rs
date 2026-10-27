@@ -52,6 +52,13 @@ fn error_message(code: c_int) -> String {
 impl LibRaw {
     /// Opens `path` and parses its metadata (no pixel data is read yet).
     pub fn open(path: &Path) -> Result<Self> {
+        // LibRaw reports a missing file as a generic I/O error; say what is wrong.
+        if let Err(e) = std::fs::metadata(path) {
+            return Err(Error::Io {
+                path: path.to_owned(),
+                message: e.to_string(),
+            });
+        }
         // SAFETY: plain allocation; returns null on failure.
         let raw = unsafe { ffi::libraw_init(ffi::LIBRAW_OPTIONS_NO_DATAERR_CALLBACK) };
         let ptr = NonNull::new(raw).ok_or_else(|| Error::LibRaw {
@@ -439,6 +446,7 @@ mod tests {
             .err()
             .expect("must fail");
         assert!(matches!(err, Error::Io { .. }), "{err}");
+        assert!(err.to_string().contains("here.nef"), "{err}");
     }
 
     #[test]
