@@ -232,7 +232,7 @@ export async function pollRemoteSource(deps: RemotePollerDeps): Promise<void> {
         const stable = new Set<string>();
         for (const [path, entry] of current) {
           const previousSize = observed.get(path);
-          if (previousSize === entry.size) {
+          if (previousSize === entry.size && entry.size > 0) {
             stable.add(path);
           } else if (previousSize !== undefined) {
             failures.delete(path);
@@ -253,7 +253,7 @@ export async function pollRemoteSource(deps: RemotePollerDeps): Promise<void> {
         callbacks.reportProgress(discovered.size);
 
         const candidates = images
-          .filter((entry) => stable.has(entry.path) && entry.size > 0)
+          .filter((entry) => stable.has(entry.path))
           .filter(
             (entry) =>
               !deps.seenStore.has({

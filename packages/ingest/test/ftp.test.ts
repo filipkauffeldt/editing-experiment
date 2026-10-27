@@ -113,6 +113,24 @@ describe('FTP source', { timeout: 15_000 }, () => {
     expect(await readFile(join(destination, '_DSC2_01.NEF'), 'utf8')).toBe('0123456789abcdefghij');
   });
 
+  it('waits for a zero-byte sidecar to receive data too', async () => {
+    const setupResult = await setup({ pollIntervalMs: 50 });
+    const { root, destination } = setupResult;
+    const raw = join(root, '_DSC6.NEF');
+    const sidecar = join(root, '_DSC6.xmp');
+    await writeFile(raw, 'raw-six');
+    await writeFile(sidecar, '');
+    const handle = start(setupResult);
+    await waitForWatching(handle);
+
+    await delay(220);
+    expect(await readdir(destination)).toEqual([]);
+
+    await writeFile(sidecar, '<xmp/>');
+    await waitFor(() => pathExists(join(destination, '_DSC6_01.NEF')), 'raw with sidecar');
+    expect(await readFile(join(destination, '_DSC6_01.xmp'), 'utf8')).toBe('<xmp/>');
+  });
+
   it('waits for a zero-byte file to receive data', async () => {
     const setupResult = await setup({ pollIntervalMs: 50 });
     const { root, destination } = setupResult;
