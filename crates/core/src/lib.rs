@@ -1,5 +1,7 @@
-//! Native core of editing-experiment. Wave 0 only proves the napi-rs toolchain
-//! (build, load from Node, call); LibRaw and the decode API come later.
+//! Native core of editing-experiment: raw decode and previews on top of a
+//! vendored LibRaw, exposed to Node via napi-rs.
+
+pub mod ffi;
 
 use napi_derive::napi;
 

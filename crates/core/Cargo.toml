@@ -12,6 +12,11 @@ crate-type = ["cdylib", "rlib"]
 [dependencies]
 napi = { version = "3", default-features = false, features = ["napi9"] }
 napi-derive = "3"
+thiserror = "2"
+
+[dev-dependencies]
+tempfile = "3"
 
 [build-dependencies]
 napi-build = "2"
+cc = { version = "1", features = ["parallel"] }
