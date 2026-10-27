@@ -13,6 +13,14 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "@ee/contracts": "workspace:*"
+    "@ee/contracts": "workspace:*",
+    "basic-ftp": "^6.2.3",
+    "ssh2-sftp-client": "^12.1.1"
+  },
+  "devDependencies": {
+    "@types/ssh2": "^1.15.6",
+    "@types/ssh2-sftp-client": "^9.0.6",
+    "ftp-srv": "^4.6.3",
+    "ssh2": "^1.17.0"
   }
 }
