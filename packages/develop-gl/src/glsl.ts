@@ -29,7 +29,8 @@ precision highp sampler2D;
 uniform sampler2D u_image;   // camera RGB (RGBA16F), one source tile
 uniform sampler2D u_curve;   // tone curve table, RGBA32F, curveLutSize x 1, NEAREST
 
-uniform mat3 u_color;        // camera RGB -> linear Rec.709, white balance folded in
+uniform vec3 u_wb;           // white balance multipliers
+uniform mat3 u_color;        // white-balanced camera RGB -> linear Rec.709
 uniform float u_exposure;    // linear gain
 uniform int u_toneActive;
 uniform float u_contrastGamma;
@@ -56,6 +57,14 @@ const float MID_GREY = ${f(T.midGrey)};
 const float LUMINANCE_FLOOR = ${f(T.luminanceFloor)};
 const vec3 LUMA = vec3(${f(T.luma[0])}, ${f(T.luma[1])}, ${f(T.luma[2])});
 const float CURVE_SIZE = ${f(T.curveLutSize)};
+
+vec3 clipHighlights(vec3 raw, vec3 wb) {
+  float limit = min(wb.r, min(wb.g, wb.b));
+  vec3 c = min(raw * wb, vec3(limit));
+  float t = smoothstep(${f(T.clipKnee)}, 1.0, max(raw.r, max(raw.g, raw.b)));
+  float neutral = max(c.r, max(c.g, c.b));
+  return c + (vec3(neutral) - c) * t;
+}
 
 float srgbEncode(float x) {
   return x <= 0.0031308 ? max(x, 0.0) * 12.92 : 1.055 * pow(max(x, 0.0031308), 1.0 / 2.4) - 0.055;
@@ -154,7 +163,7 @@ void main() {
     cam = texture(u_image, ((pix + 0.5) * u_scale - u_srcOrigin) / u_srcTexSize).rgb;
   }
 
-  vec3 lin = (u_color * cam) * u_exposure;
+  vec3 lin = (u_color * clipHighlights(cam, u_wb)) * u_exposure;
   if (u_toneActive == 1) lin = toneRgb(lin);
 
   vec3 e = vec3(srgbEncode(shoulder(lin.r)), srgbEncode(shoulder(lin.g)), srgbEncode(shoulder(lin.b)));

@@ -1,6 +1,13 @@
 import type { EditParams, LinearImageHeader } from '@ee/contracts';
 import { toFloat32Samples, type LinearImageBuffer } from './image';
-import { lookupCurve, shoulder, srgbEncode, toneRgb, vibranceSaturation } from './ops';
+import {
+  clipHighlights,
+  lookupCurve,
+  shoulder,
+  srgbEncode,
+  toneRgb,
+  vibranceSaturation,
+} from './ops';
 import { resolveUniforms, type DevelopUniforms } from './params';
 
 /**
@@ -30,9 +37,10 @@ export function developPixel(
     number,
   ];
   const k = u.exposureGain;
-  let lr = (m[0] * r + m[1] * g + m[2] * b) * k;
-  let lg = (m[3] * r + m[4] * g + m[5] * b) * k;
-  let lb = (m[6] * r + m[7] * g + m[8] * b) * k;
+  const [wr, wg, wb] = clipHighlights([r, g, b], u.multipliers);
+  let lr = (m[0] * wr + m[1] * wg + m[2] * wb) * k;
+  let lg = (m[3] * wr + m[4] * wg + m[5] * wb) * k;
+  let lb = (m[6] * wr + m[7] * wg + m[8] * wb) * k;
 
   if (u.toneActive) [lr, lg, lb] = toneRgb(lr, lg, lb, u.tone);
 

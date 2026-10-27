@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  clipHighlights,
   contrastCurve,
   contrastGamma,
   exposureGain,
@@ -244,5 +245,41 @@ describe('vibrance / saturation', () => {
     expect(hueDegrees(0, 0, 1)).toBe(240);
     expect(hueDegrees(1, 0, 0.5)).toBe(330);
     expect(hueDegrees(0.5, 0.5, 0.5)).toBe(0);
+  });
+});
+
+describe('raw highlight clipping', () => {
+  const daylight = [2, 1, 1.5] as const;
+
+  it('leaves unclipped pixels alone, just white balanced', () => {
+    expect(clipHighlights([0.3, 0.4, 0.2], daylight)).toEqual(
+      [0.6, 0.4, 0.3].map((v) => expect.closeTo(v, 12)),
+    );
+  });
+
+  it('clamps every channel to the lowest white point (min of the multipliers)', () => {
+    // Red scales to 1.6 and blue to 1.2; both are held at green's clip level of 1.0.
+    const [r, g, b] = clipHighlights([0.8, 0.9, 0.8], daylight);
+    expect(Math.max(r, g, b)).toBeLessThanOrEqual(1);
+    expect(r).toBeCloseTo(1, 12);
+    expect(clipHighlights([0.9, 0.9, 0.9], [0.8, 1, 0.9])[1]).toBeCloseTo(0.8, 12);
+  });
+
+  it('turns a fully clipped raw pixel neutral white, where plain white balance would give (2, 1, 1.5)', () => {
+    expect(clipHighlights([1, 1, 1], daylight)).toEqual([1, 1, 1]);
+    expect(clipHighlights([1.3, 1.1, 1.2], daylight)).toEqual([1, 1, 1]);
+  });
+
+  it('fades to neutral as the largest raw channel goes from the knee to 1.0', () => {
+    const spread = (raw: [number, number, number]): number => {
+      const c = clipHighlights(raw, daylight);
+      return Math.max(...c) - Math.min(...c);
+    };
+    // Same colour balance, growing brightness: the cast shrinks to nothing.
+    expect(spread([0.5, 0.35, 0.3])).toBeGreaterThan(0.1);
+    const nearly = spread([0.98, 0.35, 0.3]);
+    const knee = spread([0.95, 0.35, 0.3]);
+    expect(nearly).toBeLessThan(knee);
+    expect(spread([1, 0.35, 0.3])).toBeCloseTo(0, 12);
   });
 });

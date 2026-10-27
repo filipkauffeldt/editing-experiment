@@ -1,6 +1,5 @@
 import type { EditParams, LinearImageHeader, SliderParam } from '@ee/contracts';
 import { SLIDER_SPECS } from '@ee/contracts';
-import { scaleColumns } from './mat3';
 import { contrastGamma, exposureGain, lookupCurve, type ToneParams } from './ops';
 import { isIdentityCurve, sampleCurve } from './spline';
 import { TUNING } from './tuning';
@@ -11,7 +10,9 @@ export type DevelopCamera = Pick<LinearImageHeader, 'cameraToSrgb'> & WhiteBalan
 
 /** Everything the shader / CPU reference needs for one render; no further lookups into `EditParams`. */
 export interface DevelopUniforms {
-  /** Row-major 3x3: `cameraToSrgb * diag(whiteBalanceMultipliers)`, camera RGB to linear Rec.709. */
+  /** White balance gains applied to camera RGB (and used for its highlight clip level). */
+  multipliers: [number, number, number];
+  /** Row-major 3x3, white-balanced camera RGB to linear Rec.709 (`cameraToSrgb`). */
   colorMatrix: number[];
   /** Linear gain, `2^Exposure2012`. */
   exposureGain: number;
@@ -84,7 +85,6 @@ export function computeCurveLut(params: EditParams, size: number): Float32Array 
 export function resolveUniforms(camera: DevelopCamera, params: EditParams): DevelopUniforms {
   const whiteBalance = resolveWhiteBalance(camera, params);
   const m = whiteBalance.multipliers;
-  const colorMatrix = scaleColumns(camera.cameraToSrgb, [m.r, m.g, m.b]);
 
   const contrast = sliderValue(params, 'Contrast2012') / 100;
   const tone: ToneParams = {
@@ -96,7 +96,8 @@ export function resolveUniforms(camera: DevelopCamera, params: EditParams): Deve
   };
 
   return {
-    colorMatrix,
+    multipliers: [m.r, m.g, m.b],
+    colorMatrix: camera.cameraToSrgb,
     exposureGain: exposureGain(sliderValue(params, 'Exposure2012')),
     toneActive:
       contrast !== 0 ||

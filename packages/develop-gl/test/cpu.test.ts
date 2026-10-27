@@ -59,14 +59,14 @@ describe('develop pixel', () => {
   });
 
   it('rolls highlights off instead of hard clipping at 1.0', () => {
-    const at = (x: number): number => pixel([x, x, x], {})[0];
+    // Raw samples clip at 1.0, so scene-linear values above 1 come from exposure.
+    const at = (x: number): number =>
+      pixel([0.5, 0.5, 0.5], { Exposure2012: Math.log2(x / 0.5) })[0];
     expect(at(1)).toBeLessThan(1);
     expect(at(1.5)).toBeGreaterThan(at(1));
     expect(at(1.5)).toBeLessThan(1);
     expect(at(2)).toBeCloseTo(1, 12);
     expect(at(8)).toBeCloseTo(1, 12);
-    // Exposure pushing values above 1 behaves the same way.
-    expect(pixel([0.5, 0.5, 0.5], { Exposure2012: 1 })[0]).toBeCloseTo(at(1), 12);
   });
 
   it('clamps negative camera output to black', () => {
@@ -110,6 +110,29 @@ describe('develop pixel', () => {
     expect(pixel([0.4, 0.2, 0.1], { Saturation: -500 })).toEqual(
       pixel([0.4, 0.2, 0.1], { Saturation: -100 }),
     );
+  });
+
+  it('renders a clipped raw pixel neutral white under daylight multipliers (no pink highlights)', () => {
+    const header = makeHeader(1, 1, 'f32'); // Z 6-like: r and b multipliers above 1, matrix rows sum to 1
+    expect(header.asShotMultipliers.r).toBeGreaterThan(1.5);
+    expect(header.asShotMultipliers.b).toBeGreaterThan(1.2);
+    const u = resolveUniforms(header, {});
+    const raws: [number, number, number][] = [
+      [1, 1, 1],
+      [1.2, 1.2, 1.2],
+      [1, 0.97, 1],
+      [1, 1, 0.9],
+    ];
+    for (const raw of raws) {
+      const [r, g, b] = developPixel(...raw, u);
+      expect(r).toBeCloseTo(g, 6);
+      expect(b).toBeCloseTo(g, 6);
+      expect(g).toBeGreaterThan(0.95);
+    }
+    // Without the clip the same pixel would be (2, 1, 1.5) before the matrix, i.e. far from neutral.
+    // A pixel well below clipping keeps its colour.
+    const [r, , b] = developPixel(0.3, 0.3, 0.3, u);
+    expect(Math.abs(r - b)).toBeGreaterThan(0.02);
   });
 
   it('applies white balance before the colour matrix', () => {

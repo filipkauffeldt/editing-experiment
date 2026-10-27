@@ -40,6 +40,7 @@ type Canvas = HTMLCanvasElement | OffscreenCanvas;
 const UNIFORMS = [
   'u_image',
   'u_curve',
+  'u_wb',
   'u_color',
   'u_exposure',
   'u_toneActive',
@@ -235,6 +236,7 @@ export function createDevelopRenderer(
     gl.useProgram(res.program);
     gl.uniform1i(l.u_image, 0);
     gl.uniform1i(l.u_curve, 1);
+    gl.uniform3fv(l.u_wb, u.multipliers);
     gl.uniformMatrix3fv(l.u_color, false, toColumnMajor(u.colorMatrix));
     gl.uniform1f(l.u_exposure, u.exposureGain);
     gl.uniform1i(l.u_toneActive, u.toneActive ? 1 : 0);

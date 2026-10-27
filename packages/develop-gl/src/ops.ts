@@ -31,6 +31,36 @@ export function luminance(r: number, g: number, b: number): number {
   return wr * r + wg * g + wb * b;
 }
 
+/**
+ * Raw highlight clipping, applied right after the white balance multiply and
+ * before the camera -> sRGB matrix. Raw channels clip at the sensor white level
+ * (1.0), but the multipliers scale them by different amounts: red and blue end
+ * up above green's clip point, and clipped highlights turn magenta/pink.
+ * Therefore:
+ * 1. every white-balanced channel is clamped to `min(multipliers)`, the lowest
+ *    channel's white point (normally green's 1.0), which is dcraw's "clip" mode;
+ * 2. as the largest raw channel goes from `clipKnee` to 1.0, the pixel blends
+ *    towards a neutral grey at the brightest clamped channel, so blown areas go
+ *    white rather than keeping a colour cast from channels that clipped
+ *    unevenly. Fully clipped colours (a saturated red jersey at raw red = 1)
+ *    lose saturation too; that is the usual price of not guessing the lost
+ *    detail.
+ * Pixels whose raw channels all stay below `clipKnee` and below the clip level
+ * are untouched.
+ */
+export function clipHighlights(
+  raw: readonly [number, number, number],
+  multipliers: readonly [number, number, number],
+): [number, number, number] {
+  const limit = Math.min(multipliers[0], multipliers[1], multipliers[2]);
+  const r = Math.min(raw[0] * multipliers[0], limit);
+  const g = Math.min(raw[1] * multipliers[1], limit);
+  const b = Math.min(raw[2] * multipliers[2], limit);
+  const t = smoothstep(TUNING.clipKnee, 1, Math.max(raw[0], raw[1], raw[2]));
+  const neutral = Math.max(r, g, b);
+  return [r + (neutral - r) * t, g + (neutral - g) * t, b + (neutral - b) * t];
+}
+
 /** Exposure: a gain of `2^stops` on linear light. */
 export function exposureGain(stops: number): number {
   return Math.pow(2, stops);

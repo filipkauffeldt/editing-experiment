@@ -15,6 +15,13 @@ export const TUNING = {
   /** Rec.709 luminance weights (linear light, and reused on encoded values as "luma"). */
   luma: [0.2126, 0.7152, 0.0722],
 
+  /**
+   * Raw highlight handling: a raw channel at or above 1.0 (sensor white) is
+   * clipped, and pixels fade to neutral over the last stretch below it, from
+   * `clipKnee` to 1.0 in the largest raw channel.
+   */
+  clipKnee: 0.95,
+
   /** Contrast: curve exponent is `2^(contrastExponent * contrast)`. */
   contrastExponent: 0.6,
 

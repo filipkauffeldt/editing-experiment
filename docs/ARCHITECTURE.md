@@ -117,8 +117,9 @@ Pipeline order: `camera RGB * multipliers → cameraToSrgb → develop ops → s
 
 One WebGL2 fragment shader (`packages/develop-gl`), per pixel, in this order:
 
-1. white balance multipliers in camera space, then `cameraToSrgb` (folded into one
-   matrix) to linear Rec.709;
+1. white balance multipliers in camera space, with raw highlight clipping (channels are
+   clamped to the lowest white point and blown pixels fade to neutral, so clipped
+   areas go white, not pink), then `cameraToSrgb` to linear Rec.709;
 2. exposure, then tone (highlights/shadows, contrast, whites/blacks) in linear light,
    applied as a luminance gain so hue is kept;
 3. highlight shoulder per channel (values above ~0.9 roll off and reach 1.0 at 2.0

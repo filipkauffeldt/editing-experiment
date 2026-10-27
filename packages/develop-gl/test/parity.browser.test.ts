@@ -21,6 +21,7 @@ const CASES: Record<string, EditParams> = {
   'exposure +1.5': { Exposure2012: 1.5 },
   'exposure -2': { Exposure2012: -2 },
   'white balance 3200 K / +20': { Temperature: 3200, Tint: 20 },
+  'white balance 2500 K (clipped highlights, strong gains)': { Temperature: 2500, Tint: -30 },
   'white balance daylight preset': { WhiteBalance: 'Daylight' },
   'contrast +100': { Contrast2012: 100 },
   'contrast -100': { Contrast2012: -100 },
