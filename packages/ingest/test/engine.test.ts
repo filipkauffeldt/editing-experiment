@@ -232,6 +232,46 @@ describe('startIngest', () => {
     expect(await readdir(destination)).toEqual([]);
   });
 
+  it('keeps every file when several sources target the same name', async () => {
+    const root = await makeTempDir();
+    const destination = join(root, 'destination');
+    const sourceCount = 4;
+    const filesPerSource = 10;
+    const rounds = 3;
+    const sources: FolderSource[] = [];
+    const expected = new Map<string, number>();
+
+    for (let sourceIndex = 0; sourceIndex < sourceCount; sourceIndex += 1) {
+      const source = join(root, `source-${sourceIndex}`);
+      sources.push(folderSource(`source-${sourceIndex}`, source));
+      for (let fileIndex = 0; fileIndex < filesPerSource; fileIndex += 1) {
+        const content = `source-${sourceIndex}-file-${fileIndex}`;
+        await createFile(join(source, `_DSC${fileIndex + 1}.NEF`), content);
+        expected.set(content, 1);
+      }
+    }
+
+    const ingest = { ...config(sources, destination), renameTemplate: 'same' };
+    for (let round = 0; round < rounds; round += 1) {
+      const handle = startIngest(ingest, {});
+      await handle.done;
+      expect(handle.status().every((job) => job.state === 'finished')).toBe(true);
+      expect(await readdir(destination)).toHaveLength(sourceCount * filesPerSource * (round + 1));
+    }
+
+    const names = await readdir(destination);
+    expect(names.filter((name) => name.endsWith('.ingest-tmp'))).toEqual([]);
+    const actual = new Map<string, number>();
+    for (const name of names) {
+      const content = await readFile(join(destination, name), 'utf8');
+      actual.set(content, (actual.get(content) ?? 0) + 1);
+    }
+    expect(actual).toEqual(
+      new Map([...expected].map(([content, count]) => [content, count * rounds])),
+    );
+    expect(names).toHaveLength(sourceCount * filesPerSource * rounds);
+  });
+
   it('fails a source when the rename template escapes the destination', async () => {
     const root = await makeTempDir();
     const source = join(root, 'source');
