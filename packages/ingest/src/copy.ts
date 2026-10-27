@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { createReadStream, createWriteStream } from 'node:fs';
-import { constants, copyFile, link, mkdir, rm, stat } from 'node:fs/promises';
+import { link, mkdir, open, rename, rm, stat } from 'node:fs/promises';
 import { basename, dirname, join } from 'node:path';
 import { pipeline } from 'node:stream/promises';
 import { CollisionError, VerificationError, throwIfAborted } from './errors';
@@ -62,9 +62,29 @@ export interface CopyPhotoResult {
   backupSidecarPath?: string;
 }
 
+export interface PlacementOperations {
+  link(source: string, target: string): Promise<void>;
+  createExclusive(path: string): Promise<void>;
+  rename(source: string, target: string): Promise<void>;
+  remove(path: string): Promise<void>;
+}
+
+export const nodePlacementOperations: PlacementOperations = {
+  link,
+  async createExclusive(path) {
+    const handle = await open(path, 'wx');
+    await handle.close();
+  },
+  rename,
+  remove(path) {
+    return rm(path, { force: true });
+  },
+};
+
 export interface CopyPhotoOptions {
   copier?: FileCopier;
   signal?: AbortSignal;
+  placement?: PlacementOperations;
 }
 
 async function hasConflict(
@@ -89,10 +109,61 @@ async function hasConflict(
  * then hard-links the temp file into place so the final name is never partial
  * and never overwrites an existing file.
  */
+function isFallbackCode(code: string | undefined): boolean {
+  return code === 'EPERM' || code === 'ENOTSUP' || code === 'EOPNOTSUPP' || code === 'EXDEV';
+}
+
+async function publishVerifiedTemp(
+  tempPath: string,
+  finalPath: string,
+  placement: PlacementOperations,
+  signal?: AbortSignal,
+): Promise<void> {
+  try {
+    await placement.link(tempPath, finalPath);
+    return;
+  } catch (error) {
+    const code = (error as NodeJS.ErrnoException).code;
+    if (code === 'EEXIST') {
+      throw new CollisionError(`Destination already exists: ${finalPath}`);
+    }
+    if (!isFallbackCode(code)) {
+      throw error;
+    }
+  }
+
+  // Hard links are not available on every filesystem a photographer may use
+  // (exFAT, some network shares, cross-device mounts). Reserve the final name
+  // with an exclusive placeholder, then rename the already-verified temp file
+  // over it. The placeholder is never a partial copy, and anything we created
+  // is removed if publishing fails.
+  throwIfAborted(signal);
+  let reserved = false;
+  try {
+    try {
+      await placement.createExclusive(finalPath);
+      reserved = true;
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'EEXIST') {
+        throw new CollisionError(`Destination already exists: ${finalPath}`);
+      }
+      throw error;
+    }
+    throwIfAborted(signal);
+    await placement.rename(tempPath, finalPath);
+    reserved = false;
+  } finally {
+    if (reserved) {
+      await placement.remove(finalPath).catch(() => undefined);
+    }
+  }
+}
+
 async function copyVerifiedToFinal(
   source: string,
   finalPath: string,
   copier: FileCopier,
+  placement: PlacementOperations,
   signal?: AbortSignal,
 ): Promise<{ sha256: string; size: number }> {
   throwIfAborted(signal);
@@ -105,37 +176,7 @@ async function copyVerifiedToFinal(
         `Hash mismatch while copying ${basename(source)}: source ${outcome.sourceHash}, destination ${outcome.destinationHash}`,
       );
     }
-    let copied = false;
-    try {
-      await link(tempPath, finalPath);
-    } catch (error) {
-      const code = (error as NodeJS.ErrnoException).code;
-      if (code === 'EEXIST') {
-        throw new CollisionError(`Destination already exists: ${finalPath}`);
-      }
-      // Hard links are not available on every filesystem a photographer may
-      // use (exFAT, some network shares). Copy with O_EXCL instead so we still
-      // never overwrite a file.
-      if (code === 'EPERM' || code === 'ENOTSUP' || code === 'EOPNOTSUPP' || code === 'EXDEV') {
-        try {
-          await copyFile(tempPath, finalPath, constants.COPYFILE_EXCL);
-          copied = true;
-        } catch (copyError) {
-          if ((copyError as NodeJS.ErrnoException).code === 'EEXIST') {
-            throw new CollisionError(`Destination already exists: ${finalPath}`);
-          }
-          throw copyError;
-        }
-      } else {
-        throw error;
-      }
-    }
-    if (copied) {
-      const finalHash = await hashFile(finalPath, signal);
-      if (finalHash !== outcome.destinationHash) {
-        throw new VerificationError(`Hash mismatch after copying to ${finalPath}`);
-      }
-    }
+    await publishVerifiedTemp(tempPath, finalPath, placement, signal);
     const info = await stat(finalPath);
     return { sha256: outcome.destinationHash, size: info.size };
   } finally {
@@ -149,6 +190,7 @@ async function copyWithBase(
   extension: string,
   hasSidecar: boolean,
   copier: FileCopier,
+  placement: PlacementOperations,
   signal?: AbortSignal,
 ): Promise<CopyPhotoResult> {
   const fileName = `${base}${extension}`;
@@ -162,20 +204,20 @@ async function copyWithBase(
 
   const placed: string[] = [];
   try {
-    const primary = await copyVerifiedToFinal(request.sourcePath, primaryPath, copier, signal);
+    const primary = await copyVerifiedToFinal(request.sourcePath, primaryPath, copier, placement, signal);
     placed.push(primaryPath);
 
     if (backupPath) {
-      await copyVerifiedToFinal(request.sourcePath, backupPath, copier, signal);
+      await copyVerifiedToFinal(request.sourcePath, backupPath, copier, placement, signal);
       placed.push(backupPath);
     }
 
     if (request.sidecarSourcePath && sidecarPath) {
-      await copyVerifiedToFinal(request.sidecarSourcePath, sidecarPath, copier, signal);
+      await copyVerifiedToFinal(request.sidecarSourcePath, sidecarPath, copier, placement, signal);
       placed.push(sidecarPath);
     }
     if (request.sidecarSourcePath && backupSidecarPath) {
-      await copyVerifiedToFinal(request.sidecarSourcePath, backupSidecarPath, copier, signal);
+      await copyVerifiedToFinal(request.sidecarSourcePath, backupSidecarPath, copier, placement, signal);
       placed.push(backupSidecarPath);
     }
 
@@ -207,6 +249,7 @@ export async function copyPhotoLocal(
   options: CopyPhotoOptions = {},
 ): Promise<CopyPhotoResult> {
   const copier = options.copier ?? nodeFileCopier;
+  const placement = options.placement ?? nodePlacementOperations;
   const { signal } = options;
   const { extension } = splitName(request.sourceFileName);
   const hasSidecar = request.sidecarSourcePath !== undefined;
@@ -221,7 +264,7 @@ export async function copyPhotoLocal(
       continue;
     }
     try {
-      return await copyWithBase(base, request, extension, hasSidecar, copier, signal);
+      return await copyWithBase(base, request, extension, hasSidecar, copier, placement, signal);
     } catch (error) {
       if (error instanceof CollisionError) {
         continue;

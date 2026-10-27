@@ -1,10 +1,12 @@
 import { mkdir, readFile, readdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { copyPhotoLocal, nodeFileCopier } from '../src/copy';
+import { copyPhotoLocal, nodeFileCopier, nodePlacementOperations } from '../src/copy';
+import type { PlacementOperations } from '../src/copy';
 import { VerificationError } from '../src/errors';
 import { hashFile } from '../src/hash';
 import type { FileCopier } from '../src/types';
+import { delay } from './helpers/engine';
 import { cleanupTempDirs, makeTempDir } from './helpers/temp';
 
 afterEach(cleanupTempDirs);
@@ -134,6 +136,91 @@ describe('copyPhotoLocal', () => {
         { copier: failingAfterFirst },
       ),
     ).rejects.toThrow('backup disk full');
+
+    expect(await readdir(destination)).toEqual([]);
+  });
+});
+
+function withExdevLink(overrides: Partial<PlacementOperations> = {}): PlacementOperations {
+  return {
+    ...nodePlacementOperations,
+    async link() {
+      const error = new Error('cross-device link');
+      (error as NodeJS.ErrnoException).code = 'EXDEV';
+      throw error;
+    },
+    ...overrides,
+  };
+}
+
+describe('copyPhotoLocal fallback placement', () => {
+  it('renames the verified temp file when hard links are unavailable', async () => {
+    const { source, destination } = await setup();
+
+    const result = await copyPhotoLocal(
+      {
+        sourcePath: join(source, '_DSC9.NEF'),
+        sourceFileName: '_DSC9.NEF',
+        sidecarSourcePath: join(source, '_DSC9.xmp'),
+        finalBase: 'shot',
+        primaryDirectory: destination,
+      },
+      { placement: withExdevLink() },
+    );
+
+    expect(await readFile(result.path, 'utf8')).toBe('raw-bytes');
+    expect(await readFile(result.sidecarPath ?? '', 'utf8')).toBe('<xmp>caption</xmp>');
+    expect((await readdir(destination)).sort()).toEqual(['shot.NEF', 'shot.xmp']);
+  });
+
+  it('never exposes the final name while the fallback copy is in progress', async () => {
+    const { source, destination } = await setup();
+    const slowCopier: FileCopier = {
+      async copy(from, to, options) {
+        await delay(40);
+        return nodeFileCopier.copy(from, to, options);
+      },
+    };
+
+    const pending = copyPhotoLocal(
+      {
+        sourcePath: join(source, '_DSC9.NEF'),
+        sourceFileName: '_DSC9.NEF',
+        finalBase: 'shot',
+        primaryDirectory: destination,
+      },
+      { copier: slowCopier, placement: withExdevLink() },
+    );
+    await delay(10);
+
+    expect((await readdir(destination)).filter((name) => !name.endsWith('.ingest-tmp'))).toEqual(
+      [],
+    );
+    await pending;
+    expect(await readFile(join(destination, 'shot.NEF'), 'utf8')).toBe('raw-bytes');
+  });
+
+  it('removes the reserved name when publishing the fallback fails', async () => {
+    const { source, destination } = await setup();
+    const failingRename = withExdevLink({
+      async rename() {
+        const error = new Error('cannot publish');
+        (error as NodeJS.ErrnoException).code = 'EIO';
+        throw error;
+      },
+    });
+
+    await expect(
+      copyPhotoLocal(
+        {
+          sourcePath: join(source, '_DSC9.NEF'),
+          sourceFileName: '_DSC9.NEF',
+          finalBase: 'shot',
+          primaryDirectory: destination,
+        },
+        { placement: failingRename },
+      ),
+    ).rejects.toThrow('cannot publish');
 
     expect(await readdir(destination)).toEqual([]);
   });
