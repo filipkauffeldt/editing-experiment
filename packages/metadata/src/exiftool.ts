@@ -34,9 +34,9 @@ export type ExifToolTags = Readonly<Record<string, ExifToolTagValue>>;
 
 export interface ExifToolServiceOptions {
   /**
-   * Maximum number of tasks our API lets queue up at once. The underlying
-   * ExifTool process is single (`-stay_open`, `maxProcs: 1`); this bound keeps
-   * callers from piling an unbounded number of promises on top of it.
+   * Maximum number of our API calls that may be in flight at once. ExifTool
+   * itself is serialised by `maxProcs: 1`; this bound is caller-side
+   * backpressure for bursts (ingest + preview + write at the same time).
    */
   maxConcurrent?: number;
   /** Path to an existing ExifTool binary. Defaults to the vendored one. */
@@ -88,17 +88,29 @@ export class ExifToolService {
 
   constructor(options: ExifToolServiceOptions = {}) {
     this.#configDir = mkdtempSync(join(tmpdir(), 'ee-exiftool-'));
-    const configPath = join(this.#configDir, 'ee.config');
-    writeFileSync(configPath, EE_CONFIG, 'utf8');
-
     this.#semaphore = new Semaphore(Math.max(1, options.maxConcurrent ?? DEFAULT_MAX_CONCURRENT));
-    this.#et = new ExifTool({
-      maxProcs: 1,
-      // `-config` has to be first on the command line, so it belongs in the
-      // launch args rather than per-task write args.
-      exiftoolArgs: ['-config', configPath, ...DefaultExiftoolArgs],
-      ...(options.exiftoolPath === undefined ? {} : { exiftoolPath: options.exiftoolPath }),
-    });
+
+    try {
+      const configPath = join(this.#configDir, 'ee.config');
+      writeFileSync(configPath, EE_CONFIG, 'utf8');
+      this.#et = new ExifTool({
+        maxProcs: 1,
+        // `-config` has to be first on the command line, so it belongs in the
+        // launch args rather than per-task write args.
+        exiftoolArgs: ['-config', configPath, ...DefaultExiftoolArgs],
+        ...(options.exiftoolPath === undefined ? {} : { exiftoolPath: options.exiftoolPath }),
+      });
+    } catch (cause) {
+      rmSync(this.#configDir, { recursive: true, force: true });
+      throw new MetadataError('EXIFTOOL', `Failed to start ExifTool: ${String(cause)}`, {
+        cause,
+      });
+    }
+
+    // `maxProcs: 1` serialises the work itself. The semaphore still matters as
+    // backpressure: without it a burst could put an unbounded number of
+    // promises/tasks in the queue while each caller waits on a single process.
+    // It is the concurrency limit this package promises to its callers.
   }
 
   /** Read every tag, keyed by `Family1:Tag` (e.g. `XMP-dc:Description`). */
