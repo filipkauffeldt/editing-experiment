@@ -6,6 +6,7 @@ pub mod ffi;
 pub mod info;
 pub mod libraw;
 pub mod orient;
+pub mod preview;
 
 #[cfg(test)]
 mod testutil;
