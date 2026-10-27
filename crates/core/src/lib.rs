@@ -1,6 +1,7 @@
 //! Native core of editing-experiment: raw decode and previews on top of a
 //! vendored LibRaw, exposed to Node via napi-rs.
 
+pub mod api;
 pub mod decode;
 pub mod error;
 pub mod ffi;

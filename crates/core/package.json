@@ -18,6 +18,9 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run"
   },
+  "dependencies": {
+    "@ee/contracts": "workspace:*"
+  },
   "devDependencies": {
     "@napi-rs/cli": "3.10.9"
   }
