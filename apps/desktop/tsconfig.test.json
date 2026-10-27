@@ -1,0 +1,12 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "lib": ["ES2023", "DOM", "DOM.Iterable"],
+    "types": ["node", "vite/client", "vitest/globals"],
+    "jsx": "react-jsx",
+    "allowImportingTsExtensions": true
+  },
+  "include": ["test", "src/renderer", "src/shared"]
+}

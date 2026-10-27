@@ -20,7 +20,10 @@ export interface JobsContext {
  */
 export function createJobsHandlers(context: JobsContext): Partial<IpcHandlers> {
   const world = context.mock
-    ? createMockWorld((channel, payload) => context.emit(channel, payload), context.simulate ?? false)
+    ? createMockWorld(
+        (channel, payload) => context.emit(channel, payload),
+        context.simulate ?? false,
+      )
     : undefined;
   return {
     ...systemHandlers(context),

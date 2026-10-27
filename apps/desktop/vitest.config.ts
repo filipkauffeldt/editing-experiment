@@ -1,5 +1,13 @@
+import react from '@vitejs/plugin-react';
 import { defineConfig } from 'vitest/config';
 
 export default defineConfig({
-  test: { name: '@ee/desktop', include: ['test/**/*.test.ts'] },
+  plugins: [react()],
+  test: {
+    name: '@ee/desktop',
+    include: ['test/**/*.test.{ts,tsx}'],
+    environment: 'jsdom',
+    setupFiles: ['./test/setup.ts'],
+    css: true,
+  },
 });

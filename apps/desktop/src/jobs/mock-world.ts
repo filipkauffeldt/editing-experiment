@@ -337,7 +337,11 @@ export function createMockHandlers(world: MockWorld, emit: Emit): Partial<IpcHan
     },
     'develop:listPresets': async () => world.presets,
     'develop:importPreset': async ({ path }) => {
-      const name = path.split('/').pop()?.replace(/\.xmp$/i, '') ?? 'Imported preset';
+      const name =
+        path
+          .split('/')
+          .pop()
+          ?.replace(/\.xmp$/i, '') ?? 'Imported preset';
       const imported = {
         id: asPresetId(`mock-preset-imported-${world.presets.length + 1}`),
         name,
