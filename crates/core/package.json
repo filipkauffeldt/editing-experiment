@@ -1,0 +1,24 @@
+{
+  "name": "@ee/core",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Rust native core (napi-rs): raw decode, previews. Node loader for the compiled addon.",
+  "license": "GPL-3.0-or-later",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./package.json": "./package.json"
+  },
+  "napi": {
+    "binaryName": "ee-core"
+  },
+  "scripts": {
+    "build": "napi build --platform --release --js index.cjs --dts index.d.cts",
+    "build:debug": "napi build --platform --js index.cjs --dts index.d.cts",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "devDependencies": {
+    "@napi-rs/cli": "3.10.9"
+  }
+}

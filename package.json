@@ -13,8 +13,12 @@
     "lint": "eslint . && prettier --check .",
     "format": "prettier --write .",
     "typecheck": "pnpm -r --workspace-concurrency=1 run typecheck",
-    "test": "vitest run",
-    "build": "pnpm -r --workspace-concurrency=1 run --if-present build"
+    "test": "pnpm build:native && vitest run",
+    "build:native": "pnpm --filter @ee/core run build",
+    "build": "pnpm build:native && pnpm -r --workspace-concurrency=1 run --if-present build",
+    "dev": "pnpm build:native && pnpm --filter @ee/desktop run dev",
+    "screenshot": "pnpm build && node scripts/screenshot.ts",
+    "fetch-fixtures": "node scripts/fetch-fixtures.ts"
   },
   "devDependencies": {
     "@eslint/js": "10.0.1",
