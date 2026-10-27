@@ -1,2 +1,13 @@
-// Placeholder: the owning workstream replaces this with the real public API.
 export const PACKAGE_NAME = '@ee/metadata';
+
+export * from './errors';
+export * from './exiftool';
+export * from './paths';
+export * from './values';
+export * from './iptc';
+export * from './develop';
+export * from './retouch';
+export * from './template';
+export * from './variables';
+export * from './code-replacements';
+export * from './caption';
