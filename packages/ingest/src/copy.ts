@@ -67,37 +67,21 @@ export interface CopyPhotoOptions {
   signal?: AbortSignal;
 }
 
-/**
- * Chooses a base name that exists in none of the destination directories, for
- * the photo and its sidecar together. Never overwrites.
- */
-export async function chooseCollisionFreeBase(
-  desiredBase: string,
+async function hasConflict(
+  base: string,
   extension: string,
   directories: readonly string[],
   hasSidecar: boolean,
-): Promise<string> {
-  for (let suffix = 0; suffix < MAX_COLLISION_SUFFIX; suffix += 1) {
-    const candidate = withCollisionSuffix(desiredBase, suffix);
-    const paths = directories.flatMap((directory) => {
-      const names = [join(directory, `${candidate}${extension}`)];
-      if (hasSidecar) {
-        names.push(join(directory, `${candidate}.xmp`));
-      }
-      return names;
-    });
-    let conflict = false;
-    for (const path of paths) {
-      if (await fileExists(path)) {
-        conflict = true;
-        break;
-      }
+): Promise<boolean> {
+  for (const directory of directories) {
+    if (await fileExists(join(directory, `${base}${extension}`))) {
+      return true;
     }
-    if (!conflict) {
-      return candidate;
+    if (hasSidecar && (await fileExists(join(directory, `${base}.xmp`)))) {
+      return true;
     }
   }
-  throw new CollisionError(`No free file name for ${desiredBase}${extension}`);
+  return false;
 }
 
 /**
@@ -136,30 +120,17 @@ async function copyVerifiedToFinal(
   }
 }
 
-/**
- * Copies a photo (and its XMP sidecar when present) to the primary and optional
- * backup destinations. Any failure removes the copies made by this call.
- */
-export async function copyPhotoLocal(
+async function copyWithBase(
+  base: string,
   request: CopyPhotoRequest,
-  options: CopyPhotoOptions = {},
+  extension: string,
+  hasSidecar: boolean,
+  copier: FileCopier,
+  signal?: AbortSignal,
 ): Promise<CopyPhotoResult> {
-  const copier = options.copier ?? nodeFileCopier;
-  const { signal } = options;
-  const { extension } = splitName(request.sourceFileName);
-  const hasSidecar = request.sidecarSourcePath !== undefined;
-  const directories = request.backupDirectory
-    ? [request.primaryDirectory, request.backupDirectory]
-    : [request.primaryDirectory];
-
-  throwIfAborted(signal);
-  const base = await chooseCollisionFreeBase(request.finalBase, extension, directories, hasSidecar);
   const fileName = `${base}${extension}`;
-
   const primaryPath = join(request.primaryDirectory, fileName);
-  const backupPath = request.backupDirectory
-    ? join(request.backupDirectory, fileName)
-    : undefined;
+  const backupPath = request.backupDirectory ? join(request.backupDirectory, fileName) : undefined;
   const sidecarPath = hasSidecar ? join(request.primaryDirectory, `${base}.xmp`) : undefined;
   const backupSidecarPath =
     hasSidecar && request.backupDirectory
@@ -198,4 +169,42 @@ export async function copyPhotoLocal(
     await Promise.all(placed.map((path) => rm(path, { force: true }).catch(() => undefined)));
     throw error;
   }
+}
+
+/**
+ * Copies a photo (and its XMP sidecar when present) to the primary and optional
+ * backup destinations. Any failure removes the copies made by this call.
+ *
+ * Two sources can resolve to the same name at the same moment. The pre-flight
+ * check avoids the common case; if a concurrent writer still wins the race at
+ * link time, the next numeric suffix is tried instead of overwriting.
+ */
+export async function copyPhotoLocal(
+  request: CopyPhotoRequest,
+  options: CopyPhotoOptions = {},
+): Promise<CopyPhotoResult> {
+  const copier = options.copier ?? nodeFileCopier;
+  const { signal } = options;
+  const { extension } = splitName(request.sourceFileName);
+  const hasSidecar = request.sidecarSourcePath !== undefined;
+  const directories = request.backupDirectory
+    ? [request.primaryDirectory, request.backupDirectory]
+    : [request.primaryDirectory];
+
+  for (let suffix = 0; suffix < MAX_COLLISION_SUFFIX; suffix += 1) {
+    throwIfAborted(signal);
+    const base = withCollisionSuffix(request.finalBase, suffix);
+    if (await hasConflict(base, extension, directories, hasSidecar)) {
+      continue;
+    }
+    try {
+      return await copyWithBase(base, request, extension, hasSidecar, copier, signal);
+    } catch (error) {
+      if (error instanceof CollisionError) {
+        continue;
+      }
+      throw error;
+    }
+  }
+  throw new CollisionError(`No free file name for ${request.finalBase}${extension}`);
 }

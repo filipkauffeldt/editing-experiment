@@ -68,14 +68,21 @@ function defaultMountRoots(platform: NodeJS.Platform, user: string): string[] {
 }
 
 function defaultWindowsDrives(): string[] {
-  return Array.from({ length: 23 }, (_, index) => `${String.fromCharCode('D'.charCodeAt(0) + index)}:`);
+  return Array.from(
+    { length: 23 },
+    (_, index) => `${String.fromCharCode('D'.charCodeAt(0) + index)}:`,
+  );
 }
 
 function pathApi(platform: NodeJS.Platform): typeof posix | typeof win32 {
   return platform === 'win32' ? win32 : posix;
 }
 
-async function countImages(fs: CardFileSystem, dcim: string, platform: NodeJS.Platform): Promise<number> {
+async function countImages(
+  fs: CardFileSystem,
+  dcim: string,
+  platform: NodeJS.Platform,
+): Promise<number> {
   const path = pathApi(platform);
   let count = 0;
   const pending = [dcim];

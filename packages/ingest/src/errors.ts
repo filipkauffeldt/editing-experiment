@@ -64,7 +64,9 @@ export function throwIfAborted(signal: AbortSignal | undefined): void {
 /** Replaces credential material wherever it appears in a message. */
 export function redactSecrets(message: string, secrets: readonly string[]): string {
   let redacted = message;
-  for (const secret of [...secrets].filter((value) => value.length > 0).sort((a, b) => b.length - a.length)) {
+  for (const secret of [...secrets]
+    .filter((value) => value.length > 0)
+    .sort((a, b) => b.length - a.length)) {
     redacted = redacted.split(secret).join('[redacted]');
   }
   return redacted;

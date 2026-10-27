@@ -91,6 +91,10 @@ export function splitName(fileName: string): SplitName {
   return { base: extension ? fileName.slice(0, -extension.length) : fileName, extension };
 }
 
+function hasControlCharacters(value: string): boolean {
+  return [...value].some((character) => character.charCodeAt(0) < 32);
+}
+
 /**
  * A rename template produces a file name, never a path. Reject anything that
  * could write outside the chosen destination directory.
@@ -106,7 +110,7 @@ export function safeFileBase(value: string): string {
   if (trimmed.includes('/') || trimmed.includes('\\') || trimmed.includes('\u0000')) {
     throw new PathTraversalError(`Rename template produced a path, not a file name: ${value}`);
   }
-  if (/[\u0000-\u001f]/.test(trimmed)) {
+  if (hasControlCharacters(trimmed)) {
     throw new PathTraversalError('Rename template produced a file name with control characters');
   }
   return trimmed;
@@ -126,7 +130,7 @@ export function safeSubfolder(value: string): string {
     if (part === '' || part === '.' || part === '..') {
       throw new PathTraversalError(`Subfolder template escapes the destination: ${value}`);
     }
-    if (part.includes(':') || /[\u0000-\u001f]/.test(part)) {
+    if (part.includes(':') || hasControlCharacters(part)) {
       throw new PathTraversalError(`Subfolder template contains an invalid segment: ${value}`);
     }
   }

@@ -31,7 +31,11 @@ export interface CopyOutcome {
 
 /** Seam for tests that need to corrupt a copy mid-flight. */
 export interface FileCopier {
-  copy(source: string, destination: string, options: { signal?: AbortSignal }): Promise<CopyOutcome>;
+  copy(
+    source: string,
+    destination: string,
+    options: { signal?: AbortSignal },
+  ): Promise<CopyOutcome>;
 }
 
 /** What the rest of the app receives once a photo (and its sidecar) is on disk. */
@@ -93,4 +97,3 @@ export interface IngestHandle {
   /** Subscribe to job events. Returns an unsubscribe function. */
   on(listener: (event: JobEvent) => void): () => void;
 }
-

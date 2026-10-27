@@ -80,8 +80,8 @@ describe('listSourceFiles', () => {
       path: root,
     };
     expect(await listSourceFiles(flat)).toEqual([]);
-    expect(
-      (await listSourceFiles({ ...flat, recursive: true })).map((file) => file.name),
-    ).toEqual(['a.NEF']);
+    expect((await listSourceFiles({ ...flat, recursive: true })).map((file) => file.name)).toEqual([
+      'a.NEF',
+    ]);
   });
 });

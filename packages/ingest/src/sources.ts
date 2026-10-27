@@ -10,9 +10,9 @@ export interface ListImagesOptions {
   recursive?: boolean;
 }
 
-async function safeReadDirectory(path: string): Promise<
-  Array<{ name: string; isDirectory: boolean; isFile: boolean }>
-> {
+async function safeReadDirectory(
+  path: string,
+): Promise<Array<{ name: string; isDirectory: boolean; isFile: boolean }>> {
   try {
     const entries = await readdir(path, { withFileTypes: true });
     return entries.map((entry) => ({
@@ -87,8 +87,7 @@ export async function listImageFiles(
   const files: SourceFile[] = [];
   await walk(root, '', options.recursive ?? false, files);
   return files.sort(
-    (a, b) =>
-      naturalCompare(a.relativeFolder, b.relativeFolder) || naturalCompare(a.name, b.name),
+    (a, b) => naturalCompare(a.relativeFolder, b.relativeFolder) || naturalCompare(a.name, b.name),
   );
 }
 
@@ -101,14 +100,20 @@ export async function listSourceFiles(source: FolderSource | CardSource): Promis
   try {
     const info = await stat(dcim);
     if (!info.isDirectory()) {
-      throw new IngestError(`Not a camera card (no DCIM directory): ${source.mountPath}`, 'not-a-card');
+      throw new IngestError(
+        `Not a camera card (no DCIM directory): ${source.mountPath}`,
+        'not-a-card',
+      );
     }
   } catch (error) {
     if (error instanceof IngestError) {
       throw error;
     }
     if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
-      throw new IngestError(`Not a camera card (no DCIM directory): ${source.mountPath}`, 'not-a-card');
+      throw new IngestError(
+        `Not a camera card (no DCIM directory): ${source.mountPath}`,
+        'not-a-card',
+      );
     }
     throw error;
   }
