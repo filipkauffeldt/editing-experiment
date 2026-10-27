@@ -7,3 +7,7 @@ edition = "2024"
 license = "GPL-3.0-or-later"
 version = "0.0.0"
 publish = false
+
+[profile.release]
+lto = true
+strip = "symbols"
