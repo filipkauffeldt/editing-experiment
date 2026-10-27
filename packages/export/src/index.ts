@@ -27,6 +27,8 @@ export {
 } from './upload/paths';
 export { redactSecrets, safeErrorMessage } from './upload/redact';
 export { JobEventEmitter, type JobEventListener } from './upload/events';
+export { UploadStore } from './upload/store';
+export { UploadQueue, type UploadQueueOptions } from './upload/queue';
 export {
   createConnector,
   createFolderConnector,
