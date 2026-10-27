@@ -18,6 +18,7 @@ import {
   type IpcEvents,
   type IpcNamespace,
   type IpcResult,
+  type LinearImageHeader,
   type NamespaceHandlers,
   type Photo,
   type PhotoId,
@@ -162,5 +163,15 @@ describe('appUrl', () => {
     expect(appUrl.thumb(id)).toBe('app://thumb/a%2Fb%20c');
     expect(appUrl.linear(id, 1600.4)).toBe('app://linear/a%2Fb%20c?maxEdge=1600');
     expect(appUrl.preview(asPhotoId('x'))).toBe('app://preview/x');
+  });
+});
+
+describe('LinearImageHeader', () => {
+  it('carries the camera-space decode contract', () => {
+    expectTypeOf<LinearImageHeader>().toHaveProperty('asShotMultipliers');
+    expectTypeOf<LinearImageHeader>().toHaveProperty('cameraToSrgb').toEqualTypeOf<number[]>();
+    expectTypeOf<LinearImageHeader>().toHaveProperty('xyzToCamera').toEqualTypeOf<number[]>();
+    // White balance is no longer a header field: it moved to `asShotMultipliers`.
+    expectTypeOf<LinearImageHeader>().not.toHaveProperty('whiteBalance');
   });
 });

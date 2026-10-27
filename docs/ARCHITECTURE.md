@@ -90,16 +90,31 @@ Key types (names are binding, fields can grow):
 
 ## Linear image format
 
-`crates/core` decodes NEF via LibRaw to camera-space → linear Rec.709/sRGB
-primaries (LibRaw camera matrix), white balance **not** baked in (as-shot WB
-multipliers returned alongside), as RGBA half-float or float32, optionally
-downscaled to `maxEdge`. The develop pipeline applies WB and everything else.
+`crates/core` decodes NEF via LibRaw to **demosaiced camera RGB**: linear, in
+the camera's own primaries (`output_color = 0`), unity white balance
+multipliers, no auto-brightening, black level subtracted, not clipped, alpha 1,
+as RGBA half-float or float32, optionally downscaled to `maxEdge`.
+
+White balance is a per-channel gain that is only correct in camera space, so it
+must come before the camera → sRGB matrix. The header
+(`LinearImageHeader` in `packages/contracts`) therefore carries what the
+develop pipeline needs:
+
+- `asShotMultipliers` (normalized g = 1),
+- `cameraToSrgb`: 3x3 row-major, white-balanced linear camera RGB → linear
+  sRGB/Rec.709 (LibRaw `rgb_cam`),
+- `xyzToCamera`: 3x3 row-major, XYZ → camera RGB (LibRaw `cam_xyz`), used to
+  convert temperature/tint ↔ multipliers like the DNG SDK,
+- optional `asShotTemperature` / `asShotTint`.
+
+Pipeline order: `camera RGB * multipliers → cameraToSrgb → develop ops → sRGB OETF`.
 
 ## Develop pipeline
 
-WebGL2 fragment-shader passes over the linear texture: WB → exposure →
-tone (contrast/highlights/shadows/whites/blacks) → tone curve → vibrance /
-saturation → output transform (sRGB). A CPU reference implementation of the
+WebGL2 fragment-shader passes over the camera-RGB texture: white balance
+(multipliers) → camera → sRGB matrix → exposure → tone
+(contrast/highlights/shadows/whites/blacks) → tone curve → vibrance /
+saturation → output transform (sRGB OETF). A CPU reference implementation of the
 same maths lives next to the shaders and is used in tests. Export renders the
 same pipeline offscreen at full resolution.
 

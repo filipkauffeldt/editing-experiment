@@ -1,15 +1,30 @@
 import type { PhotoId } from './ids';
 
 /**
- * Header describing a decoded linear image served at
- * `app://linear/<photoId>?maxEdge=N`.
+ * Header describing a decoded image served at `app://linear/<photoId>?maxEdge=N`.
  *
  * Wire format: the response body is `width * height * 4` samples (RGBA,
  * row-major, row 0 at the top, little-endian), already rotated to display
- * orientation. Samples are linear light in Rec.709/sRGB primaries, **without**
- * white balance applied and not clipped to 0..1 (highlights may exceed 1).
- * Alpha is always 1. This header is sent as JSON in the
- * {@link LINEAR_IMAGE_HEADER} HTTP response header.
+ * orientation. Samples are **demosaiced camera RGB**: linear light in the
+ * camera's own primaries (LibRaw `output_color = 0`), black level subtracted,
+ * scaled so the sensor's white level is 1.0, **unity** white balance multipliers,
+ * no auto-brightening, not clipped (highlights may exceed 1). Alpha is always 1.
+ * This header is sent as JSON in the {@link LINEAR_IMAGE_HEADER} HTTP response header.
+ *
+ * Why camera space: white balance is a per-channel gain that is only
+ * meaningful in the camera's primaries, so it must be applied before the
+ * camera → sRGB matrix, otherwise temperature/tint cannot behave correctly.
+ *
+ * The develop pipeline order is:
+ *
+ * ```
+ * camera RGB * multipliers -> cameraToSrgb -> develop ops -> sRGB OETF
+ * ```
+ *
+ * where `multipliers` are `asShotMultipliers` or, once the user moves
+ * temperature/tint, multipliers derived from them with `xyzToCamera`
+ * (as in the DNG SDK), and "develop ops" are exposure, tone, tone curve,
+ * vibrance and saturation in linear Rec.709/sRGB primaries.
  */
 export interface LinearImageHeader {
   /** Pixel size of the returned buffer. */
@@ -20,8 +35,20 @@ export interface LinearImageHeader {
   sourceHeight: number;
   /** `f16` = IEEE half float (2 bytes/sample), `f32` = float32 (4 bytes/sample). */
   sampleType: 'f16' | 'f32';
-  /** As-shot white balance multipliers, normalized so `g` is 1. Apply as `rgb * wb`. */
-  whiteBalance: { r: number; g: number; b: number };
+  /** As-shot white balance multipliers, normalized so `g` is 1. Apply as `cameraRgb * multipliers`. */
+  asShotMultipliers: { r: number; g: number; b: number };
+  /**
+   * 3x3 row-major matrix taking **white-balanced** linear camera RGB to linear
+   * sRGB / Rec.709 primaries (the 3x3 part of LibRaw `rgb_cam`). Apply it after
+   * the multipliers: `srgb = cameraToSrgb * (cameraRgb * multipliers)`. Length 9.
+   */
+  cameraToSrgb: number[];
+  /**
+   * 3x3 row-major matrix taking CIE XYZ (D50) to linear camera RGB (the 3x3 part
+   * of LibRaw `cam_xyz`). Used to convert temperature/tint to and from white balance
+   * multipliers the way the DNG SDK does. Length 9.
+   */
+  xyzToCamera: number[];
   /** As-shot colour temperature (Kelvin) and tint, when the decoder could derive them. */
   asShotTemperature?: number;
   asShotTint?: number;
