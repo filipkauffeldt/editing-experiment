@@ -10,6 +10,7 @@ import {
   normalizeRemotePath,
   redactSecrets,
   resolveFolderDestinationPath,
+  tempRemotePath,
   testDestination,
   type ConnectorFactory,
 } from '../src/index';
@@ -61,6 +62,12 @@ describe('destination paths', () => {
       /escapes|Invalid remote path/,
     );
     expect(() => normalizeRemotePath('/')).toThrowError(/Invalid remote path/);
+  });
+
+  it('names part files by upload id and claim token', () => {
+    const temp = tempRemotePath('/incoming/frame.jpg', 'upload-1', 'abcdef123456');
+    expect(temp).toBe('/incoming/frame.jpg.upload-1.abcdef12.part');
+    expect(temp).not.toBe(tempRemotePath('/incoming/frame.jpg', 'upload-2', 'abcdef123456'));
   });
 
   it('rejects unsafe file names', () => {
