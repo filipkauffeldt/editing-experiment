@@ -115,12 +115,25 @@ Pipeline order: `camera RGB * multipliers → cameraToSrgb → develop ops → s
 
 ## Develop pipeline
 
-WebGL2 fragment-shader passes over the camera-RGB texture: white balance
-(multipliers) → camera → sRGB matrix → exposure → tone
-(contrast/highlights/shadows/whites/blacks) → tone curve → vibrance /
-saturation → output transform (sRGB OETF). A CPU reference implementation of the
-same maths lives next to the shaders and is used in tests. Export renders the
-same pipeline offscreen at full resolution.
+One WebGL2 fragment shader (`packages/develop-gl`), per pixel, in this order:
+
+1. white balance multipliers in camera space, then `cameraToSrgb` (folded into one
+   matrix) to linear Rec.709;
+2. exposure, then tone (highlights/shadows, contrast, whites/blacks) in linear light,
+   applied as a luminance gain so hue is kept;
+3. highlight shoulder per channel (values above ~0.9 roll off and reach 1.0 at 2.0
+   scene-linear, so nothing hard clips);
+4. sRGB encode (OETF);
+5. tone curve (master, then R/G/B), defined on the encoded 0..255 axis, as a 1D LUT;
+6. vibrance / saturation, in encoded space.
+
+The sRGB encode comes before the curve because the curve is display-referred.
+Absent `Temperature`/`Tint` mean as shot. If `Temperature` or `Tint` is set it
+overrides `WhiteBalance: 'As Shot'`, so to return to as shot clear both (the preset
+helper `applyPreset` does this for "As Shot" presets). A CPU reference of the same
+maths (`renderCpu`) lives next to the shaders; a browser test checks that the two agree.
+Export renders the same pipeline offscreen at full resolution, in tiles when the image
+or the output exceeds GPU limits. All tunable constants are in `src/tuning.ts`.
 
 ## Screenshots
 
