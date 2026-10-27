@@ -79,6 +79,9 @@ Key types (names are binding, fields can grow):
 - `JobEvent` stream (ingest progress, upload progress, errors)
 - IPC: one typed map `IpcApi` of `channel -> (args) => Promise<result>` plus
   typed event channels. Preload exposes it as `window.ee`.
+- `export:photo` sends the full-resolution RGBA render over IPC. That is fine for
+  the PoC (about 180 MB for a 45 MP Z9 frame) but a known cost to optimise later
+  (e.g. MessagePort transfer or a shared temp file).
 
 ## Metadata conventions
 
