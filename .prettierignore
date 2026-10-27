@@ -1,0 +1,12 @@
+node_modules
+dist
+out
+target
+coverage
+screenshots
+fixtures
+pnpm-lock.yaml
+LICENSE
+*.node
+crates/core/index.d.ts
+crates/core/index.js

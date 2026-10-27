@@ -1,0 +1,10 @@
+packages:
+  - apps/*
+  - packages/*
+  - crates/*
+
+# Electron, esbuild and the napi CLI ship install scripts that download or
+# unpack binaries; everything else stays blocked.
+onlyBuiltDependencies:
+  - electron
+  - esbuild
