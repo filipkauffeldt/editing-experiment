@@ -179,10 +179,14 @@ impl LibRaw {
     pub fn focal_length(&self) -> f32 {
         unsafe { ffi::ee_focal_length(self.ptr.as_ptr()) }
     }
-    /// Camera wall-clock capture time as seconds since the epoch, interpreted
-    /// as UTC (EXIF has no time zone). 0 when unknown.
-    pub fn timestamp(&self) -> i64 {
-        unsafe { ffi::ee_timestamp(self.ptr.as_ptr()) }
+    /// Camera wall-clock capture time as `YYYY-MM-DDTHH:MM:SS` (EXIF has no
+    /// time zone, and the result does not depend on the host's).
+    pub fn capture_time(&self) -> Option<String> {
+        let mut buf = [0 as c_char; 32];
+        // SAFETY: valid handle; the shim writes a NUL-terminated string that fits.
+        let ok = unsafe { ffi::ee_capture_time(self.ptr.as_ptr(), buf.as_mut_ptr(), buf.len()) };
+        // SAFETY: buf is NUL-terminated when ok != 0.
+        (ok != 0).then(|| unsafe { cstr(buf.as_ptr()) })
     }
 
     // --- geometry ---------------------------------------------------------

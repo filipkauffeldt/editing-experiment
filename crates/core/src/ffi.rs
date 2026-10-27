@@ -5,7 +5,7 @@
 //!
 //! Everything here is `unsafe` to call; use [`crate::libraw`] instead.
 
-use std::ffi::{c_char, c_float, c_int, c_longlong, c_uchar, c_uint};
+use std::ffi::{c_char, c_float, c_int, c_uchar, c_uint};
 
 /// Opaque `libraw_data_t`.
 #[repr(C)]
@@ -78,7 +78,7 @@ unsafe extern "C" {
     pub fn ee_shutter(lr: *mut LibRawData) -> c_float;
     pub fn ee_aperture(lr: *mut LibRawData) -> c_float;
     pub fn ee_focal_length(lr: *mut LibRawData) -> c_float;
-    pub fn ee_timestamp(lr: *mut LibRawData) -> c_longlong;
+    pub fn ee_capture_time(lr: *mut LibRawData, buf: *mut c_char, len: usize) -> c_int;
 
     pub fn ee_raw_width(lr: *mut LibRawData) -> c_int;
     pub fn ee_raw_height(lr: *mut LibRawData) -> c_int;

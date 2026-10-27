@@ -62,9 +62,7 @@ pub(crate) fn info_of(lr: &LibRaw) -> RawInfo {
         model,
         lens,
         serial,
-        capture_time: Some(lr.timestamp())
-            .filter(|&t| t > 0)
-            .map(format_timestamp),
+        capture_time: lr.capture_time(),
         iso: positive(lr.iso()),
         shutter: positive(lr.shutter()),
         aperture: positive(lr.aperture()),
@@ -103,38 +101,23 @@ fn positive(v: f32) -> Option<f64> {
     (v.is_finite() && v > 0.0).then_some(v as f64)
 }
 
-/// Formats seconds since the epoch as `YYYY-MM-DDTHH:MM:SS` (proleptic
-/// Gregorian, no zone), using Hinnant's civil-from-days algorithm.
-pub fn format_timestamp(secs: i64) -> String {
-    let days = secs.div_euclid(86_400);
-    let rem = secs.rem_euclid(86_400);
-    let z = days + 719_468;
-    let era = z.div_euclid(146_097);
-    let doe = z.rem_euclid(146_097);
-    let yoe = (doe - doe / 1_460 + doe / 36_524 - doe / 146_096) / 365;
-    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
-    let mp = (5 * doy + 2) / 153;
-    let day = doy - (153 * mp + 2) / 5 + 1;
-    let month = if mp < 10 { mp + 3 } else { mp - 9 };
-    let year = yoe + era * 400 + i64::from(month <= 2);
-    format!(
-        "{year:04}-{month:02}-{day:02}T{:02}:{:02}:{:02}",
-        rem / 3_600,
-        rem % 3_600 / 60,
-        rem % 60
-    )
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::testutil::fixtures;
 
     #[test]
-    fn formats_known_timestamps() {
-        assert_eq!(format_timestamp(0), "1970-01-01T00:00:00");
-        assert_eq!(format_timestamp(951_782_400 + 3_661), "2000-02-29T01:01:01");
-        assert_eq!(format_timestamp(1_700_000_000), "2023-11-14T22:13:20");
+    fn capture_time_does_not_depend_on_the_host_time_zone() {
+        // The Z 30 fixture was shot at 15:22:57 camera time; the test runs
+        // under whatever TZ the host has (CI is UTC, developers are not).
+        let Some(path) = fixtures()
+            .into_iter()
+            .find(|p| p.ends_with("z30_14bit.NEF"))
+        else {
+            return;
+        };
+        let info = read_raw_info(&path).unwrap();
+        assert_eq!(info.capture_time.as_deref(), Some("2022-12-06T15:22:57"));
     }
 
     #[test]
@@ -153,6 +136,7 @@ mod tests {
             assert!(info.width > 4000 && info.height > 3000, "{info:?}");
             let time = info.capture_time.expect("capture time");
             assert_eq!(time.len(), 19, "{time}");
+            assert_eq!(&time[10..11], "T");
         }
     }
 }

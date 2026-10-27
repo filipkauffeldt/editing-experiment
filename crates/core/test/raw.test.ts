@@ -86,7 +86,7 @@ suite('readRawInfo', () => {
       make: 'Nikon',
       model: 'Z 30',
       lens: 'NIKKOR Z 40mm f/2',
-      captureTime: '2022-12-06T14:22:57',
+      captureTime: '2022-12-06T15:22:57',
       iso: 100,
       aperture: 2,
       focalLength: 40,

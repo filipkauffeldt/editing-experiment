@@ -7,7 +7,9 @@
  * is recycled or closed.
  */
 #include <stddef.h>
+#include <stdio.h>
 #include <string.h>
+#include <time.h>
 #include "libraw/libraw.h"
 
 /* ---- decode configuration -------------------------------------------- */
@@ -54,9 +56,30 @@ float ee_iso(libraw_data_t *lr) { return lr->other.iso_speed; }
 float ee_shutter(libraw_data_t *lr) { return lr->other.shutter; }
 float ee_aperture(libraw_data_t *lr) { return lr->other.aperture; }
 float ee_focal_length(libraw_data_t *lr) { return lr->other.focal_len; }
-/* Seconds since the epoch of the camera's local wall-clock time as if it were
- * UTC (EXIF carries no time zone). 0 when unknown. */
-long long ee_timestamp(libraw_data_t *lr) { return (long long)lr->other.timestamp; }
+/* Writes the capture time as "YYYY-MM-DDTHH:MM:SS" into `buf` and returns 1,
+ * or returns 0 when the camera recorded none.
+ *
+ * LibRaw builds `timestamp` with mktime() from the EXIF wall-clock time, i.e.
+ * in the *host's* time zone. Converting back with the same zone's localtime
+ * recovers the camera's wall-clock time independent of where this runs (only
+ * a time inside a DST transition hour can shift by an hour). */
+int ee_capture_time(libraw_data_t *lr, char *buf, size_t len)
+{
+  time_t t = lr->other.timestamp;
+  struct tm tm;
+  if (t <= 0 || len < 20)
+    return 0;
+#if defined(_WIN32)
+  if (localtime_s(&tm, &t) != 0)
+    return 0;
+#else
+  if (!localtime_r(&t, &tm))
+    return 0;
+#endif
+  snprintf(buf, len, "%04d-%02d-%02dT%02d:%02d:%02d", tm.tm_year + 1900, tm.tm_mon + 1,
+           tm.tm_mday, tm.tm_hour, tm.tm_min, tm.tm_sec);
+  return 1;
+}
 
 /* ---- geometry --------------------------------------------------------- */
 
