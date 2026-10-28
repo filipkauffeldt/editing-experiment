@@ -177,7 +177,10 @@ describe('applyMosaic', () => {
     const width = 8192;
     const height = 5504;
     const rgba = new Uint8Array(width * height * 4);
-    rgba.fill(180);
+    const words = new Uint32Array(rgba.buffer);
+    for (let i = 0; i < words.length; i++) {
+      words[i] = (Math.imul(i, 2654435761) | 0xff000000) >>> 0;
+    }
     const faces = [
       rect(0.2, 0.3, 0.04, 0.06),
       rect(0.6, 0.4, 0.04, 0.06),
@@ -188,6 +191,6 @@ describe('applyMosaic', () => {
     const elapsed = performance.now() - started;
     console.log(`45 MP mosaic (${width}x${height}, 3 faces): ${elapsed.toFixed(1)} ms`);
     expect(result).toHaveLength(rgba.length);
-    expect(elapsed).toBeLessThan(1500);
+    expect(elapsed).toBeLessThan(600);
   }, 60_000);
 });
