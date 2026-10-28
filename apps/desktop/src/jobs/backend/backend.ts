@@ -25,6 +25,7 @@ import { PresetStore } from './presets';
 import { PreviewCache } from './previews';
 import { ExportService } from './export-service';
 import { SettingsStore } from './settings-store';
+import { runTeardown } from './teardown';
 
 export interface BackendOptions {
   /** Electron `userData`; everything the backend persists lives below it. */
@@ -149,14 +150,15 @@ export async function createBackend(options: BackendOptions): Promise<Backend> {
     layout,
     resolveAppRequest: (url) => apps.resolve(url),
     dispose: () => {
-      disposed ??= (async () => {
+      disposed ??= runTeardown([
         // Order matters: ingest and uploads use ExifTool and the databases.
-        await ingest.dispose();
-        await queue.close();
-        await exiftool.close();
-        seenStore.close();
-        index.close();
-      })();
+        { name: 'ingest', run: () => ingest.dispose() },
+        { name: 'face detection', run: () => faces.dispose() },
+        { name: 'upload queue', run: () => queue.close() },
+        { name: 'exiftool', run: () => exiftool.close() },
+        { name: 'seen files', run: () => seenStore.close() },
+        { name: 'photo index', run: () => index.close() },
+      ]);
       return disposed;
     },
   };

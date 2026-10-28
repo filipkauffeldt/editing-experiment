@@ -93,6 +93,8 @@ parentPort.on(
         void (async () => {
           try {
             await (await backend)?.dispose();
+          } catch (error) {
+            console.error('jobs shutdown:', error);
           } finally {
             process.exit(0);
           }

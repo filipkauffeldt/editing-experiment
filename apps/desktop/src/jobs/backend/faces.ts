@@ -25,6 +25,9 @@ export function findYuNetModel(from: string): string | undefined {
 
 /** Face detection for the retouch mode. */
 export class FaceService {
+  private disposed = false;
+  private readonly running = new Set<Promise<unknown>>();
+
   constructor(
     private readonly photos: PhotoLibrary,
     private readonly modelPath: string | undefined,
@@ -35,7 +38,24 @@ export class FaceService {
    * full-size embedded preview: it is already demosaiced and rotated by the
    * camera, and decoding it is far cheaper than developing the sensor data.
    */
-  async detect({ photoId, region }: DetectFacesArgs): Promise<FaceDetection[]> {
+  async detect(args: DetectFacesArgs): Promise<FaceDetection[]> {
+    if (this.disposed) throw new IpcError('cancelled', 'the app is shutting down');
+    const run = this.run(args);
+    this.running.add(run);
+    try {
+      return await run;
+    } finally {
+      this.running.delete(run);
+    }
+  }
+
+  /** Refuse new detections and wait for the running ones, so quitting does not cut one off. */
+  async dispose(): Promise<void> {
+    this.disposed = true;
+    await Promise.allSettled([...this.running]);
+  }
+
+  private async run({ photoId, region }: DetectFacesArgs): Promise<FaceDetection[]> {
     if (!this.modelPath || !existsSync(this.modelPath)) {
       throw new IpcError(
         'not_found',
