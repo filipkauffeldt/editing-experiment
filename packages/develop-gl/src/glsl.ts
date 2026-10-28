@@ -42,12 +42,18 @@ uniform int u_hasCurve;
 uniform float u_vibrance;
 uniform float u_saturation;
 
-// Output / source mapping (see renderer.ts): output pixel -> source texel.
-uniform vec2 u_outSize;      // size of the whole output image in pixels
-uniform vec2 u_tileOrigin;   // output pixel of this render target's (0, 0), top-left based
-uniform vec2 u_scale;        // source pixels per output pixel
+// Output / source mapping (see renderer.ts and crop.ts): output pixel -> source texel.
+uniform vec2 u_outSize;      // size of this render target in pixels (buffer, not logical crop size)
+uniform vec2 u_outScale;     // logical output pixels per buffer pixel (crop preview scaling)
+uniform vec2 u_outCenter;    // centre of the logical output in pixels
+uniform vec2 u_tileOrigin;   // buffer pixel of this tile's (0, 0), top-left based
+uniform vec2 u_srcCenter;    // crop centre in source pixels (rotation pivot)
+uniform vec2 u_srcRot;       // cos(angle), sin(angle): clockwise rotation from output to source
 uniform vec2 u_srcOrigin;    // source pixel of the bound texture's (0, 0)
 uniform vec2 u_srcTexSize;
+uniform vec2 u_srcSize;      // full source size, for CLAMP_TO_EDGE at the image border
+uniform vec2 u_coreMin;      // source rectangle this tile owns; fragments outside are drawn by another tile
+uniform vec2 u_coreMax;
 uniform float u_flipY;       // 1 when drawing to the canvas (row 0 at the bottom of the framebuffer)
 uniform int u_nearest;       // 1 when output and source sizes match: fetch texels exactly
 
@@ -155,12 +161,25 @@ vec3 vibranceSaturation(vec3 c, float vibrance, float saturation) {
 void main() {
   float row = gl_FragCoord.y - 0.5;
   vec2 pix = vec2(gl_FragCoord.x - 0.5, mix(row, u_outSize.y - 1.0 - row, u_flipY)) + u_tileOrigin;
+  vec2 pOut = (pix + 0.5) * u_outScale;
+  vec2 d = pOut - u_outCenter;
+  // CropAngle is clockwise: the output samples the source through the inverse
+  // rotation around the crop centre. Bilinear sampling is the texture's LINEAR filter.
+  vec2 src = u_srcCenter + vec2(
+    u_srcRot.x * d.x - u_srcRot.y * d.y,
+    u_srcRot.y * d.x + u_srcRot.x * d.y
+  );
+  // Sample outside the image clamps to the edge, like the CPU reference and
+  // CLAMP_TO_EDGE; clamping first also puts that fragment in the edge core.
+  src = clamp(src, vec2(0.0), u_srcSize);
+  if (src.x < u_coreMin.x || src.y < u_coreMin.y || src.x > u_coreMax.x || src.y > u_coreMax.y)
+    discard;
 
   vec3 cam;
   if (u_nearest == 1) {
-    cam = texelFetch(u_image, ivec2(pix - u_srcOrigin), 0).rgb;
+    cam = texelFetch(u_image, ivec2(src - u_srcOrigin), 0).rgb;
   } else {
-    cam = texture(u_image, ((pix + 0.5) * u_scale - u_srcOrigin) / u_srcTexSize).rgb;
+    cam = texture(u_image, (src - u_srcOrigin) / u_srcTexSize).rgb;
   }
 
   vec3 lin = (u_color * clipHighlights(cam, u_wb)) * u_exposure;
