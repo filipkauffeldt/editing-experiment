@@ -46,6 +46,31 @@ async function fetchLinear(
   return { header, data };
 }
 
+export interface OutputSize {
+  width: number;
+  height: number;
+}
+
+/**
+ * Size of the "Finish & next" render. Full-resolution export must be the
+ * source size, and the linear fetch is deliberately made without `maxEdge`;
+ * a downscaled header here would silently export a preview-sized file.
+ */
+export function fullResolutionOutput(header: LinearImageHeader, params: EditParams): OutputSize {
+  const source = { width: header.sourceWidth, height: header.sourceHeight };
+  if (!(source.width > 0) || !(source.height > 0)) {
+    throw new Error(
+      `the full-resolution image has no source size (${source.width}x${source.height})`,
+    );
+  }
+  if (header.width !== source.width || header.height !== source.height) {
+    throw new Error(
+      `expected a full-resolution linear image (${source.width}x${source.height}), got ${header.width}x${header.height}`,
+    );
+  }
+  return params.crop ? cropOutputPixels(params.crop, source) : source;
+}
+
 const workerTimeoutMs = 120_000;
 
 /** Render through a dedicated worker so slider/UI frames keep flowing. */
@@ -114,12 +139,10 @@ export async function renderFullResolution({
   ops,
   onProgress,
 }: FullResolutionRenderRequest): Promise<RenderedImage> {
+  // No `maxEdge`: export is always at the source resolution, and the crop's
+  // pixel size is derived from that source size.
   const { header, data } = await fetchLinear(photo.id, { onProgress });
-  // The exported file is the crop's pixel size, not the whole sensor frame.
-  const source = { width: header.width, height: header.height };
-  const output = params.crop
-    ? cropOutputPixels(params.crop, source)
-    : { width: source.width, height: source.height };
+  const output = fullResolutionOutput(header, params);
   onProgress?.({ label: 'Rendering full resolution…', percent: 20 });
 
   try {
