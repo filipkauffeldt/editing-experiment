@@ -14,32 +14,50 @@ export { resolveUniforms, buildCurveLut } from './params';
 export type { DevelopCamera, DevelopUniforms } from './params';
 export { TUNING } from './tuning';
 export {
+  MAX_CROP_ANGLE,
   constrainCrop,
   cropAspect,
   cropCorners,
   cropDevelopedRgba,
+  cropFitsImage,
   cropFromGeometry,
   cropGeometry,
+  cropImageToView,
   cropOutputPixels,
   cropOutputSize,
   cropOrientedToStored,
   cropStoredToOriented,
+  cropViewToImage,
   croppedToSource,
   croppedToSourcePixels,
+  drawCrop,
   isFullCrop,
   largestCropForAspect,
+  minCropSize,
   normalizeOrientation,
   orientedToStoredPoint,
+  panCrop,
+  pointerAngleDelta,
+  quantizeAngle,
   resizeCropFromHandle,
+  rotateCrop,
   rotatePoint,
   sanitizeCrop,
+  shrinkCropToImage,
+  straightenAngleFromLine,
   sourceToCropped,
   storedSizeForOrientation,
   storedToOrientedPoint,
   sourceToCroppedPixels,
   unrotatePoint,
 } from './crop';
-export type { CropGeometry, CropHandle, Point as CropPoint, Size as CropSize } from './crop';
+export type {
+  CropGeometry,
+  CropHandle,
+  DrawnCrop,
+  Point as CropPoint,
+  Size as CropSize,
+} from './crop';
 
 // White balance
 export {
