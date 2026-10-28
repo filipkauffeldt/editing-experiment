@@ -115,6 +115,44 @@ export function frameRect(
   };
 }
 
+/**
+ * Where to put the cached preview JPEG when the GPU image is not available
+ * (a format without a linear source, or before the first frame): the same
+ * view as the canvas, as a CSS box and transform. The image point at the crop
+ * centre is turned `-angle` about itself, then moved under the frame centre.
+ */
+export interface PreviewPlacement {
+  left: number;
+  top: number;
+  width: number;
+  height: number;
+  originX: number;
+  originY: number;
+  translateX: number;
+  translateY: number;
+  rotate: number;
+}
+
+export function previewPlacement(
+  layout: CropLayout,
+  image: Size,
+  center: Point,
+  pivot: Point,
+  angle: number,
+): PreviewPlacement {
+  return {
+    left: layout.offset.x,
+    top: layout.offset.y,
+    width: image.width * layout.scale,
+    height: image.height * layout.scale,
+    originX: center.x * layout.scale,
+    originY: center.y * layout.scale,
+    translateX: (pivot.x - center.x) * layout.scale,
+    translateY: (pivot.y - center.y) * layout.scale,
+    rotate: -angle,
+  };
+}
+
 /** What a pointer press at a position would do. */
 export type FrameHit = CropHandle | 'move' | 'rotate';
 

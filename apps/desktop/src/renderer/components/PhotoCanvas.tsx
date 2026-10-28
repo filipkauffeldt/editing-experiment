@@ -19,7 +19,7 @@ import { applyMosaic, magicWand, simplifyPolygon } from '@ee/retouch';
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { ee } from '../ee';
 import { paramsForPhoto, topRetouchVersion, type RetouchFace, type RetouchTool } from '../store';
-import { cropFit, cropLayout, fitWithin } from '../crop-view';
+import { cropFit, cropLayout, fitWithin, previewPlacement } from '../crop-view';
 import { padFaceBox } from '../retouch-geometry';
 import { useAppState, useAppStore } from '../store-context';
 import { CropOverlay } from './CropOverlay';
@@ -284,6 +284,34 @@ function CanvasForPhoto({ photo }: { photo: Photo }) {
   const bufferRatio = dpr * bufferScale;
   const bufferWidth = Math.max(1, Math.round(stage.width * bufferRatio));
   const bufferHeight = Math.max(1, Math.round(stage.height * bufferRatio));
+
+  // Crop mode shows the cached preview in the same view only while the GPU
+  // image is not there; once it draws, the canvas takes over.
+  let previewStyle: React.CSSProperties = { opacity: firstFrame || contextLost ? 0 : 1 };
+  if (cropSession) {
+    if (firstFrame) {
+      previewStyle = { display: 'none' };
+    } else {
+      const geometry = cropGeometry(cropSession.crop, cropSession.image);
+      const place = previewPlacement(
+        cropLayout(stage, cropSession.image),
+        cropSession.image,
+        { x: geometry.centerX, y: geometry.centerY },
+        cropSession.pivot,
+        geometry.angle,
+      );
+      previewStyle = {
+        inset: 'auto',
+        left: place.left,
+        top: place.top,
+        width: place.width,
+        height: place.height,
+        objectFit: 'fill',
+        transformOrigin: `${place.originX}px ${place.originY}px`,
+        transform: `translate(${place.translateX}px, ${place.translateY}px) rotate(${place.rotate}deg)`,
+      };
+    }
+  }
 
   const cropView = useMemo((): CropViewTransform | undefined => {
     if (!cropSession || !loaded) return undefined;
@@ -673,10 +701,7 @@ function CanvasForPhoto({ photo }: { photo: Photo }) {
             draggable={false}
             data-testid="preview-image"
             data-visible={!firstFrame && !contextLost ? 'true' : 'false'}
-            style={{
-              opacity: firstFrame || contextLost ? 0 : 1,
-              display: cropping ? 'none' : undefined,
-            }}
+            style={previewStyle}
             onLoad={() => setPreviewLoaded(true)}
             onError={() => {
               setPreviewLoaded(false);

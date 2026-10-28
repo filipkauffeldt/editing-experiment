@@ -250,6 +250,49 @@ maths (`renderCpu`) lives next to the shaders; a browser test checks that the tw
 Export renders the same pipeline offscreen at full resolution, in tiles when the image
 or the output exceeds GPU limits. All tunable constants are in `src/tuning.ts`.
 
+## Crop mode
+
+Crop mode works like Lightroom Classic's Crop Overlay. The crop frame is always an
+axis-aligned rectangle on screen and the *image* turns underneath it; straightening
+rotates the photo, not the frame. The stored crop (`EditParams.crop`, `crs:Crop*`) is
+unchanged: the rotated rectangle in source space, whose output is the leveled frame.
+
+- **Geometry** (`packages/develop-gl/src/crop.ts`, pure, unit tested): "view
+  coordinates" are screen coordinates in source-pixel units with the frame centre at
+  a `pivot` (`cropImageToView` / `cropViewToImage`). Helpers: `panCrop` (pan clamp),
+  `rotateCrop` + `shrinkCropToImage` ("constrain to image": the frame shrinks about its
+  centre, and grows back through a remembered `desired` size), `resizeCropFromHandle`
+  (opposite side anchored, aspect lock, symmetric for Alt), `drawCrop` (the frame
+  tool), `pointerAngleDelta`, `quantizeAngle` (0.1°, 1° with Shift) and
+  `straightenAngleFromLine`.
+- **GPU**: `renderer.renderView(params, view)` draws the whole image through the same
+  shader and crop mapping as the normal view, only with a different transform (the
+  existing output-scale and pivot uniforms, no CPU resampling): empty canvas outside
+  the image, a dimmed area outside the frame. So the pixels inside the frame are the
+  committed crop's, which is also what the export renders.
+- **Store** (`CropSession` in `renderer/store.ts`): gestures (`beginCropGesture`,
+  `updateCropGesture`, `endCropGesture`) work from a snapshot taken on pointer down, so
+  Shift/Alt can change mid-drag. Panning and rotating keep the `pivot` (the frame does
+  not move); resizing and drawing move it (the image does not move).
+- **Pointer zones** (`renderer/crop-view.ts`, `hitTestFrame`): corners and edges
+  resize; inside the frame pans the image; anywhere outside rotates about the frame
+  centre (curved arrow cursor), following the pointer's angle. Rotation is
+  limited to ±45° and to the angles the sidecar can store for the frame's shape
+  (`storableAngleRange`): the two stored corners are opposite corners of the rotated
+  rectangle, so a wide frame tilted far counter-clockwise would swap their order. A
+  resize or a drawn frame that would cross that limit is ignored.
+- **Tools**: plain dragging outside the frame *rotates*, as in Lightroom. Drawing a new
+  frame is the separate crop frame tool (toolbar "Frame" or `R`): it draws one frame
+  (respecting the aspect lock) and hands back to the normal tool. The straighten tool
+  (toolbar or `A`) takes a line drawn along the horizon on the displayed image.
+- **Modifiers**: Shift toggles the aspect lock for the drag (a Free crop locks to its own
+  ratio) and snaps a rotation to 1°; Alt/Option resizes or draws about the centre.
+- **Overlays**: rule of thirds while interacting or hovering, a finer grid while
+  rotating, `O` cycles thirds, grid, golden ratio, none.
+- **Keys**: `C` enters (and applies), `Enter` or a double-click inside the frame
+  applies, `Esc` cancels, `X` swaps orientation, `Ctrl/Cmd+Alt+R` resets, double-click on
+  the angle slider resets the angle.
+
 ## Screenshots
 
 `pnpm screenshot [--out <dir>]` launches the built Electron app via Playwright

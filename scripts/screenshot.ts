@@ -2,9 +2,10 @@
 // Usage: pnpm screenshot [--out <dir>]
 //
 // 01-09 are the mock-data UI tour (no camera, no disk), including crop mode
-// and a cropped result. 10-16 are a real-mode run over the fetched CC0 NEF and
-// face fixtures: developed raw, slider change, crop, retouch face detection,
-// mosaic preview and the upload popover after export.
+// and a cropped result. 10-18 are a real-mode run over the fetched CC0 NEF and
+// face fixtures: developed raw, slider change, retouch face detection, mosaic
+// preview and the upload popover after export, plus (17, 18) crop mode
+// mid-rotation with the fine grid and the committed crop.
 import { _electron as electron, type ElectronApplication, type Page } from '@playwright/test';
 import { spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, copyFileSync } from 'node:fs';
@@ -279,6 +280,41 @@ async function runReal(outDir: string): Promise<void> {
       ['[data-testid="develop-canvas"]', beforeExposure] as const,
     );
     await shoot('11-real-slider-change.png');
+
+    // Crop mode, Lightroom style: drag outside the frame to rotate the photo
+    // under it, with the finer grid up while rotating; Enter commits.
+    await window.keyboard.press('c');
+    await window.locator('[data-testid="crop-toolbar"]').waitFor();
+    const cropOverlay = window.locator('[data-testid="crop-overlay"]');
+    const cropBox = await cropOverlay.boundingBox();
+    const frame = ((await cropOverlay.getAttribute('data-frame')) ?? '').split(',').map(Number);
+    if (!cropBox || frame.length !== 4) throw new Error('crop overlay has no frame');
+    const [frameLeft = 0, frameTop = 0, frameWidth = 0, frameHeight = 0] = frame;
+    const centreX = cropBox.x + frameLeft + frameWidth / 2;
+    const centreY = cropBox.y + frameTop + frameHeight / 2;
+    // Start 18 px outside the lower-right corner and sweep 6 degrees clockwise around the centre.
+    const outsideX = cropBox.x + frameLeft + frameWidth + 18 - centreX;
+    const outsideY = cropBox.y + frameTop + frameHeight + 18 - centreY;
+    const sweep = (6 * Math.PI) / 180;
+    await window.mouse.move(centreX + outsideX, centreY + outsideY);
+    await window.mouse.down();
+    await window.mouse.move(
+      centreX + outsideX * Math.cos(sweep) - outsideY * Math.sin(sweep),
+      centreY + outsideX * Math.sin(sweep) + outsideY * Math.cos(sweep),
+      { steps: 10 },
+    );
+    await window.waitForFunction(
+      () =>
+        document.querySelector('[data-testid="crop-overlay"]')?.getAttribute('data-gesture') ===
+        'rotate',
+    );
+    await window.waitForTimeout(400);
+    await shoot('17-real-crop-rotating.png');
+    await window.mouse.up();
+    await window.keyboard.press('Enter');
+    await window.locator('[data-testid="crop-toolbar"]').waitFor({ state: 'detached' });
+    await window.waitForTimeout(500);
+    await shoot('18-real-cropped.png');
 
     // Retouch the face fixture: detect faces in a dragged region.
     await window.locator('button[title^="shots_002.jpg"]').click();
