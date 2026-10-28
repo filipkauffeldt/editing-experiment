@@ -5,6 +5,7 @@ pub mod api;
 pub mod decode;
 pub mod error;
 pub mod ffi;
+pub mod image;
 pub mod info;
 pub mod libraw;
 pub mod orient;
