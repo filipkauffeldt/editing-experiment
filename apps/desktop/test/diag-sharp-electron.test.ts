@@ -59,7 +59,7 @@ describe.skipIf(!nef || process.platform !== 'linux')('sharp inside Electron (di
       mkdirSync(card);
       copyInto(nef!, join(card, 'DSC_0001.NEF'));
       const trace = join(root, 'trace.log');
-      let result = 'unknown';
+      let result: string;
       let stderr = '';
       try {
         const app = await electron.launch({
