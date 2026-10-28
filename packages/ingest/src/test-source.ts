@@ -45,13 +45,14 @@ export async function testSource(
     }
   }
 
-  if (!options.getSecret) {
+  const anonymous = source.kind === 'ftp' && !source.credentialRef;
+  if (!anonymous && !options.getSecret) {
     return { ok: false, message: 'No credential provider is configured' };
   }
 
-  let credentials;
+  let credentials = {};
   try {
-    credentials = await options.getSecret(source.credentialRef);
+    if (!anonymous) credentials = await options.getSecret!(source.credentialRef!);
   } catch (error) {
     return { ok: false, message: errorMessage(error) };
   }

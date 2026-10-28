@@ -78,7 +78,15 @@ export function handleAppProtocol(options: AppProtocolOptions): void {
       return toResponse(await options.resolveInJobs(request.url), options.cacheDir);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      return new Response(message, { status: 502, headers: CORS_HEADERS });
+      console.error(`app:// request failed (${request.url}): ${message}`);
+      // The jobs process can be restarting or shutting down; that is a
+      // temporary unavailability, not a bad gateway. 503 tells the renderer it
+      // may retry, while an unexpected failure stays a 502.
+      const unavailable = /not running|restarting|exited with code|shutting down/i.test(message);
+      return new Response(message, {
+        status: unavailable ? 503 : 502,
+        headers: { ...CORS_HEADERS, ...(unavailable ? { 'retry-after': '1' } : {}) },
+      });
     }
   });
 }

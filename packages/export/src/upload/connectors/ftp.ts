@@ -98,16 +98,18 @@ async function connect(
   destination: FtpDestination,
   secret: CredentialSecret,
 ): Promise<void> {
-  if (typeof secret.password !== 'string') {
-    throw new ExportError('missing_credentials', 'FTP destination has no password credential');
-  }
   const secure: boolean | 'implicit' =
     destination.security === 'implicit-tls' ? 'implicit' : destination.security === 'explicit-tls';
+  // An absent credentialRef (and no password) is anonymous FTP.
+  const anonymous = destination.credentialRef === undefined || destination.credentialRef === '';
+  if (!anonymous && typeof secret.password !== 'string') {
+    throw new ExportError('missing_credentials', 'FTP destination has no password credential');
+  }
   await client.access({
     host: destination.host,
     port: destination.port,
-    user: destination.username,
-    password: secret.password,
+    user: anonymous && destination.username.trim() === '' ? 'anonymous' : destination.username,
+    password: secret.password ?? 'anonymous@editing-experiment.invalid',
     secure,
   });
 }

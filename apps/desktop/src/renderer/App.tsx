@@ -24,7 +24,7 @@ function Shell() {
   const selected = activePhoto(state);
 
   return (
-    <div className={styles.app}>
+    <div className={styles.app} data-store-ready={!state.loading}>
       <StatusBar className={styles.status} photoCount={photos.length} loadError={state.error} />
       <MetadataPanel className={styles.meta} />
       <PhotoView className={styles.photo} photo={selected} />

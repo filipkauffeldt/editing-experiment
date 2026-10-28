@@ -2,6 +2,7 @@ import {
   IpcError,
   asVersionId,
   type CreateVersionArgs,
+  type DeleteVersionArgs,
   type EditParams,
   type Photo,
   type PhotoId,
@@ -120,6 +121,25 @@ export class EditService {
     });
   }
 
+  async deleteVersion(args: DeleteVersionArgs): Promise<Photo> {
+    if (args.versionId === developVersionId(args.photoId)) {
+      throw new IpcError('invalid_argument', 'the develop version cannot be deleted');
+    }
+    return this.photos.withLock(args.photoId, async () => {
+      const photo = this.photos.get(args.photoId);
+      const versions = await readRetouchVersions(photo.path, this.exiftool);
+      if (!versions.some((version) => version.id === args.versionId)) {
+        throw new IpcError('not_found', `no retouch version ${args.versionId}`);
+      }
+      await writeRetouchVersions(
+        photo.path,
+        versions.filter((version) => version.id !== args.versionId),
+        { service: this.exiftool },
+      );
+      return this.publish(photo, await this.readVersions(photo.path, photo.id));
+    });
+  }
+
   private assertDevelopVersion(ref: VersionRef): void {
     if (ref.versionId !== undefined && ref.versionId !== developVersionId(ref.photoId)) {
       throw new IpcError('not_found', `no develop version ${ref.versionId}`);
@@ -132,9 +152,9 @@ export class EditService {
     return versions.find((version) => version.id === ref.versionId);
   }
 
-  private async publish(photo: Photo, versions: PhotoVersion[]): Promise<void> {
+  private async publish(photo: Photo, versions: PhotoVersion[]): Promise<Photo> {
     const edited = versionsEdited(versions);
-    this.photos.update(photo.id, (current) => ({
+    return this.photos.update(photo.id, (current) => ({
       ...current,
       versions,
       status: { ...current.status, edited },

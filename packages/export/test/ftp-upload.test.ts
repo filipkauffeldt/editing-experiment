@@ -58,6 +58,52 @@ describe('FTP uploads', () => {
     await rm(dir, { recursive: true, force: true });
   });
 
+  it('rejects a referenced credential that has no password', async () => {
+    const localPath = path.join(dir, 'no-password.jpg');
+    await writeFile(localPath, Buffer.alloc(1024, 1));
+    queue = new UploadQueue({
+      dbPath: path.join(dir, 'no-password.sqlite'),
+      hooks: { getSecret: async () => ({}) },
+      retryBaseDelayMs: 1,
+    });
+    await queue.enqueue(photoId, localPath, [ftpDestination(server!.port)]);
+    queue.start();
+    await queue.waitForIdle();
+    expect(queue.list()[0]).toMatchObject({
+      state: 'failed',
+      attempts: 1,
+      error: expect.stringContaining('no password credential'),
+    });
+  });
+
+  it('uploads anonymously when credentialRef is absent', async () => {
+    const anonymous = await startFtpServer({ root: path.join(dir, 'anonymous'), anonymous: true });
+    try {
+      const localPath = path.join(dir, 'anon.jpg');
+      await writeFile(localPath, Buffer.alloc(4096, 3));
+      queue = new UploadQueue({ dbPath: path.join(dir, 'anon.sqlite') });
+      const destination: FtpDestination = {
+        id: asDestinationId('anon-ftp'),
+        name: 'Anonymous FTP',
+        kind: 'ftp',
+        host: '127.0.0.1',
+        port: anonymous.port,
+        username: '',
+        security: 'none',
+        remotePathTemplate: 'in/{fileName}',
+      };
+      await queue.enqueue(photoId, localPath, [destination]);
+      queue.start();
+      await queue.waitForIdle();
+      expect(queue.list()[0]).toMatchObject({ state: 'done' });
+      expect(await readFile(path.join(anonymous.root, 'in', 'anon.jpg'))).toEqual(
+        Buffer.alloc(4096, 3),
+      );
+    } finally {
+      await anonymous.close();
+    }
+  });
+
   it('uploads to a temp name, renames it, and creates directories', async () => {
     const localPath = path.join(dir, 'frame.jpg');
     const contents = Buffer.alloc(64 * 1024, 9);

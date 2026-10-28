@@ -32,8 +32,12 @@ export interface RemoteEndpoint {
    * Opaque reference to a secret stored in the main process via Electron
    * `safeStorage` (see `credentials:set`). The secret itself never crosses IPC
    * towards the renderer and is never logged.
+   *
+   * Absent or empty means **anonymous** (FTP only): the connection uses
+   * `anonymous` with a conventional email as password. Never put a plaintext
+   * password here; the reference points at encrypted storage.
    */
-  credentialRef: string;
+  credentialRef?: string;
 }
 
 /** Fields shared by polled remote sources (FTP/FTPS/SFTP). */

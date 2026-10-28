@@ -21,6 +21,13 @@ const mock = process.env.EE_MOCK === '1';
 // Tests and screenshots run against a throwaway profile. Must be set before `ready`.
 if (process.env.EE_USER_DATA_DIR) app.setPath('userData', process.env.EE_USER_DATA_DIR);
 
+// CI has no GPU. Chromium refuses software WebGL unless this is explicitly
+// allowed; opt in only for tests/screenshots so packaged builds keep the default.
+if (process.env.EE_SOFTWARE_GL === '1') {
+  app.commandLine.appendSwitch('use-angle', 'swiftshader');
+  app.commandLine.appendSwitch('enable-unsafe-swiftshader');
+}
+
 registerAppScheme();
 
 function broadcast(channel: EventChannel, payload: unknown): void {

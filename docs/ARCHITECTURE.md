@@ -44,7 +44,8 @@ Renderer (React)  ── typed IPC (contracts) ──>  Main (thin: windows, rou
 - The main process never does heavy work.
 - `app://thumb/<photoId>`, `app://preview/<photoId>` serve cached JPEGs;
   `app://linear/<photoId>?maxEdge=N` serves the decoded linear image
-  (see "Linear image format").
+  (see "Linear image format"). JPEGs are served as linear sRGB with an identity
+  camera matrix so develop preview and full-resolution export work for them too.
 - SQLite (built-in `node:sqlite`, `DatabaseSync`; no native module to rebuild per
   Electron ABI) in the utility process: photo index, source state
   (seen remote files), upload queue. It is a cache: XMP sidecars are the
@@ -75,7 +76,8 @@ exports/<photoId>/   exported JPEGs
   `LinearImageHeader` in `x-ee-linear-image`. Main only streams files below `cache/`.
 - Secrets: `credentials:set/remove` run in main (`safeStorage`, no plaintext fallback). The jobs process asks
   for a secret by `credentialRef` over a private `MessagePort` (`shared/secret-port.ts`) when it connects;
-  there is no channel that returns a secret to the renderer.
+  there is no channel that returns a secret to the renderer. An absent/empty `credentialRef` on an FTP
+  source or destination means anonymous FTP (user `anonymous`), so demos and tests need no keyring.
 - Edits: develop params are the `crs:` block of the sidecar (one develop version per photo), retouch
   versions are `ee:RetouchVersions`. Writes to one photo's sidecar are serialised.
 - On quit, main asks the jobs process to shut down (stop ingest, close the upload queue, ExifTool and
@@ -130,6 +132,8 @@ are not decoded.
 
 - Raws: metadata in `<basename>.xmp` sidecar (Lightroom/Photo Mechanic
   compatible naming). JPEGs: embedded (IIM + XMP, kept in sync, UTF-8).
+- Tag and colour class: `photomechanic:Tagged` and `photomechanic:ColorClass`,
+  mirrored to `xmp:Label`, in the sidecar (raws) or embedded XMP (JPEGs).
 - Develop settings: `crs:` namespace in the same sidecar.
 - Retouch versions: namespace `ee:` (`http://ns.editing-experiment/1.0/`).
 - PM metadata templates are `.XMP` files; code replacement files are

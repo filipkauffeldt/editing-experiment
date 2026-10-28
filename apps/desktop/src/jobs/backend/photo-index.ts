@@ -109,8 +109,17 @@ export class PhotoIndex {
 }
 
 function toRecord(row: Row): PhotoRecord {
+  const stored = JSON.parse(row.json) as Photo;
+  const photo: Photo = {
+    ...stored,
+    tagged: typeof stored.tagged === 'boolean' ? stored.tagged : false,
+    colorClass:
+      Number.isInteger(stored.colorClass) && stored.colorClass >= 0 && stored.colorClass <= 8
+        ? stored.colorClass
+        : 0,
+  };
   return {
-    photo: JSON.parse(row.json) as Photo,
+    photo,
     ...(row.template_path === null ? {} : { templatePath: row.template_path }),
   };
 }

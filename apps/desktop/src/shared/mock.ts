@@ -175,6 +175,8 @@ export function mockPhotos(): Photo[] {
       width: 8256,
       height: 5504,
       sourceId: fromCard ? SOURCE_A : SOURCE_B,
+      tagged: [4, 9, 22, 31].includes(n),
+      colorClass: n === 2 ? 1 : n === 12 ? 4 : n === 23 ? 6 : 0,
       status: {
         ingest: 'done',
         edited: EDITED.has(n),
@@ -400,4 +402,113 @@ export function mockImageSvg(photoId: string, size: { width: number }): string |
     `font-size="${Math.round(width * 0.07)}" font-weight="700" fill="white" fill-opacity="0.85">${n}</text>` +
     `</svg>`
   );
+}
+
+/**
+ * Linear f32 pixels for a mock photo, matching {@link mockImageSvg}'s gradient
+ * and silhouettes closely enough that the develop screenshots show a real
+ * render. Returning this from `app://linear` in mock mode keeps the renderer
+ * path identical between mock and real data.
+ */
+export function mockLinearImage(
+  photoId: string,
+  maxEdge = 960,
+):
+  | {
+      header: {
+        width: number;
+        height: number;
+        sourceWidth: number;
+        sourceHeight: number;
+        sampleType: 'f32';
+        asShotMultipliers: { r: number; g: number; b: number };
+        cameraToSrgb: number[];
+        xyzToCamera: number[];
+      };
+      rgba: Float32Array;
+    }
+  | undefined {
+  const match = /^mock-(\d+)$/.exec(photoId);
+  if (!match) return undefined;
+  const n = Number(match[1]);
+  const width = Math.min(1600, Math.max(64, Math.round(maxEdge)));
+  const height = Math.round((width * MOCK_HEIGHT) / MOCK_WIDTH);
+  const rgba = new Float32Array(width * height * 4);
+  const hue = (n * 47) % 360;
+
+  const hsl = (h: number, s: number, l: number): [number, number, number] => {
+    const saturation = s / 100;
+    const lightness = l / 100;
+    const c = (1 - Math.abs(2 * lightness - 1)) * saturation;
+    const hp = (((h % 360) + 360) % 360) / 60;
+    const x = c * (1 - Math.abs((hp % 2) - 1));
+    let rgb: [number, number, number];
+    if (hp < 1) rgb = [c, x, 0];
+    else if (hp < 2) rgb = [x, c, 0];
+    else if (hp < 3) rgb = [0, c, x];
+    else if (hp < 4) rgb = [0, x, c];
+    else if (hp < 5) rgb = [x, 0, c];
+    else rgb = [c, 0, x];
+    const m = lightness - c / 2;
+    return [rgb[0] + m, rgb[1] + m, rgb[2] + m];
+  };
+  const linear = (value: number): number =>
+    value <= 0.04045 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4;
+  const write = (index: number, rgb: [number, number, number]): void => {
+    rgba[index] = linear(rgb[0]);
+    rgba[index + 1] = linear(rgb[1]);
+    rgba[index + 2] = linear(rgb[2]);
+    rgba[index + 3] = 1;
+  };
+
+  const skyTop = hsl(hue, 55, 62);
+  const skyBottom = hsl(hue, 45, 38);
+  const groundTop = hsl(hue, 30, 26);
+  const groundBottom = hsl(hue, 30, 14);
+  const people = [0.3, 0.5, 0.7].map((x, i) => ({
+    cx: width * (x + ((n + i) % 3) * 0.02),
+    r: width * 0.045,
+    top: height * 0.5,
+  }));
+  const dark = hsl(hue, 25, 22);
+  for (let y = 0; y < height; y++) {
+    const fy = y / height;
+    const background =
+      fy < 0.62
+        ? [
+            skyTop[0] + (skyBottom[0] - skyTop[0]) * (fy / 0.62),
+            skyTop[1] + (skyBottom[1] - skyTop[1]) * (fy / 0.62),
+            skyTop[2] + (skyBottom[2] - skyTop[2]) * (fy / 0.62),
+          ]
+        : [
+            groundTop[0] + (groundBottom[0] - groundTop[0]) * ((fy - 0.62) / 0.38),
+            groundTop[1] + (groundBottom[1] - groundTop[1]) * ((fy - 0.62) / 0.38),
+            groundTop[2] + (groundBottom[2] - groundTop[2]) * ((fy - 0.62) / 0.38),
+          ];
+    for (let x = 0; x < width; x++) {
+      let colour = background as [number, number, number];
+      for (const person of people) {
+        const inHead = Math.hypot(x - person.cx, y - person.top) <= person.r;
+        const inBody =
+          Math.abs(x - person.cx) <= person.r * 1.4 &&
+          y >= person.top + person.r * 1.1 &&
+          y <= person.top + person.r * 1.1 + height * 0.4;
+        if (inHead || inBody) colour = dark;
+      }
+      write((y * width + x) * 4, colour);
+    }
+  }
+  return {
+    header: {
+      width,
+      height,
+      sourceWidth: width,
+      sourceHeight: height,
+      sampleType: 'f32',
+      asShotMultipliers: { r: 1, g: 1, b: 1 },
+      cameraToSrgb: [1, 0, 0, 0, 1, 0, 0, 0, 1],
+      xyzToCamera: [1, 0, 0, 0, 1, 0, 0, 0, 1],
+    },
+    rgba,
+  };
 }

@@ -9,6 +9,7 @@ import {
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { createFakeBridge, type FakeBridge } from './fake-bridge';
 import type { AppStore } from '../src/renderer/store';
+import type { FullResolutionRenderRequest } from '../src/renderer/export-render';
 import {
   activeDevelopVersion,
   activePhoto,
@@ -16,18 +17,26 @@ import {
   createAppStore,
   editParamsKey,
   paramsForPhoto,
+  photoFlags,
   selectVisiblePhotos,
 } from '../src/renderer/store';
 import { mockPhotos, mockPresets } from '../src/shared/mock';
 
 const stores: AppStore[] = [];
 
-async function setup(options: Parameters<typeof createFakeBridge>[0] = {}): Promise<{
+async function setup(
+  options: Parameters<typeof createFakeBridge>[0] = {},
+  renderForExport: (request: FullResolutionRenderRequest) => Promise<{
+    width: number;
+    height: number;
+    rgba: Uint8Array;
+  }> = async () => ({ width: 1, height: 1, rgba: new Uint8Array(4) }),
+): Promise<{
   store: AppStore;
   fake: FakeBridge;
 }> {
   const fake = createFakeBridge(options);
-  const store = createAppStore(fake.bridge);
+  const store = createAppStore(fake.bridge, { renderForExport });
   stores.push(store);
   await store.init();
   return { store, fake };
@@ -102,10 +111,11 @@ describe('filters and culling', () => {
     expect(visible(store)).toHaveLength(40);
 
     store.setQuickFilter('tagged');
-    expect(visible(store).map((photo) => photo.id)).toEqual([selected.id]);
+    expect(visible(store).map((photo) => photo.id)).toContain(selected.id);
+    expect(visible(store)).toHaveLength(5);
 
     store.setQuickFilter('untagged');
-    expect(visible(store)).toHaveLength(39);
+    expect(visible(store)).toHaveLength(35);
 
     store.setQuickFilter('edited');
     expect(visible(store)).toHaveLength(7);
@@ -137,18 +147,21 @@ describe('filters and culling', () => {
     expect(visible(store).every((photo) => photo.sourceId === source.id)).toBe(true);
   });
 
-  it('keeps a local tag and colour class per photo', async () => {
-    const { store } = await setup();
+  it('persists a tag and colour class on the photo', async () => {
+    const { store, fake } = await setup();
     const photo = activePhoto(store.getState());
     if (!photo) throw new Error('no selection');
 
     store.toggleTag(photo.id);
     store.setColorClass(3, photo.id);
-    expect(store.getState().flags[photo.id]).toEqual({ tagged: true, colorClass: 3 });
+    expect(photoFlags(store.getState(), photo.id)).toEqual({ tagged: true, colorClass: 3 });
+    await vi.waitFor(() =>
+      expect(fake.calls.some((call) => call.channel === 'photos:setLabels')).toBe(true),
+    );
 
     store.toggleTag(photo.id);
     store.setColorClass(0, photo.id);
-    expect(store.getState().flags[photo.id]).toEqual({ tagged: false, colorClass: 0 });
+    expect(photoFlags(store.getState(), photo.id)).toEqual({ tagged: false, colorClass: 0 });
   });
 });
 
@@ -608,5 +621,86 @@ describe('credentials cleanup', () => {
     expect(fake.calls.some((call) => call.channel === 'credentials:remove')).toBe(true);
     expect(fake.calls.some((call) => call.channel === 'sources:save')).toBe(false);
     expect(store.getState().sources.some((source) => source.id === fresh.id)).toBe(false);
+  });
+});
+
+describe('retouch sessions', () => {
+  const rect = { type: 'rect' as const, x: 0.2, y: 0.2, w: 0.2, h: 0.2 };
+
+  it('commits uncommitted shapes before Finish & next and exports them', async () => {
+    const renders: FullResolutionRenderRequest[] = [];
+    const { store, fake } = await setup({}, async (request) => {
+      renders.push(request);
+      return { width: 1, height: 1, rgba: new Uint8Array(4) };
+    });
+    const photo = activePhoto(store.getState());
+    if (!photo) throw new Error('no selection');
+
+    store.toggleRetouch();
+    store.addRetouchShape(rect);
+    await store.finishAndNext();
+
+    const set = fake.calls.find((call) => call.channel === 'retouch:set');
+    expect(set?.args[0]).toMatchObject({ photoId: photo.id, ops: [{ shapes: [rect] }] });
+    expect(renders[0]?.ops).toMatchObject([{ type: 'mosaic', shapes: [rect] }]);
+    const channels = fake.calls.map((call) => call.channel);
+    expect(channels.indexOf('retouch:set')).toBeLessThan(channels.indexOf('export:photo'));
+  });
+
+  it('waits for an in-flight commit and does not save twice', async () => {
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => (release = resolve));
+    let started!: () => void;
+    const running = new Promise<void>((resolve) => (started = resolve));
+    const { store, fake } = await setup({
+      handlers: {
+        'retouch:set': async () => {
+          started();
+          await gate;
+        },
+      },
+    });
+    store.toggleRetouch();
+    store.addRetouchShape(rect);
+
+    const commit = store.commitRetouch();
+    await running;
+    const finish = store.finishAndNext();
+    await vi.waitFor(() => expect(store.getState().retouch?.busy).toBe(true));
+    expect(fake.calls.some((call) => call.channel === 'export:photo')).toBe(false);
+
+    release();
+    await Promise.all([commit, finish]);
+    expect(fake.calls.filter((call) => call.channel === 'retouch:set')).toHaveLength(1);
+    expect(fake.calls.some((call) => call.channel === 'export:photo')).toBe(true);
+  });
+
+  it('commits pending shapes before navigating to another photo', async () => {
+    const { store, fake } = await setup();
+    const first = activePhoto(store.getState());
+    if (!first) throw new Error('no selection');
+    store.toggleRetouch();
+    store.addRetouchShape(rect);
+
+    store.select(asPhotoId('mock-02'));
+
+    await vi.waitFor(() => expect(activePhoto(store.getState())?.id).toBe('mock-02'));
+    expect(fake.calls.some((call) => call.channel === 'retouch:set')).toBe(true);
+    expect(store.getState().retouch).toBeUndefined();
+  });
+
+  it('saves on requestExitRetouch but keeps the session when Cancel discards', async () => {
+    const { store, fake } = await setup();
+    store.toggleRetouch();
+    store.addRetouchShape(rect);
+    await store.requestExitRetouch();
+    expect(store.getState().retouch).toBeUndefined();
+    expect(fake.calls.some((call) => call.channel === 'retouch:set')).toBe(true);
+
+    await vi.waitFor(() => expect(store.getState().photos[0]).toBeDefined());
+    store.toggleRetouch();
+    store.addRetouchShape(rect);
+    store.exitRetouch();
+    expect(store.getState().retouch).toBeUndefined();
   });
 });

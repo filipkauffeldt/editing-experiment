@@ -13,7 +13,7 @@
     "lint": "eslint . && prettier --check .",
     "format": "prettier --write .",
     "typecheck": "pnpm -r --workspace-concurrency=1 run typecheck && tsc --noEmit -p scripts",
-    "test": "pnpm build:native && vitest run",
+    "test": "node scripts/ensure-electron.mjs && pnpm build:native && vitest run --exclude '**/*.e2e.test.ts' --exclude '**/real-mode.smoke.test.ts' && vitest run --no-file-parallelism apps/desktop/test/poc-demo.e2e.test.ts apps/desktop/test/real-mode.smoke.test.ts",
     "build:native": "pnpm --filter @ee/core run build",
     "build": "pnpm -r --workspace-concurrency=1 run --if-present build",
     "dev": "pnpm build:native && pnpm --filter @ee/desktop run dev",

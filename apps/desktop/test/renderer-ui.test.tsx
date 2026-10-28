@@ -11,7 +11,9 @@ const stores: AppStore[] = [];
 async function renderApp(): Promise<{ store: AppStore; fake: FakeBridge }> {
   const fake = createFakeBridge();
   window.eeTransport = fake.transport;
-  const store = createAppStore(fake.bridge);
+  const store = createAppStore(fake.bridge, {
+    renderForExport: async () => ({ width: 1, height: 1, rgba: new Uint8Array(4) }),
+  });
   stores.push(store);
   render(<App store={store} />);
   await screen.findByTestId('film-strip');
@@ -48,10 +50,10 @@ describe('keyboard-first shell', () => {
     if (!first) throw new Error('no selection');
 
     await user.keyboard('t');
-    expect(store.getState().flags[first.id]?.tagged).toBe(true);
+    expect(photoFlags(store.getState(), first.id).tagged).toBe(true);
 
     await user.keyboard('4');
-    expect(store.getState().flags[first.id]?.colorClass).toBe(4);
+    expect(photoFlags(store.getState(), first.id).colorClass).toBe(4);
   });
 
   it('does not fire single-key shortcuts while typing, but Escape leaves the field', async () => {
@@ -153,6 +155,15 @@ describe('metadata panel', () => {
     const panel = screen.getByTestId('metadata-panel');
     expect(within(panel).getByText('differs')).toBeTruthy();
     expect(within(panel).getByTitle(/Template: Manchester/)).toBeTruthy();
+  });
+});
+
+describe('retouch version', () => {
+  it('shows the committed retouch version indicator outside retouch mode', async () => {
+    const { store } = await renderApp();
+    store.select(asPhotoId('mock-03'));
+    await waitFor(() => expect(screen.getByTestId('retouch-version-indicator')).toBeTruthy());
+    expect(screen.queryByTestId('retouch-toolbar')).toBeNull();
   });
 });
 

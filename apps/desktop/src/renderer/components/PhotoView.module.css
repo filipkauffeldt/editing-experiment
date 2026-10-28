@@ -52,3 +52,26 @@
   border-radius: 2px;
   color: var(--text);
 }
+
+.retouch {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: transparent;
+  color: var(--foreground);
+  font: inherit;
+  font-size: 11px;
+  padding: 2px 7px;
+  cursor: pointer;
+}
+
+.retouch:hover {
+  background: var(--secondary);
+}
+
+.retouchActive {
+  background: #2f6da8;
+  border-color: #4d8cc4;
+}

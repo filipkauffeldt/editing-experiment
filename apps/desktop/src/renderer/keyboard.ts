@@ -29,6 +29,11 @@ export function useKeyboardShortcuts(store: AppStore): void {
       const command = event.ctrlKey || event.metaKey;
 
       if (event.key === 'Escape') {
+        if (state.retouch && !typing && !state.dialog) {
+          event.preventDefault();
+          void store.requestExitRetouch();
+          return;
+        }
         if (state.shortcutsOpen) {
           event.preventDefault();
           store.toggleShortcuts(false);
@@ -52,6 +57,11 @@ export function useKeyboardShortcuts(store: AppStore): void {
       if (command && (event.key === 'i' || event.key === 'I')) {
         event.preventDefault();
         focusCaptionField();
+        return;
+      }
+      if (command && (event.key === 'z' || event.key === 'Z') && state.retouch) {
+        event.preventDefault();
+        store.undoRetouchShape();
         return;
       }
 
@@ -81,6 +91,11 @@ export function useKeyboardShortcuts(store: AppStore): void {
         case 'T':
           event.preventDefault();
           store.toggleTag();
+          break;
+        case 'r':
+        case 'R':
+          event.preventDefault();
+          store.toggleRetouch();
           break;
         default:
           if (/^[0-8]$/.test(event.key)) {

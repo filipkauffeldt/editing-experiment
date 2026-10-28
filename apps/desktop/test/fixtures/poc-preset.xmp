@@ -1,0 +1,22 @@
+<x:xmpmeta xmlns:x="adobe:ns:meta/">
+ <rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
+  <rdf:Description rdf:about=""
+   xmlns:crs="http://ns.adobe.com/camera-raw-settings/1.0/"
+   crs:PresetType="Normal"
+   crs:UUID="8E4B3A20-6C4D-4F7A-9A1B-000000000001"
+   crs:ProcessVersion="11.0"
+   crs:WhiteBalance="As Shot"
+   crs:Exposure2012="+0.35"
+   crs:Contrast2012="+24"
+   crs:Highlights2012="-18"
+   crs:Shadows2012="+16"
+   crs:Vibrance="+14"
+   crs:Saturation="+4">
+   <crs:Name>
+    <rdf:Alt>
+     <rdf:li xml:lang="x-default">PoC Punchy</rdf:li>
+    </rdf:Alt>
+   </crs:Name>
+  </rdf:Description>
+ </rdf:RDF>
+</x:xmpmeta>

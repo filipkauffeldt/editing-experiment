@@ -92,6 +92,17 @@ export function StatusBar({ className, photoCount, loadError }: StatusBarProps) 
 
       {loadError && <span className={styles.error}>{loadError}</span>}
 
+      {state.exportProgress && (
+        <span className={styles.exportProgress} data-testid="export-progress">
+          <span className={styles.exportLabel}>{state.exportProgress.label}</span>
+          {state.exportProgress.percent !== undefined && (
+            <span className={styles.exportBar}>
+              <span style={{ width: `${state.exportProgress.percent}%` }} />
+            </span>
+          )}
+        </span>
+      )}
+
       {differs && (
         <span
           className={styles.diff}

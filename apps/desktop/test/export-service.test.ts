@@ -115,6 +115,8 @@ describe('ExportService bookkeeping', () => {
       sidecarPath: path,
       fileName: `${name}.jpg`,
       sourceId: asSourceId('s'),
+      tagged: false,
+      colorClass: 0,
       status: {
         ingest: 'done',
         edited: false,

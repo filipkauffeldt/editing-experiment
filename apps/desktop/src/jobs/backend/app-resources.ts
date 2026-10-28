@@ -5,10 +5,16 @@ import {
   asPhotoId,
   type LinearImageHeader,
 } from '@ee/contracts';
-import { decodeLinear, type DecodeLinearOptions, type LinearImage } from '@ee/core';
+import {
+  decodeJpeg,
+  decodeLinear,
+  resizeRgba,
+  type DecodeLinearOptions,
+  type LinearImage,
+} from '@ee/core';
 import { isRawPath } from '@ee/metadata';
 import { randomUUID } from 'node:crypto';
-import { mkdir, rename, rm, stat, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, rename, rm, stat, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { AppBackendResponse } from '../../shared/jobs-protocol';
 import type { PhotoLibrary } from './photo-library';
@@ -134,8 +140,6 @@ export class AppResources {
       }
       throw error;
     }
-    if (!isRawPath(path)) return text(415, 'the linear image is only available for raw files');
-
     try {
       const entry = await this.linearEntry(`${photoId}|${maxEdge ?? 'full'}`, path, maxEdge);
       return {
@@ -172,10 +176,12 @@ export class AppResources {
     if (pending) return pending;
 
     const run = (async (): Promise<LinearEntry> => {
-      const image = await this.decode(path, {
-        sampleType: 'f16',
-        ...(maxEdge === undefined ? {} : { maxEdge }),
-      });
+      const image = isRawPath(path)
+        ? await this.decode(path, {
+            sampleType: 'f16',
+            ...(maxEdge === undefined ? {} : { maxEdge }),
+          })
+        : await decodeJpegLinear(path, maxEdge);
       const file = join(this.options.linearDir, `${randomUUID()}.bin`);
       const temp = `${file}.tmp`;
       await writeFile(temp, image.data);
@@ -203,4 +209,41 @@ export class AppResources {
       await rm(entry.file, { force: true }).catch(() => undefined);
     }
   }
+}
+
+/**
+ * JPEGs have no sensor data to develop, so serve their pixels as linear sRGB
+ * with an identity camera matrix. That keeps the renderer, preview and export
+ * pipeline identical for raws and JPEGs (and makes the retouch demo's JPEG
+ * export work).
+ */
+async function decodeJpegLinear(path: string, maxEdge?: number): Promise<LinearImage> {
+  const file = await readFile(path);
+  const decoded = await decodeJpeg(file);
+  const fitted =
+    maxEdge !== undefined && Math.max(decoded.width, decoded.height) > maxEdge
+      ? await resizeRgba(decoded.rgba, decoded.width, decoded.height, { maxEdge })
+      : decoded;
+  const samples = new Float32Array(fitted.width * fitted.height * 4);
+  for (let i = 0; i < fitted.width * fitted.height; i++) {
+    for (let channel = 0; channel < 3; channel++) {
+      const value = (fitted.rgba[i * 4 + channel] ?? 0) / 255;
+      samples[i * 4 + channel] =
+        value <= 0.04045 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4;
+    }
+    samples[i * 4 + 3] = 1;
+  }
+  return {
+    data: Buffer.from(samples.buffer),
+    header: {
+      width: fitted.width,
+      height: fitted.height,
+      sourceWidth: decoded.width,
+      sourceHeight: decoded.height,
+      sampleType: 'f32',
+      asShotMultipliers: { r: 1, g: 1, b: 1 },
+      cameraToSrgb: [1, 0, 0, 0, 1, 0, 0, 0, 1],
+      xyzToCamera: [1, 0, 0, 0, 1, 0, 0, 0, 1],
+    },
+  };
 }

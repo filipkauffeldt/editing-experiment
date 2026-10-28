@@ -22,8 +22,10 @@ export interface TestFtpServer {
 /** In-process FTP server rooted at `root`, listening on a free local port. */
 export async function startFtpServer(options: {
   root: string;
-  username: string;
-  password: string;
+  username?: string;
+  password?: string;
+  /** Accept any login (used by the anonymous-FTP demo). */
+  anonymous?: boolean;
 }): Promise<TestFtpServer> {
   // ftp-srv adds a process-level signal handler per server and never removes it.
   process.setMaxListeners(Math.max(process.getMaxListeners(), 50));
@@ -33,11 +35,14 @@ export async function startFtpServer(options: {
     pasv_url: '127.0.0.1',
     pasv_min: pasvMin,
     pasv_max: pasvMin + 200,
-    anonymous: false,
+    anonymous: options.anonymous === true,
     log: silent,
   });
   server.on('login', (data, resolve, reject) => {
-    if (data.username === options.username && data.password === options.password) {
+    if (
+      options.anonymous ||
+      (data.username === options.username && data.password === options.password)
+    ) {
       resolve({ root: options.root });
     } else {
       reject(new Error('login failed'));

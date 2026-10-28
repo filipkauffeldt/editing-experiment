@@ -1,5 +1,6 @@
 import {
   asPresetId,
+  asVersionId,
   createBridge,
   toIpcResult,
   type BridgeTransport,
@@ -91,6 +92,43 @@ export function createFakeBridge(
     },
     'photos:list': async () => photos,
     'photos:get': async (...args) => findPhoto((args[0] as { photoId: PhotoId }).photoId),
+    'photos:createVersion': async (...args) => {
+      const { photoId, kind, name } = args[0] as {
+        photoId: PhotoId;
+        kind: 'develop' | 'retouch';
+        name?: string;
+      };
+      const photo = findPhoto(photoId);
+      const version = {
+        id: asVersionId(`test-version-${photo.versions.length + 1}`),
+        kind,
+        ...(name === undefined ? {} : { name }),
+        ops: kind === 'develop' ? {} : [],
+      } as Photo['versions'][number];
+      photo.versions = [...photo.versions, version];
+      return version;
+    },
+    'photos:setLabels': async (...args) => {
+      const { photoIds, tagged, colorClass } = args[0] as {
+        photoIds: PhotoId[];
+        tagged?: boolean;
+        colorClass?: number;
+      };
+      return photoIds.map((photoId) => {
+        const photo = findPhoto(photoId);
+        if (tagged !== undefined) photo.tagged = tagged;
+        if (colorClass !== undefined) photo.colorClass = colorClass;
+        return photo;
+      });
+    },
+    'photos:deleteVersion': async (...args) => {
+      const { photoId, versionId } = args[0] as { photoId: PhotoId; versionId: VersionId };
+      const photo = findPhoto(photoId);
+      const version = photo.versions.find((candidate) => candidate.id === versionId);
+      if (!version) throw new Error(`no version ${versionId}`);
+      photo.versions = photo.versions.filter((candidate) => candidate.id !== versionId);
+      return photo;
+    },
     'sources:list': async () => sources,
     'sources:save': async (...args) => {
       const { source } = args[0] as { source: SourceConfig };
@@ -234,8 +272,27 @@ export function createFakeBridge(
     },
     'credentials:remove': async () => {},
     'dialog:pick': async () => ['/mock/preset.xmp'],
-    'retouch:get': async () => [],
-    'retouch:set': async () => {},
+    'retouch:get': async (...args) => {
+      const { photoId, versionId } = args[0] as { photoId: PhotoId; versionId?: VersionId };
+      const photo = findPhoto(photoId);
+      const version =
+        photo.versions.find((candidate) => candidate.id === versionId) ??
+        photo.versions.filter((candidate) => candidate.kind === 'retouch').at(-1);
+      return version?.kind === 'retouch' ? version.ops : [];
+    },
+    'retouch:set': async (...args) => {
+      const { photoId, versionId, ops } = args[0] as {
+        photoId: PhotoId;
+        versionId?: VersionId;
+        ops: Photo['versions'][number]['ops'];
+      };
+      const photo = findPhoto(photoId);
+      const version = photo.versions.find(
+        (candidate) => candidate.kind === 'retouch' && candidate.id === versionId,
+      );
+      if (version?.kind !== 'retouch') throw new Error(`no retouch version ${versionId}`);
+      version.ops = ops as typeof version.ops;
+    },
     'retouch:detectFaces': async () => [],
   };
 
