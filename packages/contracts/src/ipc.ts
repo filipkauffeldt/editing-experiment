@@ -106,6 +106,21 @@ export interface CreateVersionArgs {
   name?: string;
 }
 
+/** Arguments of `photos:deleteVersion`. */
+export interface DeleteVersionArgs {
+  photoId: PhotoId;
+  versionId: VersionId;
+}
+
+/** Arguments of `photos:setLabels`. Omitted fields are left unchanged. */
+export interface SetPhotoLabelsArgs {
+  photoIds: PhotoId[];
+  /** Photo Mechanic tag flag. */
+  tagged?: boolean;
+  /** Colour class: 0 = none, 1..8. */
+  colorClass?: number;
+}
+
 /** Arguments of `retouch:detectFaces`. */
 export interface DetectFacesArgs {
   photoId: PhotoId;
@@ -176,6 +191,10 @@ export interface IpcApi {
   'photos:list': (args?: ListPhotosArgs) => Promise<Photo[]>;
   'photos:get': (args: { photoId: PhotoId }) => Promise<Photo>;
   'photos:createVersion': (args: CreateVersionArgs) => Promise<PhotoVersion>;
+  /** Delete a retouch version and its ops. The develop version cannot be deleted. */
+  'photos:deleteVersion': (args: DeleteVersionArgs) => Promise<Photo>;
+  /** Persist tag and colour class in the index and in the sidecar (or embedded XMP). */
+  'photos:setLabels': (args: SetPhotoLabelsArgs) => Promise<Photo[]>;
 
   // --- ingest ---
   /** Start ingesting every source in the config, in parallel. Returns one job per source. */
@@ -261,6 +280,8 @@ export const INVOKE_CHANNELS = [
   'photos:list',
   'photos:get',
   'photos:createVersion',
+  'photos:deleteVersion',
+  'photos:setLabels',
   'ingest:start',
   'ingest:stop',
   'ingest:status',

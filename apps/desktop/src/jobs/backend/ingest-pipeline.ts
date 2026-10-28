@@ -11,6 +11,7 @@ import {
   asNumber,
   asString,
   isRawPath,
+  readPhotoLabels,
   sidecarPathFor,
   toIsoDate,
   type ExifToolService,
@@ -163,6 +164,10 @@ export function createOnFileIngested(
     }
 
     const sidecarPath = raw ? sidecarPathFor(info.path) : info.path;
+    const labels = await readPhotoLabels(info.path, exiftool).catch(() => ({
+      tagged: false,
+      colorClass: 0,
+    }));
     // A sidecar that came with the file may already hold edits.
     const versions = info.sidecarPath
       ? await edits.readVersions(info.path, info.photoId).catch((error: unknown) => {
@@ -180,6 +185,8 @@ export function createOnFileIngested(
       ...(basics.width === undefined ? {} : { width: basics.width }),
       ...(basics.height === undefined ? {} : { height: basics.height }),
       sourceId: info.sourceId,
+      tagged: labels.tagged,
+      colorClass: labels.colorClass,
       status: {
         ingest: 'done',
         edited: versions !== undefined && versionsEdited(versions),

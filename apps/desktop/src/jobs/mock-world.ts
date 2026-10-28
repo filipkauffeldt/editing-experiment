@@ -390,6 +390,27 @@ export function createMockHandlers(world: MockWorld, emit: Emit): Partial<IpcHan
       updateUpload(world, emit, item, 'cancelled');
     },
 
+    'photos:setLabels': async ({ photoIds, tagged, colorClass }) => {
+      const updated: Photo[] = [];
+      for (const photoId of photoIds) {
+        const photo = findPhoto(photoId);
+        if (tagged !== undefined) photo.tagged = tagged;
+        if (colorClass !== undefined) photo.colorClass = colorClass;
+        emitPhoto(world, emit, photo);
+        updated.push(photo);
+      }
+      return updated;
+    },
+    'photos:deleteVersion': async ({ photoId, versionId }) => {
+      const photo = findPhoto(photoId);
+      const version = photo.versions.find((candidate) => candidate.id === versionId);
+      if (!version) throw new Error(`no version ${versionId}`);
+      if (version.kind === 'develop') throw new Error('the develop version cannot be deleted');
+      photo.versions = photo.versions.filter((candidate) => candidate.id !== versionId);
+      emitPhoto(world, emit, photo);
+      return photo;
+    },
+
     // --- photos: versions (list/get live in photos.ts) ---
     'photos:createVersion': async ({ photoId, kind, name }) => {
       const photo = findPhoto(photoId);

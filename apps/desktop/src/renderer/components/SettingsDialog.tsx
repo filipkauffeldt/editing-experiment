@@ -86,7 +86,7 @@ const sourceForm = (
     deleteAfterDownload: source.deleteAfterDownload,
     security: source.kind === 'ftp' ? source.security : 'none',
     hostKeyFingerprint: source.kind === 'sftp' ? (source.hostKeyFingerprint ?? '') : '',
-    credentialRef: source.credentialRef,
+    credentialRef: source.credentialRef ?? '',
   };
 };
 
@@ -573,7 +573,7 @@ const destinationForm = (
     username: destination.username,
     security: destination.kind === 'ftp' ? destination.security : 'none',
     hostKeyFingerprint: destination.kind === 'sftp' ? (destination.hostKeyFingerprint ?? '') : '',
-    credentialRef: destination.credentialRef,
+    credentialRef: destination.credentialRef ?? '',
   };
 };
 

@@ -7,6 +7,7 @@ import type { EditService } from './edit-service';
 import type { ExportService } from './export-service';
 import type { FaceService } from './faces';
 import type { IngestService } from './ingest-service';
+import type { LabelService } from './label-service';
 import type { MetadataService } from './metadata-service';
 import type { PresetStore } from './presets';
 import type { SettingsStore } from './settings-store';
@@ -19,6 +20,7 @@ export interface HandlerDeps {
   settings: SettingsStore;
   metadata: MetadataService;
   edits: EditService;
+  labels: LabelService;
   faces: FaceService;
   presets: PresetStore;
   ingest: IngestService;
@@ -28,7 +30,8 @@ export interface HandlerDeps {
 
 /** One handler per channel the jobs process serves in real mode. */
 export function createBackendHandlers(deps: HandlerDeps): IpcHandlers {
-  const { photos, settings, metadata, edits, faces, presets, ingest, queue, exporter } = deps;
+  const { photos, settings, metadata, edits, labels, faces, presets, ingest, queue, exporter } =
+    deps;
   const servedByMain = (channel: string) => async (): Promise<never> => {
     throw new IpcError('internal', `${channel} is served by the main process`);
   };
@@ -39,6 +42,8 @@ export function createBackendHandlers(deps: HandlerDeps): IpcHandlers {
     'photos:list': async (args) => photos.list(args?.sourceId),
     'photos:get': async ({ photoId }) => photos.get(photoId),
     'photos:createVersion': (args) => edits.createVersion(args),
+    'photos:deleteVersion': (args) => edits.deleteVersion(args),
+    'photos:setLabels': (args) => labels.setLabels(args),
 
     'ingest:start': ({ config }) => ingest.start(config),
     'ingest:stop': async (args) => ingest.stop(args?.sourceId),

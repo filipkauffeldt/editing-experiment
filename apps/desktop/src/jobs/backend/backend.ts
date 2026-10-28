@@ -12,6 +12,7 @@ import {
 import type { AppBackendResponse } from '../../shared/jobs-protocol';
 import { AppResources } from './app-resources';
 import { EditService } from './edit-service';
+import { LabelService } from './label-service';
 import { withIpcErrors } from './errors';
 import { FaceService, findYuNetModel } from './faces';
 import { createBackendHandlers } from './handlers';
@@ -80,6 +81,7 @@ export async function createBackend(options: BackendOptions): Promise<Backend> {
   const previews = new PreviewCache(layout.thumbDir, layout.previewDir);
   const metadata = new MetadataService(photos, exiftool, settings);
   const edits = new EditService(photos, exiftool);
+  const labels = new LabelService(photos, exiftool);
   const seenStore = new SqliteSeenStore(layout.seenDb);
   const presets = new PresetStore(layout.presetsDir);
   const faces = new FaceService(
@@ -176,6 +178,7 @@ export async function createBackend(options: BackendOptions): Promise<Backend> {
       settings,
       metadata,
       edits,
+      labels,
       faces,
       presets,
       ingest,

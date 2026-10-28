@@ -1,7 +1,6 @@
 import { appUrl, type Photo } from '@ee/contracts';
 import { useEffect, useRef, useState } from 'react';
 import { useAppState, useAppStore } from '../store-context';
-import { photoFlags } from '../store';
 import {
   CheckIcon,
   ClockIcon,
@@ -63,15 +62,13 @@ function UploadBadge({ state }: { state: Photo['status']['upload'] }) {
 }
 
 function PhotoBadges({ photo }: { photo: Photo }) {
-  const state = useAppState();
-  const flags = photoFlags(state, photo.id);
   const retouch = photo.versions.some((version) => version.kind === 'retouch');
-  const color = COLOR_CLASSES[flags.colorClass] ?? '';
+  const color = COLOR_CLASSES[photo.colorClass] ?? '';
   return (
     <>
       {color && <span className={styles.colorClass} style={{ background: color }} />}
       <span className={styles.topRight}>
-        {flags.tagged && (
+        {photo.tagged && (
           <span className={`${styles.badge} ${styles.badgeTagged}`} title="Tagged">
             <TagIcon />
           </span>

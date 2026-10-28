@@ -63,5 +63,9 @@ export interface Photo {
   height?: number;
   sourceId: SourceId;
   status: PhotoStatus;
+  /** Photo Mechanic style tag flag, persisted in the sidecar (`photomechanic:Tagged`). */
+  tagged: boolean;
+  /** Colour class, 0 = none, 1..8 (Photo Mechanic `ColorClass`, mirrored to `xmp:Label`). */
+  colorClass: number;
   versions: PhotoVersion[];
 }

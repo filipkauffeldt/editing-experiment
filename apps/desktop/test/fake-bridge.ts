@@ -91,6 +91,27 @@ export function createFakeBridge(
     },
     'photos:list': async () => photos,
     'photos:get': async (...args) => findPhoto((args[0] as { photoId: PhotoId }).photoId),
+    'photos:setLabels': async (...args) => {
+      const { photoIds, tagged, colorClass } = args[0] as {
+        photoIds: PhotoId[];
+        tagged?: boolean;
+        colorClass?: number;
+      };
+      return photoIds.map((photoId) => {
+        const photo = findPhoto(photoId);
+        if (tagged !== undefined) photo.tagged = tagged;
+        if (colorClass !== undefined) photo.colorClass = colorClass;
+        return photo;
+      });
+    },
+    'photos:deleteVersion': async (...args) => {
+      const { photoId, versionId } = args[0] as { photoId: PhotoId; versionId: VersionId };
+      const photo = findPhoto(photoId);
+      const version = photo.versions.find((candidate) => candidate.id === versionId);
+      if (!version) throw new Error(`no version ${versionId}`);
+      photo.versions = photo.versions.filter((candidate) => candidate.id !== versionId);
+      return photo;
+    },
     'sources:list': async () => sources,
     'sources:save': async (...args) => {
       const { source } = args[0] as { source: SourceConfig };

@@ -14,7 +14,14 @@ import {
   type UploadItem,
 } from '@ee/contracts';
 import { assertNoEmbeddedPreviews } from '@ee/export';
-import { ensureXmpFile, readEditParams, readIptc, writeIptc, ExifToolService } from '@ee/metadata';
+import {
+  ensureXmpFile,
+  readEditParams,
+  readIptc,
+  readPhotoLabels,
+  writeIptc,
+  ExifToolService,
+} from '@ee/metadata';
 import { mkdir, mkdtemp, readFile, readdir, rm, stat } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -339,6 +346,64 @@ describe.skipIf(nefs.length === 0)(
       const preset = await handlers['develop:importPreset']({ path: presetFile });
       expect(preset.params).toMatchObject({ Exposure2012: 0.3, Contrast2012: 20 });
       expect((await handlers['develop:listPresets']()).map((p) => p.id)).toContain(preset.id);
+    });
+
+    it('persists tag and colour class in the index and the sidecar', async () => {
+      const raw = bySource(cardA)[0]!;
+      const [updated] = await handlers['photos:setLabels']({
+        photoIds: [raw.id],
+        tagged: true,
+        colorClass: 3,
+      });
+      expect(updated).toMatchObject({ tagged: true, colorClass: 3 });
+      expect(
+        await handlers['photos:get']({ photoId: raw.id }).then((photo) => ({
+          tagged: photo.tagged,
+          colorClass: photo.colorClass,
+        })),
+      ).toEqual({ tagged: true, colorClass: 3 });
+
+      const tags = await exiftool.read(raw.sidecarPath);
+      expect(String(tags['XMP-photomech:Tagged'])).toMatch(/yes|true/i);
+      expect(String(tags['XMP-photomech:ColorClass'])).toMatch(/^3\b/);
+      expect(String(tags['XMP-xmp:Label'])).toBe('Yellow');
+      expect(await readPhotoLabels(raw.path, exiftool)).toEqual({ tagged: true, colorClass: 3 });
+
+      const jpeg = bySource(cardB).find((photo) => photo.fileName.endsWith('.jpg'));
+      if (jpeg) {
+        const [cleared] = await handlers['photos:setLabels']({
+          photoIds: [jpeg.id],
+          tagged: false,
+          colorClass: 0,
+        });
+        expect(cleared).toMatchObject({ tagged: false, colorClass: 0 });
+        expect(await readPhotoLabels(jpeg.path, exiftool)).toEqual({
+          tagged: false,
+          colorClass: 0,
+        });
+      }
+      await expect(
+        handlers['photos:setLabels']({ photoIds: [raw.id], colorClass: 12 }),
+      ).rejects.toMatchObject({ code: 'invalid_argument' });
+    });
+
+    it('deletes a retouch version but never the develop version', async () => {
+      const photo = bySource(cardA)[1]!;
+      const created = await handlers['photos:createVersion']({
+        photoId: photo.id,
+        kind: 'retouch',
+      });
+      const after = await handlers['photos:deleteVersion']({
+        photoId: photo.id,
+        versionId: created.id,
+      });
+      expect(after.versions.some((version) => version.id === created.id)).toBe(false);
+      await expect(
+        handlers['photos:deleteVersion']({
+          photoId: photo.id,
+          versionId: photo.versions[0]!.id,
+        }),
+      ).rejects.toMatchObject({ code: 'invalid_argument' });
     });
 
     it('stores retouch versions in the sidecar (ee:)', async () => {

@@ -58,6 +58,8 @@ describe('FaceService.dispose', () => {
       sidecarPath: faceJpeg,
       fileName: 'apollo.jpg',
       sourceId: asSourceId('s'),
+      tagged: false,
+      colorClass: 0,
       status: {
         ingest: 'done',
         edited: false,

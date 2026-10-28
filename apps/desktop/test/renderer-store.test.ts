@@ -16,6 +16,7 @@ import {
   createAppStore,
   editParamsKey,
   paramsForPhoto,
+  photoFlags,
   selectVisiblePhotos,
 } from '../src/renderer/store';
 import { mockPhotos, mockPresets } from '../src/shared/mock';
@@ -27,7 +28,13 @@ async function setup(options: Parameters<typeof createFakeBridge>[0] = {}): Prom
   fake: FakeBridge;
 }> {
   const fake = createFakeBridge(options);
-  const store = createAppStore(fake.bridge);
+  const store = createAppStore(fake.bridge, {
+    renderForExport: async () => ({
+      width: 1,
+      height: 1,
+      rgba: new Uint8Array(4),
+    }),
+  });
   stores.push(store);
   await store.init();
   return { store, fake };
@@ -102,10 +109,11 @@ describe('filters and culling', () => {
     expect(visible(store)).toHaveLength(40);
 
     store.setQuickFilter('tagged');
-    expect(visible(store).map((photo) => photo.id)).toEqual([selected.id]);
+    expect(visible(store).map((photo) => photo.id)).toContain(selected.id);
+    expect(visible(store)).toHaveLength(5);
 
     store.setQuickFilter('untagged');
-    expect(visible(store)).toHaveLength(39);
+    expect(visible(store)).toHaveLength(35);
 
     store.setQuickFilter('edited');
     expect(visible(store)).toHaveLength(7);
@@ -137,18 +145,21 @@ describe('filters and culling', () => {
     expect(visible(store).every((photo) => photo.sourceId === source.id)).toBe(true);
   });
 
-  it('keeps a local tag and colour class per photo', async () => {
-    const { store } = await setup();
+  it('persists a tag and colour class on the photo', async () => {
+    const { store, fake } = await setup();
     const photo = activePhoto(store.getState());
     if (!photo) throw new Error('no selection');
 
     store.toggleTag(photo.id);
     store.setColorClass(3, photo.id);
-    expect(store.getState().flags[photo.id]).toEqual({ tagged: true, colorClass: 3 });
+    expect(photoFlags(store.getState(), photo.id)).toEqual({ tagged: true, colorClass: 3 });
+    await vi.waitFor(() =>
+      expect(fake.calls.some((call) => call.channel === 'photos:setLabels')).toBe(true),
+    );
 
     store.toggleTag(photo.id);
     store.setColorClass(0, photo.id);
-    expect(store.getState().flags[photo.id]).toEqual({ tagged: false, colorClass: 0 });
+    expect(photoFlags(store.getState(), photo.id)).toEqual({ tagged: false, colorClass: 0 });
   });
 });
 
