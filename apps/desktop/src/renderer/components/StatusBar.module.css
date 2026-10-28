@@ -210,3 +210,33 @@
   font-family: var(--mono);
   font-size: 9px;
 }
+
+.exportProgress {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--muted);
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.exportLabel {
+  max-width: 220px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.exportBar {
+  width: 72px;
+  height: 4px;
+  border-radius: 2px;
+  background: var(--border);
+  overflow: hidden;
+}
+
+.exportBar span {
+  display: block;
+  height: 100%;
+  background: #5a9be0;
+  transition: width 120ms ease;
+}

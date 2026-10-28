@@ -1,25 +1,186 @@
-.canvasWrap {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 100%;
-  height: 100%;
-  min-width: 0;
-  min-height: 0;
-}
-
-.image {
-  max-width: 100%;
-  max-height: 100%;
-  object-fit: contain;
-  box-shadow: 0 6px 32px rgb(0 0 0 / 0.55);
-}
-
 .empty {
   display: flex;
   align-items: center;
   justify-content: center;
+  height: 100%;
+  color: var(--muted);
+  font-size: 13px;
+  text-align: center;
+  padding: 24px;
+}
+
+.canvasWrap {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   width: 100%;
   height: 100%;
-  color: var(--text-dim);
+  min-height: 0;
+  overflow: hidden;
+}
+
+.stage {
+  position: relative;
+  flex: none;
+  background: #0b0b0c;
+  box-shadow: 0 1px 12px rgb(0 0 0 / 45%);
+}
+
+.image,
+.canvas,
+.mosaic,
+.overlay {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+
+.image {
+  object-fit: contain;
+  transition: opacity 120ms ease;
+}
+
+.canvas {
+  transition: opacity 120ms ease;
+}
+
+.mosaic {
+  pointer-events: none;
+}
+
+.overlay {
+  touch-action: none;
+  cursor: crosshair;
+}
+
+.shape {
+  fill: rgb(90 155 224 / 18%);
+  stroke: #5a9be0;
+  stroke-width: 1.5;
+  vector-effect: non-scaling-stroke;
+}
+
+.face {
+  cursor: pointer;
+  stroke-width: 2;
+  vector-effect: non-scaling-stroke;
+}
+
+.faceOn {
+  fill: rgb(224 90 88 / 16%);
+  stroke: #e05a58;
+  stroke-dasharray: 6 3;
+}
+
+.faceOff {
+  fill: none;
+  stroke: rgb(224 90 88 / 45%);
+  stroke-dasharray: 2 4;
+}
+
+.notice {
+  position: absolute;
+  left: 50%;
+  bottom: 12px;
+  transform: translateX(-50%);
+  padding: 5px 10px;
+  border-radius: 4px;
+  background: rgb(0 0 0 / 62%);
+  color: #ddd;
+  font-size: 11px;
+  pointer-events: none;
+  white-space: nowrap;
+}
+
+.error {
+  color: #ffb4b2;
+  max-width: 80%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.toolbar {
+  position: absolute;
+  top: 10px;
+  left: 10px;
+  right: 10px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 10px;
+  padding: 7px 9px;
+  border-radius: 6px;
+  background: rgb(18 19 22 / 88%);
+  border: 1px solid rgb(255 255 255 / 10%);
+  color: var(--foreground);
+  font-size: 11px;
+  z-index: 2;
+}
+
+.tools,
+.actions {
+  display: flex;
+  gap: 4px;
+}
+
+.tool,
+.secondary,
+.commit {
+  border: 1px solid rgb(255 255 255 / 12%);
+  border-radius: 4px;
+  background: rgb(255 255 255 / 6%);
+  color: inherit;
+  font: inherit;
+  padding: 3px 7px;
+  cursor: pointer;
+}
+
+.tool:hover,
+.secondary:hover:not(:disabled),
+.commit:hover:not(:disabled) {
+  background: rgb(255 255 255 / 12%);
+}
+
+.toolActive {
+  background: #2f6da8;
+  border-color: #4d8cc4;
+}
+
+.secondary:disabled,
+.commit:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.commit {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  background: #2f6da8;
+  border-color: #4d8cc4;
+  font-weight: 600;
+}
+
+.control {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+}
+
+.control input[type='range'] {
+  width: 86px;
+  accent-color: #5a9be0;
+}
+
+.faceHint,
+.toolHint {
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.toolHint {
+  margin-left: auto;
 }

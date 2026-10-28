@@ -1,5 +1,5 @@
-import { APP_PROTOCOL } from '@ee/contracts';
-import { mockImageSvg } from './mock';
+import { APP_PROTOCOL, LINEAR_IMAGE_HEADER } from '@ee/contracts';
+import { mockImageSvg, mockLinearImage } from './mock';
 
 /** Result of resolving an `app://` request; the Electron handler turns it into a `Response`. */
 export interface AppResponse {
@@ -32,7 +32,21 @@ export function resolveAppRequest(rawUrl: string, options: { mock: boolean }): A
   if (kind !== 'thumb' && kind !== 'preview' && kind !== 'linear') {
     return text(404, `unknown app:// resource "${kind}"`);
   }
-  if (options.mock && kind !== 'linear') {
+  if (options.mock) {
+    if (kind === 'linear') {
+      const requested = Number(url.searchParams.get('maxEdge') ?? 960);
+      const maxEdge = Number.isFinite(requested) ? Math.min(2560, Math.max(64, requested)) : 960;
+      const image = mockLinearImage(photoId, maxEdge);
+      if (!image) return text(404, `no such photo "${photoId}"`);
+      return {
+        status: 200,
+        headers: {
+          'content-type': 'application/octet-stream',
+          [LINEAR_IMAGE_HEADER]: JSON.stringify(image.header),
+        },
+        body: new Uint8Array(image.rgba.buffer),
+      };
+    }
     const svg = mockImageSvg(photoId, { width: MOCK_WIDTH[kind] });
     if (!svg) return text(404, `no such photo "${photoId}"`);
     return { status: 200, headers: { 'content-type': 'image/svg+xml' }, body: svg };

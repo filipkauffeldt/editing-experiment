@@ -23,10 +23,14 @@ describe('resolveAppRequest', () => {
     expect(resolveAppRequest('app://bogus/mock-01', { mock: true }).status).toBe(404);
   });
 
-  it('answers 501 outside mock mode and for the linear image until core serves it', () => {
+  it('serves a linear f32 image in mock mode and 501 outside it', () => {
     const id = asPhotoId('mock-01');
     expect(resolveAppRequest(appUrl.thumb(id), { mock: false }).status).toBe(501);
-    expect(resolveAppRequest(appUrl.linear(id, 1600), { mock: true }).status).toBe(501);
+    const linear = resolveAppRequest(appUrl.linear(id, 1600), { mock: true });
+    expect(linear.status).toBe(200);
+    const header = JSON.parse(linear.headers['x-ee-linear-image']!);
+    expect(header).toMatchObject({ sampleType: 'f32', width: 1600 });
+    expect((linear.body as Uint8Array).byteLength).toBe(header.width * header.height * 16);
   });
 
   it('decodes ids that were percent-encoded by appUrl', () => {
