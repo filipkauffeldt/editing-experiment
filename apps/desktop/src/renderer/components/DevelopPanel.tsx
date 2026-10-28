@@ -1,5 +1,6 @@
 import { SLIDER_SPECS, type SliderParam } from '@ee/contracts';
 import { activePhoto, paramsForPhoto } from '../store';
+import { asShotTrackPosition, temperatureToTrack, trackToTemperature } from '../temperature-scale';
 import { useAppState, useAppStore } from '../store-context';
 import { CloseIcon, PlusIcon } from './icons';
 import { Panel } from './Panel';
@@ -42,7 +43,12 @@ function Slider({ name }: { name: SliderParam }) {
   const spec = SLIDER_SPECS[name];
   const raw = params[name];
   const asShot = spec.neutral === null && raw === undefined;
-  const position = raw ?? (name === 'Temperature' ? 5500 : 0);
+  const isTemperature = name === 'Temperature';
+  const position = isTemperature
+    ? raw === undefined
+      ? asShotTrackPosition()
+      : temperatureToTrack(raw)
+    : (raw ?? 0);
 
   return (
     <div
@@ -75,12 +81,19 @@ function Slider({ name }: { name: SliderParam }) {
         className={styles.range}
         type="range"
         aria-label={LABELS[name]}
-        min={spec.min}
-        max={spec.max}
-        step={spec.step}
+        min={isTemperature ? 0 : spec.min}
+        max={isTemperature ? 1000 : spec.max}
+        step={isTemperature ? 1 : spec.step}
         value={position}
         disabled={!photo}
-        onChange={(event) => store.setSlider(name, Number(event.target.value))}
+        onChange={(event) =>
+          store.setSlider(
+            name,
+            isTemperature
+              ? trackToTemperature(Number(event.target.value))
+              : Number(event.target.value),
+          )
+        }
         onDoubleClick={() => store.resetSlider(name)}
       />
     </div>
