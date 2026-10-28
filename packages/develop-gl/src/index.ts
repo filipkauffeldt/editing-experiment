@@ -42,6 +42,7 @@ export {
   quantizeAngle,
   resizeCropFromHandle,
   rotateCrop,
+  rotateCropInView,
   rotatePoint,
   sanitizeCrop,
   shrinkCropToImage,

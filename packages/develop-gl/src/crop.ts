@@ -593,6 +593,29 @@ export function rotateCrop(
   );
 }
 
+/**
+ * {@link rotateCrop} for the view model: the image turns about `pivot` (the
+ * frame centre on screen). Normally the crop centre does not change and neither
+ * does the pivot; if the centre had to be pulled back into the image, the frame
+ * follows it, so the image keeps turning about the old pivot instead of jumping.
+ */
+export function rotateCropInView(
+  crop: CropParams,
+  image: Size,
+  pivot: Point,
+  angle: number,
+  desired?: Size,
+): DrawnCrop {
+  const before = cropGeometry(crop, image);
+  const next = rotateCrop(crop, image, angle, desired);
+  const after = cropGeometry(next, image);
+  const dx = after.centerX - before.centerX;
+  const dy = after.centerY - before.centerY;
+  // Rounding in the corner round trip is not a move.
+  const shift = Math.hypot(dx, dy) > 1e-6 ? unrotatePoint(dx, dy, after.angle) : { x: 0, y: 0 };
+  return { crop: next, pivot: { x: pivot.x + shift.x, y: pivot.y + shift.y } };
+}
+
 /** A freshly drawn crop and the view position of its centre. */
 export interface DrawnCrop {
   crop: CropParams;

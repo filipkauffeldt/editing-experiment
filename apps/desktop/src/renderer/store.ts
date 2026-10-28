@@ -13,7 +13,7 @@ import {
   pointerAngleDelta,
   quantizeAngle,
   resizeCropFromHandle,
-  rotateCrop,
+  rotateCropInView,
   sanitizeCrop,
   straightenAngleFromLine,
   type CropHandle,
@@ -1168,7 +1168,7 @@ export class AppStore {
         // The image turns with the pointer, i.e. against the crop angle.
         const angle = quantizeAngle(gesture.crop.angle - gesture.swept, modifiers.shift === true);
         this.updateCrop({
-          crop: rotateCrop(gesture.crop, image, angle, gesture.desired),
+          ...rotateCropInView(gesture.crop, image, gesture.pivot, angle, gesture.desired),
           desired: gesture.desired,
         });
         break;
@@ -1245,7 +1245,10 @@ export class AppStore {
     if (!session) return;
     const geometry = cropGeometry(session.crop, session.image);
     const desired = session.desired ?? { width: geometry.width, height: geometry.height };
-    this.updateCrop({ crop: rotateCrop(session.crop, session.image, angle, desired), desired });
+    this.updateCrop({
+      ...rotateCropInView(session.crop, session.image, session.pivot, angle, desired),
+      desired,
+    });
   };
 
   readonly setCropAspect = (aspect: CropAspectId): void => {

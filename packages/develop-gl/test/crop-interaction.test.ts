@@ -17,6 +17,7 @@ import {
   quantizeAngle,
   resizeCropFromHandle,
   rotateCrop,
+  rotateCropInView,
   shrinkCropToImage,
   straightenAngleFromLine,
 } from '../src/crop';
@@ -471,5 +472,34 @@ describe('rotation to +-45 degrees', () => {
     expect(isUsableCrop({ left: 0.2, top: 0.2, right: 0.2, bottom: 0.2, angle: 0 })).toBe(false);
     expect(isUsableCrop({ left: 0, top: 0, right: Number.NaN, bottom: 1, angle: 0 })).toBe(false);
     expect(isUsableCrop({ left: 0.5, top: 0.1, right: 0.5, bottom: 0.9, angle: 45 })).toBe(true);
+  });
+});
+
+describe.each(images)('rotateCropInView (%s)', (_name, image) => {
+  it('keeps the pivot when the centre does not move', () => {
+    const crop = cropFromGeometry(image.width / 2, image.height / 2, 800, 500, 0, image);
+    const pivot = { x: 321, y: 123 };
+    const turned = rotateCropInView(crop, image, pivot, 17);
+    expect(turned.pivot).toEqual(pivot);
+    expect(turned.crop.angle).toBe(17);
+  });
+
+  it('moves the pivot with a centre that had to be pulled back into the image', () => {
+    // A frame whose centre sits outside the image (an out-of-range session).
+    const crop = cropFromGeometry(-150, image.height / 2, 400, 300, 0, image);
+    const pivot = { x: 50, y: 60 };
+    const turned = rotateCropInView(crop, image, pivot, 20);
+    const before = cropGeometry(crop, image);
+    const after = cropGeometry(turned.crop, image);
+    expect(after.centerX).toBeGreaterThanOrEqual(0);
+    // The image still turns about the old pivot: the new centre's screen position is
+    // the old pivot plus the rotated offset, so nothing jumps.
+    const expected = cropImageToView({ ...before, angle: after.angle }, pivot, {
+      x: after.centerX,
+      y: after.centerY,
+    });
+    expect(turned.pivot.x).toBeCloseTo(expected.x, 6);
+    expect(turned.pivot.y).toBeCloseTo(expected.y, 6);
+    expect(turned.pivot.x).not.toBeCloseTo(pivot.x, 1);
   });
 });
