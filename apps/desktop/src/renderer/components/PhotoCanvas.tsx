@@ -206,6 +206,9 @@ function CanvasForPhoto({ photo }: { photo: Photo }) {
   const [contextLost, setContextLost] = useState(false);
   const [renderVersion, setRenderVersion] = useState(0);
   const [mosaicVersion, setMosaicVersion] = useState(0);
+  const [firstFrame, setFirstFrame] = useState(false);
+  const [previewSource, setPreviewSource] = useState<'preview' | 'thumb' | 'none'>('preview');
+  const [previewLoaded, setPreviewLoaded] = useState(false);
   const [draftRect, setDraftRect] = useState<Rect>();
   const [draftPoints, setDraftPoints] = useState<{ x: number; y: number }[]>([]);
   const dragStart = useRef<{ x: number; y: number } | null>(null);
@@ -258,7 +261,12 @@ function CanvasForPhoto({ photo }: { photo: Photo }) {
     if (typeof WebGL2RenderingContext === 'undefined') return;
     let created: DevelopRenderer;
     try {
-      created = createDevelopRenderer(canvas, { onContextLost: () => setContextLost(true) });
+      created = createDevelopRenderer(canvas, {
+        onContextLost: () => {
+          setContextLost(true);
+          setFirstFrame(false);
+        },
+      });
     } catch (cause) {
       queueMicrotask(() => setError(cause instanceof Error ? cause.message : String(cause)));
       return;
@@ -365,6 +373,7 @@ function CanvasForPhoto({ photo }: { photo: Photo }) {
       try {
         renderer.render(params);
         setRenderVersion((version) => version + 1);
+        setFirstFrame(true);
       } catch (cause) {
         setError(cause instanceof Error ? cause.message : String(cause));
       }
@@ -551,17 +560,27 @@ function CanvasForPhoto({ photo }: { photo: Photo }) {
         }}
         data-photo-id={photo.id}
       >
-        <img
-          className={styles.image}
-          src={appUrl.preview(photo.id)}
-          alt={photo.fileName}
-          draggable={false}
-          style={{ opacity: loaded && !contextLost ? 0 : 1 }}
-        />
+        {previewSource !== 'none' && (
+          <img
+            className={styles.image}
+            src={previewSource === 'thumb' ? appUrl.thumb(photo.id) : appUrl.preview(photo.id)}
+            alt={photo.fileName}
+            draggable={false}
+            data-testid="preview-image"
+            data-visible={!firstFrame && !contextLost ? 'true' : 'false'}
+            style={{ opacity: firstFrame || contextLost ? 0 : 1 }}
+            onLoad={() => setPreviewLoaded(true)}
+            onError={() => {
+              setPreviewLoaded(false);
+              setPreviewSource((source) => (source === 'preview' ? 'thumb' : 'none'));
+            }}
+          />
+        )}
         <canvas
           ref={canvasRef}
           className={styles.canvas}
-          style={{ opacity: contextLost ? 0 : 1 }}
+          data-visible={firstFrame && !contextLost ? 'true' : 'false'}
+          style={{ opacity: firstFrame && !contextLost ? 1 : 0 }}
           data-testid="develop-canvas"
           data-ready={loaded !== null && !contextLost ? 'true' : 'false'}
           data-render-version={renderVersion}
@@ -629,7 +648,11 @@ function CanvasForPhoto({ photo }: { photo: Photo }) {
           </svg>
         )}
         {contextLost && <div className={styles.notice}>Restoring the graphics context…</div>}
-        {!loaded && !error && !linearUnavailable && <div className={styles.notice}>Loading…</div>}
+        {!firstFrame && !previewLoaded && !error && (
+          <div className={styles.notice}>
+            {linearUnavailable ? 'Preview unavailable' : 'Loading…'}
+          </div>
+        )}
         {error && <div className={`${styles.notice} ${styles.error}`}>{error}</div>}
         <Toolbar />
       </div>
