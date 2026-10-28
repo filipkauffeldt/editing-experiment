@@ -81,6 +81,39 @@ describe('develop and retouch XMP', () => {
     expect(tags['XMP-crs:ToneCurvePV2012']).toEqual(['0, 0', '64, 70', '255, 255']);
   });
 
+  it('ignores crop coordinates when crs:HasCrop is false', async () => {
+    const dir = await makeTempDir();
+    const jpeg = join(dir, 'photo.jpg');
+    await makeJpeg(jpeg);
+
+    await service.write(jpeg, {
+      'XMP-crs:CropLeft': 0.1,
+      'XMP-crs:CropTop': 0.2,
+      'XMP-crs:CropRight': 0.9,
+      'XMP-crs:CropBottom': 0.8,
+      'XMP-crs:CropAngle': 3,
+      'XMP-crs:HasCrop': false,
+    });
+    expect(await readEditParams(jpeg, service)).toEqual({});
+  });
+
+  it('clears crs:HasCrop when the crop is removed', async () => {
+    const dir = await makeTempDir();
+    const jpeg = join(dir, 'photo.jpg');
+    await makeJpeg(jpeg);
+
+    const crop = params.crop;
+    if (!crop) throw new Error('fixture crop missing');
+    await writeEditParams(jpeg, { crop }, { service });
+    let tags = await service.read(jpeg);
+    expect(tags['XMP-crs:HasCrop']).toBe(true);
+
+    await writeEditParams(jpeg, {}, { service });
+    tags = await service.read(jpeg);
+    expect(tags['XMP-crs:HasCrop']).toBeUndefined();
+    expect(tags['XMP-crs:CropLeft']).toBeUndefined();
+  });
+
   it('defaults ProcessVersion when settings are written without one', async () => {
     const dir = await makeTempDir();
     const jpeg = join(dir, 'photo.jpg');

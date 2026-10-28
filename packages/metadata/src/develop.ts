@@ -8,7 +8,7 @@ import {
   metadataTargetFor,
   sidecarPathFor,
 } from './paths';
-import { asNumber, asString, asStringList } from './values';
+import { asBoolean, asNumber, asString, asStringList } from './values';
 
 /**
  * `EditParams` ↔ Camera Raw `crs:` XMP properties.
@@ -108,18 +108,27 @@ export async function readEditParams(
     if (points.length > 0) params[key] = points;
   }
 
-  const left = asNumber(tags[CROP_TAGS.left]);
-  const top = asNumber(tags[CROP_TAGS.top]);
-  const right = asNumber(tags[CROP_TAGS.right]);
-  const bottom = asNumber(tags[CROP_TAGS.bottom]);
-  if (left !== undefined && top !== undefined && right !== undefined && bottom !== undefined) {
-    params.crop = {
-      left,
-      top,
-      right,
-      bottom,
-      angle: asNumber(tags[CROP_TAGS.angle]) ?? 0,
-    };
+  // Lightroom's `crs:HasCrop` gates the rectangle: stale coordinates from a
+  // reset crop must not come back. Missing `HasCrop` is tolerated for files
+  // written by other tools, but an explicit false always wins.
+  const hasCrop = asBoolean(tags['XMP-crs:HasCrop']);
+  if (hasCrop !== false) {
+    const left = asNumber(tags[CROP_TAGS.left]);
+    const top = asNumber(tags[CROP_TAGS.top]);
+    const right = asNumber(tags[CROP_TAGS.right]);
+    const bottom = asNumber(tags[CROP_TAGS.bottom]);
+    const angle = asNumber(tags[CROP_TAGS.angle]) ?? 0;
+    if (
+      left !== undefined &&
+      top !== undefined &&
+      right !== undefined &&
+      bottom !== undefined &&
+      right > left &&
+      bottom > top &&
+      Number.isFinite(angle)
+    ) {
+      params.crop = { left, top, right, bottom, angle };
+    }
   }
 
   return params;
