@@ -22,6 +22,13 @@ export type WhiteBalanceMode =
 /** One tone-curve control point: `[input, output]`, both 0..255 (as in `crs:ToneCurvePV2012`). */
 export type ToneCurvePoint = readonly [input: number, output: number];
 
+/** Lightroom's post-crop vignette styles, as written by `crs:PostCropVignetteStyle`. */
+export type VignetteStyle = 'Highlight Priority' | 'Color Priority' | 'Paint Overlay';
+
+/** One colour mixer band, in Lightroom's order. */
+export type ColorMixerBand =
+  'Red' | 'Orange' | 'Yellow' | 'Green' | 'Aqua' | 'Blue' | 'Purple' | 'Magenta';
+
 /** Crop rectangle in normalized coordinates of the oriented image, plus straighten angle. */
 export interface CropParams {
   /** Left edge, 0..1. */
@@ -66,6 +73,88 @@ export interface EditParams {
   ToneCurvePV2012Red?: ToneCurvePoint[];
   ToneCurvePV2012Green?: ToneCurvePoint[];
   ToneCurvePV2012Blue?: ToneCurvePoint[];
+
+  /** Color Mixer (HSL): hue, saturation and luminance shift per band, -100..100. */
+  HueAdjustmentRed?: number;
+  SaturationAdjustmentRed?: number;
+  LuminanceAdjustmentRed?: number;
+  HueAdjustmentOrange?: number;
+  SaturationAdjustmentOrange?: number;
+  LuminanceAdjustmentOrange?: number;
+  HueAdjustmentYellow?: number;
+  SaturationAdjustmentYellow?: number;
+  LuminanceAdjustmentYellow?: number;
+  HueAdjustmentGreen?: number;
+  SaturationAdjustmentGreen?: number;
+  LuminanceAdjustmentGreen?: number;
+  HueAdjustmentAqua?: number;
+  SaturationAdjustmentAqua?: number;
+  LuminanceAdjustmentAqua?: number;
+  HueAdjustmentBlue?: number;
+  SaturationAdjustmentBlue?: number;
+  LuminanceAdjustmentBlue?: number;
+  HueAdjustmentPurple?: number;
+  SaturationAdjustmentPurple?: number;
+  LuminanceAdjustmentPurple?: number;
+  HueAdjustmentMagenta?: number;
+  SaturationAdjustmentMagenta?: number;
+  LuminanceAdjustmentMagenta?: number;
+
+  /** Color grading: hue 0..360, saturation 0..100, luminance -100..100. */
+  ColorGradeShadowHue?: number;
+  ColorGradeShadowSat?: number;
+  ColorGradeShadowLum?: number;
+  ColorGradeMidtoneHue?: number;
+  ColorGradeMidtoneSat?: number;
+  ColorGradeMidtoneLum?: number;
+  ColorGradeHighlightHue?: number;
+  ColorGradeHighlightSat?: number;
+  ColorGradeHighlightLum?: number;
+  ColorGradeGlobalHue?: number;
+  ColorGradeGlobalSat?: number;
+  ColorGradeGlobalLum?: number;
+  /** 0..100; 50 is Lightroom's default. */
+  ColorGradeBlending?: number;
+  /** -100..100. */
+  ColorGradeBalance?: number;
+  /** Legacy split toning, read from old presets when no ColorGrade* values are present. */
+  SplitToningShadowHue?: number;
+  SplitToningShadowSaturation?: number;
+  SplitToningHighlightHue?: number;
+  SplitToningHighlightSaturation?: number;
+  SplitToningBalance?: number;
+
+  /** Camera Calibration. */
+  ShadowTint?: number;
+  RedHue?: number;
+  RedSaturation?: number;
+  GreenHue?: number;
+  GreenSaturation?: number;
+  BlueHue?: number;
+  BlueSaturation?: number;
+
+  /** Parametric tone curve regions and their split points (0..100). */
+  ParametricShadows?: number;
+  ParametricDarks?: number;
+  ParametricLights?: number;
+  ParametricHighlights?: number;
+  ParametricShadowSplit?: number;
+  ParametricMidtoneSplit?: number;
+  ParametricHighlightSplit?: number;
+
+  /** Post-crop vignette. */
+  PostCropVignetteAmount?: number;
+  PostCropVignetteMidpoint?: number;
+  PostCropVignetteRoundness?: number;
+  PostCropVignetteFeather?: number;
+  PostCropVignetteHighlights?: number;
+  PostCropVignetteStyle?: VignetteStyle;
+
+  /** Grain. Amount, Size and Frequency are 0..100. */
+  GrainAmount?: number;
+  GrainSize?: number;
+  GrainFrequency?: number;
+
   crop?: CropParams;
 }
 
@@ -81,6 +170,66 @@ export const SLIDER_PARAMS = [
   'Blacks2012',
   'Vibrance',
   'Saturation',
+  'HueAdjustmentRed',
+  'SaturationAdjustmentRed',
+  'LuminanceAdjustmentRed',
+  'HueAdjustmentOrange',
+  'SaturationAdjustmentOrange',
+  'LuminanceAdjustmentOrange',
+  'HueAdjustmentYellow',
+  'SaturationAdjustmentYellow',
+  'LuminanceAdjustmentYellow',
+  'HueAdjustmentGreen',
+  'SaturationAdjustmentGreen',
+  'LuminanceAdjustmentGreen',
+  'HueAdjustmentAqua',
+  'SaturationAdjustmentAqua',
+  'LuminanceAdjustmentAqua',
+  'HueAdjustmentBlue',
+  'SaturationAdjustmentBlue',
+  'LuminanceAdjustmentBlue',
+  'HueAdjustmentPurple',
+  'SaturationAdjustmentPurple',
+  'LuminanceAdjustmentPurple',
+  'HueAdjustmentMagenta',
+  'SaturationAdjustmentMagenta',
+  'LuminanceAdjustmentMagenta',
+  'ColorGradeShadowHue',
+  'ColorGradeShadowSat',
+  'ColorGradeShadowLum',
+  'ColorGradeMidtoneHue',
+  'ColorGradeMidtoneSat',
+  'ColorGradeMidtoneLum',
+  'ColorGradeHighlightHue',
+  'ColorGradeHighlightSat',
+  'ColorGradeHighlightLum',
+  'ColorGradeGlobalHue',
+  'ColorGradeGlobalSat',
+  'ColorGradeGlobalLum',
+  'ColorGradeBlending',
+  'ColorGradeBalance',
+  'RedHue',
+  'RedSaturation',
+  'GreenHue',
+  'GreenSaturation',
+  'BlueHue',
+  'BlueSaturation',
+  'ShadowTint',
+  'ParametricShadows',
+  'ParametricDarks',
+  'ParametricLights',
+  'ParametricHighlights',
+  'ParametricShadowSplit',
+  'ParametricMidtoneSplit',
+  'ParametricHighlightSplit',
+  'PostCropVignetteAmount',
+  'PostCropVignetteMidpoint',
+  'PostCropVignetteRoundness',
+  'PostCropVignetteFeather',
+  'PostCropVignetteHighlights',
+  'GrainAmount',
+  'GrainSize',
+  'GrainFrequency',
 ] as const satisfies readonly (keyof EditParams)[];
 
 /** Name of a scalar slider parameter. */
@@ -107,6 +256,66 @@ export const SLIDER_SPECS: Readonly<Record<SliderParam, SliderSpec>> = {
   Blacks2012: { min: -100, max: 100, step: 1, neutral: 0 },
   Vibrance: { min: -100, max: 100, step: 1, neutral: 0 },
   Saturation: { min: -100, max: 100, step: 1, neutral: 0 },
+  HueAdjustmentRed: { min: -100, max: 100, step: 1, neutral: 0 },
+  SaturationAdjustmentRed: { min: -100, max: 100, step: 1, neutral: 0 },
+  LuminanceAdjustmentRed: { min: -100, max: 100, step: 1, neutral: 0 },
+  HueAdjustmentOrange: { min: -100, max: 100, step: 1, neutral: 0 },
+  SaturationAdjustmentOrange: { min: -100, max: 100, step: 1, neutral: 0 },
+  LuminanceAdjustmentOrange: { min: -100, max: 100, step: 1, neutral: 0 },
+  HueAdjustmentYellow: { min: -100, max: 100, step: 1, neutral: 0 },
+  SaturationAdjustmentYellow: { min: -100, max: 100, step: 1, neutral: 0 },
+  LuminanceAdjustmentYellow: { min: -100, max: 100, step: 1, neutral: 0 },
+  HueAdjustmentGreen: { min: -100, max: 100, step: 1, neutral: 0 },
+  SaturationAdjustmentGreen: { min: -100, max: 100, step: 1, neutral: 0 },
+  LuminanceAdjustmentGreen: { min: -100, max: 100, step: 1, neutral: 0 },
+  HueAdjustmentAqua: { min: -100, max: 100, step: 1, neutral: 0 },
+  SaturationAdjustmentAqua: { min: -100, max: 100, step: 1, neutral: 0 },
+  LuminanceAdjustmentAqua: { min: -100, max: 100, step: 1, neutral: 0 },
+  HueAdjustmentBlue: { min: -100, max: 100, step: 1, neutral: 0 },
+  SaturationAdjustmentBlue: { min: -100, max: 100, step: 1, neutral: 0 },
+  LuminanceAdjustmentBlue: { min: -100, max: 100, step: 1, neutral: 0 },
+  HueAdjustmentPurple: { min: -100, max: 100, step: 1, neutral: 0 },
+  SaturationAdjustmentPurple: { min: -100, max: 100, step: 1, neutral: 0 },
+  LuminanceAdjustmentPurple: { min: -100, max: 100, step: 1, neutral: 0 },
+  HueAdjustmentMagenta: { min: -100, max: 100, step: 1, neutral: 0 },
+  SaturationAdjustmentMagenta: { min: -100, max: 100, step: 1, neutral: 0 },
+  LuminanceAdjustmentMagenta: { min: -100, max: 100, step: 1, neutral: 0 },
+  ColorGradeShadowHue: { min: 0, max: 360, step: 1, neutral: 0 },
+  ColorGradeShadowSat: { min: 0, max: 100, step: 1, neutral: 0 },
+  ColorGradeShadowLum: { min: -100, max: 100, step: 1, neutral: 0 },
+  ColorGradeMidtoneHue: { min: 0, max: 360, step: 1, neutral: 0 },
+  ColorGradeMidtoneSat: { min: 0, max: 100, step: 1, neutral: 0 },
+  ColorGradeMidtoneLum: { min: -100, max: 100, step: 1, neutral: 0 },
+  ColorGradeHighlightHue: { min: 0, max: 360, step: 1, neutral: 0 },
+  ColorGradeHighlightSat: { min: 0, max: 100, step: 1, neutral: 0 },
+  ColorGradeHighlightLum: { min: -100, max: 100, step: 1, neutral: 0 },
+  ColorGradeGlobalHue: { min: 0, max: 360, step: 1, neutral: 0 },
+  ColorGradeGlobalSat: { min: 0, max: 100, step: 1, neutral: 0 },
+  ColorGradeGlobalLum: { min: -100, max: 100, step: 1, neutral: 0 },
+  ColorGradeBlending: { min: 0, max: 100, step: 1, neutral: 50 },
+  ColorGradeBalance: { min: -100, max: 100, step: 1, neutral: 0 },
+  RedHue: { min: -100, max: 100, step: 1, neutral: 0 },
+  RedSaturation: { min: -100, max: 100, step: 1, neutral: 0 },
+  GreenHue: { min: -100, max: 100, step: 1, neutral: 0 },
+  GreenSaturation: { min: -100, max: 100, step: 1, neutral: 0 },
+  BlueHue: { min: -100, max: 100, step: 1, neutral: 0 },
+  BlueSaturation: { min: -100, max: 100, step: 1, neutral: 0 },
+  ShadowTint: { min: -100, max: 100, step: 1, neutral: 0 },
+  ParametricShadows: { min: -100, max: 100, step: 1, neutral: 0 },
+  ParametricDarks: { min: -100, max: 100, step: 1, neutral: 0 },
+  ParametricLights: { min: -100, max: 100, step: 1, neutral: 0 },
+  ParametricHighlights: { min: -100, max: 100, step: 1, neutral: 0 },
+  ParametricShadowSplit: { min: 0, max: 100, step: 1, neutral: 25 },
+  ParametricMidtoneSplit: { min: 0, max: 100, step: 1, neutral: 50 },
+  ParametricHighlightSplit: { min: 0, max: 100, step: 1, neutral: 75 },
+  PostCropVignetteAmount: { min: -100, max: 100, step: 1, neutral: 0 },
+  PostCropVignetteMidpoint: { min: 0, max: 100, step: 1, neutral: 50 },
+  PostCropVignetteRoundness: { min: -100, max: 100, step: 1, neutral: 0 },
+  PostCropVignetteFeather: { min: 0, max: 100, step: 1, neutral: 50 },
+  PostCropVignetteHighlights: { min: 0, max: 100, step: 1, neutral: 0 },
+  GrainAmount: { min: 0, max: 100, step: 1, neutral: 0 },
+  GrainSize: { min: 0, max: 100, step: 1, neutral: 25 },
+  GrainFrequency: { min: 0, max: 100, step: 1, neutral: 50 },
 };
 
 /** A develop preset imported from a Lightroom/Camera Raw `.xmp` file. */

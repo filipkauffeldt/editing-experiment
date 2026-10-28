@@ -1417,6 +1417,15 @@ export class AppStore {
     });
   };
 
+  readonly setVignetteStyle = (style: EditParams['PostCropVignetteStyle']): void => {
+    this.patchParams((current) => {
+      const next = { ...current };
+      if (style === undefined) delete next.PostCropVignetteStyle;
+      else next.PostCropVignetteStyle = style;
+      return next;
+    });
+  };
+
   readonly applyPreset = (preset: EditPreset): void => {
     const unsupported = unsupportedSettings(preset);
     this.patchParams((current) => mergePreset(current, preset));

@@ -30,6 +30,42 @@ const params: EditParams = {
   Blacks2012: -5,
   Vibrance: 12,
   Saturation: -8,
+  HueAdjustmentRed: -10,
+  SaturationAdjustmentOrange: 14,
+  LuminanceAdjustmentGreen: -20,
+  HueAdjustmentBlue: 25,
+  ColorGradeShadowHue: 215,
+  ColorGradeShadowSat: 30,
+  ColorGradeMidtoneHue: 40,
+  ColorGradeMidtoneSat: 15,
+  ColorGradeHighlightLum: 10,
+  ColorGradeGlobalHue: 30,
+  ColorGradeGlobalSat: 5,
+  ColorGradeBlending: 60,
+  ColorGradeBalance: -12,
+  ShadowTint: 14,
+  RedHue: 10,
+  RedSaturation: -6,
+  GreenHue: -4,
+  GreenSaturation: 8,
+  BlueHue: 12,
+  BlueSaturation: -10,
+  ParametricShadows: -18,
+  ParametricDarks: 12,
+  ParametricLights: 9,
+  ParametricHighlights: -22,
+  ParametricShadowSplit: 22,
+  ParametricMidtoneSplit: 48,
+  ParametricHighlightSplit: 78,
+  PostCropVignetteAmount: -35,
+  PostCropVignetteMidpoint: 42,
+  PostCropVignetteRoundness: 25,
+  PostCropVignetteFeather: 65,
+  PostCropVignetteHighlights: 40,
+  PostCropVignetteStyle: 'Highlight Priority',
+  GrainAmount: 28,
+  GrainSize: 35,
+  GrainFrequency: 55,
   ToneCurvePV2012: [
     [0, 0],
     [64, 70],
@@ -80,6 +116,27 @@ describe('develop and retouch XMP', () => {
     expect(tags['XMP-crs:HasSettings']).toBe(true);
     expect(tags['XMP-crs:HasCrop']).toBe(true);
     expect(tags['XMP-crs:ToneCurvePV2012']).toEqual(['0, 0', '64, 70', '255, 255']);
+  });
+
+  it('reads legacy split toning as Color Grading at Blending 100', async () => {
+    const dir = await makeTempDir();
+    const jpeg = join(dir, 'photo.jpg');
+    await makeJpeg(jpeg);
+    await service.write(jpeg, {
+      'XMP-crs:SplitToningShadowHue': 210,
+      'XMP-crs:SplitToningShadowSaturation': 40,
+      'XMP-crs:SplitToningHighlightHue': 45,
+      'XMP-crs:SplitToningHighlightSaturation': 20,
+      'XMP-crs:SplitToningBalance': -30,
+    });
+    expect(await readEditParams(jpeg, service)).toEqual({
+      ColorGradeShadowHue: 210,
+      ColorGradeShadowSat: 40,
+      ColorGradeHighlightHue: 45,
+      ColorGradeHighlightSat: 20,
+      ColorGradeBalance: -30,
+      ColorGradeBlending: 100,
+    });
   });
 
   it('ignores crop coordinates when crs:HasCrop is false', async () => {
