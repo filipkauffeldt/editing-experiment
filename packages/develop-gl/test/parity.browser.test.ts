@@ -1,5 +1,6 @@
 import type { EditParams } from '@ee/contracts';
 import { afterEach, beforeAll, describe, expect, it } from 'vitest';
+import { cropOutputPixels, largestCropForAspect } from '../src/crop';
 import { renderCpu } from '../src/cpu';
 import { floatToHalf } from '../src/image';
 import { createDevelopRenderer, DevelopGlError, type DevelopRenderer } from '../src/renderer';
@@ -253,5 +254,75 @@ describe('errors', () => {
 
   it('keeps an explicit half-float extreme representable', () => {
     expect(floatToHalf(65504)).toBe(0x7bff);
+  });
+});
+
+describe('crop and straighten parity', () => {
+  const chart = makeChart(W, H);
+  const image = { width: W, height: H };
+  const crops: { name: string; crop: NonNullable<EditParams['crop']> }[] = [
+    { name: 'crop only', crop: { left: 0.1, top: 0.15, right: 0.9, bottom: 0.85, angle: 0 } },
+    { name: 'crop +5 degrees', crop: { left: 0.1, top: 0.15, right: 0.9, bottom: 0.85, angle: 5 } },
+    {
+      name: 'crop -5 degrees',
+      crop: { left: 0.1, top: 0.15, right: 0.9, bottom: 0.85, angle: -5 },
+    },
+    {
+      name: 'crop +45 degrees',
+      crop: { left: 0.1, top: 0.15, right: 0.9, bottom: 0.85, angle: 45 },
+    },
+    {
+      name: 'crop -45 degrees',
+      crop: { left: 0.1, top: 0.15, right: 0.9, bottom: 0.85, angle: -45 },
+    },
+    { name: 'largest 1:1 crop +45 degrees', crop: largestCropForAspect(image, 45, 1) },
+  ];
+
+  for (const { name, crop } of crops) {
+    it(`renderToRGBA matches the CPU: ${name}`, () => {
+      const params: EditParams = { Exposure2012: 0.2, Contrast2012: 18, crop };
+      const size = cropOutputPixels(crop, image);
+      renderer = createDevelopRenderer(canvas);
+      renderer.setImage(chart.header, chart.data);
+      const gpu = renderer.renderToRGBA(params, size);
+      const cpu = renderCpu(chart.header, chart.data, params, size);
+      expect(maxAbsDiff(gpu, cpu)).toBeLessThanOrEqual(12);
+      expect(meanAbsDiff(gpu, cpu)).toBeLessThan(1.2);
+    });
+  }
+
+  it('tiles a rotated crop without seams', () => {
+    const crop = { left: 0.08, top: 0.12, right: 0.92, bottom: 0.88, angle: 7 };
+    const params: EditParams = { Contrast2012: 20, crop };
+    const size = cropOutputPixels(crop, image);
+    const whole = createDevelopRenderer(canvas);
+    whole.setImage(chart.header, chart.data);
+    const expected = whole.renderToRGBA(params, size);
+    whole.dispose();
+
+    renderer = createDevelopRenderer(canvas, { maxTextureSize: 40, maxOutputTileSize: 32 });
+    renderer.setImage(chart.header, chart.data);
+    expect(maxAbsDiff(renderer.renderToRGBA(params, size), expected)).toBe(0);
+  });
+
+  it('draws the cropped, straightened result to a canvas of the crop size', () => {
+    const crop = { left: 0.12, top: 0.1, right: 0.88, bottom: 0.9, angle: -4 };
+    const params: EditParams = { crop };
+    const size = cropOutputPixels(crop, image);
+    const previous = { width: canvas.width, height: canvas.height };
+    canvas.width = size.width;
+    canvas.height = size.height;
+    try {
+      renderer = createDevelopRenderer(canvas);
+      renderer.setImage(chart.header, chart.data);
+      renderer.render(params);
+      const shown = readCanvas(canvas);
+      const cpu = renderCpu(chart.header, chart.data, params, size);
+      expect(maxAbsDiff(shown, cpu)).toBeLessThanOrEqual(12);
+      expect(meanAbsDiff(shown, cpu)).toBeLessThan(1.2);
+    } finally {
+      canvas.width = previous.width;
+      canvas.height = previous.height;
+    }
   });
 });
