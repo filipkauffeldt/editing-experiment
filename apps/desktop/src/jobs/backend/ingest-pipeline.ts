@@ -39,8 +39,12 @@ interface Basics {
   camera?: CameraInfo;
   width?: number;
   height?: number;
+  orientation?: number;
   preview?: PreviewSource;
 }
+
+const validOrientation = (value: number | undefined): number | undefined =>
+  value !== undefined && Number.isInteger(value) && value >= 1 && value <= 8 ? value : undefined;
 
 async function readRaw(path: string): Promise<Basics> {
   const [info, preview] = await Promise.allSettled([readRawInfo(path), extractPreview(path)]);
@@ -59,6 +63,8 @@ async function readRaw(path: string): Promise<Basics> {
   if (raw.captureTime !== undefined) basics.captureTime = raw.captureTime;
   basics.width = raw.width;
   basics.height = raw.height;
+  const orientation = validOrientation(raw.orientation);
+  if (orientation !== undefined) basics.orientation = orientation;
   if (preview.status === 'rejected') throw new PreviewError(preview.reason, basics);
   return basics;
 }
@@ -82,9 +88,9 @@ async function readImage(path: string, exiftool: ExifToolService): Promise<Basic
   const serial = asString(tags['ExifIFD:BodySerialNumber']);
   // ExifTool reports the stored size; orientations 5..8 display it turned.
   const stored = [asNumber(tags['File:ImageWidth']), asNumber(tags['File:ImageHeight'])] as const;
-  const orientation = asNumber(tags['IFD0:Orientation']);
+  const orientationValue = validOrientation(asNumber(tags['IFD0:Orientation']));
   const [w, h] =
-    orientation !== undefined && orientation >= 5 && orientation <= 8
+    orientationValue !== undefined && orientationValue >= 5 && orientationValue <= 8
       ? [stored[1], stored[0]]
       : stored;
   return {
@@ -101,6 +107,7 @@ async function readImage(path: string, exiftool: ExifToolService): Promise<Basic
       : {}),
     ...(w === undefined ? {} : { width: w }),
     ...(h === undefined ? {} : { height: h }),
+    ...(orientationValue === undefined ? {} : { orientation: orientationValue }),
     preview: { file: path },
   };
 }
@@ -170,10 +177,16 @@ export function createOnFileIngested(
     }));
     // A sidecar that came with the file may already hold edits.
     const versions = info.sidecarPath
-      ? await edits.readVersions(info.path, info.photoId).catch((error: unknown) => {
-          problem('metadata', error);
-          return undefined;
-        })
+      ? await edits
+          .readVersions(info.path, info.photoId, {
+            ...(basics.orientation === undefined ? {} : { orientation: basics.orientation }),
+            ...(basics.width === undefined ? {} : { width: basics.width }),
+            ...(basics.height === undefined ? {} : { height: basics.height }),
+          })
+          .catch((error: unknown) => {
+            problem('metadata', error);
+            return undefined;
+          })
       : undefined;
     const photo: Photo = {
       id: info.photoId,
@@ -184,6 +197,7 @@ export function createOnFileIngested(
       ...(basics.camera === undefined ? {} : { camera: basics.camera }),
       ...(basics.width === undefined ? {} : { width: basics.width }),
       ...(basics.height === undefined ? {} : { height: basics.height }),
+      ...(basics.orientation === undefined ? {} : { orientation: basics.orientation }),
       sourceId: info.sourceId,
       tagged: labels.tagged,
       colorClass: labels.colorClass,

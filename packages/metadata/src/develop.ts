@@ -1,4 +1,5 @@
 import type { CropParams, EditParams, ToneCurvePoint } from '@ee/contracts';
+import { cropOrientedToStored, cropStoredToOriented } from '@ee/develop-gl/crop';
 import { MetadataError } from './errors';
 import { getExifToolService, type ExifToolService, type ExifToolTagValue } from './exiftool';
 import {
@@ -50,7 +51,49 @@ const CROP_TAGS = {
   angle: 'XMP-crs:CropAngle',
 } as const;
 
+/** Oriented image geometry needed to convert `crs:Crop*` to/from stored pixel space. */
+export interface CropSpace {
+  /** EXIF orientation (1..8) of the stored original. */
+  orientation?: number;
+  /** Oriented image width in pixels. */
+  width?: number;
+  /** Oriented image height in pixels. */
+  height?: number;
+}
+
 const DEFAULT_PROCESS_VERSION = '11.0';
+
+function usableCropSpace(space: CropSpace | undefined): space is CropSpace & {
+  width: number;
+  height: number;
+} {
+  return (
+    space !== undefined &&
+    space.width !== undefined &&
+    space.height !== undefined &&
+    space.width > 0 &&
+    space.height > 0
+  );
+}
+
+/** Lightroom stores crop corners in the pre-orientation array; the app uses oriented coordinates. */
+function toOrientedCrop(crop: CropParams, space: CropSpace | undefined): CropParams {
+  if (!usableCropSpace(space)) return crop;
+  return cropStoredToOriented(
+    crop,
+    { width: space.width, height: space.height },
+    space.orientation ?? 1,
+  );
+}
+
+function toStoredCrop(crop: CropParams, space: CropSpace | undefined): CropParams {
+  if (!usableCropSpace(space)) return crop;
+  return cropOrientedToStored(
+    crop,
+    { width: space.width, height: space.height },
+    space.orientation ?? 1,
+  );
+}
 
 async function readTargetTags(
   path: string,
@@ -74,6 +117,7 @@ async function readTargetTags(
 export async function readEditParams(
   path: string,
   service: ExifToolService = getExifToolService(),
+  cropSpace?: CropSpace,
 ): Promise<EditParams> {
   const tags = await readTargetTags(path, service);
   if (tags === undefined) return {};
@@ -127,7 +171,7 @@ export async function readEditParams(
       bottom > top &&
       Number.isFinite(angle)
     ) {
-      params.crop = { left, top, right, bottom, angle };
+      params.crop = toOrientedCrop({ left, top, right, bottom, angle }, cropSpace);
     }
   }
 
@@ -163,6 +207,8 @@ function parseToneCurve(raw: unknown): ToneCurvePoint[] {
 
 export interface WriteEditParamsOptions {
   service?: ExifToolService;
+  /** Oriented size and EXIF orientation of the original, to write Lightroom's stored-space crop. */
+  cropSpace?: CropSpace;
 }
 
 /**
@@ -209,7 +255,7 @@ export async function writeEditParams(
     for (const tag of Object.values(CROP_TAGS)) tags[tag] = null;
     tags['XMP-crs:HasCrop'] = null;
   } else {
-    writeCrop(tags, params.crop);
+    writeCrop(tags, toStoredCrop(params.crop, options.cropSpace));
     anySetting = true;
   }
 

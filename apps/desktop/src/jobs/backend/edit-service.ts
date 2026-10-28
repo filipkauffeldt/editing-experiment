@@ -17,6 +17,7 @@ import {
   readRetouchVersions,
   writeEditParams,
   writeRetouchVersions,
+  type CropSpace,
   type ExifToolService,
 } from '@ee/metadata';
 import { randomUUID } from 'node:crypto';
@@ -24,6 +25,14 @@ import type { PhotoLibrary } from './photo-library';
 
 /** The develop version of a photo. The sidecar holds exactly one set of `crs:` settings. */
 export const developVersionId = (photoId: PhotoId): VersionId => asVersionId(`${photoId}:develop`);
+
+function cropSpaceFor(photo: Photo): CropSpace {
+  return {
+    ...(photo.orientation === undefined ? {} : { orientation: photo.orientation }),
+    ...(photo.width === undefined ? {} : { width: photo.width }),
+    ...(photo.height === undefined ? {} : { height: photo.height }),
+  };
+}
 
 /** True when the params change anything compared with a freshly ingested photo. */
 export function hasDevelopEdits(params: EditParams): boolean {
@@ -48,9 +57,13 @@ export class EditService {
   ) {}
 
   /** The versions stored next to a photo: its develop params plus every retouch version. */
-  async readVersions(photoPath: string, photoId: PhotoId): Promise<PhotoVersion[]> {
+  async readVersions(
+    photoPath: string,
+    photoId: PhotoId,
+    cropSpace?: CropSpace,
+  ): Promise<PhotoVersion[]> {
     const [params, retouch] = await Promise.all([
-      readEditParams(photoPath, this.exiftool),
+      readEditParams(photoPath, this.exiftool, cropSpace),
       readRetouchVersions(photoPath, this.exiftool),
     ]);
     return [{ id: developVersionId(photoId), kind: 'develop', ops: params }, ...retouch];
@@ -59,16 +72,19 @@ export class EditService {
   async getParams(ref: VersionRef): Promise<EditParams> {
     const photo = this.photos.get(ref.photoId);
     this.assertDevelopVersion(ref);
-    return readEditParams(photo.path, this.exiftool);
+    return readEditParams(photo.path, this.exiftool, cropSpaceFor(photo));
   }
 
   async setParams(ref: VersionRef & { params: EditParams }): Promise<void> {
     this.assertDevelopVersion(ref);
     await this.photos.withLock(ref.photoId, async () => {
       const photo = this.photos.get(ref.photoId);
-      await writeEditParams(photo.path, ref.params, { service: this.exiftool });
+      await writeEditParams(photo.path, ref.params, {
+        service: this.exiftool,
+        cropSpace: cropSpaceFor(photo),
+      });
       // Re-read so the index shows what the sidecar says, not what was asked for.
-      await this.publish(photo, await this.readVersions(photo.path, photo.id));
+      await this.publish(photo, await this.readVersions(photo.path, photo.id, cropSpaceFor(photo)));
     });
   }
 
@@ -93,7 +109,7 @@ export class EditService {
         ? versions.map((v) => (v.id === target.id ? next : v))
         : [...versions, next];
       await writeRetouchVersions(photo.path, all, { service: this.exiftool });
-      await this.publish(photo, await this.readVersions(photo.path, photo.id));
+      await this.publish(photo, await this.readVersions(photo.path, photo.id, cropSpaceFor(photo)));
     });
   }
 
@@ -116,7 +132,7 @@ export class EditService {
         ops: [],
       };
       await writeRetouchVersions(photo.path, [...versions, created], { service: this.exiftool });
-      await this.publish(photo, await this.readVersions(photo.path, photo.id));
+      await this.publish(photo, await this.readVersions(photo.path, photo.id, cropSpaceFor(photo)));
       return created;
     });
   }
@@ -136,7 +152,10 @@ export class EditService {
         versions.filter((version) => version.id !== args.versionId),
         { service: this.exiftool },
       );
-      return this.publish(photo, await this.readVersions(photo.path, photo.id));
+      return this.publish(
+        photo,
+        await this.readVersions(photo.path, photo.id, cropSpaceFor(photo)),
+      );
     });
   }
 

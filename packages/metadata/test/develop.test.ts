@@ -2,6 +2,7 @@ import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
 import { join } from 'node:path';
 import { existsSync as exists } from 'node:fs';
 import { asVersionId, type EditParams, type RetouchVersion } from '@ee/contracts';
+import { cropFromGeometry } from '@ee/develop-gl/crop';
 import { ExifToolService } from '../src/exiftool';
 import { readEditParams, writeEditParams } from '../src/develop';
 import { readIptc, writeIptc } from '../src/iptc';
@@ -112,6 +113,67 @@ describe('develop and retouch XMP', () => {
     tags = await service.read(jpeg);
     expect(tags['XMP-crs:HasCrop']).toBeUndefined();
     expect(tags['XMP-crs:CropLeft']).toBeUndefined();
+  });
+
+  it('round-trips the oriented crop for all eight EXIF orientations', async () => {
+    const dir = await makeTempDir();
+    const jpeg = join(dir, 'photo.jpg');
+    await makeJpeg(jpeg);
+    const oriented = { width: 4000, height: 6000 };
+    const crop = cropFromGeometry(1300, 2100, 1600, 900, 7, oriented);
+
+    for (let orientation = 1; orientation <= 8; orientation++) {
+      const cropSpace = { orientation, ...oriented };
+      await writeEditParams(jpeg, { crop }, { service, cropSpace });
+      const written = await readEditParams(jpeg, service, cropSpace);
+      expect(written.crop, `orientation ${orientation}`).toBeDefined();
+      expect(written.crop?.left, `orientation ${orientation}`).toBeCloseTo(crop.left, 4);
+      expect(written.crop?.top, `orientation ${orientation}`).toBeCloseTo(crop.top, 4);
+      expect(written.crop?.right, `orientation ${orientation}`).toBeCloseTo(crop.right, 4);
+      expect(written.crop?.bottom, `orientation ${orientation}`).toBeCloseTo(crop.bottom, 4);
+      expect(written.crop?.angle, `orientation ${orientation}`).toBeCloseTo(crop.angle, 4);
+    }
+  });
+
+  it('writes an orientation 6 crop in stored space (displayed top-left is stored bottom-left)', async () => {
+    const dir = await makeTempDir();
+    const jpeg = join(dir, 'photo.jpg');
+    await makeJpeg(jpeg);
+    const oriented = { width: 4000, height: 6000 };
+    const crop = { left: 0, top: 0, right: 0.25, bottom: 0.25, angle: 0 };
+    const cropSpace = { orientation: 6, ...oriented };
+
+    await writeEditParams(jpeg, { crop }, { service, cropSpace });
+    const tags = await service.read(jpeg);
+    expect(tags['XMP-crs:CropLeft']).toBeCloseTo(0, 5);
+    expect(tags['XMP-crs:CropTop']).toBeCloseTo(0.75, 5);
+    expect(tags['XMP-crs:CropRight']).toBeCloseTo(0.25, 5);
+    expect(tags['XMP-crs:CropBottom']).toBeCloseTo(1, 5);
+    expect(tags['XMP-crs:CropAngle']).toBeCloseTo(0, 5);
+
+    const read = await readEditParams(jpeg, service, cropSpace);
+    expect(read.crop?.left).toBeCloseTo(crop.left, 5);
+    expect(read.crop?.top).toBeCloseTo(crop.top, 5);
+    expect(read.crop?.right).toBeCloseTo(crop.right, 5);
+    expect(read.crop?.bottom).toBeCloseTo(crop.bottom, 5);
+  });
+
+  it('negates the angle in stored space for mirrored orientation 2', async () => {
+    const dir = await makeTempDir();
+    const jpeg = join(dir, 'photo.jpg');
+    await makeJpeg(jpeg);
+    const oriented = { width: 6000, height: 4000 };
+    const crop = cropFromGeometry(3000, 2000, 2000, 1200, 7, oriented);
+    const cropSpace = { orientation: 2, ...oriented };
+
+    await writeEditParams(jpeg, { crop }, { service, cropSpace });
+    const tags = await service.read(jpeg);
+    expect(tags['XMP-crs:CropAngle']).toBeCloseTo(-7, 1);
+
+    const read = await readEditParams(jpeg, service, cropSpace);
+    expect(read.crop?.angle).toBeCloseTo(7, 4);
+    expect(read.crop?.left).toBeCloseTo(crop.left, 4);
+    expect(read.crop?.top).toBeCloseTo(crop.top, 4);
   });
 
   it('defaults ProcessVersion when settings are written without one', async () => {
