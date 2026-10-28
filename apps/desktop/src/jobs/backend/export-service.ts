@@ -15,6 +15,9 @@ import { basename, join, parse } from 'node:path';
 import type { PhotoLibrary } from './photo-library';
 import type { SettingsStore } from './settings-store';
 
+/** Most photos whose latest upload batch is remembered at once. */
+const MAX_TRACKED_BATCHES = 500;
+
 export interface ExportServiceDeps {
   photos: PhotoLibrary;
   settings: SettingsStore;
@@ -79,8 +82,12 @@ export class ExportService {
       return destination;
     });
 
+    // The sidecar may be mid-edit; wait for that to finish so the export carries what the user sees.
     const fields =
-      action.exportPreset.metadata === 'none' ? {} : await readIptc(photo.path, exiftool);
+      action.exportPreset.metadata === 'none'
+        ? {}
+        : await photos.withLock(photo.id, () => readIptc(photo.path, exiftool));
+    // Only needed until the queue has expanded the remote paths in `enqueue`.
     this.exportFields.set(photo.id, fields);
     this.setStatus(photo.id, { export: 'encoding' });
     let exported;
@@ -94,13 +101,19 @@ export class ExportService {
         hooks: { writeMetadata: (jpegPath) => this.writeIptcInto(jpegPath, fields) },
       });
     } catch (error) {
+      this.exportFields.delete(photo.id);
       this.setStatus(photo.id, { export: 'failed' });
       throw error;
     }
     this.setStatus(photo.id, { export: 'done' });
 
-    const uploads = await queue.enqueue(photo.id, exported.path, destinations);
-    this.latestBatch.set(photo.id, new Set(uploads.map((upload) => upload.id)));
+    let uploads;
+    try {
+      uploads = await queue.enqueue(photo.id, exported.path, destinations);
+    } finally {
+      this.exportFields.delete(photo.id);
+    }
+    this.trackBatch(photo.id, new Set(uploads.map((upload) => upload.id)));
     this.refreshUploadStatus(photo.id);
     return { path: exported.path, fileName: basename(exported.path), uploads };
   }
@@ -120,12 +133,30 @@ export class ExportService {
     }
   }
 
+  /** What is still being remembered per photo; the maps must not grow with every export. */
+  trackedCounts(): { fields: number; batches: number } {
+    return { fields: this.exportFields.size, batches: this.latestBatch.size };
+  }
+
+  private trackBatch(photoId: PhotoId, batch: Set<UploadId>): void {
+    this.latestBatch.delete(photoId);
+    this.latestBatch.set(photoId, batch);
+    // Batches with failed uploads stay so a retry keeps counting; bound them anyway.
+    while (this.latestBatch.size > MAX_TRACKED_BATCHES) {
+      const oldest = this.latestBatch.keys().next();
+      if (oldest.done) break;
+      this.latestBatch.delete(oldest.value);
+    }
+  }
+
   private refreshUploadStatus(photoId: PhotoId): void {
     const batch = this.latestBatch.get(photoId);
     const items = this.deps.queue
       .list()
       .filter((item) => item.photoId === photoId && (!batch || batch.has(item.id)))
       .filter((item) => item.state !== 'cancelled');
+    // Everything delivered (or cancelled): nothing left to follow for this photo.
+    if (batch && items.every((item) => item.state === 'done')) this.latestBatch.delete(photoId);
     let upload: UploadState = 'none';
     if (items.length > 0) {
       if (items.some((item) => item.state === 'uploading')) upload = 'uploading';
