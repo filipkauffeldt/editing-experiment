@@ -23,6 +23,7 @@ import {
   type VersionId,
 } from '@ee/contracts';
 import { renderFullResolution } from './export-render';
+import { padFaceBox } from './retouch-geometry';
 
 export type QuickFilter =
   'all' | 'untagged' | 'tagged' | 'edited' | 'not-uploaded' | 'failed-uploads' | 'metadata-differs';
@@ -57,7 +58,7 @@ export type RetouchTool = 'rect' | 'lasso' | 'wand' | 'faces';
 
 /** A detected face, with the padded box that is actually mosaicked when enabled. */
 export interface RetouchFace {
-  /** Padded bounding box in normalized image coordinates. */
+  /** Raw detector box in normalized image coordinates; padding is applied when rendering. */
   box: Rect;
   score?: number;
   enabled: boolean;
@@ -73,6 +74,11 @@ export interface RetouchSession {
   blockSizeRel: number;
   /** Magic-wand colour tolerance (CIE76, 0..100). */
   tolerance: number;
+  /**
+   * Extra padding around detected faces as a fraction of the box width.
+   * Height padding is 1.4x this and biased upward to cover hair.
+   */
+  facePadding: number;
   shapes: Shape[];
   faces: RetouchFace[];
   busy: boolean;
@@ -86,8 +92,8 @@ export interface ExportProgress {
 }
 
 export const DEFAULT_BLOCK_SIZE_REL = 0.012;
-/** Faces are mosaicked with a little padding so the outline does not clip them. */
-export const FACE_PADDING = 1.15;
+/** Default extra padding around a detected face (horizontal fraction; vertical is 1.4x). */
+export const DEFAULT_FACE_PADDING = 0.25;
 
 export interface Toast {
   id: number;
@@ -272,6 +278,10 @@ const messageOf = (cause: unknown): string =>
 const structuredCloneShape = (shape: Shape): Shape =>
   shape.type === 'rect' ? { ...shape } : { ...shape, points: shape.points.map((p) => ({ ...p })) };
 
+const hasPendingRetouch = (session: RetouchSession | undefined): boolean =>
+  session !== undefined &&
+  (session.shapes.length > 0 || session.faces.some((face) => face.enabled));
+
 /** Throttle for develop writes: first change goes out at once, then at most every 80 ms. */
 const DEVELOP_THROTTLE_MS = 80;
 
@@ -323,6 +333,7 @@ export class AppStore {
   private readonly paramEditVersion = new Map<string, number>();
   private readonly paramSequence = new Map<string, number>();
   private readonly labelWrites = new Map<PhotoId, Promise<void>>();
+  private retouchCommit: Promise<Photo | undefined> | undefined;
   private readonly photoById = new Map<PhotoId, Photo>();
   private readonly photoPositions = new Map<PhotoId, number>();
   private readonly pendingPhotos = new Map<PhotoId, Photo>();
@@ -561,13 +572,29 @@ export class AppStore {
     this.set({ photos });
   }
 
-  readonly select = (photoId: PhotoId | undefined): void => {
+  private applySelection(photoId: PhotoId | undefined): void {
     if (photoId === this.state.selectedId) return;
-    if (this.state.retouch && this.state.retouch.photoId !== photoId) this.exitRetouch();
     this.set({ selectedId: photoId });
     if (!photoId) return;
     void this.loadMetadata(photoId);
     void this.loadParams(photoId);
+  }
+
+  readonly select = (photoId: PhotoId | undefined): void => {
+    if (photoId === this.state.selectedId) return;
+    const session = this.state.retouch;
+    if (session && session.photoId !== photoId) {
+      // Never lose an unreviewed mosaic by navigating away. The commit path is
+      // shared with Finish, so an in-flight save is awaited instead of duplicated.
+      if (session.busy || hasPendingRetouch(session)) {
+        void this.commitRetouch().then((photo) => {
+          if (photo) this.applySelection(photoId);
+        });
+        return;
+      }
+      this.exitRetouch();
+    }
+    this.applySelection(photoId);
   };
 
   readonly selectRelative = (delta: number): void => {
@@ -659,10 +686,10 @@ export class AppStore {
 
   // ------------------------------------------------------------------ retouch
 
-  /** Enter retouch mode for the selected photo, or leave it discarding uncommitted shapes. */
+  /** Enter retouch mode for the selected photo; leaving saves pending shapes first. */
   readonly toggleRetouch = (): void => {
     if (this.state.retouch) {
-      this.exitRetouch();
+      void this.requestExitRetouch();
       return;
     }
     const photo = activePhoto(this.state);
@@ -676,16 +703,12 @@ export class AppStore {
         tool: 'rect',
         blockSizeRel: op?.blockSizeRel ?? DEFAULT_BLOCK_SIZE_REL,
         tolerance: 24,
+        facePadding: DEFAULT_FACE_PADDING,
         shapes: op ? op.shapes.map((shape) => structuredCloneShape(shape)) : [],
         faces: [],
         busy: false,
       },
     });
-  };
-
-  readonly exitRetouch = (): void => {
-    if (!this.state.retouch) return;
-    this.set({ retouch: undefined });
   };
 
   readonly setRetouchTool = (tool: RetouchTool): void => {
@@ -701,6 +724,13 @@ export class AppStore {
   readonly setRetouchTolerance = (tolerance: number): void => {
     if (!this.state.retouch) return;
     this.set({ retouch: { ...this.state.retouch, tolerance: Math.max(0, tolerance) } });
+  };
+
+  readonly setRetouchFacePadding = (facePadding: number): void => {
+    if (!this.state.retouch || !(facePadding >= 0)) return;
+    this.set({
+      retouch: { ...this.state.retouch, facePadding: Math.min(0.5, facePadding) },
+    });
   };
 
   readonly addRetouchShape = (shape: Shape): void => {
@@ -736,17 +766,53 @@ export class AppStore {
     this.set({ retouch: { ...this.state.retouch, busy } });
   };
 
-  /** Write the pending shapes (and enabled faces) as one mosaic in a retouch version. */
-  readonly commitRetouch = async (): Promise<void> => {
+  /** Leave retouch mode without saving. Explicit cancel only; the UI uses {@link requestExitRetouch}. */
+  readonly exitRetouch = (): void => {
+    if (!this.state.retouch) return;
+    this.set({ retouch: undefined });
+  };
+
+  /**
+   * Leave retouch mode, saving pending shapes/faces first. A failed save keeps
+   * the session open so nothing is lost.
+   */
+  readonly requestExitRetouch = async (): Promise<void> => {
     const session = this.state.retouch;
     if (!session) return;
+    if (session.busy || hasPendingRetouch(session)) {
+      await this.commitRetouch();
+      return;
+    }
+    this.exitRetouch();
+  };
+
+  /**
+   * Write the pending shapes (and enabled faces) as one mosaic in a retouch
+   * version. Concurrent callers (a Finish during an in-flight commit) share
+   * the same promise.
+   */
+  readonly commitRetouch = (): Promise<Photo | undefined> => {
+    if (this.retouchCommit) return this.retouchCommit;
+    const run = this.runCommitRetouch();
+    this.retouchCommit = run;
+    void run.finally(() => {
+      if (this.retouchCommit === run) this.retouchCommit = undefined;
+    });
+    return run;
+  };
+
+  private async runCommitRetouch(): Promise<Photo | undefined> {
+    const session = this.state.retouch;
+    if (!session) return undefined;
     const shapes = [
       ...session.shapes,
-      ...session.faces.filter((face) => face.enabled).map((face) => face.box),
+      ...session.faces
+        .filter((face) => face.enabled)
+        .map((face) => padFaceBox(face.box, session.facePadding)),
     ];
     if (shapes.length === 0) {
       this.toast('error', 'Draw a selection or detect a face first');
-      return;
+      return undefined;
     }
     const op: MosaicOp = { type: 'mosaic', shapes, blockSizeRel: session.blockSizeRel };
     this.setRetouchBusy(true);
@@ -769,11 +835,13 @@ export class AppStore {
       this.upsertPhoto(photo);
       this.exitRetouch();
       this.toast('success', 'Mosaic saved');
+      return photo;
     } catch (cause) {
       this.toast('error', `Could not save the retouch: ${messageOf(cause)}`);
       this.setRetouchBusy(false);
+      return undefined;
     }
-  };
+  }
 
   /** Remove the retouch version the session edits; a version is only created on commit. */
   readonly deleteRetouchVersion = async (): Promise<void> => {
@@ -1185,6 +1253,21 @@ export class AppStore {
 
   // ------------------------------------------------------------------- finish
 
+  /** Save a retouch session for this photo before exporting it. */
+  private async settleRetouchBeforeFinish(photo: Photo): Promise<void> {
+    const session = this.state.retouch;
+    if (!session || session.photoId !== photo.id) return;
+    if (session.busy || hasPendingRetouch(session)) {
+      this.set({ exportProgress: { label: 'Saving retouch…' } });
+      const saved = await this.commitRetouch();
+      if (!saved) {
+        throw new Error('the retouch version could not be saved');
+      }
+      return;
+    }
+    this.exitRetouch();
+  }
+
   readonly finishAndNext = async (): Promise<void> => {
     if (this.finishing) return;
     const photo = activePhoto(this.state);
@@ -1193,23 +1276,26 @@ export class AppStore {
     const exportedIndex = order.findIndex((candidate) => candidate.id === photo.id);
     this.finishing = true;
     try {
-      const versionId = activeDevelopVersion(photo)?.id;
+      await this.settleRetouchBeforeFinish(photo);
+      // Re-read after a commit: the captured photo predates the new version.
+      const latest = this.photoById.get(photo.id) ?? photo;
+      const versionId = activeDevelopVersion(latest)?.id;
       // Export must see the edits that are still inside the UI debounce/throttle.
       await Promise.all([
-        this.saveMetadata(photo.id),
-        this.flushDevelopParams(photo.id, versionId),
+        this.saveMetadata(latest.id),
+        this.flushDevelopParams(latest.id, versionId),
       ]);
-      const params = this.state.editParams[editParamsKey(photo.id, versionId)] ?? {};
+      const params = this.state.editParams[editParamsKey(latest.id, versionId)] ?? {};
       this.set({ exportProgress: { label: 'Rendering full resolution…' } });
       const rendered = await this.renderForExport({
-        photo,
+        photo: latest,
         params,
-        ops: topRetouchVersion(photo)?.ops ?? [],
+        ops: topRetouchVersion(latest)?.ops ?? [],
         onProgress: (progress) => this.set({ exportProgress: progress }),
       });
       this.set({ exportProgress: { label: 'Encoding and uploading…' } });
       const result = await this.bridge.invoke('export:photo', {
-        photoId: photo.id,
+        photoId: latest.id,
         versionId,
         rendered,
       });
@@ -1223,7 +1309,8 @@ export class AppStore {
         });
       }
       // The handler owns the final name; do not reconstruct it from the path.
-      const fileName = (result as typeof result & { fileName?: string }).fileName ?? photo.fileName;
+      const fileName =
+        (result as typeof result & { fileName?: string }).fileName ?? latest.fileName;
       this.toast('success', `Exported ${fileName}`);
       const next = exportedIndex >= 0 ? order[exportedIndex + 1] : undefined;
       if (next) this.select(next.id);

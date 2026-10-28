@@ -31,7 +31,7 @@ export function useKeyboardShortcuts(store: AppStore): void {
       if (event.key === 'Escape') {
         if (state.retouch && !typing && !state.dialog) {
           event.preventDefault();
-          store.exitRetouch();
+          void store.requestExitRetouch();
           return;
         }
         if (state.shortcutsOpen) {

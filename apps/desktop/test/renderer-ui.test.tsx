@@ -158,6 +158,15 @@ describe('metadata panel', () => {
   });
 });
 
+describe('retouch version', () => {
+  it('shows the committed retouch version indicator outside retouch mode', async () => {
+    const { store } = await renderApp();
+    store.select(asPhotoId('mock-03'));
+    await waitFor(() => expect(screen.getByTestId('retouch-version-indicator')).toBeTruthy());
+    expect(screen.queryByTestId('retouch-toolbar')).toBeNull();
+  });
+});
+
 describe('develop panel', () => {
   it('shows As shot for unset white balance', async () => {
     await renderApp();

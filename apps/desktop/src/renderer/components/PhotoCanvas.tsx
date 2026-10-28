@@ -7,10 +7,11 @@ import {
   type Shape,
 } from '@ee/contracts';
 import { createDevelopRenderer, type DevelopRenderer } from '@ee/develop-gl';
-import { applyMosaic, expandRect, magicWand, simplifyPolygon } from '@ee/retouch';
+import { applyMosaic, magicWand, simplifyPolygon } from '@ee/retouch';
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { ee } from '../ee';
-import { FACE_PADDING, paramsForPhoto, type RetouchFace, type RetouchTool } from '../store';
+import { paramsForPhoto, topRetouchVersion, type RetouchFace, type RetouchTool } from '../store';
+import { padFaceBox } from '../retouch-geometry';
 import { useAppState, useAppStore } from '../store-context';
 import { EyeIcon, PenIcon } from './icons';
 import styles from './PhotoCanvas.module.css';
@@ -120,6 +121,20 @@ function Toolbar() {
           onChange={(event) => store.setRetouchBlockSize(Number(event.target.value))}
         />
       </label>
+      {(session.tool === 'faces' || session.faces.length > 0) && (
+        <label className={styles.control}>
+          <span>Face padding {Math.round(session.facePadding * 100)}%</span>
+          <input
+            type="range"
+            min={0}
+            max={0.5}
+            step={0.01}
+            value={session.facePadding}
+            aria-label="Face padding"
+            onChange={(event) => store.setRetouchFacePadding(Number(event.target.value))}
+          />
+        </label>
+      )}
       <div className={styles.actions}>
         <button
           type="button"
@@ -189,6 +204,8 @@ function CanvasForPhoto({ photo }: { photo: Photo }) {
   );
   const [linearUnavailable, setLinearUnavailable] = useState(false);
   const [contextLost, setContextLost] = useState(false);
+  const [renderVersion, setRenderVersion] = useState(0);
+  const [mosaicVersion, setMosaicVersion] = useState(0);
   const [draftRect, setDraftRect] = useState<Rect>();
   const [draftPoints, setDraftPoints] = useState<{ x: number; y: number }[]>([]);
   const dragStart = useRef<{ x: number; y: number } | null>(null);
@@ -330,6 +347,7 @@ function CanvasForPhoto({ photo }: { photo: Photo }) {
     const frame = requestAnimationFrame(() => {
       try {
         renderer.render(params);
+        setRenderVersion((version) => version + 1);
       } catch (cause) {
         setError(cause instanceof Error ? cause.message : String(cause));
       }
@@ -337,25 +355,35 @@ function CanvasForPhoto({ photo }: { photo: Photo }) {
     return () => cancelAnimationFrame(frame);
   }, [renderer, loaded, contextLost, params]);
 
-  // Live mosaic preview: render at the view size, mosaic the pixels on the CPU,
-  // and paint them over the canvas.
-  const pendingShapes = useMemo(
+  // The committed retouch version is the default view; while editing, the
+  // pending shapes and enabled faces replace it.
+  const committedMosaic = useMemo(() => {
+    const version = topRetouchVersion(image);
+    return version?.ops.find((op) => op.type === 'mosaic');
+  }, [image]);
+  const mosaicShapes = useMemo(
     () =>
       session
         ? [
             ...session.shapes,
-            ...session.faces.filter((face) => face.enabled).map((face) => face.box),
+            ...session.faces
+              .filter((face) => face.enabled)
+              .map((face) => padFaceBox(face.box, session.facePadding)),
           ]
-        : [],
-    [session],
+        : (committedMosaic?.shapes ?? []),
+    [session, committedMosaic],
   );
-  const blockSizeRel = session?.blockSizeRel;
+  const blockSizeRel = session?.blockSizeRel ?? committedMosaic?.blockSizeRel ?? 0.012;
+
+  // Live mosaic preview: render at the view size, mosaic the pixels on the CPU,
+  // and paint them over the canvas. Runs in the normal view too, so a committed
+  // retouch version is what the user sees (and what Finish & next exports).
   useEffect(() => {
     const mosaic = mosaicRef.current;
     if (!mosaic) return;
     const context = mosaic.getContext('2d');
     if (!context) return;
-    if (!session || pendingShapes.length === 0 || !renderer || !loaded || contextLost) {
+    if (mosaicShapes.length === 0 || !renderer || !loaded || contextLost) {
       context.clearRect(0, 0, mosaic.width, mosaic.height);
       return;
     }
@@ -369,7 +397,7 @@ function CanvasForPhoto({ photo }: { photo: Photo }) {
           rgba,
           mosaic.width,
           mosaic.height,
-          { type: 'mosaic', shapes: pendingShapes, blockSizeRel: blockSizeRel ?? 0.012 },
+          { type: 'mosaic', shapes: mosaicShapes, blockSizeRel },
           { inPlace: true },
         );
         context.putImageData(
@@ -377,12 +405,13 @@ function CanvasForPhoto({ photo }: { photo: Photo }) {
           0,
           0,
         );
+        setMosaicVersion((version) => version + 1);
       } catch (cause) {
         setError(cause instanceof Error ? cause.message : String(cause));
       }
     });
     return () => cancelAnimationFrame(frame);
-  }, [session, pendingShapes, blockSizeRel, renderer, loaded, contextLost, params]);
+  }, [mosaicShapes, blockSizeRel, renderer, loaded, contextLost, params]);
 
   const updateDraft = (event: React.PointerEvent): void => {
     const surface = overlayRef.current;
@@ -462,7 +491,7 @@ function CanvasForPhoto({ photo }: { photo: Photo }) {
     try {
       const detections = await ee.invoke('retouch:detectFaces', { photoId: photo.id, region });
       const detected: RetouchFace[] = detections.map((face) => ({
-        box: expandRect(face.box, FACE_PADDING) as Rect,
+        box: face.box,
         score: face.score,
         enabled: true,
       }));
@@ -518,9 +547,21 @@ function CanvasForPhoto({ photo }: { photo: Photo }) {
           style={{ opacity: contextLost ? 0 : 1 }}
           data-testid="develop-canvas"
           data-ready={loaded !== null && !contextLost ? 'true' : 'false'}
+          data-render-version={renderVersion}
           aria-label={`Developed preview of ${photo.fileName}`}
         />
-        <canvas ref={mosaicRef} className={styles.mosaic} aria-hidden />
+        <canvas
+          ref={mosaicRef}
+          className={styles.mosaic}
+          aria-hidden
+          data-testid="mosaic-canvas"
+          data-mosaic-version={mosaicVersion}
+        />
+        {committedMosaic && !session && (
+          <div className={styles.versionBadge} data-testid="retouch-version-indicator">
+            <PenIcon size={10} /> Retouch version
+          </div>
+        )}
         {session && (
           <svg
             ref={overlayRef}
@@ -542,29 +583,32 @@ function CanvasForPhoto({ photo }: { photo: Photo }) {
                 points={draftPoints.map((point) => `${point.x},${point.y}`).join(' ')}
               />
             )}
-            {session.faces.map((face, index) => (
-              <rect
-                key={`face-${index}`}
-                x={face.box.x}
-                y={face.box.y}
-                width={face.box.w}
-                height={face.box.h}
-                className={`${styles.face} ${face.enabled ? styles.faceOn : styles.faceOff}`}
-                data-face-box={`${face.box.x},${face.box.y},${face.box.w},${face.box.h}`}
-                data-face-index={index}
-                onPointerDown={(event) => event.stopPropagation()}
-                onClick={(event) => {
-                  event.stopPropagation();
-                  store.toggleRetouchFace(index);
-                }}
-              >
-                <title>
-                  Face {index + 1}
-                  {face.score === undefined ? '' : ` · ${(face.score * 100).toFixed(0)}%`}
-                  {face.enabled ? ' · selected' : ' · off'}
-                </title>
-              </rect>
-            ))}
+            {session.faces.map((face, index) => {
+              const padded = padFaceBox(face.box, session.facePadding);
+              return (
+                <rect
+                  key={`face-${index}`}
+                  x={padded.x}
+                  y={padded.y}
+                  width={padded.w}
+                  height={padded.h}
+                  className={`${styles.face} ${face.enabled ? styles.faceOn : styles.faceOff}`}
+                  data-face-box={`${padded.x},${padded.y},${padded.w},${padded.h}`}
+                  data-face-index={index}
+                  onPointerDown={(event) => event.stopPropagation()}
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    store.toggleRetouchFace(index);
+                  }}
+                >
+                  <title>
+                    Face {index + 1}
+                    {face.score === undefined ? '' : ` · ${(face.score * 100).toFixed(0)}%`}
+                    {face.enabled ? ' · selected' : ' · off'}
+                  </title>
+                </rect>
+              );
+            })}
           </svg>
         )}
         {contextLost && <div className={styles.notice}>Restoring the graphics context…</div>}
