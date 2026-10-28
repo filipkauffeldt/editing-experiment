@@ -7,7 +7,7 @@ import {
   type RenderedImage,
   type RetouchOp,
 } from '@ee/contracts';
-import { cropOutputPixels } from '@ee/develop-gl';
+import { cropOutputPixels, grainSeedFromId } from '@ee/develop-gl';
 import {
   renderDevelopRgba,
   type DevelopWorkerRequest,
@@ -81,6 +81,7 @@ function renderInWorker(
   ops: RetouchOp[],
   width: number,
   height: number,
+  grainSeed: number,
 ): Promise<RenderedImage> {
   return new Promise((resolve, reject) => {
     let worker: Worker;
@@ -120,7 +121,16 @@ function renderInWorker(
     worker.addEventListener('error', (event) =>
       finish(() => reject(new Error(event.message || 'the render worker failed'))),
     );
-    const request: DevelopWorkerRequest = { id, header, data, params, ops, width, height };
+    const request: DevelopWorkerRequest = {
+      id,
+      header,
+      data,
+      params,
+      ops,
+      width,
+      height,
+      grainSeed,
+    };
     worker.postMessage(request, [data]);
   });
 }
@@ -142,11 +152,20 @@ export async function renderFullResolution({
   // No `maxEdge`: export is always at the source resolution, and the crop's
   // pixel size is derived from that source size.
   const { header, data } = await fetchLinear(photo.id, { onProgress });
+  const grainSeed = grainSeedFromId(photo.id);
   const output = fullResolutionOutput(header, params);
   onProgress?.({ label: 'Rendering full resolution…', percent: 20 });
 
   try {
-    const rendered = await renderInWorker(header, data, params, ops, output.width, output.height);
+    const rendered = await renderInWorker(
+      header,
+      data,
+      params,
+      ops,
+      output.width,
+      output.height,
+      grainSeed,
+    );
     onProgress?.({ label: 'Rendering full resolution…', percent: 90 });
     return rendered;
   } catch {
@@ -164,6 +183,7 @@ export async function renderFullResolution({
       ops,
       width: output.width,
       height: output.height,
+      grainSeed,
     });
     onProgress?.({ label: 'Rendering full resolution…', percent: 90 });
     await yieldToUi();

@@ -10,6 +10,8 @@ export interface RenderRequest {
   ops: RetouchOp[];
   width: number;
   height: number;
+  /** Stable per-photo grain seed, so preview and export render the same grain. */
+  grainSeed?: number;
   onProgress?: (fraction: number) => void;
 }
 
@@ -76,9 +78,9 @@ export function composeDevelopedRgba({
 }
 
 export function renderDevelopRgba(request: RenderRequest): RenderResult {
-  const { header, data, params, ops, width, height } = request;
+  const { header, data, params, ops, width, height, grainSeed } = request;
   const canvas = createCanvas();
-  const renderer = createDevelopRenderer(canvas);
+  const renderer = createDevelopRenderer(canvas, { grainSeed });
   try {
     renderer.setImage(header, data);
     request.onProgress?.(0.3);
@@ -106,6 +108,7 @@ export interface DevelopWorkerRequest {
   ops: RetouchOp[];
   width: number;
   height: number;
+  grainSeed?: number;
 }
 
 export type DevelopWorkerResponse =
