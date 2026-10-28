@@ -1,4 +1,4 @@
-import { IpcError, type IpcHandlers } from '@ee/contracts';
+import { IpcError, notImplemented, type IpcHandlers } from '@ee/contracts';
 import { detectCards, testSource, type GetSecret } from '@ee/ingest';
 import type { UploadQueue } from '@ee/export';
 import { systemHandlers } from '../handlers/system';
@@ -44,6 +44,7 @@ export function createBackendHandlers(deps: HandlerDeps): IpcHandlers {
     'photos:createVersion': (args) => edits.createVersion(args),
     'photos:deleteVersion': (args) => edits.deleteVersion(args),
     'photos:setLabels': (args) => labels.setLabels(args),
+    'photos:setEditedPreview': notImplemented('photos:setEditedPreview'),
 
     'ingest:start': ({ config }) => ingest.start(config),
     'ingest:stop': async (args) => ingest.stop(args?.sourceId),
