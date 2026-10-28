@@ -263,7 +263,7 @@ unchanged: the rotated rectangle in source space, whose output is the leveled fr
   `rotateCrop` + `shrinkCropToImage` ("constrain to image": the frame shrinks about its
   centre, and grows back through a remembered `desired` size), `resizeCropFromHandle`
   (opposite side anchored, aspect lock, symmetric for Alt), `drawCrop` (the frame
-  tool), `pointerAngleDelta`, `quantizeAngle` (0.1°, 1° with Shift) and
+  tool), `rotateCropInView` (keeps the pivot in step), `pointerAngleDelta`, `quantizeAngle` (0.1°, 1° with Shift) and
   `straightenAngleFromLine`.
 - **GPU**: `renderer.renderView(params, view)` draws the whole image through the same
   shader and crop mapping as the normal view, only with a different transform (the
@@ -276,15 +276,20 @@ unchanged: the rotated rectangle in source space, whose output is the leveled fr
   not move); resizing and drawing move it (the image does not move).
 - **Pointer zones** (`renderer/crop-view.ts`, `hitTestFrame`): corners and edges
   resize; inside the frame pans the image; anywhere outside rotates about the frame
-  centre (curved arrow cursor), following the pointer's angle. Rotation is
-  limited to ±45° and to the angles the sidecar can store for the frame's shape
-  (`storableAngleRange`): the two stored corners are opposite corners of the rotated
-  rectangle, so a wide frame tilted far counter-clockwise would swap their order. A
-  resize or a drawn frame that would cross that limit is ignored.
+  centre (curved arrow cursor), following the pointer's angle, all the way to ±45°:
+  constrain-to-image shrinks the frame instead of refusing. The stored corners are
+  opposite corners of the *rotated* rectangle, so a wide frame tilted far one way
+  stores them inverted (`bottom < top`); the angle disambiguates, so corner order is
+  not a validity test (`isUsableCrop`: finite and distinct corners). Preset
+  imports from other tools still require `right > left`.
 - **Tools**: plain dragging outside the frame *rotates*, as in Lightroom. Drawing a new
   frame is the separate crop frame tool (toolbar "Frame" or `R`): it draws one frame
   (respecting the aspect lock) and hands back to the normal tool. The straighten tool
   (toolbar or `A`) takes a line drawn along the horizon on the displayed image.
+- **Gestures** end on pointer up and are abandoned on pointer cancel or lost capture
+  (the pre-gesture crop is restored). A double-click only commits when neither click
+  was a drag. Mosaic shapes are not drawn while cropping (the live mosaic preview is
+  cleared in crop mode); they show again after Apply.
 - **Modifiers**: Shift toggles the aspect lock for the drag (a Free crop locks to its own
   ratio) and snaps a rotation to 1°; Alt/Option resizes or draws about the centre.
 - **Overlays**: rule of thirds while interacting or hovering, a finer grid while
