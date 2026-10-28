@@ -19,8 +19,9 @@ export type PreviewKind = 'thumb' | 'preview';
  * are stored in sensor orientation and carry no tag we can rely on, so the
  * orientation reported by the raw decoder is applied explicitly.
  *
- * sharp rotates before it mirrors, so the transposed cases (5, 7) are written
- * as "rotate, then flop", which is the same transform.
+ * The transposed cases (5, 7) are a rotation plus a mirror; sharp always rotates
+ * before it mirrors, hence "rotate, then flop". The unit test checks all eight
+ * against sharp's own EXIF auto-orient.
  */
 export function applyOrientation(image: Sharp, orientation: number): Sharp {
   switch (orientation) {
@@ -31,11 +32,11 @@ export function applyOrientation(image: Sharp, orientation: number): Sharp {
     case 4:
       return image.flip();
     case 5:
-      return image.rotate(90).flop();
+      return image.rotate(270).flop();
     case 6:
       return image.rotate(90);
     case 7:
-      return image.rotate(270).flop();
+      return image.rotate(90).flop();
     case 8:
       return image.rotate(270);
     default:
