@@ -14,8 +14,8 @@
   },
   "dependencies": {
     "@ee/contracts": "workspace:*",
+    "@ee/core": "workspace:*",
     "basic-ftp": "^6.2.3",
-    "sharp": "^0.35.5",
     "ssh2-sftp-client": "^12.1.1"
   },
   "devDependencies": {
@@ -23,6 +23,7 @@
     "@types/ssh2-sftp-client": "^9.0.6",
     "exiftool-vendored": "^39.0.1",
     "ftp-srv": "^4.6.3",
+    "sharp": "0.35.5",
     "ssh2": "^1.17.0"
   }
 }

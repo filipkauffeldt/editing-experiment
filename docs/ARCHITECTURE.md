@@ -23,7 +23,7 @@ crates/core           Rust napi-rs addon: vendored LibRaw, previews, raw decode
 packages/contracts    Shared TS types + IPC channel definitions (no runtime deps)
 packages/metadata     ExifTool service, PM templates, code replacements, variables, sidecars
 packages/ingest       Sources (folder/card, FTP/SFTP poller), copy workers, rename, verify
-packages/export       JPEG encode (sharp), thumbnail stripping, upload queue (FTP/FTPS/SFTP)
+packages/export       JPEG encode (@ee/core), thumbnail stripping, upload queue (FTP/FTPS/SFTP)
 packages/develop-gl   WebGL2 develop pipeline, crs: parameter model, LR preset parser
 packages/retouch      Selections, mosaic op, YuNet face detection (onnxruntime)
 scripts/              fetch-fixtures, screenshot helpers
