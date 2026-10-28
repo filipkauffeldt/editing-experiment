@@ -291,6 +291,9 @@ importers:
       '@napi-rs/cli':
         specifier: 3.10.9
         version: 3.10.9(@emnapi/core@1.9.2)(@emnapi/runtime@1.9.2)(@types/node@24.19.2)
+      sharp:
+        specifier: 0.35.5
+        version: 0.35.5(@types/node@24.19.2)
 
   packages/contracts: {}
 
@@ -324,12 +327,12 @@ importers:
       '@ee/contracts':
         specifier: workspace:*
         version: link:../contracts
+      '@ee/core':
+        specifier: workspace:*
+        version: link:../../crates/core
       basic-ftp:
         specifier: ^6.2.3
         version: 6.2.3
-      sharp:
-        specifier: ^0.35.5
-        version: 0.35.5(@types/node@24.19.2)
       ssh2-sftp-client:
         specifier: ^12.1.1
         version: 12.1.1
@@ -346,6 +349,9 @@ importers:
       ftp-srv:
         specifier: ^4.6.3
         version: 4.6.3
+      sharp:
+        specifier: 0.35.5
+        version: 0.35.5(@types/node@24.19.2)
       ssh2:
         specifier: ^1.17.0
         version: 1.17.0
@@ -393,16 +399,16 @@ importers:
       '@ee/contracts':
         specifier: workspace:*
         version: link:../contracts
-      onnxruntime-node:
-        specifier: 1.31.1
-        version: 1.31.1
-      sharp:
-        specifier: 0.35.5
-        version: 0.35.5(@types/node@24.19.2)
-    devDependencies:
       '@ee/core':
         specifier: workspace:*
         version: link:../../crates/core
+      onnxruntime-node:
+        specifier: 1.31.1
+        version: 1.31.1
+    devDependencies:
+      sharp:
+        specifier: 0.35.5
+        version: 0.35.5(@types/node@24.19.2)
 
 packages:
 

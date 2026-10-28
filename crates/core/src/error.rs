@@ -30,6 +30,14 @@ pub enum Error {
     #[error("invalid argument: {0}")]
     InvalidArgument(String),
 
+    /// The bytes are not a JPEG we can decode.
+    #[error("image decoding failed: {0}")]
+    Decode(String),
+
+    /// Resampling failed.
+    #[error("image resize failed: {0}")]
+    Resize(String),
+
     /// Encoding an image failed.
     #[error("image encoding failed: {0}")]
     Encode(String),

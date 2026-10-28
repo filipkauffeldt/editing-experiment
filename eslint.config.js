@@ -35,5 +35,36 @@ export default tseslint.config(
     plugins: { 'react-hooks': reactHooks },
     rules: { ...reactHooks.configs.recommended.rules },
   },
+  {
+    // sharp (libvips) bundles its own glib, which crashes Electron on Linux, so
+    // app code must use @ee/core for image work. Tests run in plain Node and may
+    // use it as a devDependency (they live in `test/`, outside these globs).
+    // TODO: add 'apps/*/src/**' once apps/desktop has switched to @ee/core.
+    files: ['packages/*/src/**/*.{ts,tsx}', 'crates/core/src/**/*.ts'],
+    rules: {
+      'no-restricted-imports': [
+        'error',
+        {
+          patterns: [
+            {
+              regex: '^sharp(/.*)?$',
+              message: 'sharp cannot run inside Electron on Linux. Use @ee/core instead.',
+            },
+          ],
+        },
+      ],
+      'no-restricted-syntax': [
+        'error',
+        {
+          selector: 'ImportExpression[source.value=/^sharp(\\/.*)?$/]',
+          message: 'sharp cannot run inside Electron on Linux. Use @ee/core instead.',
+        },
+        {
+          selector: "CallExpression[callee.name='require'][arguments.0.value=/^sharp(\\/.*)?$/]",
+          message: 'sharp cannot run inside Electron on Linux. Use @ee/core instead.',
+        },
+      ],
+    },
+  },
   prettier,
 );

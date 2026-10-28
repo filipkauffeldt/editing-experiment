@@ -1,5 +1,6 @@
+import { readFile } from 'node:fs/promises';
+import { decodeJpeg } from '@ee/core';
 import type { FaceDetection, Rect } from '@ee/contracts';
-import sharp from 'sharp';
 import { detectFaces, type DetectFacesOptions } from './detect';
 
 export interface DecodedImage {
@@ -9,22 +10,15 @@ export interface DecodedImage {
   height: number;
 }
 
-/** Decode a JPEG/TIFF/PNG into upright RGBA using sharp. */
+/**
+ * Decode a JPEG into upright RGBA with the native core.
+ *
+ * JPEG only: TIFF and PNG are not supported since sharp, which decoded them,
+ * cannot run inside Electron. Raws go through `@ee/core` `extractPreview`.
+ */
 export async function decodeImageFile(path: string): Promise<DecodedImage> {
-  const { data, info } = await sharp(path, { failOn: 'none' })
-    .rotate()
-    .toColourspace('srgb')
-    .ensureAlpha()
-    .raw()
-    .toBuffer({ resolveWithObject: true });
-  if (info.channels !== 4) {
-    throw new Error(`decodeImageFile: expected 4 channels, got ${info.channels}`);
-  }
-  return {
-    rgba: new Uint8Array(data.buffer, data.byteOffset, data.byteLength),
-    width: info.width,
-    height: info.height,
-  };
+  const { rgba, width, height } = await decodeJpeg(await readFile(path));
+  return { rgba, width, height };
 }
 
 /** Convenience wrapper for files; raw decoding is the caller's job. */

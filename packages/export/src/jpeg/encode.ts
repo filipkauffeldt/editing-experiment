@@ -1,4 +1,4 @@
-import sharp from 'sharp';
+import { encodeJpeg as encodeJpegNative, resizeRgba } from '@ee/core';
 import type { ExportPreset, RenderedImage } from '@ee/contracts';
 import { ExportError } from '../errors';
 
@@ -9,52 +9,31 @@ export interface EncodedJpeg {
 }
 
 /**
- * Encodes an sRGB RGBA render as a baseline JPEG.
+ * Encodes an sRGB RGBA render as a baseline JPEG (via the native core).
  *
  * - Downscales to `preset.maxEdge` (longest edge, never upscales) with Lanczos.
  * - Embeds an sRGB ICC profile so viewers do not guess the colour space.
  * - Uses 4:4:4 chroma at quality >= 90, 4:2:0 below that.
- * - Metadata is never carried over: the input is raw pixels, and no EXIF/XMP
- *   is copied, so no thumbnail from the source survives.
+ * - Metadata is never carried over: the input is raw pixels and the encoder
+ *   writes only JFIF and the ICC profile, so no thumbnail from the source survives.
  */
 export async function encodeJpeg(image: RenderedImage, preset: ExportPreset): Promise<EncodedJpeg> {
   validateImage(image);
   validatePreset(preset);
 
-  const { width, height } = image;
-  let pipeline = sharp(
-    Buffer.from(image.rgba.buffer, image.rgba.byteOffset, image.rgba.byteLength),
-    {
-      raw: { width, height, channels: 4 },
-    },
-  );
-
-  let outputWidth = width;
-  let outputHeight = height;
+  let { width, height } = image;
+  let rgba = image.rgba;
   if (preset.maxEdge !== undefined && Math.max(width, height) > preset.maxEdge) {
-    const scale = preset.maxEdge / Math.max(width, height);
-    outputWidth = Math.max(1, Math.round(width * scale));
-    outputHeight = Math.max(1, Math.round(height * scale));
-    pipeline = pipeline.resize({
-      width: outputWidth,
-      height: outputHeight,
-      fit: 'fill',
-      kernel: 'lanczos3',
-      withoutEnlargement: true,
-    });
+    const resized = await resizeRgba(rgba, width, height, { maxEdge: preset.maxEdge });
+    ({ width, height, rgba } = resized);
   }
 
-  const data = await pipeline
-    .withIccProfile('srgb')
-    .jpeg({
-      quality: preset.quality,
-      progressive: false,
-      chromaSubsampling: preset.quality >= 90 ? '4:4:4' : '4:2:0',
-      mozjpeg: false,
-    })
-    .toBuffer();
-
-  return { data, width: outputWidth, height: outputHeight };
+  const data = await encodeJpegNative(rgba, width, height, {
+    quality: preset.quality,
+    chroma: preset.quality >= 90 ? '444' : '420',
+    iccSrgb: true,
+  });
+  return { data, width, height };
 }
 
 function validateImage(image: RenderedImage): void {
