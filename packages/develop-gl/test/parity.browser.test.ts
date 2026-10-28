@@ -1,6 +1,11 @@
 import type { EditParams } from '@ee/contracts';
 import { afterEach, beforeAll, describe, expect, it } from 'vitest';
-import { cropOutputPixels, largestCropForAspect } from '../src/crop';
+import {
+  constrainCrop,
+  cropFromGeometry,
+  cropOutputPixels,
+  largestCropForAspect,
+} from '../src/crop';
 import { renderCpu } from '../src/cpu';
 import { floatToHalf } from '../src/image';
 import { createDevelopRenderer, DevelopGlError, type DevelopRenderer } from '../src/renderer';
@@ -276,6 +281,11 @@ describe('crop and straighten parity', () => {
       crop: { left: 0.1, top: 0.15, right: 0.9, bottom: 0.85, angle: -45 },
     },
     { name: 'largest 1:1 crop +45 degrees', crop: largestCropForAspect(image, 45, 1) },
+    { name: 'tiny crop 15 degrees', crop: cropFromGeometry(48, 32, 6, 4, 15, image) },
+    {
+      name: 'edge-hugging crop 30 degrees',
+      crop: constrainCrop(cropFromGeometry(8, 8, 40, 28, 30, image), image),
+    },
   ];
 
   for (const { name, crop } of crops) {
@@ -324,5 +334,37 @@ describe('crop and straighten parity', () => {
       canvas.width = previous.width;
       canvas.height = previous.height;
     }
+  });
+});
+
+describe('portrait crop parity', () => {
+  const portrait = { width: 64, height: 96 };
+  const chart = makeChart(portrait.width, portrait.height);
+
+  it('matches the CPU for a 5 degree straigtened portrait crop', () => {
+    const crop = constrainCrop(
+      { left: 0.1, top: 0.08, right: 0.9, bottom: 0.92, angle: 5 },
+      portrait,
+    );
+    const params: EditParams = { Exposure2012: 0.1, crop };
+    const size = cropOutputPixels(crop, portrait);
+    renderer = createDevelopRenderer(canvas);
+    renderer.setImage(chart.header, chart.data);
+    const gpu = renderer.renderToRGBA(params, size);
+    const cpu = renderCpu(chart.header, chart.data, params, size);
+    expect(maxAbsDiff(gpu, cpu)).toBeLessThanOrEqual(12);
+    expect(meanAbsDiff(gpu, cpu)).toBeLessThan(1.2);
+  });
+
+  it('matches the CPU for a portrait 3:2 crop', () => {
+    const crop = largestCropForAspect(portrait, -25, 3 / 2);
+    const params: EditParams = { crop };
+    const size = cropOutputPixels(crop, portrait);
+    renderer = createDevelopRenderer(canvas);
+    renderer.setImage(chart.header, chart.data);
+    const gpu = renderer.renderToRGBA(params, size);
+    const cpu = renderCpu(chart.header, chart.data, params, size);
+    expect(maxAbsDiff(gpu, cpu)).toBeLessThanOrEqual(12);
+    expect(meanAbsDiff(gpu, cpu)).toBeLessThan(1.2);
   });
 });

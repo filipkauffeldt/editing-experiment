@@ -242,3 +242,98 @@ describe('darktable cross-check', () => {
     }
   });
 });
+
+describe('handle drags', () => {
+  it('clamps a single dragged edge without moving the opposite edge', () => {
+    const crop = largestCropForAspect(IMAGE, 0, 1);
+    const before = cropGeometry(crop, IMAGE);
+    const out = resizeCropFromHandle(crop, IMAGE, 'e', {
+      x: IMAGE.width * 1.5,
+      y: before.centerY,
+    });
+    const after = cropGeometry(out, IMAGE);
+    expect(after.centerX - after.width / 2).toBeCloseTo(before.centerX - before.width / 2, 6);
+    expect(after.width).toBeGreaterThan(before.width);
+    for (const corner of cropCorners(out, IMAGE)) {
+      expect(corner.x).toBeGreaterThanOrEqual(-1e-6);
+      expect(corner.x).toBeLessThanOrEqual(IMAGE.width + 1e-6);
+      expect(corner.y).toBeGreaterThanOrEqual(-1e-6);
+      expect(corner.y).toBeLessThanOrEqual(IMAGE.height + 1e-6);
+    }
+  });
+
+  it('keeps the opposite corner fixed when a corner is dragged', () => {
+    const crop = cropFromGeometry(
+      IMAGE.width / 2,
+      IMAGE.height / 2,
+      IMAGE.width * 0.4,
+      IMAGE.height * 0.27,
+      10,
+      IMAGE,
+    );
+    const before = cropGeometry(crop, IMAGE);
+    const beforeCorners = cropCorners(crop, IMAGE);
+    const point = cropCorners(crop, IMAGE)[2]!;
+    const out = resizeCropFromHandle(crop, IMAGE, 'se', {
+      x: point.x + IMAGE.width * 0.1,
+      y: point.y + IMAGE.height * 0.1,
+    });
+    const afterCorners = cropCorners(out, IMAGE);
+    expect(afterCorners[0]!.x).toBeCloseTo(beforeCorners[0]!.x, 5);
+    expect(afterCorners[0]!.y).toBeCloseTo(beforeCorners[0]!.y, 5);
+    expect(cropGeometry(out, IMAGE).width).toBeGreaterThan(before.width);
+  });
+});
+
+describe('small, edge and portrait crops', () => {
+  it('keeps a tiny crop usable', () => {
+    const crop = cropFromGeometry(1200, 800, 6, 4, 15, IMAGE);
+    const output = cropOutputSize(crop, IMAGE);
+    expect(output.width).toBeGreaterThan(0);
+    expect(output.height).toBeGreaterThan(0);
+    const constrained = constrainCrop(crop, IMAGE);
+    expect(cropGeometry(constrained, IMAGE).width).toBeGreaterThan(0);
+  });
+
+  it('constrains an edge-hugging crop without discarding the angle', () => {
+    const crop = cropFromGeometry(8, 8, 80, 60, 30, IMAGE);
+    const constrained = constrainCrop(crop, IMAGE);
+    expect(constrained.angle).toBe(30);
+    for (const corner of cropCorners(constrained, IMAGE)) {
+      expect(corner.x).toBeGreaterThanOrEqual(-1e-6);
+      expect(corner.x).toBeLessThanOrEqual(IMAGE.width + 1e-6);
+      expect(corner.y).toBeGreaterThanOrEqual(-1e-6);
+      expect(corner.y).toBeLessThanOrEqual(IMAGE.height + 1e-6);
+    }
+  });
+
+  it('keeps a zero-size crop at its centre instead of resetting to the frame', () => {
+    const constrained = constrainCrop(
+      { left: 0.5, top: 0.4, right: 0.5, bottom: 0.4, angle: 12 },
+      IMAGE,
+    );
+    expect(constrained.angle).toBe(12);
+    const geometry = cropGeometry(constrained, IMAGE);
+    expect(geometry.width).toBeGreaterThan(0);
+    expect(geometry.height).toBeGreaterThan(0);
+    expect(geometry.centerX).toBeCloseTo(IMAGE.width * 0.5, 6);
+    expect(geometry.centerY).toBeCloseTo(IMAGE.height * 0.4, 6);
+  });
+
+  it('handles a portrait image', () => {
+    const portrait = { width: 4000, height: 6000 };
+    const original = largestCropForAspect(portrait, 0);
+    expect(cropOutputPixels(original, portrait)).toEqual({ width: 4000, height: 6000 });
+    const landscape = largestCropForAspect(portrait, 5, 3 / 2);
+    expect(cropAspect(landscape, portrait)).toBeCloseTo(3 / 2, 6);
+    expect(cropOutputPixels(landscape, portrait).width).toBeGreaterThan(
+      cropOutputPixels(landscape, portrait).height,
+    );
+    for (const corner of cropCorners(landscape, portrait)) {
+      expect(corner.x).toBeGreaterThanOrEqual(-1e-6);
+      expect(corner.x).toBeLessThanOrEqual(portrait.width + 1e-6);
+      expect(corner.y).toBeGreaterThanOrEqual(-1e-6);
+      expect(corner.y).toBeLessThanOrEqual(portrait.height + 1e-6);
+    }
+  });
+});
