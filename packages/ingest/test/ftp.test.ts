@@ -241,6 +241,8 @@ describe('FTP source', { timeout: 15_000 }, () => {
 
     await writeFile(join(root, '_DSC3.NEF'), 'raw-three');
     await waitFor(() => pathExists(join(destination, '_DSC3_01.NEF')), 'download');
+    // The file lands before the source reports `watching` again; wait for that event.
+    await waitFor(() => states().length >= idleCount + 2, 'the source to go back to watching');
 
     expect(states().slice(idleCount)).toEqual(['running', 'watching']);
   });
