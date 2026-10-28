@@ -70,6 +70,12 @@ jobs:
       - name: Install Playwright Chromium
         run: pnpm --filter @ee/develop-gl exec playwright install --with-deps chromium
 
+      # The Electron smoke test (apps/desktop) starts Xvfb itself when there is no display.
+      - name: Install Xvfb
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends xvfb xauth
+
       # Builds the native addon first (see root package.json), then runs vitest.
       - name: Test
         run: pnpm test
@@ -78,10 +84,7 @@ jobs:
         run: pnpm build
 
       - name: Screenshot (Electron under Xvfb)
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends xvfb xauth
-          pnpm screenshot
+        run: pnpm screenshot
 
       - uses: actions/upload-artifact@v7
         with:

@@ -259,6 +259,33 @@ describe('UploadQueue', () => {
     expect(listed.attempts).toBe(3);
   });
 
+  it.each([1, 3, 7, 11, 15, 20, 29, 40, 80])(
+    'does not lose a retry whose delay elapses while the queue is scheduling (%i ms per clock read)',
+    async (step) => {
+      const localPath = await localFile('slow-clock.jpg');
+      const destination = folderDestination('dest-slow', path.join(dir, 'slow'));
+      let attempts = 0;
+      // Every clock read is `step` ms later than the last one, as on a machine busy enough
+      // that the work between two reads takes longer than the retry delay.
+      let virtualNow = 1_000_000;
+      const queueInstance = queue({
+        retryBaseDelayMs: 30,
+        maxAttempts: 5,
+        now: () => (virtualNow += step),
+        connectorFactory: factoryFor(async () => {
+          attempts++;
+          if (attempts < 3) throw new Error('temporary failure');
+        }),
+      });
+
+      const [item] = await queueInstance.enqueue(photoId, localPath, [destination]);
+      queueInstance.start();
+      await queueInstance.waitForIdle(5_000);
+      expect(requireItem(queueInstance.list(), item!.id).state).toBe('done');
+      expect(attempts).toBe(3);
+    },
+  );
+
   it('does not busy-loop retry timers for due rows blocked by concurrency', async () => {
     const destination = folderDestination('dest-busy', path.join(dir, 'busy'));
     let release!: () => void;

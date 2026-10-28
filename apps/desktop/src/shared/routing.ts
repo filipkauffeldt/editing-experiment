@@ -1,4 +1,5 @@
-import type { IpcNamespace } from '@ee/contracts';
+import type { InvokeChannel, IpcNamespace } from '@ee/contracts';
+import { channelNamespace } from '@ee/contracts';
 
 /** Which process serves a channel. */
 export type ChannelHost = 'main' | 'jobs';
@@ -26,3 +27,14 @@ export const NAMESPACE_HOST: Record<IpcNamespace, ChannelHost> = {
   settings: 'main',
   dialog: 'main',
 };
+
+/**
+ * Where a channel runs. Mock mode keeps its in-memory settings in main; the real
+ * backend persists settings in the jobs process, which also needs them (finish
+ * action, ingest options), so there they live next to the services that use them.
+ */
+export function hostFor(channel: InvokeChannel, options: { mock: boolean }): ChannelHost {
+  const namespace = channelNamespace(channel);
+  if (namespace === 'settings' && !options.mock) return 'jobs';
+  return NAMESPACE_HOST[namespace];
+}

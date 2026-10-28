@@ -1,0 +1,146 @@
+import {
+  IpcError,
+  asVersionId,
+  type CreateVersionArgs,
+  type EditParams,
+  type Photo,
+  type PhotoId,
+  type PhotoVersion,
+  type RetouchOp,
+  type RetouchVersion,
+  type VersionId,
+  type VersionRef,
+} from '@ee/contracts';
+import {
+  readEditParams,
+  readRetouchVersions,
+  writeEditParams,
+  writeRetouchVersions,
+  type ExifToolService,
+} from '@ee/metadata';
+import { randomUUID } from 'node:crypto';
+import type { PhotoLibrary } from './photo-library';
+
+/** The develop version of a photo. The sidecar holds exactly one set of `crs:` settings. */
+export const developVersionId = (photoId: PhotoId): VersionId => asVersionId(`${photoId}:develop`);
+
+/** True when the params change anything compared with a freshly ingested photo. */
+export function hasDevelopEdits(params: EditParams): boolean {
+  return Object.entries(params).some(([key, value]) => {
+    if (value === undefined || key === 'ProcessVersion') return false;
+    return !(key === 'WhiteBalance' && value === 'As Shot');
+  });
+}
+
+/** True when any version of a photo holds edits. */
+export function versionsEdited(versions: PhotoVersion[]): boolean {
+  return versions.some((version) =>
+    version.kind === 'develop' ? hasDevelopEdits(version.ops) : version.ops.length > 0,
+  );
+}
+
+/** Develop and retouch edits, persisted in the photo's sidecar (`crs:` and `ee:`). */
+export class EditService {
+  constructor(
+    private readonly photos: PhotoLibrary,
+    private readonly exiftool: ExifToolService,
+  ) {}
+
+  /** The versions stored next to a photo: its develop params plus every retouch version. */
+  async readVersions(photoPath: string, photoId: PhotoId): Promise<PhotoVersion[]> {
+    const [params, retouch] = await Promise.all([
+      readEditParams(photoPath, this.exiftool),
+      readRetouchVersions(photoPath, this.exiftool),
+    ]);
+    return [{ id: developVersionId(photoId), kind: 'develop', ops: params }, ...retouch];
+  }
+
+  async getParams(ref: VersionRef): Promise<EditParams> {
+    const photo = this.photos.get(ref.photoId);
+    this.assertDevelopVersion(ref);
+    return readEditParams(photo.path, this.exiftool);
+  }
+
+  async setParams(ref: VersionRef & { params: EditParams }): Promise<void> {
+    this.assertDevelopVersion(ref);
+    await this.photos.withLock(ref.photoId, async () => {
+      const photo = this.photos.get(ref.photoId);
+      await writeEditParams(photo.path, ref.params, { service: this.exiftool });
+      // Re-read so the index shows what the sidecar says, not what was asked for.
+      await this.publish(photo, await this.readVersions(photo.path, photo.id));
+    });
+  }
+
+  async getRetouch(ref: VersionRef): Promise<RetouchOp[]> {
+    const photo = this.photos.get(ref.photoId);
+    const versions = await readRetouchVersions(photo.path, this.exiftool);
+    return this.pickRetouch(versions, ref)?.ops ?? [];
+  }
+
+  async setRetouch(ref: VersionRef & { ops: RetouchOp[] }): Promise<void> {
+    await this.photos.withLock(ref.photoId, async () => {
+      const photo = this.photos.get(ref.photoId);
+      const versions = await readRetouchVersions(photo.path, this.exiftool);
+      const target = this.pickRetouch(versions, ref);
+      if (ref.versionId !== undefined && !target) {
+        throw new IpcError('not_found', `no retouch version ${ref.versionId}`);
+      }
+      const next: RetouchVersion = target
+        ? { ...target, ops: ref.ops }
+        : { id: newRetouchId(photo.id), kind: 'retouch', ops: ref.ops };
+      const all = target
+        ? versions.map((v) => (v.id === target.id ? next : v))
+        : [...versions, next];
+      await writeRetouchVersions(photo.path, all, { service: this.exiftool });
+      await this.publish(photo, await this.readVersions(photo.path, photo.id));
+    });
+  }
+
+  async createVersion(args: CreateVersionArgs): Promise<PhotoVersion> {
+    if (args.kind === 'develop') {
+      // The sidecar's `crs:` block is a single set of settings, so a second
+      // develop version would have nowhere to live.
+      throw new IpcError(
+        'invalid_argument',
+        'a photo has exactly one develop version (the crs: settings in its sidecar)',
+      );
+    }
+    return this.photos.withLock(args.photoId, async () => {
+      const photo = this.photos.get(args.photoId);
+      const versions = await readRetouchVersions(photo.path, this.exiftool);
+      const created: RetouchVersion = {
+        id: newRetouchId(photo.id),
+        kind: 'retouch',
+        ...(args.name === undefined ? {} : { name: args.name }),
+        ops: [],
+      };
+      await writeRetouchVersions(photo.path, [...versions, created], { service: this.exiftool });
+      await this.publish(photo, await this.readVersions(photo.path, photo.id));
+      return created;
+    });
+  }
+
+  private assertDevelopVersion(ref: VersionRef): void {
+    if (ref.versionId !== undefined && ref.versionId !== developVersionId(ref.photoId)) {
+      throw new IpcError('not_found', `no develop version ${ref.versionId}`);
+    }
+  }
+
+  /** The addressed retouch version, or the first one when none is named. */
+  private pickRetouch(versions: RetouchVersion[], ref: VersionRef): RetouchVersion | undefined {
+    if (ref.versionId === undefined) return versions[0];
+    return versions.find((version) => version.id === ref.versionId);
+  }
+
+  private async publish(photo: Photo, versions: PhotoVersion[]): Promise<void> {
+    const edited = versionsEdited(versions);
+    this.photos.update(photo.id, (current) => ({
+      ...current,
+      versions,
+      status: { ...current.status, edited },
+    }));
+  }
+}
+
+const newRetouchId = (photoId: PhotoId): VersionId =>
+  asVersionId(`${photoId}:retouch:${randomUUID().slice(0, 8)}`);
