@@ -89,3 +89,20 @@ export async function decodeLinear(
   }
   return { header: { ...header, sampleType }, data };
 }
+
+/** 8-bit RGBA pixels, row-major, straight alpha: `rgba` is `width * height * 4` bytes. */
+export type RgbaImage = Native.NativeRgbaImage;
+
+export interface DecodeJpegOptions {
+  /** Return the pixels as stored instead of applying the EXIF orientation. Default false. */
+  skipOrientation?: boolean;
+}
+
+/**
+ * Decodes a JPEG to RGBA. The EXIF orientation is applied, so the result is
+ * upright (width and height swap for orientations 5..8) unless `skipOrientation`
+ * is set. Grayscale and YCbCr JPEGs are supported, CMYK is not.
+ */
+export function decodeJpeg(jpeg: Uint8Array, options: DecodeJpegOptions = {}): Promise<RgbaImage> {
+  return loadCore().decodeJpeg(jpeg, options);
+}

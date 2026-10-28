@@ -836,6 +836,7 @@ function __napiStampBindingTarget(exportsObject, target) {
 module.exports.__napiBindingTarget = __napiStampBindingTarget(nativeBinding, __napiLoadedBindingTarget)
 module.exports = nativeBinding
 module.exports.coreVersion = nativeBinding.coreVersion
+module.exports.decodeJpeg = nativeBinding.decodeJpeg
 module.exports.decodeLinear = nativeBinding.decodeLinear
 module.exports.extractPreview = nativeBinding.extractPreview
 module.exports.readRawInfo = nativeBinding.readRawInfo

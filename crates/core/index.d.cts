@@ -12,6 +12,14 @@ export declare const __napiBindingTarget: 'native' | 'wasm32-wasi' | 'wasm32-was
 /** Version of the native core addon, so JS can tell which binary it loaded. */
 export declare function coreVersion(): string
 
+/** Decodes a JPEG to 8-bit RGBA, applying its EXIF orientation unless told not to. */
+export declare function decodeJpeg(jpeg: Uint8Array, options?: DecodeJpegOptions | undefined | null): Promise<NativeRgbaImage>
+
+export interface DecodeJpegOptions {
+  /** Return the pixels as stored instead of applying the EXIF orientation. */
+  skipOrientation?: boolean
+}
+
 /**
  * Decodes a raw to demosaiced linear camera RGB (see "Linear image format"
  * in `docs/ARCHITECTURE.md`).
@@ -50,6 +58,13 @@ export interface NativeLinearImageHeader {
   asShotMultipliers: Multipliers
   cameraToSrgb: Array<number>
   xyzToCamera: Array<number>
+}
+
+/** A decoded or resized image: `rgba` is `width * height * 4` bytes. */
+export interface NativeRgbaImage {
+  width: number
+  height: number
+  rgba: Buffer
 }
 
 /** Camera, exposure and geometry metadata of a raw file. */
