@@ -53,6 +53,21 @@ export interface EncodeJpegOptions {
 /** Extracts the largest embedded preview as a JPEG. */
 export declare function extractPreview(path: string): Promise<RawPreview>
 
+/**
+ * Decodes a JPEG once, applies its EXIF orientation, and returns an upright
+ * thumbnail and preview (4:2:0, sRGB ICC, no EXIF). Neither is ever upscaled.
+ */
+export declare function makePreviews(jpeg: Uint8Array, options: MakePreviewsOptions): Promise<NativePreviews>
+
+export interface MakePreviewsOptions {
+  /** Longest edge of the thumbnail. */
+  thumbEdge: number
+  /** Longest edge of the preview. */
+  previewEdge: number
+  /** JPEG quality 1..=100 for both. */
+  quality: number
+}
+
 export interface Multipliers {
   r: number
   g: number
@@ -75,6 +90,11 @@ export interface NativeLinearImageHeader {
   asShotMultipliers: Multipliers
   cameraToSrgb: Array<number>
   xyzToCamera: Array<number>
+}
+
+export interface NativePreviews {
+  thumb: Buffer
+  preview: Buffer
 }
 
 /** A decoded or resized image: `rgba` is `width * height * 4` bytes. */
@@ -124,7 +144,8 @@ export declare function readRawInfo(path: string): Promise<RawInfo>
 
 /**
  * Downscales RGBA pixels with Lanczos3 so the longest edge is at most `maxEdge`.
- * Works on the sRGB-encoded values directly (not gamma-correct). Never upscales:
+ * Works on the sRGB-encoded values directly (not gamma-correct); alpha is resampled
+ * like a colour channel. Never upscales:
  * a smaller image is returned unchanged.
  */
 export declare function resizeRgba(rgba: Uint8Array, width: number, height: number, options: ResizeRgbaOptions): Promise<NativeRgbaImage>

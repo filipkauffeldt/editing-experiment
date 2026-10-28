@@ -119,7 +119,8 @@ export interface ResizeRgbaOptions {
  *
  * Resampling works on the sRGB-encoded values directly, not in linear light:
  * that is what browsers and most photo tools do for previews and exports, and
- * it is about twice as fast.
+ * it is about twice as fast. Alpha is resampled like a colour channel (no
+ * premultiplication): fine for the opaque photos and renders we handle.
  */
 export function resizeRgba(
   rgba: Uint8Array,
@@ -153,4 +154,25 @@ export function encodeJpeg(
   options: EncodeJpegOptions,
 ): Promise<Buffer> {
   return loadCore().encodeJpeg(rgba, width, height, options);
+}
+
+export interface MakePreviewsOptions {
+  /** Longest edge of the thumbnail. */
+  thumbEdge: number;
+  /** Longest edge of the preview. */
+  previewEdge: number;
+  /** JPEG quality 1..=100 for both. */
+  quality: number;
+}
+
+/**
+ * Decodes a JPEG once, applies its EXIF orientation, and returns an upright
+ * thumbnail and preview as JPEGs (4:2:0, sRGB profile, no EXIF). Neither is
+ * upscaled, so a source smaller than an edge comes back at its own size.
+ */
+export function makePreviews(
+  jpeg: Uint8Array,
+  options: MakePreviewsOptions,
+): Promise<Native.NativePreviews> {
+  return loadCore().makePreviews(jpeg, options);
 }

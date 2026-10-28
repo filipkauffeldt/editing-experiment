@@ -177,7 +177,11 @@ pub fn resize_exact(rgba: &[u8], width: u32, height: u32, out_w: u32, out_h: u32
         });
     }
     let mut dst = Image::new(out_w, out_h, PixelType::U8x4);
-    let options = ResizeOptions::new().resize_alg(ResizeAlg::Convolution(FilterType::Lanczos3));
+    let options = ResizeOptions::new()
+        .resize_alg(ResizeAlg::Convolution(FilterType::Lanczos3))
+        // Photos and renders are opaque and JPEG drops alpha, so skip the
+        // premultiply/divide passes. Alpha is resampled like a colour channel.
+        .use_alpha(false);
     Resizer::new()
         .resize(&src, &mut dst, &options)
         .map_err(|e| Error::Resize(e.to_string()))?;

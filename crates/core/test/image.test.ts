@@ -1,6 +1,6 @@
 import sharp from 'sharp';
 import { describe, expect, it } from 'vitest';
-import { decodeJpeg, encodeJpeg, resizeRgba } from '../src/index';
+import { decodeJpeg, encodeJpeg, makePreviews, resizeRgba } from '../src/index';
 
 /**
  * Smooth asymmetric RGBA test image: red grows to the right, green downwards,
@@ -232,5 +232,52 @@ describe('encodeJpeg', () => {
     await expect(
       encodeJpeg(source, width, height, { ...ok, chroma: '422' as '444' }),
     ).rejects.toThrow(/chroma/);
+  });
+});
+
+describe('makePreviews', () => {
+  const options = { thumbEdge: 64, previewEdge: 200, quality: 85 };
+
+  it('returns upright thumbnail and preview at the requested sizes', async () => {
+    // Stored 300x200 with orientation 6: displays as 200x300.
+    const jpeg = await jpegWithOrientation(300, 200, 6);
+    const { thumb, preview } = await makePreviews(jpeg, options);
+    const thumbMeta = await sharp(thumb).metadata();
+    const previewMeta = await sharp(preview).metadata();
+    expect([thumbMeta.width, thumbMeta.height]).toEqual([43, 64]);
+    expect([previewMeta.width, previewMeta.height]).toEqual([133, 200]);
+    // Already upright: no EXIF left that could rotate it a second time.
+    expect(thumbMeta.exif).toBeUndefined();
+    expect(thumbMeta.orientation).toBeUndefined();
+    expect(previewMeta.orientation).toBeUndefined();
+  });
+
+  it('matches decode, resize and encode done step by step', async () => {
+    const jpeg = await jpegWithOrientation(300, 200, 3);
+    const { preview } = await makePreviews(jpeg, options);
+    const upright = await decodeJpeg(jpeg);
+    const small = await resizeRgba(upright.rgba, upright.width, upright.height, { maxEdge: 200 });
+    const manual = await encodeJpeg(small.rgba, small.width, small.height, {
+      quality: 85,
+      chroma: '420',
+      iccSrgb: true,
+    });
+    expect(Buffer.compare(preview, manual)).toBe(0);
+  });
+
+  it('does not upscale small sources', async () => {
+    const jpeg = await jpegWithOrientation(40, 30, 1);
+    const { thumb, preview } = await makePreviews(jpeg, options);
+    for (const out of [thumb, preview]) {
+      const meta = await sharp(out).metadata();
+      expect([meta.width, meta.height]).toEqual([40, 30]);
+    }
+  });
+
+  it('rejects bad input', async () => {
+    await expect(makePreviews(Buffer.from('nope'), options)).rejects.toThrow(/decoding failed/);
+    const jpeg = await jpegWithOrientation(40, 30, 1);
+    await expect(makePreviews(jpeg, { ...options, quality: 0 })).rejects.toThrow(/quality/);
+    await expect(makePreviews(jpeg, { ...options, thumbEdge: 0 })).rejects.toThrow(/positive/);
   });
 });
