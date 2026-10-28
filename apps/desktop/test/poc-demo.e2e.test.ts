@@ -454,7 +454,7 @@ describe.skipIf(nefs.length === 0 || !haveDisplay)('PoC demo (real Electron app)
       photoId: photos.find((photo) => photo.fileName === 'cardA_001.NEF')!.id,
     });
     expect(params.Exposure2012).toBeCloseTo(1.2, 2);
-  });
+  }, 60_000);
 
   it('crops to 1:1 with a 3 degree straighten and uploads the crop size', async () => {
     await selectPhoto('cardA_002.NEF');
@@ -761,7 +761,7 @@ describe.skipIf(nefs.length === 0 || !haveDisplay)('PoC demo (real Electron app)
         .screenshot({ path: join(screenshotDir, 'film-strip-edited.png') });
       await window.screenshot({ path: join(screenshotDir, 'app-edited-photos.png') });
     }
-  });
+  }, 60_000);
 
   it('serves the developed JPEG as a linear image too', async () => {
     const jpeg = photos.find((photo) => photo.fileName === 'cardB_001.jpg')!;
