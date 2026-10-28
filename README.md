@@ -17,6 +17,7 @@ pnpm screenshot          # builds, launches the app with mock data, writes scree
 pnpm fetch-fixtures      # CC0 Nikon NEF samples into fixtures/raw/ (gitignored)
 pnpm fetch-retouch       # YuNet model + public-domain face photos into fixtures/ (gitignored)
 EE_SAMPLE_NEF_DIR=~/nefs pnpm test   # optionally also run the raw tests on your own NEFs
+EE_SOFTWARE_GL=1         # lets Chromium use SwiftShader for WebGL in headless tests/screenshots
 ```
 
 | Path                 | What                                                          |
@@ -35,7 +36,8 @@ Needed on the development machine (the repo itself never installs system package
 - **Electron runtime libraries.** On Debian/Ubuntu: `sudo apt install libgtk-3-0t64 libpango-1.0-0` (older releases call the first package `libgtk-3-0`).
 - **Chromium for Playwright** (WebGL parity tests of `packages/develop-gl` run in headless Chromium with software GL, no GPU needed): `pnpm --filter @ee/develop-gl exec playwright install chromium` (add `--with-deps` on a fresh Linux box; that part needs sudo).
 - **An OS keyring** (GNOME Keyring or KWallet on Linux) to store FTP/SFTP passwords. The app encrypts them with Electron `safeStorage` and refuses to store them when no keyring is available; there is no plaintext fallback. Folder sources and destinations work without one.
-- **Xvfb** for headless runs on a machine without a display (`pnpm screenshot`, Playwright e2e): `sudo apt install xvfb xauth`. `pnpm screenshot` re-runs itself under `xvfb-run` when `DISPLAY` is unset, and the Electron smoke test (`apps/desktop/test/real-mode.smoke.test.ts`) starts `Xvfb` itself when there is no display.
+- **Xvfb** for headless runs on a machine without a display (`pnpm screenshot`, Playwright e2e): `sudo apt install xvfb xauth`. `pnpm screenshot` re-runs itself under `xvfb-run` when `DISPLAY` is unset, and the Electron tests (`apps/desktop/test/*.e2e.test.ts`, `real-mode.smoke.test.ts`) start `Xvfb` themselves when there is no display. CI runs the suite under `xvfb-run`.
+- **Software WebGL** for the same headless runs. Chromium refuses software WebGL by default; the app enables SwiftShader when `EE_SOFTWARE_GL=1` (tests and `pnpm screenshot` set it). Packaged builds keep the default.
 
 ### Running Electron on Ubuntu 24.04: `--no-sandbox` (dev and tests only)
 
