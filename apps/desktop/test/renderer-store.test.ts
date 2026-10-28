@@ -369,6 +369,39 @@ describe('crop editing', () => {
     expect(store.getState().crop?.flipped).toBe(true);
   });
 
+  it('does not start retouch while cropping', async () => {
+    const { store } = await setup();
+    store.toggleCrop();
+    expect(store.getState().crop).toBeDefined();
+    store.toggleRetouch();
+    expect(store.getState().retouch).toBeUndefined();
+    expect(store.getState().crop).toBeDefined();
+  });
+
+  it('does not start cropping without the oriented image size', async () => {
+    const base = mockPhotos()[0];
+    if (!base) throw new Error('no mock photo');
+    const photos: Photo[] = [{ ...base, width: undefined, height: undefined }];
+    const { store } = await setup({ photos });
+    store.toggleCrop();
+    expect(store.getState().crop).toBeUndefined();
+  });
+
+  it('uses portrait dimensions instead of a landscape fallback', async () => {
+    const base = mockPhotos()[0];
+    if (!base) throw new Error('no mock photo');
+    const photos: Photo[] = [{ ...base, width: 4000, height: 6000 }];
+    const { store } = await setup({ photos });
+    store.toggleCrop();
+    const session = store.getState().crop;
+    expect(session?.image).toEqual({ width: 4000, height: 6000 });
+    store.setCropAspect('3:2');
+    const portrait = store.getState().crop;
+    if (!portrait) throw new Error('no crop session');
+    expect(cropAspect(portrait.crop, portrait.image)).toBeCloseTo(3 / 2, 6);
+    expect(portrait.image.height).toBeGreaterThan(portrait.image.width);
+  });
+
   it('applies the draft crop before Finish & next', async () => {
     const renders: FullResolutionRenderRequest[] = [];
     const { store, fake } = await setup({}, async (request) => {

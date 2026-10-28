@@ -748,6 +748,9 @@ export class AppStore {
 
   /** Enter retouch mode for the selected photo; leaving saves pending shapes first. */
   readonly toggleRetouch = (): void => {
+    // Crop and retouch are mutually exclusive; the R shortcut must not sneak
+    // past the disabled button while cropping.
+    if (this.state.crop) return;
     if (this.state.retouch) {
       void this.requestExitRetouch();
       return;
@@ -937,10 +940,10 @@ export class AppStore {
     if (this.state.retouch) return;
     const photo = activePhoto(this.state);
     if (!photo) return;
-    const image = {
-      width: photo.width && photo.width > 0 ? photo.width : 3000,
-      height: photo.height && photo.height > 0 ? photo.height : 2000,
-    };
+    // Crop geometry needs the real oriented image size; disable the mode until
+    // the index has it rather than guessing an aspect ratio.
+    if (!photo.width || !photo.height || photo.width <= 0 || photo.height <= 0) return;
+    const image = { width: photo.width, height: photo.height };
     const params = paramsForPhoto(this.state, photo);
     const existing = params.crop ? sanitizeCrop(params.crop) : undefined;
     const crop = existing

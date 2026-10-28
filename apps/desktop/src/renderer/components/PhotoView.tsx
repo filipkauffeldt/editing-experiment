@@ -36,7 +36,7 @@ export function PhotoView({ className, photo }: PhotoViewProps) {
               onClick={() => store.toggleCrop()}
               title="Crop and straighten (C)"
               data-testid="toggle-crop"
-              disabled={retouching}
+              disabled={retouching || !photo.width || !photo.height}
             >
               <CropIcon size={11} /> {cropping ? 'Apply crop' : 'Crop'}
             </button>
