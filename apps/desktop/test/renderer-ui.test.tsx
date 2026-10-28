@@ -18,8 +18,8 @@ async function renderApp(): Promise<{ store: AppStore; fake: FakeBridge }> {
   return { store, fake };
 }
 
-afterEach(() => {
-  for (const store of stores.splice(0)) store.dispose();
+afterEach(async () => {
+  for (const store of stores.splice(0)) await store.dispose();
 });
 
 const thumbnail = (fileName: string): HTMLElement => {
@@ -70,6 +70,23 @@ describe('keyboard-first shell', () => {
     expect(document.activeElement).toBe(document.body);
   });
 
+  it('ignores single-key shortcuts with modifiers or during IME composition', async () => {
+    const { store } = await renderApp();
+    const photo = activePhoto(store.getState());
+    if (!photo) throw new Error('no selection');
+    const before = activePhoto(store.getState())?.id;
+
+    fireEvent.keyDown(window, { key: 't', ctrlKey: true });
+    fireEvent.keyDown(window, { key: 't', metaKey: true });
+    fireEvent.keyDown(window, { key: 't', altKey: true });
+    fireEvent.keyDown(window, { key: 't', isComposing: true });
+    fireEvent.keyDown(window, { key: 't', keyCode: 229 });
+    fireEvent.keyDown(window, { key: 'ArrowRight', ctrlKey: true });
+
+    expect(photoFlags(store.getState(), photo.id).tagged).toBe(false);
+    expect(activePhoto(store.getState())?.id).toBe(before);
+  });
+
   it('focuses the caption with Ctrl+I and finishes with Ctrl+Enter', async () => {
     const { store, fake } = await renderApp();
     const first = activePhoto(store.getState());
@@ -111,7 +128,7 @@ describe('metadata panel', () => {
 
     const caption = captionField();
     fireEvent.change(caption, {
-      target: { value: '\\t1\\ at {location} {photographer}' },
+      target: { value: '=t1= at {location} {photographer}' },
     });
     fireEvent.keyDown(caption, { key: ' ', ctrlKey: true });
 
@@ -145,5 +162,9 @@ describe('develop panel', () => {
     const temperature = screen.getByLabelText('Temperature value') as HTMLInputElement;
     await waitFor(() => expect(temperature.placeholder).toBe('As shot'));
     expect(temperature.value).toBe('');
+
+    const track = screen.getByLabelText('Temperature') as HTMLInputElement;
+    expect(Number(track.value)).toBeGreaterThan(500);
+    expect(Number(track.value)).toBeLessThan(750);
   });
 });

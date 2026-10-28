@@ -56,6 +56,10 @@ export function useKeyboardShortcuts(store: AppStore): void {
       }
 
       if (typing) return;
+      // Single-key shortcuts never fire with a command modifier, during IME
+      // composition, or for the synthetic keydown an IME emits on commit.
+      if (event.ctrlKey || event.metaKey || event.altKey) return;
+      if (event.isComposing || event.keyCode === 229) return;
       if (event.repeat && (event.key === 't' || event.key === 'T')) return;
 
       switch (event.key) {
