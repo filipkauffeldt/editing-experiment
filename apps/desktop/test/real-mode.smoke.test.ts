@@ -9,7 +9,7 @@ import {
   type Photo,
 } from '@ee/contracts';
 import { spawn, spawnSync, type ChildProcess } from 'node:child_process';
-import { existsSync, mkdirSync, mkdtempSync, rmSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -102,6 +102,7 @@ describe.skipIf(!nef || !haveDisplay)('real mode smoke test (Electron)', () => {
         ...display.env,
         EE_MOCK: '',
         EE_USER_DATA_DIR: join(root, 'userdata'),
+        EE_JOBS_TRACE: join(root, 'trace.log'),
       },
     });
     window = await app.firstWindow();
@@ -122,16 +123,25 @@ describe.skipIf(!nef || !haveDisplay)('real mode smoke test (Electron)', () => {
       renameTemplate: '{sourceName}_{seq:3}',
       codeReplacementPaths: [],
     };
-    await invoke('ingest:start', { config });
-    for (let i = 0; i < 300; i++) {
-      const photos = await invoke<Photo[]>('photos:list');
-      if (photos[0]) {
-        photo = photos[0];
-        break;
+    const traceFile = join(root, 'trace.log');
+    const withTrace = (error: unknown): Error =>
+      new Error(
+        `${(error as Error).message}; jobs trace:\n${existsSync(traceFile) ? readFileSync(traceFile, 'utf8') : '(none)'}`,
+      );
+    try {
+      await invoke('ingest:start', { config });
+      for (let i = 0; i < 300; i++) {
+        const photos = await invoke<Photo[]>('photos:list');
+        if (photos[0]) {
+          photo = photos[0];
+          break;
+        }
+        await new Promise((resolve) => setTimeout(resolve, 200));
       }
-      await new Promise((resolve) => setTimeout(resolve, 200));
+      if (!photo) throw new Error('no photo was ingested');
+    } catch (error) {
+      throw withTrace(error);
     }
-    if (!photo) throw new Error('no photo was ingested');
   }, 180_000);
 
   afterAll(async () => {
