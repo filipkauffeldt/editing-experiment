@@ -69,7 +69,10 @@ export function handleAppProtocol(options: AppProtocolOptions): void {
   protocol.handle(APP_PROTOCOL, async (request) => {
     if (options.mock || !options.resolveInJobs) {
       const { status, headers, body } = resolveAppRequest(request.url, { mock: options.mock });
-      return new Response(body as BodyInit, { status, headers: { ...headers, ...CORS_HEADERS } });
+      return new Response(body as ConstructorParameters<typeof Response>[0], {
+        status,
+        headers: { ...headers, ...CORS_HEADERS },
+      });
     }
     try {
       return toResponse(await options.resolveInJobs(request.url), options.cacheDir);

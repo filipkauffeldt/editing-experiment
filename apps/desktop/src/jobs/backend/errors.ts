@@ -1,6 +1,6 @@
 import { IpcError, type IpcErrorCode, type IpcHandlers } from '@ee/contracts';
 import { ExportError } from '@ee/export';
-import { PresetParseError } from '@ee/develop-gl';
+import { PresetParseError } from '@ee/develop-gl/preset';
 import { MetadataError } from '@ee/metadata';
 
 const METADATA_CODES: Record<string, IpcErrorCode> = {

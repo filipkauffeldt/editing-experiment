@@ -1,5 +1,5 @@
 import { IpcError, type EditPreset } from '@ee/contracts';
-import { parsePreset } from '@ee/develop-gl';
+import { parsePreset } from '@ee/develop-gl/preset';
 import { createHash } from 'node:crypto';
 import { mkdir, readFile, readdir } from 'node:fs/promises';
 import { join } from 'node:path';
