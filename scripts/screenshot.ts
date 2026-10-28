@@ -83,18 +83,24 @@ async function runMock(outDir: string): Promise<void> {
     );
     await window.getByText('MOCK', { exact: true }).waitFor();
     // Let the mock ingest/upload simulation produce a little progress.
-    await window.waitForTimeout(900);
+    await window.waitForFunction(() => /[1-9]\d*\/20/.test(document.body.textContent ?? ''));
     await shoot('01-main-1440.png');
 
     // A retouched photo shows the stacked-frame badge and an active upload.
     await window.locator('[title^="_DSC8332.NEF"]').click();
-    await window.waitForTimeout(350);
+    await window.waitForFunction(
+      () =>
+        document.querySelector('button[title^="_DSC8332.NEF"]')?.getAttribute('aria-selected') ===
+        'true',
+    );
     await shoot('02-film-strip-badges.png', '[data-testid="film-strip"]');
 
     // Photo 5 deliberately carries metadata that differs from the ingest template.
     await window.locator('[title^="_DSC8334.NEF"]').click();
     await window.locator('[data-caption-input]').waitFor();
-    await window.waitForTimeout(350);
+    await window.waitForFunction(() =>
+      document.querySelector('[data-testid="metadata-panel"]')?.textContent?.includes('Liverpool'),
+    );
     await shoot('03-metadata-template-diff.png', '[data-testid="metadata-panel"]');
 
     await window.locator('[data-testid="upload-summary"]').click();
@@ -104,11 +110,9 @@ async function runMock(outDir: string): Promise<void> {
     await window.keyboard.press('Escape');
     await window.locator('[data-testid="open-settings"]').click();
     await window.getByRole('dialog', { name: 'Settings' }).waitFor();
-    await window.waitForTimeout(250);
     await shoot('05-source-settings.png');
 
     await window.getByRole('button', { name: 'Close', exact: true }).last().click();
-    await window.waitForTimeout(150);
     await window.locator('[data-testid="photo-view"]').click({ position: { x: 10, y: 10 } });
     await window.keyboard.press('Shift+/');
     await window.getByTestId('shortcuts-overlay').waitFor();
@@ -118,7 +122,7 @@ async function runMock(outDir: string): Promise<void> {
     await app.evaluate(({ BrowserWindow }) => {
       BrowserWindow.getAllWindows()[0]?.setSize(1920, 1080);
     });
-    await window.waitForTimeout(600);
+    await window.waitForFunction(() => document.documentElement.clientWidth >= 1900);
     await shoot('07-main-1920.png');
 
     if (problems.length > 0) throw new Error(`renderer reported errors:\n${problems.join('\n')}`);
@@ -156,7 +160,7 @@ async function runReal(outDir: string): Promise<void> {
     const problems = watchErrors(window);
     const shoot = shooter(window, outDir);
     await window.waitForFunction(() => 'eeTransport' in window);
-    await window.waitForTimeout(1200);
+    await window.waitForSelector('[data-store-ready="true"]');
 
     const invoke = async <T>(channel: string, ...args: unknown[]): Promise<T> => {
       const result = await window.evaluate(
@@ -178,7 +182,7 @@ async function runReal(outDir: string): Promise<void> {
     });
     await window.reload();
     await window.waitForFunction(() => 'eeTransport' in window);
-    await window.waitForTimeout(800);
+    await window.waitForSelector('[data-store-ready="true"]');
 
     await invoke('sources:save', {
       source: { id: 'shots-card', kind: 'folder', name: 'shots', path: source },
@@ -216,23 +220,47 @@ async function runReal(outDir: string): Promise<void> {
       await window.waitForTimeout(150);
     }
     await window.waitForSelector('[data-testid="film-strip"] img', { timeout: 30_000 });
-    await window.waitForTimeout(600);
+    await window.waitForFunction(() => {
+      const images = [
+        ...document.querySelectorAll<HTMLImageElement>('[data-testid="film-strip"] img'),
+      ];
+      return (
+        images.length >= 3 && images.every((image) => image.complete && image.naturalWidth > 0)
+      );
+    });
 
     // Developed raw with the imported preset.
     await window.locator('button[title^="shots_001.NEF"]').click();
     await window.waitForSelector('[data-testid="develop-canvas"][data-ready="true"]', {
       timeout: 60_000,
     });
+    const canvas = window.locator('[data-testid="develop-canvas"]');
+    const renderVersion = async (): Promise<number> =>
+      Number((await canvas.getAttribute('data-render-version')) ?? 0);
     const preset = window.getByRole('button', { name: /PoC Punchy/ });
-    if (await preset.count()) await preset.click();
-    await window.waitForTimeout(900);
+    if (await preset.count()) {
+      const before = await renderVersion();
+      await preset.click();
+      await window.waitForFunction(
+        ([selector, version]) =>
+          Number(document.querySelector(selector)?.getAttribute('data-render-version') ?? 0) >
+          Number(version),
+        ['[data-testid="develop-canvas"]', before] as const,
+      );
+    }
     await shoot('10-real-main-developed.png');
 
     // A slider change on the same raw.
     const exposure = window.locator('input[aria-label="Exposure value"]');
+    const beforeExposure = await renderVersion();
     await exposure.fill('0.9');
     await exposure.blur();
-    await window.waitForTimeout(600);
+    await window.waitForFunction(
+      ([selector, version]) =>
+        Number(document.querySelector(selector)?.getAttribute('data-render-version') ?? 0) >
+        Number(version),
+      ['[data-testid="develop-canvas"]', beforeExposure] as const,
+    );
     await shoot('11-real-slider-change.png');
 
     // Retouch the face fixture: detect faces in a dragged region.
@@ -250,14 +278,29 @@ async function runReal(outDir: string): Promise<void> {
     await window.mouse.down();
     await window.mouse.move(box.x + box.width * 0.96, box.y + box.height * 0.94, { steps: 12 });
     await window.mouse.up();
-    for (let i = 0; i < 200; i++) {
-      if ((await window.locator('[data-face-box]').count()) > 0) break;
-      await window.waitForTimeout(150);
-    }
-    await window.waitForTimeout(900);
+    await window.waitForFunction(
+      () => document.querySelectorAll('[data-face-box]').length > 0,
+      undefined,
+      { timeout: 60_000 },
+    );
+    const mosaicVersion = async (): Promise<number> =>
+      Number(
+        (await window
+          .locator('[data-testid="mosaic-canvas"]')
+          .getAttribute('data-mosaic-version')) ?? 0,
+      );
+    await window.waitForFunction(
+      () =>
+        Number(
+          document
+            .querySelector('[data-testid="mosaic-canvas"]')
+            ?.getAttribute('data-mosaic-version') ?? 0,
+        ) > 0,
+    );
     await shoot('12-real-retouch-faces.png');
 
     // Bigger blocks show the mosaic preview clearly.
+    const beforeBlocks = await mosaicVersion();
     await window.locator('input[aria-label="Mosaic block size"]').evaluate((element) => {
       const input = element as HTMLInputElement;
       const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set;
@@ -265,22 +308,32 @@ async function runReal(outDir: string): Promise<void> {
       input.dispatchEvent(new Event('input', { bubbles: true }));
       input.dispatchEvent(new Event('change', { bubbles: true }));
     });
-    await window.waitForTimeout(900);
+    await window.waitForFunction(
+      ([selector, version]) =>
+        Number(document.querySelector(selector)?.getAttribute('data-mosaic-version') ?? 0) >
+        Number(version),
+      ['[data-testid="mosaic-canvas"]', beforeBlocks] as const,
+    );
     await shoot('13-real-mosaic-preview.png');
 
-    // Commit, finish and show the upload popover.
+    // Committed version is the default view, with its indicator and film badge.
     await window.locator('[data-testid="commit-retouch"]').click();
     await window.locator('[data-testid="retouch-toolbar"]').waitFor({ state: 'detached' });
+    await window.getByTestId('retouch-version-indicator').waitFor();
+    await window.waitForSelector('button[title^="shots_002.jpg"] [title="Retouch version"]');
+    await shoot('14-real-committed-retouch.png');
+    await shoot('15-real-film-strip-retouch.png', '[data-testid="film-strip"]');
+
+    // Finish and show the upload popover.
     await window.getByRole('button', { name: /Finish & next/ }).click();
     for (let i = 0; i < 400; i++) {
       const uploads = (await invoke('upload:list')) as { state: string }[];
       if (uploads.length > 0 && uploads.every((item) => item.state === 'done')) break;
-      await window.waitForTimeout(300);
+      await new Promise((resolve) => setTimeout(resolve, 100));
     }
     await window.locator('[data-testid="upload-summary"]').click();
     await window.getByRole('dialog', { name: 'Upload queue' }).waitFor();
-    await window.waitForTimeout(400);
-    await shoot('14-real-upload-popover.png');
+    await shoot('16-real-upload-popover.png');
 
     if (problems.length > 0) throw new Error(`renderer reported errors:\n${problems.join('\n')}`);
   } finally {

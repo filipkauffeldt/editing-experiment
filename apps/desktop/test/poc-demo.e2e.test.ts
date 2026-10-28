@@ -215,6 +215,7 @@ describe.skipIf(nefs.length === 0 || !haveDisplay)('PoC demo (real Electron app)
     await invoke('develop:importPreset', { path: presetPath });
     await window.reload();
     await window.waitForFunction(() => 'eeTransport' in window);
+    await window.waitForSelector('[data-store-ready="true"]');
 
     for (const source of [sourceA, sourceB, sourcePool]) {
       await invoke('sources:save', { source });
@@ -261,7 +262,6 @@ describe.skipIf(nefs.length === 0 || !haveDisplay)('PoC demo (real Electron app)
 
   afterAll(async () => {
     const problems = (window as (Page & { __problems?: string[] }) | undefined)?.__problems ?? [];
-    await sleep(300);
     await app?.close().catch(() => undefined);
     await sourceServer?.close().catch(() => undefined);
     await destServer?.close().catch(() => undefined);
@@ -325,17 +325,36 @@ describe.skipIf(nefs.length === 0 || !haveDisplay)('PoC demo (real Electron app)
     await selectPhoto('cardA_001.NEF');
     await canvasReady();
     const canvas = window.locator('[data-testid="develop-canvas"]');
+    const renderVersion = async (): Promise<number> =>
+      Number((await canvas.getAttribute('data-render-version')) ?? 0);
     const before = await canvas.screenshot();
 
+    const versionBeforePreset = await renderVersion();
     await window.getByRole('button', { name: /PoC Punchy/ }).click();
-    await window.waitForTimeout(400);
+    await window.waitForFunction(
+      ([selector, version]) =>
+        Number(document.querySelector(selector)?.getAttribute('data-render-version') ?? 0) >
+        Number(version),
+      ['[data-testid="develop-canvas"]', versionBeforePreset] as const,
+    );
+    await window.waitForFunction(
+      () =>
+        (document.querySelector('input[aria-label="Exposure value"]') as HTMLInputElement | null)
+          ?.value === '0.35',
+    );
     const afterPreset = await canvas.screenshot();
     expect(Buffer.compare(before, afterPreset)).not.toBe(0);
 
     const exposure = window.locator('input[aria-label="Exposure value"]');
+    const versionBeforeExposure = await renderVersion();
     await exposure.fill('1.2');
     await exposure.blur();
-    await window.waitForTimeout(400);
+    await window.waitForFunction(
+      ([selector, version]) =>
+        Number(document.querySelector(selector)?.getAttribute('data-render-version') ?? 0) >
+        Number(version),
+      ['[data-testid="develop-canvas"]', versionBeforeExposure] as const,
+    );
     const afterExposure = await canvas.screenshot();
     expect(Buffer.compare(afterPreset, afterExposure)).not.toBe(0);
 
@@ -365,10 +384,29 @@ describe.skipIf(nefs.length === 0 || !haveDisplay)('PoC demo (real Electron app)
       return count > 0 ? count : undefined;
     });
     expect(faceRects).toBeGreaterThan(0);
+    // The live preview has painted the padded mosaic before the boxes are real.
+    await window.waitForFunction(
+      () =>
+        Number(
+          document
+            .querySelector('[data-testid="mosaic-canvas"]')
+            ?.getAttribute('data-mosaic-version') ?? 0,
+        ) > 0,
+    );
 
     await window.locator('[data-testid="commit-retouch"]').click();
     await window.locator('[data-testid="retouch-toolbar"]').waitFor({ state: 'detached' });
     await window.waitForSelector('button[title^="cardB_001.jpg"] [title="Retouch version"]');
+    // Outside retouch mode the committed version is still the visible image.
+    await window.getByTestId('retouch-version-indicator').waitFor();
+    await window.waitForFunction(
+      () =>
+        Number(
+          document
+            .querySelector('[data-testid="mosaic-canvas"]')
+            ?.getAttribute('data-mosaic-version') ?? 0,
+        ) > 0,
+    );
 
     const photo = (await invoke<Photo[]>('photos:list')).find(
       (candidate) => candidate.fileName === 'cardB_001.jpg',
