@@ -208,3 +208,85 @@ describe('parsePreset', () => {
     expect(() => parsePresetXmp('<a><b></a>')).toThrow(PresetParseError);
   });
 });
+
+describe('per-pixel colour preset groups', () => {
+  const { preset, unsupported } = parsePresetXmp(fixture('sport-color.xmp'), {
+    path: '/presets/Floodlit Pitch.xmp',
+  });
+
+  it('reads Color Mixer, grading, calibration, parametric, vignette and grain', () => {
+    expect(preset.params).toMatchObject({
+      HueAdjustmentRed: -12,
+      HueAdjustmentOrange: 8,
+      SaturationAdjustmentGreen: -25,
+      LuminanceAdjustmentBlue: -20,
+      ColorGradeShadowHue: 215,
+      ColorGradeShadowSat: 35,
+      ColorGradeMidtoneHue: 38,
+      ColorGradeHighlightLum: 10,
+      ColorGradeGlobalSat: 6,
+      ColorGradeBlending: 60,
+      ColorGradeBalance: -12,
+      ShadowTint: 14,
+      RedHue: 10,
+      GreenSaturation: 8,
+      BlueSaturation: -10,
+      ParametricShadows: -18,
+      ParametricHighlights: -22,
+      ParametricMidtoneSplit: 48,
+      PostCropVignetteAmount: -35,
+      PostCropVignetteStyle: 'Highlight Priority',
+      GrainAmount: 28,
+      GrainSize: 35,
+      GrainFrequency: 55,
+    });
+    expect(unsupported).toEqual([]);
+  });
+
+  it('reads the numeric vignette style Lightroom writes', () => {
+    const numeric = parsePresetXmp(`<x:xmpmeta xmlns:x="adobe:ns:meta/">
+      <rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
+        <rdf:Description xmlns:crs="http://ns.adobe.com/camera-raw-settings/1.0/"
+          crs:PostCropVignetteStyle="2" />
+      </rdf:RDF>
+    </x:xmpmeta>`);
+    expect(numeric.preset.params.PostCropVignetteStyle).toBe('Color Priority');
+    expect(numeric.unsupported).toEqual([]);
+  });
+
+  it('maps legacy split toning to Color Grading at Blending 100', () => {
+    const legacy = parsePresetXmp(`<x:xmpmeta xmlns:x="adobe:ns:meta/">
+      <rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
+        <rdf:Description xmlns:crs="http://ns.adobe.com/camera-raw-settings/1.0/"
+          crs:SplitToningShadowHue="210"
+          crs:SplitToningShadowSaturation="40"
+          crs:SplitToningHighlightHue="45"
+          crs:SplitToningHighlightSaturation="20"
+          crs:SplitToningBalance="-30" />
+      </rdf:RDF>
+    </x:xmpmeta>`);
+    expect(legacy.preset.params).toMatchObject({
+      ColorGradeShadowHue: 210,
+      ColorGradeShadowSat: 40,
+      ColorGradeHighlightHue: 45,
+      ColorGradeHighlightSat: 20,
+      ColorGradeBalance: -30,
+      ColorGradeBlending: 100,
+    });
+    expect(legacy.unsupported).toEqual([]);
+  });
+
+  it('prefers ColorGrade values when both modern and legacy keys are present', () => {
+    const both = parsePresetXmp(`<x:xmpmeta xmlns:x="adobe:ns:meta/">
+      <rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
+        <rdf:Description xmlns:crs="http://ns.adobe.com/camera-raw-settings/1.0/"
+          crs:ColorGradeShadowHue="120"
+          crs:ColorGradeShadowSat="50"
+          crs:SplitToningShadowHue="210"
+          crs:SplitToningShadowSaturation="40" />
+      </rdf:RDF>
+    </x:xmpmeta>`);
+    expect(both.preset.params.ColorGradeShadowHue).toBe(120);
+    expect(both.preset.params.ColorGradeBlending).toBeUndefined();
+  });
+});
