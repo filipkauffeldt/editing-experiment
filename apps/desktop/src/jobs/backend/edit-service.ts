@@ -21,6 +21,7 @@ import {
   type ExifToolService,
 } from '@ee/metadata';
 import { randomUUID } from 'node:crypto';
+import type { EditedPreviews } from './edited-previews';
 import type { PhotoLibrary } from './photo-library';
 
 /** The develop version of a photo. The sidecar holds exactly one set of `crs:` settings. */
@@ -54,6 +55,7 @@ export class EditService {
   constructor(
     private readonly photos: PhotoLibrary,
     private readonly exiftool: ExifToolService,
+    private readonly previews: EditedPreviews,
   ) {}
 
   /** The versions stored next to a photo: its develop params plus every retouch version. */
@@ -173,10 +175,17 @@ export class EditService {
 
   private async publish(photo: Photo, versions: PhotoVersion[]): Promise<Photo> {
     const edited = versionsEdited(versions);
+    // Callers hold the photo lock, so the cached previews cannot change under us.
+    const previewFields = await this.previews.afterVersionsChanged(
+      this.photos.get(photo.id),
+      versions,
+      edited,
+    );
     return this.photos.update(photo.id, (current) => ({
       ...current,
       versions,
       status: { ...current.status, edited },
+      ...previewFields,
     }));
   }
 }

@@ -1,9 +1,10 @@
-import { IpcError, notImplemented, type IpcHandlers } from '@ee/contracts';
+import { IpcError, type IpcHandlers } from '@ee/contracts';
 import { detectCards, testSource, type GetSecret } from '@ee/ingest';
 import type { UploadQueue } from '@ee/export';
 import { systemHandlers } from '../handlers/system';
 import type { Emit, PhotoLibrary } from './photo-library';
 import type { EditService } from './edit-service';
+import type { EditedPreviews } from './edited-previews';
 import type { ExportService } from './export-service';
 import type { FaceService } from './faces';
 import type { IngestService } from './ingest-service';
@@ -20,6 +21,7 @@ export interface HandlerDeps {
   settings: SettingsStore;
   metadata: MetadataService;
   edits: EditService;
+  editedPreviews: EditedPreviews;
   labels: LabelService;
   faces: FaceService;
   presets: PresetStore;
@@ -30,8 +32,19 @@ export interface HandlerDeps {
 
 /** One handler per channel the jobs process serves in real mode. */
 export function createBackendHandlers(deps: HandlerDeps): IpcHandlers {
-  const { photos, settings, metadata, edits, labels, faces, presets, ingest, queue, exporter } =
-    deps;
+  const {
+    photos,
+    settings,
+    metadata,
+    edits,
+    editedPreviews,
+    labels,
+    faces,
+    presets,
+    ingest,
+    queue,
+    exporter,
+  } = deps;
   const servedByMain = (channel: string) => async (): Promise<never> => {
     throw new IpcError('internal', `${channel} is served by the main process`);
   };
@@ -44,7 +57,7 @@ export function createBackendHandlers(deps: HandlerDeps): IpcHandlers {
     'photos:createVersion': (args) => edits.createVersion(args),
     'photos:deleteVersion': (args) => edits.deleteVersion(args),
     'photos:setLabels': (args) => labels.setLabels(args),
-    'photos:setEditedPreview': notImplemented('photos:setEditedPreview'),
+    'photos:setEditedPreview': async (args) => editedPreviews.set(args),
 
     'ingest:start': ({ config }) => ingest.start(config),
     'ingest:stop': async (args) => ingest.stop(args?.sourceId),

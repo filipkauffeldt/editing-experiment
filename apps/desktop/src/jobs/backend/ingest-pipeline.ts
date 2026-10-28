@@ -188,6 +188,7 @@ export function createOnFileIngested(
             return undefined;
           })
       : undefined;
+    const edited = versions !== undefined && versionsEdited(versions);
     const photo: Photo = {
       id: info.photoId,
       path: info.path,
@@ -203,12 +204,14 @@ export function createOnFileIngested(
       colorClass: labels.colorClass,
       status: {
         ingest: 'done',
-        edited: versions !== undefined && versionsEdited(versions),
+        edited,
         metadataDiffersFromTemplate: differs,
         export: 'none',
         upload: 'none',
       },
       versions: versions ?? [{ id: developVersionId(info.photoId), kind: 'develop', ops: {} }],
+      // The camera preview shows none of it; the renderer draws the edited one when first needed.
+      ...(edited ? { previewStale: true } : {}),
     };
     // Reconciliation and a normal ingest can reach the same file; index it once.
     if (photos.hasPath(info.path)) return;

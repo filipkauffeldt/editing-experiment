@@ -17,8 +17,9 @@ import { randomUUID } from 'node:crypto';
 import { mkdir, readFile, rename, rm, stat, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { AppBackendResponse } from '../../shared/jobs-protocol';
+import { retouchKey } from './edited-previews';
 import type { PhotoLibrary } from './photo-library';
-import { SAFE_PHOTO_ID, type PreviewCache, type PreviewKind } from './previews';
+import { SAFE_PHOTO_ID, type PreviewCache, type PreviewKind, type ServedFile } from './previews';
 
 const text = (status: number, body: string): AppBackendResponse => ({
   status,
@@ -100,17 +101,27 @@ export class AppResources {
     kind: PreviewKind,
     photoId: ReturnType<typeof asPhotoId>,
   ): Promise<AppBackendResponse> {
-    const file = this.options.previews.pathFor(kind, photoId);
+    const { previews, photos } = this.options;
+    let served: ServedFile;
     try {
-      const { size } = await stat(file);
+      // The index decides which JPEG may be shown (see `PreviewCache.resolve`). A
+      // file for a photo the index does not know cannot be retouched.
+      served = await previews.resolve(kind, photoId, retouchKey(photos.get(photoId).versions));
+    } catch (error) {
+      if (!(error instanceof IpcError) || error.code !== 'not_found') throw error;
+      served = { file: previews.pathFor(kind, photoId), placeholder: false };
+    }
+    try {
+      const { size } = await stat(served.file);
       return {
         status: 200,
         headers: {
           'content-type': 'image/jpeg',
           'content-length': String(size),
-          'cache-control': 'private, max-age=60',
+          // A placeholder stands in until the render arrives under a new `?v=`.
+          'cache-control': served.placeholder ? 'no-store' : 'private, max-age=60',
         },
-        file,
+        file: served.file,
       };
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
