@@ -9,5 +9,8 @@ export default defineConfig({
     environment: 'jsdom',
     setupFiles: ['./test/setup.ts'],
     css: true,
+    // Two Electron tests must not launch the binary (or download it) at the
+    // same time: that races into ETXTBSY on CI.
+    fileParallelism: false,
   },
 });
