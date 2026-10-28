@@ -180,6 +180,20 @@ describe('edited thumbnails and previews in the store', () => {
     expect(rendered.map((r) => r.photoId)).toEqual([second!.id, third!.id]);
   });
 
+  it('clears the stale flag of a photo that turns out to have no edits', async () => {
+    const [first, second] = mockPhotos();
+    const { store, rendered } = await setup({
+      photos: [
+        first!,
+        { ...second!, status: { ...second!.status, edited: true }, previewStale: true },
+      ],
+    });
+    store.selectRelative(1);
+    await settle();
+    expect(rendered).toHaveLength(0);
+    expect(store.getState().photos.find((p) => p.id === second!.id)?.previewStale).toBe(false);
+  });
+
   it('renders nothing for an unedited photo and when no renderer is wired', async () => {
     const { store, rendered } = await setup();
     store.setVisibleEditedPreviews(

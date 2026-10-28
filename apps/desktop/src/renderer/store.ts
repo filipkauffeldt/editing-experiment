@@ -419,6 +419,9 @@ export class AppStore {
         store: (args) => this.bridge.invoke('photos:setEditedPreview', args),
         // Without waiting for the photos:updated event, so a photo is not drawn twice.
         onStored: (photo) => this.upsertPhoto(photo),
+        // The backend still calls it stale (say, a sidecar with only a process version).
+        onNoEdits: (photo) =>
+          this.upsertPhoto({ ...(this.photoById.get(photo.id) ?? photo), previewStale: false }),
         onError: (photo, cause) => {
           console.warn(`Could not render the thumbnail of ${photo.fileName}`, cause);
           // One toast per session: a missing GPU would otherwise fail photo after photo.

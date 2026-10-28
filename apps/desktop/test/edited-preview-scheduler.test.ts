@@ -370,6 +370,41 @@ describe('photos edited before the cache knew (on screen)', () => {
   });
 });
 
+describe('photos with nothing to draw', () => {
+  it('looks at a stale photo without edits once, clears the flag, and leaves it alone while scrolling', async () => {
+    let looks = 0;
+    let params: EditParams = { ProcessVersion: '11.0' };
+    const cleared: PhotoId[] = [];
+    const h = harness({
+      getParams: async () => {
+        looks += 1;
+        return params;
+      },
+      onNoEdits: (photo) => cleared.push(photo.id),
+    });
+    h.photos.set(photoA.id, {
+      ...photoA,
+      status: { ...photoA.status, edited: true },
+      previewStale: true,
+    });
+    for (let i = 0; i < 5; i++) {
+      h.scheduler.setVisible([photoA.id]);
+      h.scheduler.setVisible([]);
+      h.scheduler.setSelected(photoA.id);
+      await advance(1_000);
+    }
+    expect(looks).toBe(1);
+    expect(cleared).toEqual([photoA.id]);
+    expect(h.rendered).toHaveLength(0);
+
+    // A real edit afterwards is drawn as usual.
+    params = { Exposure2012: 0.4 };
+    h.scheduler.schedule(photoA.id);
+    await advance(800);
+    expect(h.stored).toHaveLength(1);
+  });
+});
+
 describe('what is on screen goes first', () => {
   const stale = (photo: Photo, id: string): Photo => ({
     ...photo,

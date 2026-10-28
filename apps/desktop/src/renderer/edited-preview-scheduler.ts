@@ -123,6 +123,7 @@ export class EditedPreviewScheduler {
     job.revision = this.nextRevision();
     job.refusals = 0;
     this.failedAt.delete(photoId);
+    this.noEdits.delete(photoId);
     this.enqueue(job, 'urgent');
   }
 
@@ -172,7 +173,7 @@ export class EditedPreviewScheduler {
     if (!photo?.status.edited || !photo.previewStale) return;
     const existing = this.jobs.get(photoId);
     if (existing && (existing.timer !== undefined || existing.queued !== undefined)) return;
-    if (this.running === photoId) return;
+    if (this.running === photoId || this.noEdits.has(photoId)) return;
     const failed = this.failedAt.get(photoId);
     if (failed !== undefined && Date.now() - failed < (this.deps.failureBackoffMs ?? 30_000)) {
       return;
@@ -315,8 +316,13 @@ export class EditedPreviewScheduler {
       // Read after settling: a retouch commit may have replaced the photo meanwhile.
       photo = deps.getPhoto(job.photoId) ?? photo;
       const [params, ops] = [await deps.getParams(job.photoId), deps.getRetouchOps(photo)];
-      // Nothing to show: the backend already went back to the camera preview.
-      if (!hasDevelopEdits(params) && ops.length === 0) return;
+      if (!hasDevelopEdits(params) && ops.length === 0) {
+        // Nothing to show: the camera preview is right. Remember it, so scrolling
+        // past this photo does not read its params again and again.
+        this.noEdits.add(job.photoId);
+        if (photo.previewStale) deps.onNoEdits?.(photo);
+        return;
+      }
       const images = await deps.render(photo, params, ops);
       // A newer edit made this render obsolete; its own render follows.
       if (superseded()) return;
