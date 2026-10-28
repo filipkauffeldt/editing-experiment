@@ -383,6 +383,131 @@ export function constrainCrop(crop: CropParams, image: Size): CropParams {
   return cropFromGeometry(fittedCenterX, fittedCenterY, fittedWidth, fittedHeight, angle, image);
 }
 
+/** EXIF orientation, 1..8 (1 = stored pixels are already upright). */
+export type ExifOrientation = 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8;
+
+/** Orientations that mirror the image, so a clockwise angle becomes counter-clockwise. */
+const MIRRORED_ORIENTATIONS = new Set<number>([2, 4, 5, 7]);
+/** Orientations that swap the stored width and height. */
+const SWAPPED_ORIENTATIONS = new Set<number>([5, 6, 7, 8]);
+
+/** Normalises an EXIF orientation value; unknown values mean 1 (no transform). */
+export function normalizeOrientation(orientation: number | undefined): ExifOrientation {
+  return orientation !== undefined &&
+    Number.isInteger(orientation) &&
+    orientation >= 1 &&
+    orientation <= 8
+    ? (orientation as ExifOrientation)
+    : 1;
+}
+
+/** Size of the stored (pre-orientation) pixel array for an oriented image. */
+export function storedSizeForOrientation(oriented: Size, orientation: number): Size {
+  return SWAPPED_ORIENTATIONS.has(normalizeOrientation(orientation))
+    ? { width: oriented.height, height: oriented.width }
+    : { width: oriented.width, height: oriented.height };
+}
+
+/** Normalized oriented point -> normalized stored point (EXIF orientation applied). */
+export function orientedToStoredPoint(point: Point, orientation: number): Point {
+  switch (normalizeOrientation(orientation)) {
+    case 2:
+      return { x: 1 - point.x, y: point.y };
+    case 3:
+      return { x: 1 - point.x, y: 1 - point.y };
+    case 4:
+      return { x: point.x, y: 1 - point.y };
+    case 5:
+      return { x: point.y, y: point.x };
+    case 6:
+      return { x: point.y, y: 1 - point.x };
+    case 7:
+      return { x: 1 - point.y, y: 1 - point.x };
+    case 8:
+      return { x: 1 - point.y, y: point.x };
+    default:
+      return { x: point.x, y: point.y };
+  }
+}
+
+/** Normalized stored point -> normalized oriented point. */
+export function storedToOrientedPoint(point: Point, orientation: number): Point {
+  switch (normalizeOrientation(orientation)) {
+    case 2:
+      return { x: 1 - point.x, y: point.y };
+    case 3:
+      return { x: 1 - point.x, y: 1 - point.y };
+    case 4:
+      return { x: point.x, y: 1 - point.y };
+    case 5:
+      return { x: point.y, y: point.x };
+    case 6:
+      return { x: 1 - point.y, y: point.x };
+    case 7:
+      return { x: 1 - point.y, y: 1 - point.x };
+    case 8:
+      return { x: point.y, y: 1 - point.x };
+    default:
+      return { x: point.x, y: point.y };
+  }
+}
+
+/**
+ * Oriented-space crop (the app's `EditParams.crop`) -> Lightroom's stored-space
+ * `crs:Crop*`. EXIF orientations 5..8 swap the crop's width/height (a portrait
+ * crop in the displayed image is landscape in the stored sensor array), and
+ * mirrored orientations (2, 4, 5, 7) negate the clockwise angle. This matches
+ * darktable's orientation handling in `dt_lightroom_import`.
+ */
+export function cropOrientedToStored(
+  crop: CropParams,
+  oriented: Size,
+  orientation: number,
+): CropParams {
+  const normalised = normalizeOrientation(orientation);
+  if (normalised === 1) return { ...crop };
+  const stored = storedSizeForOrientation(oriented, normalised);
+  const geometry = cropGeometry(crop, oriented);
+  const center = orientedToStoredPoint(
+    { x: geometry.centerX / oriented.width, y: geometry.centerY / oriented.height },
+    normalised,
+  );
+  const swapped = SWAPPED_ORIENTATIONS.has(normalised);
+  return cropFromGeometry(
+    center.x * stored.width,
+    center.y * stored.height,
+    swapped ? geometry.height : geometry.width,
+    swapped ? geometry.width : geometry.height,
+    MIRRORED_ORIENTATIONS.has(normalised) ? -geometry.angle : geometry.angle,
+    stored,
+  );
+}
+
+/** Stored-space `crs:Crop*` -> oriented-space crop (inverse of {@link cropOrientedToStored}). */
+export function cropStoredToOriented(
+  crop: CropParams,
+  oriented: Size,
+  orientation: number,
+): CropParams {
+  const normalised = normalizeOrientation(orientation);
+  if (normalised === 1) return { ...crop };
+  const stored = storedSizeForOrientation(oriented, normalised);
+  const geometry = cropGeometry(crop, stored);
+  const center = storedToOrientedPoint(
+    { x: geometry.centerX / stored.width, y: geometry.centerY / stored.height },
+    normalised,
+  );
+  const swapped = SWAPPED_ORIENTATIONS.has(normalised);
+  return cropFromGeometry(
+    center.x * oriented.width,
+    center.y * oriented.height,
+    swapped ? geometry.height : geometry.width,
+    swapped ? geometry.width : geometry.height,
+    MIRRORED_ORIENTATIONS.has(normalised) ? -geometry.angle : geometry.angle,
+    oriented,
+  );
+}
+
 /** True when the crop covers the whole image and does not straighten it. */
 export function isFullCrop(crop: CropParams): boolean {
   const epsilon = 1e-9;

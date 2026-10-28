@@ -7,6 +7,8 @@ import {
   cropDevelopedRgba,
   cropFromGeometry,
   cropGeometry,
+  cropOrientedToStored,
+  cropStoredToOriented,
   cropOutputPixels,
   cropOutputSize,
   croppedToSource,
@@ -334,6 +336,53 @@ describe('small, edge and portrait crops', () => {
       expect(corner.x).toBeLessThanOrEqual(portrait.width + 1e-6);
       expect(corner.y).toBeGreaterThanOrEqual(-1e-6);
       expect(corner.y).toBeLessThanOrEqual(portrait.height + 1e-6);
+    }
+  });
+});
+
+describe('EXIF orientation mapping', () => {
+  const ORIENTED = { width: 4000, height: 6000 };
+
+  it('round-trips crop rectangles and angles for all eight orientations', () => {
+    for (let orientation = 1; orientation <= 8; orientation++) {
+      const crop = cropFromGeometry(1300, 2100, 1600, 900, 7, ORIENTED);
+      const stored = cropOrientedToStored(crop, ORIENTED, orientation);
+      const back = cropStoredToOriented(stored, ORIENTED, orientation);
+      expect(back.left, `orientation ${orientation}`).toBeCloseTo(crop.left, 9);
+      expect(back.top, `orientation ${orientation}`).toBeCloseTo(crop.top, 9);
+      expect(back.right, `orientation ${orientation}`).toBeCloseTo(crop.right, 9);
+      expect(back.bottom, `orientation ${orientation}`).toBeCloseTo(crop.bottom, 9);
+      expect(back.angle, `orientation ${orientation}`).toBeCloseTo(crop.angle, 9);
+    }
+  });
+
+  it('maps a displayed top-left crop for orientation 6 to the stored bottom-left', () => {
+    const crop: CropParams = { left: 0, top: 0, right: 0.25, bottom: 0.25, angle: 0 };
+    const stored = cropOrientedToStored(crop, ORIENTED, 6);
+    expect(stored.left).toBeCloseTo(0, 9);
+    expect(stored.top).toBeCloseTo(0.75, 9);
+    expect(stored.right).toBeCloseTo(0.25, 9);
+    expect(stored.bottom).toBeCloseTo(1, 9);
+    expect(stored.angle).toBe(0);
+  });
+
+  it('flips the angle sign for mirrored orientations only', () => {
+    const crop = cropFromGeometry(2000, 3000, 1200, 800, 7, ORIENTED);
+    for (let orientation = 1; orientation <= 8; orientation++) {
+      const stored = cropOrientedToStored(crop, ORIENTED, orientation);
+      const mirrored = [2, 4, 5, 7].includes(orientation);
+      expect(stored.angle, `orientation ${orientation}`).toBeCloseTo(mirrored ? -7 : 7, 9);
+      const swapped = orientation >= 5;
+      const storedSize = swapped ? { width: ORIENTED.height, height: ORIENTED.width } : ORIENTED;
+      const geometry = cropGeometry(stored, storedSize);
+      expect(geometry.width, `orientation ${orientation} width`).toBeCloseTo(
+        swapped ? 800 : 1200,
+        9,
+      );
+      expect(geometry.height, `orientation ${orientation} height`).toBeCloseTo(
+        swapped ? 1200 : 800,
+        9,
+      );
     }
   });
 });
