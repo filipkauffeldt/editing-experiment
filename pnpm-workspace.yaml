@@ -6,8 +6,12 @@ packages:
 # Only these dependencies may run install scripts (esbuild unpacks a platform
 # binary); everything else stays blocked. Electron has no install script: it
 # downloads its binary on first use (`require('electron')`).
+# Optional native accelerators with pure-JS fallbacks; not needed for the PoC.
 allowBuilds:
   esbuild: true
+  cpu-features: false
+  dtrace-provider: false
+  ssh2: false
 
 # pnpm refuses very fresh releases by default; electron 45.1.0 was pinned before
 # the cool-down elapsed.
