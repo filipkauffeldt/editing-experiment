@@ -578,8 +578,9 @@ describe.skipIf(nefs.length === 0 || !haveDisplay)('PoC demo (real Electron app)
     if (op?.type !== 'mosaic') throw new Error('the retouch version has no mosaic');
     const thumbAfter = await thumbPixels('cardB_001.jpg');
     expect([thumbAfter.width, thumbAfter.height]).toEqual([thumbBefore.width, thumbBefore.height]);
-    const blockRanges = (image: typeof thumbAfter): number[] => {
-      const ranges: number[] = [];
+    // Pixel range (green) inside every mosaic block of the shapes, with the block's size.
+    const blockRanges = (image: typeof thumbAfter): { block: number; range: number }[] => {
+      const ranges: { block: number; range: number }[] = [];
       for (const shape of op.shapes) {
         if (shape.type !== 'rect') continue;
         const block = blockSizeForShape(shape, op.blockSizeRel, image.width, image.height);
@@ -603,7 +604,7 @@ describe.skipIf(nefs.length === 0 || !haveDisplay)('PoC demo (real Electron app)
                 hi = Math.max(hi, value);
               }
             }
-            ranges.push(hi - lo);
+            ranges.push({ block, range: hi - lo });
           }
         }
       }
@@ -614,8 +615,18 @@ describe.skipIf(nefs.length === 0 || !haveDisplay)('PoC demo (real Electron app)
     const after = blockRanges(thumbAfter);
     const before = blockRanges(thumbBefore);
     expect(after.length).toBeGreaterThan(0);
-    expect(Math.max(...after)).toBeLessThanOrEqual(12);
-    expect(Math.max(...before)).toBeGreaterThan(24);
+    const mean = (values: number[]): number =>
+      values.reduce((sum, value) => sum + value, 0) / Math.max(1, values.length);
+    // The thumbnail is a JPEG, whose 8x8 transform grid only lines up with blocks that are a
+    // multiple of 8 px (the minimum). Those must be flat; a larger face gets bigger blocks
+    // (9 px, say) whose edges ring through the quantiser, so for all blocks together the
+    // mosaic must have removed most of the detail the camera thumbnail has.
+    const aligned = after.filter(({ block }) => block % 8 === 0).map(({ range }) => range);
+    expect(Math.max(0, ...aligned)).toBeLessThanOrEqual(12);
+    expect(mean(before.map(({ range }) => range))).toBeGreaterThan(40);
+    expect(mean(after.map(({ range }) => range))).toBeLessThan(
+      0.25 * mean(before.map(({ range }) => range)),
+    );
 
     // Add a 5 degree straighten and crop on top of the committed mosaic.
     await window.keyboard.press('c');
