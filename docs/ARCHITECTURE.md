@@ -11,9 +11,10 @@
    (temp/tint), contrast, highlights, shadows, whites, blacks, vibrance and
    saturation with live GPU preview.
 4. Select an area, run face detection inside it, mosaic the detected faces.
-5. **Finish & next** renders a full-resolution JPEG with metadata and no
-   leaked original thumbnail, uploads it to a target FTP/SFTP server, and
-   advances to the next photo.
+5. **Next & send** renders a full-resolution JPEG with metadata and no
+   leaked original thumbnail into the active export preset's local folder,
+   uploads the exported file to a target FTP/SFTP server, and advances to the
+   next photo.
 
 ## Layout
 
@@ -58,14 +59,15 @@ Electron dependency (`createBackend({ userDataDir, emit, getSecret })`), so inte
 in plain Node. Files under Electron's `userData`:
 
 ```
-settings.json        sources, destinations, ingest options, finish action
+settings.json        sources, destinations, ingest options, export presets, active preset
 index.sqlite         photo index (cache; sidecars are the source of truth)
 seen.sqlite          files already ingested per source
 uploads.sqlite       upload queue
+export-jobs.json     resumable export batches (queued photos survive a restart)
 presets/*.json       imported develop presets
 credentials.json     written by main only: ciphertext from safeStorage
 cache/{thumb,preview,linear}   disposable (see "Edited thumbnails and previews")
-exports/<photoId>/   exported JPEGs
+exports/             default exportRoot (presets choose folders below it)
 ```
 
 - Ingest: `@ee/ingest` with the `{variable}` expander from `@ee/metadata` and a per-file hook that reads
@@ -81,6 +83,13 @@ exports/<photoId>/   exported JPEGs
   source or destination means anonymous FTP (user `anonymous`), so demos and tests need no keyring.
 - Edits: develop params are the `crs:` block of the sidecar (one develop version per photo), retouch
   versions are `ee:RetouchVersions`. Writes to one photo's sidecar are serialised.
+- Exports: an export job owns a list of photos and a preset. The jobs process asks the renderer for
+  each full-resolution render over `jobs:event` (`export.render`); the renderer replies with
+  `export:render` (RGBA over IPC, the same PoC cost as the old finish action). The jobs process then
+  resizes, applies output sharpening (a luminance unsharp mask in `packages/export`), encodes,
+  writes metadata, runs `assertNoEmbeddedPreviews`, publishes atomically and only then enqueues the
+  exported file for upload. Jobs are persisted in `export-jobs.json`; after a restart the current
+  photo is queued again once the renderer calls `export:rendererReady`.
 - On quit, main asks the jobs process to shut down (stop ingest, close the upload queue, ExifTool and
   the databases) and kills it only after a timeout.
 
@@ -140,16 +149,21 @@ Key types (names are binding, fields can grow):
 - `RetouchOp` = `MosaicOp { shapes: Shape[], blockSizeRel }`,
   `Shape = Rect | Polygon` in normalized image coordinates (0..1)
 - `PhotoVersion { id, kind: 'develop' | 'retouch', ops }`
-- `ExportPreset { maxEdge?, quality, metadata: 'all' | 'iptc' | 'none' }`
+- `ExportPreset { id, name, folderTemplate, fileNameTemplate, ifExists, format, quality,
+  colorSpace, resize, outputSharpening, metadata, stripGps, version, sendTo }`;
+  `folderTemplate` is relative to `AppSettings.exportRoot` (or absolute) and expands
+  `{variables}` from `@ee/metadata`, plus `{preset}`.
 - `Destination` = `FolderDestination | FtpDestination | SftpDestination`,
   with `remotePathTemplate`
-- `FinishAction { exportPreset, destinations[] }` (configurable "Finish & next")
+- `ExportJob { id, photoIds, presetId, send[], state, photos[] }` (per-photo progress)
 - `JobEvent` stream (ingest progress, upload progress, errors)
 - IPC: one typed map `IpcApi` of `channel -> (args) => Promise<result>` plus
   typed event channels. Preload exposes it as `window.ee`.
-- `export:photo` sends the full-resolution RGBA render over IPC. That is fine for
-  the PoC (about 180 MB for a 45 MP Z9 frame) but a known cost to optimise later
-  (e.g. MessagePort transfer or a shared temp file).
+- `exportPresets:list/save/remove`, `export:start/cancel/list`, `export:render` and
+  `export:rendererReady`; progress arrives as `export.progress` / `export.state`
+  job events. `export:render` sends the full-resolution RGBA render over IPC. That is
+  fine for the PoC (about 180 MB for a 45 MP Z9 frame) but a known cost to optimise
+  later (e.g. MessagePort transfer or a shared temp file).
 
 ## Image ops (no sharp)
 
@@ -297,6 +311,15 @@ unchanged: the rotated rectangle in source space, whose output is the leveled fr
 - **Keys**: `C` enters (and applies), `Enter` or a double-click inside the frame
   applies, `Esc` cancels, `X` swaps orientation, `Ctrl/Cmd+Alt+R` resets, double-click on
   the angle slider resets the angle.
+## Export model
+
+Three actions share one model: Export… (preset into a local folder), Export & send
+(the same, then upload the exported files) and Next & send (one photo with the active
+preset, then advance). A batch runs in the jobs process; the renderer stays usable.
+`ifExists` picks suffix/overwrite/skip. Metadata modes write IPTC/XMP, optionally
+copy camera EXIF and GPS from the original, or only copyright; `stripGps` drops the
+location tags. Output sharpening is a simple luminance unsharp mask applied after
+the resize, in the jobs process, before encoding.
 
 ## Screenshots
 

@@ -26,9 +26,10 @@ It is a proof of concept, not production software. The PoC demo in
   whites, blacks, tone curves, vibrance, saturation) and imported `.xmp`
   presets. Legacy `.lrtemplate` presets are parsed too.
 - Retouch mosaic, with YuNet face detection inside a dragged region.
-- **Finish & next**: full-resolution JPEG with the selected metadata and no
-  embedded preview of the unretouched image, then a folder/FTP/FTPS/SFTP upload
-  queue.
+- **Export presets**: full-resolution JPEG into a local folder with the
+  selected metadata, resize and output sharpening, and no embedded preview of the
+  unretouched image; Export & send / Next & send then upload the exported files
+  through the folder/FTP/FTPS/SFTP queue.
 - Anonymous FTP for sources and destinations when no credential reference is
   set.
 
