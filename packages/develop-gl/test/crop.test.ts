@@ -13,6 +13,7 @@ import {
   croppedToSourcePixels,
   isFullCrop,
   largestCropForAspect,
+  resizeCropFromHandle,
   sanitizeCrop,
   sourceToCropped,
   sourceToCroppedPixels,
@@ -156,5 +157,88 @@ describe('cropDevelopedRgba', () => {
     const centre = ((size.height >> 1) * size.width + (size.width >> 1)) * 4;
     expect(out[centre + 3]).toBe(255);
     expect(out[centre + 2]).toBeCloseTo(200, -1);
+  });
+});
+
+describe('darktable cross-check', () => {
+  /** Mirror of dt_lightroom_import's crop conversion in src/develop/lightroom.c. */
+  function darktableCrop(crop: CropParams, image: { width: number; height: number }) {
+    const deg2rad = (degrees: number): number => (degrees * Math.PI) / 180;
+    const rotateX = (x: number, y: number, radians: number): number =>
+      x * Math.cos(radians) + y * Math.sin(radians);
+    const rotateY = (x: number, y: number, radians: number): number =>
+      -x * Math.sin(radians) + y * Math.cos(radians);
+
+    let cx = (crop.left - 0.5) * image.width;
+    let cw = (crop.right - 0.5) * image.width;
+    let cy = (crop.top - 0.5) * image.height;
+    let ch = (crop.bottom - 0.5) * image.height;
+    const pcAngle = -crop.angle;
+    const rangle = deg2rad(pcAngle);
+    const rotatedCx = rotateX(cx, cy, -rangle);
+    const rotatedCy = rotateY(cx, cy, -rangle);
+    const rotatedCw = rotateX(cw, ch, -rangle);
+    const rotatedCh = rotateY(cw, ch, -rangle);
+    cx = rotatedCx;
+    cy = rotatedCy;
+    cw = rotatedCw;
+    ch = rotatedCh;
+    const newWidth = rotateX(image.width, -image.height, -Math.abs(rangle));
+    const newHeight = rotateY(image.width, image.height, -Math.abs(rangle));
+    return {
+      cx: cx / newWidth + 0.5,
+      cw: cw / newWidth + 0.5,
+      cy: cy / newHeight + 0.5,
+      ch: ch / newHeight + 0.5,
+      angle: -crop.angle,
+    };
+  }
+
+  it('matches the darktable conversion for a non-zero angle', () => {
+    const deg2rad = (degrees: number): number => (degrees * Math.PI) / 180;
+    const rotateX = (x: number, y: number, radians: number): number =>
+      x * Math.cos(radians) + y * Math.sin(radians);
+    const rotateY = (x: number, y: number, radians: number): number =>
+      -x * Math.sin(radians) + y * Math.cos(radians);
+
+    for (const angle of [5, -7]) {
+      const crop = cropFromGeometry(
+        IMAGE.width * 0.43,
+        IMAGE.height * 0.54,
+        IMAGE.width * 0.52,
+        IMAGE.height * 0.31,
+        angle,
+        IMAGE,
+      );
+      const dt = darktableCrop(crop, IMAGE);
+      const geometry = cropGeometry(crop, IMAGE);
+
+      // The displayed crop is axis-aligned in the frame darktable rotates into.
+      const radians = deg2rad(crop.angle);
+      const rotatedCenterX = rotateX(
+        geometry.centerX - IMAGE.width / 2,
+        geometry.centerY - IMAGE.height / 2,
+        radians,
+      );
+      const rotatedCenterY = rotateY(
+        geometry.centerX - IMAGE.width / 2,
+        geometry.centerY - IMAGE.height / 2,
+        radians,
+      );
+      const newWidth = rotateX(IMAGE.width, -IMAGE.height, -Math.abs(deg2rad(-crop.angle)));
+      const newHeight = rotateY(IMAGE.width, IMAGE.height, -Math.abs(deg2rad(-crop.angle)));
+      const expected = {
+        cx: (rotatedCenterX - geometry.width / 2) / newWidth + 0.5,
+        cw: (rotatedCenterX + geometry.width / 2) / newWidth + 0.5,
+        cy: (rotatedCenterY - geometry.height / 2) / newHeight + 0.5,
+        ch: (rotatedCenterY + geometry.height / 2) / newHeight + 0.5,
+        angle: -crop.angle,
+      };
+      expect(dt.cx).toBeCloseTo(expected.cx, 9);
+      expect(dt.cw).toBeCloseTo(expected.cw, 9);
+      expect(dt.cy).toBeCloseTo(expected.cy, 9);
+      expect(dt.ch).toBeCloseTo(expected.ch, 9);
+      expect(dt.angle).toBe(-crop.angle);
+    }
   });
 });

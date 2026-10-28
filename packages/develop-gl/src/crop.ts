@@ -14,10 +14,18 @@ import type { CropParams } from '@ee/contracts';
  *   The four numbers above are therefore the two opposite corners *after*
  *   rotation; the crop's output is the rectangle "leveled" by the angle.
  *
- * darktable's Lightroom importer (`src/develop/lightroom.c`) reads the same
- * four tags as normalized coordinates of the unrotated image and carries
- * `CropAngle` separately into its clipping module (negated there because
- * darktable's angle convention is opposite).
+ * darktable's Lightroom importer reads the same tags and applies the same
+ * rotation: `dt_lightroom_import` in
+ * https://github.com/darktable-org/darktable/blob/master/src/develop/lightroom.c
+ * takes `CropLeft/Top/Right/Bottom` as edge coordinates relative to the image
+ * centre, rotates the rectangle about that centre by `CropAngle`, and stores
+ * `pc.angle = -CropAngle` because darktable's clipping angle runs the other
+ * way. `test/crop.test.ts` mirrors that conversion and checks our stored
+ * corners against it.
+ *
+ * RawTherapee and ART do not import Adobe `crs:` crops (their
+ * `rtengine/metadata.cc` / `src/engine/metadata.cc` only handle EXIF/IPTC/XMP
+ * capture metadata), so there is no third implementation to cross-check.
  *
  * This app's linear image is already EXIF-orientation corrected, so the
  * "develop coordinate system" here is the oriented image; for the common
@@ -227,7 +235,11 @@ export type CropHandle = 'nw' | 'n' | 'ne' | 'e' | 'se' | 's' | 'sw' | 'w';
 /**
  * Resizes a crop from a handle dragged to `point` (source pixels). The
  * opposite corner/edge stays put. `aspect` (pixel width / height) locks the
- * ratio when present. The result is constrained to the image.
+ * ratio when present.
+ *
+ * When the dragged edge would leave the image, it is clamped *along that
+ * edge* (binary search towards the old position); the crop is not scaled
+ * around its centre, so the opposite edge does not move.
  */
 export function resizeCropFromHandle(
   crop: CropParams,
@@ -237,72 +249,115 @@ export function resizeCropFromHandle(
   aspect?: number,
 ): CropParams {
   const geometry = cropGeometry(crop, image);
-  const local = unrotatePoint(
+  const proposed = unrotatePoint(
     point.x - geometry.centerX,
     point.y - geometry.centerY,
     geometry.angle,
   );
-  let left = -geometry.width / 2;
-  let right = geometry.width / 2;
-  let top = -geometry.height / 2;
-  let bottom = geometry.height / 2;
+  const oldLeft = -geometry.width / 2;
+  const oldRight = geometry.width / 2;
+  const oldTop = -geometry.height / 2;
+  const oldBottom = geometry.height / 2;
   const minSize = Math.max(2, Math.min(image.width, image.height) * 0.005);
-  if (handle.includes('w')) left = Math.min(local.x, right - minSize);
-  if (handle.includes('e')) right = Math.max(local.x, left + minSize);
-  if (handle.includes('n')) top = Math.min(local.y, bottom - minSize);
-  if (handle.includes('s')) bottom = Math.max(local.y, top + minSize);
+  const handleX = handle.includes('w') ? oldLeft : handle.includes('e') ? oldRight : 0;
+  const handleY = handle.includes('n') ? oldTop : handle.includes('s') ? oldBottom : 0;
 
-  let width = right - left;
-  let height = bottom - top;
-  if (aspect !== undefined && Number.isFinite(aspect) && aspect > 0) {
-    const horizontal = handle === 'e' || handle === 'w' || handle.length === 2;
-    if (horizontal && handle.length === 2) {
-      height = width / aspect;
-      if (handle.includes('n')) top = bottom - height;
-      else bottom = top + height;
-    } else if (horizontal) {
-      height = width / aspect;
-      const centerY = (top + bottom) / 2;
-      top = centerY - height / 2;
-      bottom = centerY + height / 2;
-    } else {
-      width = height * aspect;
-      const centerX = (left + right) / 2;
-      left = centerX - width / 2;
-      right = centerX + width / 2;
+  const build = (localX: number, localY: number): CropParams => {
+    let left = oldLeft;
+    let right = oldRight;
+    let top = oldTop;
+    let bottom = oldBottom;
+    if (handle.includes('w')) left = Math.min(localX, right - minSize);
+    if (handle.includes('e')) right = Math.max(localX, left + minSize);
+    if (handle.includes('n')) top = Math.min(localY, bottom - minSize);
+    if (handle.includes('s')) bottom = Math.max(localY, top + minSize);
+
+    let width = right - left;
+    let height = bottom - top;
+    if (aspect !== undefined && Number.isFinite(aspect) && aspect > 0) {
+      const horizontal = handle === 'e' || handle === 'w' || handle.length === 2;
+      if (horizontal && handle.length === 2) {
+        height = width / aspect;
+        if (handle.includes('n')) top = bottom - height;
+        else bottom = top + height;
+      } else if (horizontal) {
+        height = width / aspect;
+        const centerY = (top + bottom) / 2;
+        top = centerY - height / 2;
+        bottom = centerY + height / 2;
+      } else {
+        width = height * aspect;
+        const centerX = (left + right) / 2;
+        left = centerX - width / 2;
+        right = centerX + width / 2;
+      }
+      width = right - left;
+      height = bottom - top;
     }
-    width = right - left;
-    height = bottom - top;
-  }
 
-  const center = rotatePoint((left + right) / 2, (top + bottom) / 2, geometry.angle);
-  return constrainCrop(
-    cropFromGeometry(
+    const center = rotatePoint((left + right) / 2, (top + bottom) / 2, geometry.angle);
+    return cropFromGeometry(
       geometry.centerX + center.x,
       geometry.centerY + center.y,
       Math.max(minSize, width),
       Math.max(minSize, height),
       geometry.angle,
       image,
-    ),
-    image,
-  );
+    );
+  };
+
+  const epsilon = 1e-6;
+  const fits = (candidate: CropParams): boolean =>
+    cropCorners(candidate, image).every(
+      (corner) =>
+        corner.x >= -epsilon &&
+        corner.x <= image.width + epsilon &&
+        corner.y >= -epsilon &&
+        corner.y <= image.height + epsilon,
+    );
+
+  const atEnd = build(proposed.x, proposed.y);
+  if (fits(atEnd)) return atEnd;
+  if (!fits(crop)) return constrainCrop(crop, image);
+
+  // Keep the old position as the anchor and move only the dragged edges.
+  let best = crop;
+  let low = 0;
+  let high = 1;
+  for (let i = 0; i < 24; i++) {
+    const middle = (low + high) / 2;
+    const candidate = build(
+      handleX + (proposed.x - handleX) * middle,
+      handleY + (proposed.y - handleY) * middle,
+    );
+    if (fits(candidate)) {
+      low = middle;
+      best = candidate;
+    } else {
+      high = middle;
+    }
+  }
+  return best;
 }
 
 /**
  * Shrinks and moves a crop so its rotated rectangle lies inside the image.
  * Translation is applied after scaling; the aspect ratio and angle are kept.
+ * A degenerate (zero-size) crop is clamped to a minimal 1 px rectangle at the
+ * same centre/angle rather than being replaced by the full frame.
  */
 export function constrainCrop(crop: CropParams, image: Size): CropParams {
   const geometry = cropGeometry(crop, image);
-  if (!(geometry.width > 0) || !(geometry.height > 0) || !Number.isFinite(geometry.angle)) {
-    return largestCropForAspect(image, Number.isFinite(crop.angle) ? crop.angle : 0);
-  }
-  const { cos, sin } = cosSin(geometry.angle);
+  const angle = Number.isFinite(geometry.angle) ? geometry.angle : 0;
+  const width = Number.isFinite(geometry.width) && geometry.width > 0 ? geometry.width : 1;
+  const height = Number.isFinite(geometry.height) && geometry.height > 0 ? geometry.height : 1;
+  const centerX = Number.isFinite(geometry.centerX) ? geometry.centerX : image.width / 2;
+  const centerY = Number.isFinite(geometry.centerY) ? geometry.centerY : image.height / 2;
+  const { cos, sin } = cosSin(angle);
   const a = Math.abs(cos);
   const b = Math.abs(sin);
-  const halfWidth = geometry.width / 2;
-  const halfHeight = geometry.height / 2;
+  const halfWidth = width / 2;
+  const halfHeight = height / 2;
   // Axis-aligned bounding box of the rotated crop.
   const extentX = halfWidth * a + halfHeight * b;
   const extentY = halfWidth * b + halfHeight * a;
@@ -311,21 +366,21 @@ export function constrainCrop(crop: CropParams, image: Size): CropParams {
     extentX > 0 ? image.width / 2 / extentX : 1,
     extentY > 0 ? image.height / 2 / extentY : 1,
   );
-  const width = Math.max(1, geometry.width * scale);
-  const height = Math.max(1, geometry.height * scale);
-  const scaledExtentX = (width / 2) * a + (height / 2) * b;
-  const scaledExtentY = (width / 2) * b + (height / 2) * a;
-  const centerX = clamp(
-    geometry.centerX,
+  const fittedWidth = Math.max(1, width * scale);
+  const fittedHeight = Math.max(1, height * scale);
+  const scaledExtentX = (fittedWidth / 2) * a + (fittedHeight / 2) * b;
+  const scaledExtentY = (fittedWidth / 2) * b + (fittedHeight / 2) * a;
+  const fittedCenterX = clamp(
+    centerX,
     scaledExtentX,
     Math.max(scaledExtentX, image.width - scaledExtentX),
   );
-  const centerY = clamp(
-    geometry.centerY,
+  const fittedCenterY = clamp(
+    centerY,
     scaledExtentY,
     Math.max(scaledExtentY, image.height - scaledExtentY),
   );
-  return cropFromGeometry(centerX, centerY, width, height, geometry.angle, image);
+  return cropFromGeometry(fittedCenterX, fittedCenterY, fittedWidth, fittedHeight, angle, image);
 }
 
 /** True when the crop covers the whole image and does not straighten it. */
@@ -357,6 +412,11 @@ export function sanitizeCrop(crop: CropParams, maxAngle = 45): CropParams {
  * Crops and rotates an already-developed (sRGB 8-bit RGBA) buffer with the
  * same bilinear sampling as the shader. Used by the export path so a mosaic
  * can be applied in source space *before* the rotation.
+ *
+ * This is CPU work: a 45 MP source plus a full-size output buffer is ~360 MB
+ * of RGBA traffic and one bilinear sample per output pixel. It only runs when
+ * a mosaic needs source-space ordering; a crop without retouch stays on the
+ * GPU path.
  */
 export function cropDevelopedRgba(
   source: Uint8Array,
