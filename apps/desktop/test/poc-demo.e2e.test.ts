@@ -4,6 +4,7 @@ import {
   asDestinationId,
   asSourceId,
   type AppSettings,
+  type CropParams,
   type FtpDestination,
   type FtpSource,
   type IngestConfig,
@@ -13,6 +14,7 @@ import {
   type UploadItem,
 } from '@ee/contracts';
 import { decodeJpeg } from '@ee/core';
+import { cropOutputPixels } from '@ee/develop-gl';
 import { assertNoEmbeddedPreviews } from '@ee/export';
 import { ExifToolService, readIptc } from '@ee/metadata';
 import { blockSizeForShape } from '@ee/retouch';
@@ -425,6 +427,50 @@ describe.skipIf(nefs.length === 0 || !haveDisplay)('PoC demo (real Electron app)
     expect(params.Exposure2012).toBeCloseTo(1.2, 2);
   });
 
+  it('crops to 1:1 with a 3 degree straighten and uploads the crop size', async () => {
+    await selectPhoto('cardA_002.NEF');
+    await canvasReady();
+    await window.keyboard.press('c');
+    await window.locator('[data-testid="crop-toolbar"]').waitFor();
+    await window.locator('[data-aspect="1:1"]').click();
+    await window.locator('input[aria-label="Straighten angle"]').evaluate((element) => {
+      const input = element as HTMLInputElement;
+      const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set;
+      setter?.call(input, '3');
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+      input.dispatchEvent(new Event('change', { bubbles: true }));
+    });
+    await window.locator('[data-testid="apply-crop"]').click();
+    await window.locator('[data-testid="crop-toolbar"]').waitFor({ state: 'detached' });
+
+    const photo = photos.find((candidate) => candidate.fileName === 'cardA_002.NEF')!;
+    const params = await waitFor('the saved crop', async () => {
+      const current = await invoke<{ crop?: CropParams }>('develop:getParams', {
+        photoId: photo.id,
+      });
+      return current.crop ? current : undefined;
+    });
+    expect(params.crop?.angle).toBeCloseTo(3, 1);
+    const expected = cropOutputPixels(params.crop!, {
+      width: photo.width ?? 0,
+      height: photo.height ?? 0,
+    });
+    expect(expected.width).toBe(expected.height);
+
+    await window.getByRole('button', { name: /Finish & next/ }).click();
+    const upload = await waitFor('the cropped upload', async () => {
+      const items = await invoke<UploadItem[]>('upload:list');
+      return items.find((item) => item.photoId === photo.id && item.state === 'done');
+    });
+    expect(upload.photoId).toBe(photo.id);
+    const uploaded = join(outRoot, 'incoming', 'cardA_002.jpg');
+    await waitFor('the uploaded crop', () => existsSync(uploaded));
+    const decoded = await decodeJpeg(readFileSync(uploaded));
+    expect(decoded.width).toBe(expected.width);
+    expect(decoded.height).toBe(expected.height);
+    expect(decoded.width).toBe(decoded.height);
+  }, 180_000);
+
   it('detects faces in a dragged region and commits the mosaic version', async () => {
     await selectPhoto('cardB_001.jpg');
     await canvasReady();
@@ -498,7 +544,7 @@ describe.skipIf(nefs.length === 0 || !haveDisplay)('PoC demo (real Electron app)
 
     const upload = await waitFor('the anonymous FTP upload', async () => {
       const items = await invoke<UploadItem[]>('upload:list');
-      return items.find((item) => item.state === 'done');
+      return items.find((item) => item.photoId === exportedPhoto.id && item.state === 'done');
     });
     expect(upload.photoId).toBe(exportedPhoto.id);
 
