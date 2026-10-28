@@ -227,9 +227,12 @@ describe.skipIf(nefs.length === 0 || !haveDisplay)('PoC demo (real Electron app)
       }
     });
     window.on('requestfailed', (request) => {
-      if (request.url().startsWith('app://')) {
-        failures.push(`${request.failure()?.errorText ?? 'failed'} ${request.url()}`);
-      }
+      if (!request.url().startsWith('app://')) return;
+      const errorText = request.failure()?.errorText ?? 'failed';
+      // A photo switch aborts the previous linear fetch. That is the intended
+      // navigation behaviour, not a broken image.
+      if (errorText === 'net::ERR_ABORTED') return;
+      failures.push(`${errorText} ${request.url()}`);
     });
     (
       window as Page & {
@@ -432,7 +435,13 @@ describe.skipIf(nefs.length === 0 || !haveDisplay)('PoC demo (real Electron app)
     const overlay = window.locator('[data-testid="retouch-overlay"]');
     const box = await overlay.boundingBox();
     if (!box) throw new Error('retouch overlay has no bounds');
-    await window.mouse.move(box.x + box.width * 0.04, box.y + box.height * 0.2);
+    const toolbar = await window.locator('[data-testid="retouch-toolbar"]').boundingBox();
+    // Start below the toolbar: on narrow windows it wraps over the image.
+    const startY = Math.min(
+      box.y + box.height * 0.9,
+      Math.max(box.y + box.height * 0.2, (toolbar?.y ?? box.y) + (toolbar?.height ?? 0) + 10),
+    );
+    await window.mouse.move(box.x + box.width * 0.04, startY);
     await window.mouse.down();
     await window.mouse.move(box.x + box.width * 0.96, box.y + box.height * 0.94, { steps: 12 });
     await window.mouse.up();
