@@ -25,13 +25,14 @@ interface FetchProgress {
   onProgress?: FullResolutionRenderRequest['onProgress'];
 }
 
-/** Fetch the full-size linear image and parse its header. */
-async function fetchLinear(
+/** Fetch the linear image (full size unless `maxEdge` is given) and parse its header. */
+export async function fetchLinear(
   photoId: Photo['id'],
   { onProgress }: FetchProgress,
+  maxEdge?: number,
 ): Promise<{ header: LinearImageHeader; data: ArrayBuffer }> {
   onProgress?.({ label: 'Loading the full-resolution image…' });
-  const response = await fetch(appUrl.linear(photoId));
+  const response = await fetch(appUrl.linear(photoId, maxEdge));
   if (!response.ok) {
     throw new Error(`could not load the full-resolution image (${response.status})`);
   }
@@ -74,7 +75,7 @@ export function fullResolutionOutput(header: LinearImageHeader, params: EditPara
 const workerTimeoutMs = 120_000;
 
 /** Render through a dedicated worker so slider/UI frames keep flowing. */
-function renderInWorker(
+export function renderInWorker(
   header: LinearImageHeader,
   data: ArrayBuffer,
   params: EditParams,

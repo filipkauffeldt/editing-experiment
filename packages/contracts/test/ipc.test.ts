@@ -164,6 +164,14 @@ describe('appUrl', () => {
     expect(appUrl.linear(id, 1600.4)).toBe('app://linear/a%2Fb%20c?maxEdge=1600');
     expect(appUrl.preview(asPhotoId('x'))).toBe('app://preview/x');
   });
+
+  it('adds the preview revision so an <img> refreshes, and omits it before any edit', () => {
+    const id = asPhotoId('x');
+    expect(appUrl.thumb(id, 3)).toBe('app://thumb/x?v=3');
+    expect(appUrl.preview(id, 12)).toBe('app://preview/x?v=12');
+    expect(appUrl.thumb(id, 0)).toBe('app://thumb/x');
+    expect(appUrl.preview(id, undefined)).toBe('app://preview/x');
+  });
 });
 
 describe('LinearImageHeader', () => {

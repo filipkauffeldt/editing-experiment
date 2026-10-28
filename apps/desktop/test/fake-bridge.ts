@@ -121,6 +121,19 @@ export function createFakeBridge(
         return photo;
       });
     },
+    'photos:setEditedPreview': async (...args) => {
+      const { photoId } = args[0] as { photoId: PhotoId };
+      const index = photos.findIndex((candidate) => candidate.id === photoId);
+      const current = findPhoto(photoId);
+      const next: Photo = {
+        ...current,
+        previewRevision: (current.previewRevision ?? 0) + 1,
+        previewStale: false,
+      };
+      photos[index] = next;
+      emit('photos:updated', next);
+      return next;
+    },
     'photos:deleteVersion': async (...args) => {
       const { photoId, versionId } = args[0] as { photoId: PhotoId; versionId: VersionId };
       const photo = findPhoto(photoId);

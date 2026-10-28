@@ -4,6 +4,7 @@
  * ops. sharp is not used: its libvips clashes with the glib Electron links on
  * Linux and crashes the process.
  */
+import type { RenderedImage } from '@ee/contracts';
 import { decodeJpeg, encodeJpeg, makePreviews, resizeRgba, type RgbaImage } from '@ee/core';
 import { readFile } from 'node:fs/promises';
 import { extname } from 'node:path';
@@ -58,8 +59,20 @@ export async function makePreviewJpegs(source: PreviewSource): Promise<PreviewJp
   return { preview, thumb };
 }
 
-const encode = (image: RgbaImage, quality: number): Promise<Buffer> =>
+const encode = (image: RenderedImage, quality: number): Promise<Buffer> =>
   encodeJpeg(image.rgba, image.width, image.height, { quality, chroma: '420', iccSrgb: true });
+
+/** Preview and thumbnail JPEGs from the renderer's already upright, edited pixels. */
+export async function encodeEditedJpegs(images: {
+  thumb: RenderedImage;
+  preview: RenderedImage;
+}): Promise<PreviewJpegs> {
+  const [preview, thumb] = await Promise.all([
+    encode(images.preview, PREVIEW_QUALITY),
+    encode(images.thumb, THUMB_QUALITY),
+  ]);
+  return { preview, thumb };
+}
 
 /** Upright RGBA pixels of a JPEG stored in sensor orientation. */
 export async function decodeOrientedRgba(jpeg: Buffer, orientation: number): Promise<RgbaImage> {

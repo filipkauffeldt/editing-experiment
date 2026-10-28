@@ -64,7 +64,7 @@ seen.sqlite          files already ingested per source
 uploads.sqlite       upload queue
 presets/*.json       imported develop presets
 credentials.json     written by main only: ciphertext from safeStorage
-cache/{thumb,preview,linear}   disposable
+cache/{thumb,preview,linear}   disposable (see "Edited thumbnails and previews")
 exports/<photoId>/   exported JPEGs
 ```
 
@@ -84,12 +84,46 @@ exports/<photoId>/   exported JPEGs
 - On quit, main asks the jobs process to shut down (stop ingest, close the upload queue, ExifTool and
   the databases) and kills it only after a timeout.
 
+## Edited thumbnails and previews
+
+The film strip and the `app://preview` fallback show a photo as edited: develop
+settings, crop/straighten and the newest retouch version's mosaic. The camera's
+embedded preview is only made once, at ingest.
+
+- **Render (renderer).** `renderEditedPreview` (`renderer/edited-preview-render.ts`) draws the
+  photo from `app://linear?maxEdge=2560` through the export composition (`composeDevelopedRgba`:
+  develop, mosaic, then crop/rotate) at a 2560 px preview and a 320 px thumbnail, in render workers.
+- **When.** `EditedPreviewScheduler` (`renderer/edited-preview-scheduler.ts`): an edit (slider,
+  preset, crop) waits 750 ms for quiet, edits to one photo coalesce, renders run one at a time and
+  never block the sliders. A photo with a pending edit keeps its job when the selection moves (it is
+  rendered at once). A retouch commit/delete renders ahead of the debounce. A photo with no edits is
+  not rendered. Photos the backend reports as `previewStale` (edited in Lightroom before ingest, or
+  the app quit mid-debounce) are rendered, throttled, when selected or visible in the film strip.
+  The strip reports its visible frames; queued background renders of frames that scrolled away are
+  dropped, the selected photo goes first and then the newest frames, and finished jobs are forgotten.
+  A retouched photo whose render failed is retried as soon as it is selected.
+- **Store (jobs).** `photos:setEditedPreview` carries the RGBA of both sizes, a `revision` and the
+  `retouchOps` and develop `params` that were drawn. `EditedPreviews` encodes with `@ee/core`, writes
+  `<id>.edited.jpg` beside the camera previews `<id>.jpg` (kept, so reset can revert) plus a
+  `<id>.edited.json` marker, bumps `Photo.previewRevision`, clears `previewStale` and emits
+  `photos:updated`. It refuses a render with an older revision, with retouch ops that are no longer
+  the photo's, with params other than the ones last saved, or for a photo without edits. When the last edit is removed it deletes the edited
+  files and the camera preview is served again.
+- **Privacy.** The camera preview shows the unretouched image, so `PreviewCache.resolve` serves it
+  only for a photo whose newest retouch version has no ops. Otherwise it serves the edited JPEGs if
+  they were drawn with exactly the current ops, and a grey placeholder (`no-store`) until they exist.
+  `previewRevision` is bumped the moment the retouch ops change, so the `<img>` leaves the old image
+  at once.
+- **Cache busting.** `appUrl.thumb|preview(id, previewRevision)` adds `?v=<n>`. The canvas does not
+  show the cached image under a crop or retouch session, where the stage is the uncropped image.
+
 ## Contracts (`packages/contracts`)
 
 Key types (names are binding, fields can grow):
 
 - `PhotoId` (string, UUID minted at ingest), `Photo { id, path, sidecarPath,
-  fileName, captureTime?, camera?, sourceId, status, versions }`
+  fileName, captureTime?, camera?, sourceId, status, versions, previewRevision?,
+  previewStale? }`
 - `PhotoStatus { ingest, edited, metadataDiffersFromTemplate, export, upload }`
 - `SourceConfig` = `FolderSource | CardSource | FtpSource | SftpSource`
   (`FtpSource` covers FTP and FTPS; remote sources have `pollIntervalMs`,

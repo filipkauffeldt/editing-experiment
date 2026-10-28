@@ -136,6 +136,35 @@ describe.skipIf(nefs.length === 0 || !haveDisplay)('PoC demo (real Electron app)
     );
   };
 
+  /** Natural size of a film strip thumbnail once it has loaded. */
+  const stripThumbSize = (fileName: string) =>
+    window
+      .locator(`[data-testid="film-strip"] button[title^="${fileName}"] img`)
+      .evaluate((element) => {
+        const image = element as HTMLImageElement;
+        return { width: image.naturalWidth, height: image.naturalHeight, src: image.src };
+      });
+
+  /** The film strip thumbnail of a photo as decoded pixels, fetched the way the <img> does. */
+  const thumbPixels = async (fileName: string) => {
+    const { src } = await stripThumbSize(fileName);
+    const bytes = await window.evaluate(async (url) => {
+      const response = await fetch(url);
+      return Array.from(new Uint8Array(await response.arrayBuffer()));
+    }, src);
+    return decodeJpeg(Buffer.from(bytes));
+  };
+
+  const meanLuma = (image: { rgba: Uint8Array | Buffer }): number => {
+    let total = 0;
+    for (let i = 0; i < image.rgba.length; i += 4) total += image.rgba[i + 1]!;
+    return total / (image.rgba.length / 4);
+  };
+  let mosaicThumbLuma = 0;
+
+  /** Optional: where to save screenshots of the film strip (for pull requests). */
+  const screenshotDir = process.env.EE_SCREENSHOT_DIR;
+
   beforeAll(async () => {
     const build = spawnSync('pnpm', ['--filter', '@ee/desktop', 'build'], {
       cwd: repoRoot,
@@ -425,7 +454,7 @@ describe.skipIf(nefs.length === 0 || !haveDisplay)('PoC demo (real Electron app)
       photoId: photos.find((photo) => photo.fileName === 'cardA_001.NEF')!.id,
     });
     expect(params.Exposure2012).toBeCloseTo(1.2, 2);
-  });
+  }, 60_000);
 
   it('crops to 1:1 with a 3 degree straighten and uploads the crop size', async () => {
     await selectPhoto('cardA_002.NEF');
@@ -456,6 +485,14 @@ describe.skipIf(nefs.length === 0 || !haveDisplay)('PoC demo (real Electron app)
       height: photo.height ?? 0,
     });
     expect(expected.width).toBe(expected.height);
+
+    // The film strip shows the photo as cropped: a 1:1 crop gives a square thumbnail,
+    // the camera preview it replaces is 3:2.
+    const square = await waitFor('the cropped film strip thumbnail', async () => {
+      const size = await stripThumbSize('cardA_002.NEF');
+      return size.width > 0 && size.width === size.height ? size : undefined;
+    });
+    expect(square.src).toMatch(/\?v=\d+$/);
 
     await window.getByRole('button', { name: /Finish & next/ }).click();
     const upload = await waitFor('the cropped upload', async () => {
@@ -507,6 +544,7 @@ describe.skipIf(nefs.length === 0 || !haveDisplay)('PoC demo (real Electron app)
         ) > 0,
     );
 
+    const thumbBefore = await thumbPixels('cardB_001.jpg');
     await window.locator('[data-testid="commit-retouch"]').click();
     await window.locator('[data-testid="retouch-toolbar"]').waitFor({ state: 'detached' });
     await window.waitForSelector('button[title^="cardB_001.jpg"] [title="Retouch version"]');
@@ -519,6 +557,75 @@ describe.skipIf(nefs.length === 0 || !haveDisplay)('PoC demo (real Electron app)
             .querySelector('[data-testid="mosaic-canvas"]')
             ?.getAttribute('data-mosaic-version') ?? 0,
         ) > 0,
+    );
+
+    // The film strip must not keep the unmosaicked face: once the edited thumbnail is
+    // stored, every mosaic block inside the shape is constant, where the camera
+    // preview it replaced is not.
+    const retouched = await waitFor('the mosaicked thumbnail', async () => {
+      const current = (await invoke<Photo[]>('photos:list')).find(
+        (candidate) => candidate.fileName === 'cardB_001.jpg',
+      );
+      return current && current.previewStale === false && (current.previewRevision ?? 0) > 0
+        ? current
+        : undefined;
+    });
+    await waitFor('the film strip to show the new thumbnail', async () => {
+      const { src } = await stripThumbSize('cardB_001.jpg');
+      return src.endsWith(`?v=${retouched.previewRevision}`);
+    });
+    const op = retouched.versions.filter((version) => version.kind === 'retouch').at(-1)?.ops[0];
+    if (op?.type !== 'mosaic') throw new Error('the retouch version has no mosaic');
+    const thumbAfter = await thumbPixels('cardB_001.jpg');
+    expect([thumbAfter.width, thumbAfter.height]).toEqual([thumbBefore.width, thumbBefore.height]);
+    // Pixel range (green) inside every mosaic block of the shapes, with the block's size.
+    const blockRanges = (image: typeof thumbAfter): { block: number; range: number }[] => {
+      const ranges: { block: number; range: number }[] = [];
+      for (const shape of op.shapes) {
+        if (shape.type !== 'rect') continue;
+        const block = blockSizeForShape(shape, op.blockSizeRel, image.width, image.height);
+        const first = {
+          x: Math.ceil((shape.x * image.width) / block),
+          y: Math.ceil((shape.y * image.height) / block),
+        };
+        const last = {
+          x: Math.floor(((shape.x + shape.w) * image.width) / block),
+          y: Math.floor(((shape.y + shape.h) * image.height) / block),
+        };
+        for (let by = first.y; by < last.y; by++) {
+          for (let bx = first.x; bx < last.x; bx++) {
+            let lo = 255;
+            let hi = 0;
+            // One pixel in from the block edge: JPEG ringing spills over the borders.
+            for (let y = by * block + 1; y < (by + 1) * block - 1; y++) {
+              for (let x = bx * block + 1; x < (bx + 1) * block - 1; x++) {
+                const value = image.rgba[(y * image.width + x) * 4 + 1]!;
+                lo = Math.min(lo, value);
+                hi = Math.max(hi, value);
+              }
+            }
+            ranges.push({ block, range: hi - lo });
+          }
+        }
+      }
+      return ranges;
+    };
+    mosaicThumbLuma = meanLuma(thumbAfter);
+    expect(mosaicThumbLuma).toBeGreaterThan(20);
+    const after = blockRanges(thumbAfter);
+    const before = blockRanges(thumbBefore);
+    expect(after.length).toBeGreaterThan(0);
+    const mean = (values: number[]): number =>
+      values.reduce((sum, value) => sum + value, 0) / Math.max(1, values.length);
+    // The thumbnail is a JPEG, whose 8x8 transform grid only lines up with blocks that are a
+    // multiple of 8 px (the minimum). Those must be flat; a larger face gets bigger blocks
+    // (9 px, say) whose edges ring through the quantiser, so for all blocks together the
+    // mosaic must have removed most of the detail the camera thumbnail has.
+    const aligned = after.filter(({ block }) => block % 8 === 0).map(({ range }) => range);
+    expect(Math.max(0, ...aligned)).toBeLessThanOrEqual(12);
+    expect(mean(before.map(({ range }) => range))).toBeGreaterThan(40);
+    expect(mean(after.map(({ range }) => range))).toBeLessThan(
+      0.25 * mean(before.map(({ range }) => range)),
     );
 
     // Add a 5 degree straighten and crop on top of the committed mosaic.
@@ -546,7 +653,7 @@ describe.skipIf(nefs.length === 0 || !haveDisplay)('PoC demo (real Electron app)
     const retouch = photo.versions.filter((version) => version.kind === 'retouch');
     expect(retouch).toHaveLength(1);
     expect(retouch[0]?.ops[0]).toMatchObject({ type: 'mosaic' });
-  });
+  }, 60_000);
 
   it('finishes at full resolution, applies the mosaic and uploads anonymously to FTP', async () => {
     const exportedPhoto = (await invoke<Photo[]>('photos:list')).find(
@@ -625,6 +732,36 @@ describe.skipIf(nefs.length === 0 || !haveDisplay)('PoC demo (real Electron app)
       { timeout: 20_000 },
     );
   }, 180_000);
+
+  it('shows the cropped, developed and mosaicked photos as edited in the film strip', async () => {
+    const edited = ['cardA_001.NEF', 'cardA_002.NEF', 'cardB_001.jpg'];
+    const current = await waitFor('every edited thumbnail to be drawn', async () => {
+      const list = await invoke<Photo[]>('photos:list');
+      const found = edited.map((name) => list.find((photo) => photo.fileName === name)!);
+      return found.every((photo) => photo.previewStale === false && photo.previewRevision)
+        ? found
+        : undefined;
+    });
+    // Each <img> carries its photo's revision, so the browser cannot show an older render.
+    for (const photo of current) {
+      await waitFor(`the film strip image of ${photo.fileName} to refresh`, async () =>
+        (await stripThumbSize(photo.fileName)).src.endsWith(`?v=${photo.previewRevision}`),
+      );
+    }
+    await settle();
+    // Cropping on top of the mosaic must not change what the thumbnail is of: a crop drawn
+    // from the wrong part of the image (the dark corner) would be far darker.
+    const cropped = await thumbPixels('cardB_001.jpg');
+    expect(meanLuma(cropped)).toBeGreaterThan(mosaicThumbLuma * 0.7);
+    expect(meanLuma(cropped)).toBeLessThan(mosaicThumbLuma * 1.3);
+    if (screenshotDir) {
+      mkdirSync(screenshotDir, { recursive: true });
+      await window
+        .locator('[data-testid="film-strip"]')
+        .screenshot({ path: join(screenshotDir, 'film-strip-edited.png') });
+      await window.screenshot({ path: join(screenshotDir, 'app-edited-photos.png') });
+    }
+  }, 60_000);
 
   it('serves the developed JPEG as a linear image too', async () => {
     const jpeg = photos.find((photo) => photo.fileName === 'cardB_001.jpg')!;

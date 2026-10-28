@@ -9,6 +9,7 @@ import { ShortcutsOverlay } from './components/ShortcutsOverlay';
 import { StatusBar } from './components/StatusBar';
 import { Toasts } from './components/Toasts';
 import { ee } from './ee';
+import { renderEditedPreview } from './edited-preview-render';
 import { useKeyboardShortcuts } from './keyboard';
 import { activePhoto, createAppStore, type AppStore } from './store';
 import { AppStoreProvider, useAppState, useAppStore } from './store-context';
@@ -38,7 +39,7 @@ function Shell() {
 }
 
 export function App({ store: provided }: { store?: AppStore } = {}) {
-  const [store] = useState(() => provided ?? createAppStore(ee));
+  const [store] = useState(() => provided ?? createAppStore(ee, { renderEditedPreview }));
 
   useEffect(() => {
     void store.init();

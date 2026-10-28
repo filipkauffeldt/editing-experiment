@@ -33,6 +33,7 @@ import {
   type UploadItem,
   type VersionId,
 } from '@ee/contracts';
+import { EditedPreviewScheduler, type EditedPreviewRenderer } from './edited-preview-scheduler';
 import { renderFullResolution } from './export-render';
 import { padFaceBox } from './retouch-geometry';
 
@@ -399,11 +400,38 @@ export class AppStore {
   private toastId = 0;
   private started = false;
   private finishing = false;
+  private readonly editedPreviews: EditedPreviewScheduler | undefined;
+  private editedPreviewErrorShown = false;
 
   constructor(
     private readonly bridge: EeBridge,
     private readonly renderForExport: typeof renderFullResolution = renderFullResolution,
-  ) {}
+    renderEditedPreview?: EditedPreviewRenderer,
+  ) {
+    if (renderEditedPreview) {
+      this.editedPreviews = new EditedPreviewScheduler({
+        render: renderEditedPreview,
+        getPhoto: (photoId) => this.photoById.get(photoId),
+        settle: (photoId) =>
+          this.flushDevelopParams(photoId, activeDevelopVersion(this.photoById.get(photoId))?.id),
+        getParams: (photoId) => this.currentParams(photoId),
+        getRetouchOps: (photo) => topRetouchVersion(photo)?.ops ?? [],
+        store: (args) => this.bridge.invoke('photos:setEditedPreview', args),
+        // Without waiting for the photos:updated event, so a photo is not drawn twice.
+        onStored: (photo) => this.upsertPhoto(photo),
+        // The backend still calls it stale (say, a sidecar with only a process version).
+        onNoEdits: (photo) =>
+          this.upsertPhoto({ ...(this.photoById.get(photo.id) ?? photo), previewStale: false }),
+        onError: (photo, cause) => {
+          console.warn(`Could not render the thumbnail of ${photo.fileName}`, cause);
+          // One toast per session: a missing GPU would otherwise fail photo after photo.
+          if (this.editedPreviewErrorShown) return;
+          this.editedPreviewErrorShown = true;
+          this.toast('error', `Could not update thumbnails: ${messageOf(cause)}`);
+        },
+      });
+    }
+  }
 
   readonly getState = (): AppState => this.state;
 
@@ -460,6 +488,7 @@ export class AppStore {
       window.removeEventListener('beforeunload', this.beforeUnload);
       this.beforeUnload = undefined;
     }
+    this.editedPreviews?.dispose();
     this.cancelPhotoFlush();
     this.flushQueuedPhotos();
     await this.flushPendingEdits();
@@ -633,11 +662,22 @@ export class AppStore {
 
   private applySelection(photoId: PhotoId | undefined): void {
     if (photoId === this.state.selectedId) return;
+    // Leaving a photo with an edit still settling: render it now, not when it is forgotten.
+    if (this.state.selectedId) this.editedPreviews?.promote(this.state.selectedId);
     this.set({ selectedId: photoId });
     if (!photoId) return;
     void this.loadMetadata(photoId);
     void this.loadParams(photoId);
+    this.editedPreviews?.setSelected(photoId);
   }
+
+  /**
+   * The frames the film strip shows now: draw the edited thumbnails of those that
+   * never got one, and stop working on photos that scrolled out of view.
+   */
+  readonly setVisibleEditedPreviews = (photoIds: readonly PhotoId[]): void => {
+    this.editedPreviews?.setVisible(photoIds);
+  };
 
   readonly select = (photoId: PhotoId | undefined): void => {
     if (photoId === this.state.selectedId) return;
@@ -897,6 +937,8 @@ export class AppStore {
       const photo = await this.bridge.invoke('photos:get', { photoId: session.photoId });
       this.upsertPhoto(photo);
       this.exitRetouch();
+      // Ahead of the debounce: until the mosaicked images exist, the film strip shows a placeholder.
+      this.editedPreviews?.scheduleNow(photo.id);
       this.toast('success', 'Mosaic saved');
       return photo;
     } catch (cause) {
@@ -922,6 +964,7 @@ export class AppStore {
       });
       this.upsertPhoto(photo);
       this.exitRetouch();
+      this.editedPreviews?.scheduleNow(photo.id);
       this.toast('success', 'Retouch version deleted');
     } catch (cause) {
       this.toast('error', `Could not delete the version: ${messageOf(cause)}`);
@@ -1394,6 +1437,16 @@ export class AppStore {
     this.paramEditVersion.set(key, (this.paramEditVersion.get(key) ?? 0) + 1);
     this.set({ editParams: { ...this.state.editParams, [key]: next } });
     this.scheduleDevelopSave(photo.id, versionId, next);
+    this.editedPreviews?.schedule(photo.id);
+  }
+
+  /** The develop params of any photo, including edits that have not reached the sidecar yet. */
+  private async currentParams(photoId: PhotoId): Promise<EditParams> {
+    const versionId = activeDevelopVersion(this.photoById.get(photoId))?.id;
+    return (
+      this.state.editParams[editParamsKey(photoId, versionId)] ??
+      this.bridge.invoke('develop:getParams', { photoId, versionId })
+    );
   }
 
   readonly setSlider = (name: keyof typeof SLIDER_SPECS, rawValue: number | undefined): void => {
@@ -1826,9 +1879,14 @@ export class AppStore {
 export interface CreateAppStoreOptions {
   /** Replaces the full-resolution renderer in tests. */
   renderForExport?: typeof renderFullResolution;
+  /**
+   * Draws the edited thumbnail and preview of a photo. Without it nothing is
+   * rendered and the film strip keeps showing what the backend cached.
+   */
+  renderEditedPreview?: EditedPreviewRenderer;
 }
 
 /** Build a store against a bridge; the app uses the preload bridge, tests a fake. */
 export function createAppStore(bridge: EeBridge, options: CreateAppStoreOptions = {}): AppStore {
-  return new AppStore(bridge, options.renderForExport);
+  return new AppStore(bridge, options.renderForExport, options.renderEditedPreview);
 }

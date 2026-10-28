@@ -608,10 +608,20 @@ function CanvasForPhoto({ photo }: { photo: Photo }) {
         data-photo-id={photo.id}
         data-mode={cropSession ? 'crop' : session ? 'retouch' : 'develop'}
       >
-        {previewSource !== 'none' && (
+        {/*
+         * The cached image is of the edited photo (cropped, or a placeholder while a
+         * mosaic is still being drawn). While a crop or retouch is edited the stage is
+         * the whole uncropped image, so it would be stretched to the wrong shape;
+         * the GL canvas draws the uncropped image on its own.
+         */}
+        {previewSource !== 'none' && !editing && (
           <img
             className={styles.image}
-            src={previewSource === 'thumb' ? appUrl.thumb(photo.id) : appUrl.preview(photo.id)}
+            src={
+              previewSource === 'thumb'
+                ? appUrl.thumb(photo.id, image.previewRevision)
+                : appUrl.preview(photo.id, image.previewRevision)
+            }
             alt={photo.fileName}
             draggable={false}
             data-testid="preview-image"

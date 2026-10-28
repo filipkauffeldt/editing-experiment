@@ -401,6 +401,8 @@ export function createMockHandlers(world: MockWorld, emit: Emit): Partial<IpcHan
       }
       return updated;
     },
+    // Mock images are generated SVGs, so there is nothing to cache; accept and ignore.
+    'photos:setEditedPreview': async ({ photoId }) => findPhoto(photoId),
     'photos:deleteVersion': async ({ photoId, versionId }) => {
       const photo = findPhoto(photoId);
       const version = photo.versions.find((candidate) => candidate.id === versionId);
