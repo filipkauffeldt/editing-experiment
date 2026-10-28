@@ -132,8 +132,16 @@ are not decoded.
 
 - Raws: metadata in `<basename>.xmp` sidecar (Lightroom/Photo Mechanic
   compatible naming). JPEGs: embedded (IIM + XMP, kept in sync, UTF-8).
-- Tag and colour class: `photomechanic:Tagged` and `photomechanic:ColorClass`,
-  mirrored to `xmp:Label`, in the sidecar (raws) or embedded XMP (JPEGs).
+- Tag and colour class use Photo Mechanic's XMP namespace
+  (`http://ns.camerabits.com/photomechanic/1.0/`, prefix `photomechanic`):
+  `photomechanic:Tagged`, `photomechanic:ColorClass` and the combined
+  `photomechanic:Prefs` string `tagged:colorClass:rating:frameNum`, with the
+  rating/frame number preserved from an existing value. With label syncing on
+  (the default) the class name is mirrored to `xmp:Label`; PM's defaults are
+  Winner, Winner alt, Superior, Superior alt, Typical, Typical alt, Extras,
+  Trash, and the table is overridable because PM lets users rename classes.
+  Metadata lives in the sidecar (raws) or embedded XMP (JPEGs). Tag table:
+  https://exiftool.org/TagNames/PhotoMechanic.html
 - Develop settings: `crs:` namespace in the same sidecar.
 - Retouch versions: namespace `ee:` (`http://ns.editing-experiment/1.0/`).
 - PM metadata templates are `.XMP` files; code replacement files are
