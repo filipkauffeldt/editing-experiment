@@ -242,7 +242,8 @@ export function startIngest(config: IngestConfig, hooks: IngestHooks = {}): Inge
     source: FtpSource | Extract<SourceConfig, { kind: 'sftp' }>,
   ): Promise<void> => {
     const signal = job.controller.signal;
-    if (!hooks.getSecret) {
+    const anonymous = source.kind === 'ftp' && !source.credentialRef;
+    if (!anonymous && !hooks.getSecret) {
       recordError(
         job,
         new IngestError('Remote source requires a getSecret hook', 'missing-secret'),
@@ -251,9 +252,9 @@ export function startIngest(config: IngestConfig, hooks: IngestHooks = {}): Inge
       return;
     }
 
-    let credentials: CredentialSecret;
+    let credentials: CredentialSecret = {};
     try {
-      credentials = await hooks.getSecret(source.credentialRef);
+      if (!anonymous) credentials = await hooks.getSecret!(source.credentialRef!);
     } catch (error) {
       recordError(job, error);
       setState(job, 'failed');

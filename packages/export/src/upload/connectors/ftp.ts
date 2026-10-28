@@ -1,7 +1,7 @@
 import path from 'node:path';
 import { Client } from 'basic-ftp';
 import type { CredentialSecret, FtpDestination } from '@ee/contracts';
-import { ExportError, NonRetryableUploadError, UploadCancelledError } from '../../errors';
+import { NonRetryableUploadError, UploadCancelledError } from '../../errors';
 import { normalizeRemotePath, tempRemotePath } from '../paths';
 import type { DestinationConnector, DestinationTestResult, UploadRequest } from '../types';
 
@@ -98,16 +98,15 @@ async function connect(
   destination: FtpDestination,
   secret: CredentialSecret,
 ): Promise<void> {
-  if (typeof secret.password !== 'string') {
-    throw new ExportError('missing_credentials', 'FTP destination has no password credential');
-  }
   const secure: boolean | 'implicit' =
     destination.security === 'implicit-tls' ? 'implicit' : destination.security === 'explicit-tls';
+  // An absent credentialRef (and no password) is anonymous FTP.
+  const anonymous = destination.credentialRef === undefined || destination.credentialRef === '';
   await client.access({
     host: destination.host,
     port: destination.port,
-    user: destination.username,
-    password: secret.password,
+    user: anonymous && destination.username.trim() === '' ? 'anonymous' : destination.username,
+    password: secret.password ?? 'anonymous@editing-experiment.invalid',
     secure,
   });
 }

@@ -63,8 +63,8 @@ export async function openFtpConnection(
     await client.access({
       host: source.host,
       port: source.port,
-      user: source.username,
-      password: credentials.password ?? '',
+      user: source.username.trim() === '' ? 'anonymous' : source.username,
+      password: credentials.password ?? 'anonymous@editing-experiment.invalid',
       // basic-ftp prefers MLSD and falls back to LIST on servers without it.
       secure:
         source.security === 'none' ? false : source.security === 'implicit-tls' ? 'implicit' : true,

@@ -29,6 +29,8 @@ export async function getDestinationSecret(
   hooks: ExportHooks | undefined,
 ): Promise<CredentialSecret> {
   if (destination.kind === 'folder') return {};
+  // An absent/empty reference means anonymous FTP: no secret to look up.
+  if (!destination.credentialRef) return {};
   if (hooks?.getSecret === undefined) {
     throw new ExportError(
       'missing_credentials',

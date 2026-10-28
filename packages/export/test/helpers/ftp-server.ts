@@ -99,6 +99,8 @@ export async function startFtpServer(options: {
   username?: string;
   password?: string;
   dropAfterBytes?: number;
+  /** Accept any login (anonymous FTP). */
+  anonymous?: boolean;
 }): Promise<FtpTestServer> {
   const username = options.username ?? 'photo';
   const password = options.password ?? 's3cret-photo-pass';
@@ -117,7 +119,7 @@ export async function startFtpServer(options: {
   server.on(
     'login',
     ({ connection, username: givenUser, password: givenPassword }, resolve, reject) => {
-      if (givenUser !== username || givenPassword !== password) {
+      if (!options.anonymous && (givenUser !== username || givenPassword !== password)) {
         reject(new Error('Invalid username or password'));
         return;
       }
