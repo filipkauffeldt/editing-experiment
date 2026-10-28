@@ -58,6 +58,24 @@ describe('FTP uploads', () => {
     await rm(dir, { recursive: true, force: true });
   });
 
+  it('rejects a referenced credential that has no password', async () => {
+    const localPath = path.join(dir, 'no-password.jpg');
+    await writeFile(localPath, Buffer.alloc(1024, 1));
+    queue = new UploadQueue({
+      dbPath: path.join(dir, 'no-password.sqlite'),
+      hooks: { getSecret: async () => ({}) },
+      retryBaseDelayMs: 1,
+    });
+    await queue.enqueue(photoId, localPath, [ftpDestination(server!.port)]);
+    queue.start();
+    await queue.waitForIdle();
+    expect(queue.list()[0]).toMatchObject({
+      state: 'failed',
+      attempts: 1,
+      error: expect.stringContaining('no password credential'),
+    });
+  });
+
   it('uploads anonymously when credentialRef is absent', async () => {
     const anonymous = await startFtpServer({ root: path.join(dir, 'anonymous'), anonymous: true });
     try {
