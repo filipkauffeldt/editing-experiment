@@ -2,9 +2,10 @@
 import { mkdtemp, readFile, rm, stat } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import sharp, { type Sharp } from 'sharp';
+import type { RgbaImage } from '@ee/core';
+import sharp from 'sharp';
 import { afterEach, describe, expect, it } from 'vitest';
-import { applyOrientation, makePreviewJpegs } from '../src/jobs/backend/image-ops';
+import { makePreviewJpegs, orientRgba } from '../src/jobs/backend/image-ops';
 import { PreviewCache } from '../src/jobs/backend/previews';
 import { asPhotoId } from '@ee/contracts';
 
@@ -13,40 +14,51 @@ afterEach(async () => {
   await Promise.all(dirs.splice(0).map((dir) => rm(dir, { recursive: true, force: true })));
 });
 
-/** 6x4 image whose corners and edges differ, so every flip and rotation shows. */
-async function asymmetricImage(): Promise<Buffer> {
+/** 6x4 RGBA image whose pixels all differ, so every flip and rotation shows. */
+function asymmetricImage(): RgbaImage {
   const width = 6;
   const height = 4;
-  const rgb = Buffer.alloc(width * height * 3);
+  const rgba = Buffer.alloc(width * height * 4);
   for (let y = 0; y < height; y++) {
     for (let x = 0; x < width; x++) {
-      const at = (y * width + x) * 3;
-      rgb[at] = x * 40;
-      rgb[at + 1] = y * 60;
-      rgb[at + 2] = (x * 7 + y * 31) % 256;
+      const at = (y * width + x) * 4;
+      rgba[at] = x * 40;
+      rgba[at + 1] = y * 60;
+      rgba[at + 2] = (x * 7 + y * 31) % 256;
+      rgba[at + 3] = 255;
     }
   }
-  return sharp(rgb, { raw: { width, height, channels: 3 } })
-    .png()
-    .toBuffer();
+  return { width, height, rgba };
 }
 
-const pixels = (image: Sharp) => image.raw().toBuffer({ resolveWithObject: true });
-
-describe('applyOrientation', () => {
+describe('orientRgba', () => {
   it.each([1, 2, 3, 4, 5, 6, 7, 8])(
     'matches the EXIF meaning of orientation %i',
     async (orientation) => {
-      const plain = await asymmetricImage();
-      // sharp's own auto-orient is the reference: tag the same pixels with the orientation.
-      const tagged = await sharp(plain).withMetadata({ orientation }).png().toBuffer();
-      const expected = await pixels(sharp(tagged).rotate());
-      const actual = await pixels(applyOrientation(sharp(plain), orientation));
-      expect(actual.info.width).toBe(expected.info.width);
-      expect(actual.info.height).toBe(expected.info.height);
-      expect(actual.data.equals(expected.data)).toBe(true);
+      const plain = asymmetricImage();
+      // sharp's own auto-orient (test only, plain Node) is the reference: tag the same pixels.
+      const tagged = await sharp(plain.rgba, {
+        raw: { width: plain.width, height: plain.height, channels: 4 },
+      })
+        .withMetadata({ orientation })
+        .png()
+        .toBuffer();
+      const expected = await sharp(tagged).rotate().ensureAlpha().raw().toBuffer({
+        resolveWithObject: true,
+      });
+      const actual = orientRgba(plain, orientation);
+      expect([actual.width, actual.height]).toEqual([expected.info.width, expected.info.height]);
+      expect(Buffer.from(actual.rgba).equals(expected.data)).toBe(true);
     },
   );
+
+  it('handles a buffer that does not start on a 4-byte boundary', () => {
+    const plain = asymmetricImage();
+    const backing = Buffer.alloc(plain.rgba.length + 1);
+    plain.rgba.copy(backing, 1);
+    const shifted = { ...plain, rgba: backing.subarray(1) };
+    expect(orientRgba(shifted, 6).rgba.equals(orientRgba(plain, 6).rgba)).toBe(true);
+  });
 });
 
 describe('PreviewCache', () => {
@@ -104,5 +116,22 @@ describe('makePreviewJpegs', () => {
     expect([t.width, t.height]).toEqual([213, 320]);
     expect(p.exif).toBeUndefined();
     expect(t.exif).toBeUndefined();
+  });
+
+  it('applies the EXIF tag of a JPEG file and refuses formats the core cannot decode', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'ee-prev-'));
+    dirs.push(dir);
+    const file = join(dir, 'tagged.jpg');
+    await sharp({ create: { width: 800, height: 400, channels: 3, background: '#a44' } })
+      .withMetadata({ orientation: 6 })
+      .jpeg()
+      .toFile(file);
+    const { preview, thumb } = await makePreviewJpegs({ file });
+    expect((await sharp(preview).metadata()).height).toBe(800);
+    expect((await sharp(thumb).metadata()).width).toBe(160);
+
+    await expect(makePreviewJpegs({ file: join(dir, 'photo.heic') })).rejects.toThrowError(
+      /not supported/,
+    );
   });
 });

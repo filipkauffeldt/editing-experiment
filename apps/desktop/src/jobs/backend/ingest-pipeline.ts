@@ -19,7 +19,7 @@ import { copyFile } from 'node:fs/promises';
 import type { EditService } from './edit-service';
 import type { MetadataService } from './metadata-service';
 import type { PhotoLibrary } from './photo-library';
-import { readImageSize, type PreviewSource } from './image-ops';
+import type { PreviewSource } from './image-ops';
 import type { PreviewCache } from './previews';
 import { developVersionId, versionsEdited } from './edit-service';
 
@@ -73,14 +73,19 @@ class PreviewError extends Error {
 }
 
 async function readImage(path: string, exiftool: ExifToolService): Promise<Basics> {
-  const [tags, size] = await Promise.all([exiftool.read(path), readImageSize(path)]);
+  const tags = await exiftool.read(path);
   const captureTime = toIsoDate(tags['ExifIFD:DateTimeOriginal'] ?? tags['IFD0:ModifyDate']);
   const make = asString(tags['IFD0:Make']);
   const model = asString(tags['IFD0:Model']);
   const lens = asString(tags['ExifIFD:LensModel']);
   const serial = asString(tags['ExifIFD:BodySerialNumber']);
-  const w = size.width ?? asNumber(tags['File:ImageWidth']);
-  const h = size.height ?? asNumber(tags['File:ImageHeight']);
+  // ExifTool reports the stored size; orientations 5..8 display it turned.
+  const stored = [asNumber(tags['File:ImageWidth']), asNumber(tags['File:ImageHeight'])] as const;
+  const orientation = asNumber(tags['IFD0:Orientation']);
+  const [w, h] =
+    orientation !== undefined && orientation >= 5 && orientation <= 8
+      ? [stored[1], stored[0]]
+      : stored;
   return {
     ...(captureTime === undefined ? {} : { captureTime }),
     ...(make || model || lens || serial
