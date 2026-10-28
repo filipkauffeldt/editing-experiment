@@ -5,7 +5,7 @@ import { systemHandlers } from '../handlers/system';
 import type { Emit, PhotoLibrary } from './photo-library';
 import type { EditService } from './edit-service';
 import type { EditedPreviews } from './edited-previews';
-import type { ExportService } from './export-service';
+import type { ExportQueue } from './export-queue';
 import type { FaceService } from './faces';
 import type { IngestService } from './ingest-service';
 import type { LabelService } from './label-service';
@@ -27,24 +27,14 @@ export interface HandlerDeps {
   presets: PresetStore;
   ingest: IngestService;
   queue: UploadQueue;
-  exporter: ExportService;
+  exports: ExportQueue;
 }
 
 /** One handler per channel the jobs process serves in real mode. */
 export function createBackendHandlers(deps: HandlerDeps): IpcHandlers {
-  const {
-    photos,
-    settings,
-    metadata,
-    edits,
-    editedPreviews,
-    labels,
-    faces,
-    presets,
-    ingest,
-    queue,
-    exporter,
-  } = deps;
+  const { photos, settings, metadata, edits, editedPreviews, labels, faces, presets, ingest } =
+    deps;
+  const { queue, exports } = deps;
   const servedByMain = (channel: string) => async (): Promise<never> => {
     throw new IpcError('internal', `${channel} is served by the main process`);
   };
@@ -96,7 +86,15 @@ export function createBackendHandlers(deps: HandlerDeps): IpcHandlers {
     'retouch:set': (args) => edits.setRetouch(args),
     'retouch:detectFaces': (args) => faces.detect(args),
 
-    'export:photo': (args) => exporter.export(args),
+    'exportPresets:list': async () => settings.listExportPresets(),
+    'exportPresets:save': async ({ preset }) => settings.saveExportPreset(preset),
+    'exportPresets:remove': async ({ presetId }) => settings.removeExportPreset(presetId),
+
+    'export:start': async (args) => exports.start(args),
+    'export:cancel': async ({ jobId }) => exports.cancel(jobId),
+    'export:list': async () => exports.list(),
+    'export:render': async (args) => exports.deliverRender(args),
+    'export:rendererReady': async () => exports.markRendererReady(),
 
     'upload:list': async () => queue.list(),
     'upload:retry': async ({ uploadId }) => queue.retry(uploadId),

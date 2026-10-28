@@ -1,5 +1,6 @@
 import {
   IPTC_FIELD_NAMES,
+  asExportJobId,
   asJobId,
   asPresetId,
   asVersionId,
@@ -7,6 +8,8 @@ import {
   type EditParams,
   type EditPreset,
   type EventChannel,
+  type ExportJob,
+  type ExportPreset,
   type IngestJobInfo,
   type IpcHandlers,
   type IptcFields,
@@ -14,6 +17,7 @@ import {
   type Photo,
   type RetouchOp,
   type PhotoId,
+  type PresetId,
   type SourceConfig,
   type SourceId,
   type UploadItem,
@@ -27,6 +31,7 @@ import {
   mockMetadata,
   mockPhotos,
   mockPresets,
+  mockSettings,
   mockSources,
   mockTemplate,
   mockUploads,
@@ -46,6 +51,9 @@ export interface MockWorld {
   sources: SourceConfig[];
   destinations: Destination[];
   presets: EditPreset[];
+  exportPresets: ExportPreset[];
+  exportJobs: ExportJob[];
+  activePresetId?: PresetId;
   template: IptcFields;
   templatePath: string;
 }
@@ -178,6 +186,9 @@ export function createMockWorld(emit: Emit, simulate: boolean): MockWorld {
     sources,
     destinations: mockDestinations(),
     presets: mockPresets(),
+    exportPresets: mockSettings().exportPresets,
+    exportJobs: [],
+    activePresetId: mockSettings().activePresetId,
     template: mockTemplate(),
     templatePath: MOCK_TEMPLATE_PATH,
   };
@@ -365,18 +376,74 @@ export function createMockHandlers(world: MockWorld, emit: Emit): Partial<IpcHan
       return [{ box, score: 0.94 }];
     },
 
-    // --- export & upload ---
-    'export:photo': async ({ photoId }) => {
-      const photo = findPhoto(photoId);
-      photo.status.export = 'done';
-      emitPhoto(world, emit, photo);
-      const fileName = photo.fileName.replace(/\.(nef|jpg|jpeg)$/i, '.jpg');
-      return {
-        path: `/mock/outbox/${fileName}`,
-        fileName,
-        uploads: [],
-      };
+    // --- export presets & jobs ---
+    'exportPresets:list': async () => world.exportPresets,
+    'exportPresets:save': async ({ preset }) => {
+      const index = world.exportPresets.findIndex((candidate) => candidate.id === preset.id);
+      if (index >= 0) world.exportPresets[index] = preset;
+      else world.exportPresets.push(preset);
+      return preset;
     },
+    'exportPresets:remove': async ({ presetId }) => {
+      world.exportPresets = world.exportPresets.filter((preset) => preset.id !== presetId);
+    },
+    'export:start': async ({ photoIds, presetId, send }) => {
+      const preset = world.exportPresets.find((candidate) => candidate.id === presetId);
+      if (!preset) throw new Error(`no export preset ${presetId}`);
+      const job: ExportJob = {
+        id: asExportJobId(`mock-export-${Date.now()}-${world.exportJobs.length}`),
+        presetId,
+        photoIds: [...photoIds],
+        send: send ?? preset.sendTo,
+        state: 'queued',
+        photos: photoIds.map((photoId) => ({ photoId, state: 'queued' })),
+        createdAt: Date.now(),
+      };
+      world.exportJobs.unshift(job);
+      emitEvent(emit, {
+        type: 'export.state',
+        at: Date.now(),
+        jobId: job.id,
+        state: 'queued',
+        job: { ...job, photos: job.photos.map((photo) => ({ ...photo })) },
+      });
+      setTimeout(() => {
+        job.state = 'done';
+        job.finishedAt = Date.now();
+        for (const progress of job.photos) {
+          progress.state = 'done';
+          const photo = photoById(world, progress.photoId);
+          if (photo) {
+            photo.status.export = 'done';
+            emitPhoto(world, emit, photo);
+          }
+        }
+        emitEvent(emit, {
+          type: 'export.state',
+          at: Date.now(),
+          jobId: job.id,
+          state: job.state,
+          job: { ...job, photos: job.photos.map((photo) => ({ ...photo })) },
+        });
+      }, 350);
+      return job.id;
+    },
+    'export:cancel': async ({ jobId }) => {
+      const job = world.exportJobs.find((candidate) => candidate.id === jobId);
+      if (!job) return;
+      job.state = 'cancelled';
+      for (const photo of job.photos) photo.state = 'cancelled';
+      emitEvent(emit, {
+        type: 'export.state',
+        at: Date.now(),
+        jobId: job.id,
+        state: job.state,
+        job: { ...job, photos: job.photos.map((photo) => ({ ...photo })) },
+      });
+    },
+    'export:list': async () => world.exportJobs,
+    'export:render': async () => {},
+    'export:rendererReady': async () => {},
     'upload:list': async () => world.uploads,
     'upload:retry': async ({ uploadId }) => {
       const item = world.uploads.find((candidate) => candidate.id === uploadId);

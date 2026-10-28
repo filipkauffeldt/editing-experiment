@@ -25,6 +25,7 @@ import { PhotoIndex } from './photo-index';
 import { PhotoLibrary, type Emit } from './photo-library';
 import { PresetStore } from './presets';
 import { PreviewCache } from './previews';
+import { ExportQueue } from './export-queue';
 import { ExportService } from './export-service';
 import { SettingsStore } from './settings-store';
 import { reconcileDestination } from './reconcile';
@@ -135,10 +136,18 @@ export async function createBackend(options: BackendOptions): Promise<Backend> {
     settings,
     exiftool,
     queue,
-    exportsDir: layout.exportsDir,
     onEvent: emitJob,
   });
   late.exporter = exporter;
+  const exports = new ExportQueue({
+    file: layout.exportJobsFile,
+    getPreset: (presetId) => settings.getExportPreset(presetId),
+    exportPhoto: (args) => exporter.exportOne(args),
+    enqueue: ({ photoId, path, destinations }) => exporter.enqueue(photoId, path, destinations),
+    discard: (photoId) => exporter.discard(photoId),
+    emit: emitJob,
+    onWarning: (message) => console.warn(message),
+  });
   queue.start();
 
   // Pick up files that were copied but never indexed (crash or failed index write).
@@ -186,7 +195,7 @@ export async function createBackend(options: BackendOptions): Promise<Backend> {
       presets,
       ingest,
       queue,
-      exporter,
+      exports,
     }),
   );
 
@@ -203,6 +212,7 @@ export async function createBackend(options: BackendOptions): Promise<Backend> {
         { name: 'ingest', run: () => ingest.dispose() },
         { name: 'reconcile', run: () => (reconcileAbort.abort(), reconciled) },
         { name: 'face detection', run: () => faces.dispose() },
+        { name: 'export queue', run: async () => exports.close() },
         { name: 'upload queue', run: () => queue.close() },
         { name: 'exiftool', run: () => exiftool.close() },
         { name: 'seen files', run: () => seenStore.close() },

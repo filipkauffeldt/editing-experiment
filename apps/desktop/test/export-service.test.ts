@@ -2,16 +2,18 @@
 import {
   asDestinationId,
   asPhotoId,
+  asPresetId,
   asSourceId,
   asUploadId,
   type Destination,
+  type ExportPreset,
   type Photo,
   type PhotoId,
   type UploadItem,
 } from '@ee/contracts';
 import { JobEventEmitter, type UploadQueue } from '@ee/export';
-import { ExifToolService } from '@ee/metadata';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { ExifToolService, readIptc } from '@ee/metadata';
+import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import sharp from 'sharp';
@@ -20,7 +22,7 @@ import { ExportService } from '../src/jobs/backend/export-service';
 import { PhotoIndex } from '../src/jobs/backend/photo-index';
 import { PhotoLibrary } from '../src/jobs/backend/photo-library';
 import { SettingsStore } from '../src/jobs/backend/settings-store';
-import { defaultSettings } from '../src/shared/settings';
+import { defaultExportPreset, defaultSettings } from '../src/shared/settings';
 
 /** Just enough of the queue: items appear queued and the test moves them along. */
 class FakeQueue {
@@ -63,7 +65,7 @@ class FakeQueue {
   }
 }
 
-describe('ExportService bookkeeping', () => {
+describe('ExportService', () => {
   let root: string;
   let exiftool: ExifToolService;
   let library: PhotoLibrary;
@@ -77,10 +79,16 @@ describe('ExportService bookkeeping', () => {
     remotePathTemplate: '{fileName}',
   };
   const rendered = { width: 8, height: 8, rgba: new Uint8Array(8 * 8 * 4).fill(180) };
-  const action = {
-    exportPreset: { quality: 80, metadata: 'iptc' as const },
-    destinations: [destination.id],
-  };
+  const preset = (overrides: Partial<ExportPreset> = {}): ExportPreset => ({
+    ...defaultExportPreset(),
+    id: asPresetId('test'),
+    name: 'Test',
+    folderTemplate: join(root, 'exports'),
+    fileNameTemplate: '{filenamebase}',
+    metadata: 'iptc',
+    sendTo: [destination.id],
+    ...overrides,
+  });
 
   beforeAll(() => {
     exiftool = new ExifToolService();
@@ -98,17 +106,29 @@ describe('ExportService bookkeeping', () => {
       settings,
       exiftool,
       queue: queue as unknown as UploadQueue,
-      exportsDir: join(root, 'exports'),
       onEvent: () => {},
     });
   });
   afterEach(() => rm(root, { recursive: true, force: true }));
 
-  async function addPhoto(name: string): Promise<Photo> {
+  async function addPhoto(name: string, metadata = true): Promise<Photo> {
     const path = join(root, `${name}.jpg`);
     await sharp({ create: { width: 16, height: 16, channels: 3, background: '#357' } })
       .jpeg()
       .toFile(path);
+    if (metadata) {
+      await exiftool.write(path, {
+        Make: 'Nikon',
+        Model: 'Z 9',
+        Copyright: '© Sportfotografen',
+        Credit: 'Sportfotografen',
+        Headline: 'Cup final',
+        GPSLatitude: '59.3293',
+        GPSLatitudeRef: 'N',
+        GPSLongitude: '18.0686',
+        GPSLongitudeRef: 'E',
+      });
+    }
     const photo: Photo = {
       id: asPhotoId(name),
       path,
@@ -133,8 +153,14 @@ describe('ExportService bookkeeping', () => {
   it('forgets per-photo state once the uploads are delivered', async () => {
     for (const name of ['a', 'b', 'c']) {
       const photo = await addPhoto(name);
-      const { uploads } = await service.export({ photoId: photo.id, rendered, action });
+      const exported = await service.exportOne({
+        photoId: photo.id,
+        preset: preset(),
+        rendered,
+      });
       // The IPTC read is only needed until the queue has expanded the remote path.
+      expect(service.trackedCounts().fields).toBe(1);
+      const uploads = await service.enqueue(photo.id, exported.path, [destination.id]);
       expect(service.trackedCounts().fields).toBe(0);
       expect(service.trackedCounts().batches).toBe(1);
       expect(library.get(photo.id).status.upload).toBe('queued');
@@ -147,7 +173,8 @@ describe('ExportService bookkeeping', () => {
 
   it('keeps a batch with a failed upload so a retry still counts, and drops it when delivered', async () => {
     const photo = await addPhoto('f');
-    const { uploads } = await service.export({ photoId: photo.id, rendered, action });
+    const exported = await service.exportOne({ photoId: photo.id, preset: preset(), rendered });
+    const uploads = await service.enqueue(photo.id, exported.path, [destination.id]);
     queue.setState(uploads[0]!.id, 'failed');
     expect(library.get(photo.id).status.upload).toBe('failed');
     expect(service.trackedCounts().batches).toBe(1);
@@ -160,11 +187,7 @@ describe('ExportService bookkeeping', () => {
   it('leaves nothing behind when the encode fails', async () => {
     const photo = await addPhoto('bad');
     await expect(
-      service.export({
-        photoId: photo.id,
-        rendered,
-        action: { ...action, exportPreset: { quality: 500, metadata: 'iptc' } },
-      }),
+      service.exportOne({ photoId: photo.id, preset: preset({ quality: 500 }), rendered }),
     ).rejects.toThrow();
     expect(service.trackedCounts()).toEqual({ fields: 0, batches: 0 });
     expect(library.get(photo.id).status.export).toBe('failed');
@@ -178,7 +201,7 @@ describe('ExportService bookkeeping', () => {
       () => new Promise<void>((resolve) => (release = resolve)),
     );
 
-    const exporting = service.export({ photoId: photo.id, rendered, action });
+    const exporting = service.exportOne({ photoId: photo.id, preset: preset(), rendered });
     await new Promise((resolve) => setTimeout(resolve, 150));
     // Not started: the export is queued behind the edit.
     expect(library.get(photo.id).status.export).toBe('none');
@@ -186,8 +209,71 @@ describe('ExportService bookkeeping', () => {
 
     release();
     await editing;
-    const { uploads } = await exporting;
-    expect(uploads).toHaveLength(1);
+    const exported = await exporting;
+    expect(exported.path.endsWith('locked.jpg')).toBe(true);
     expect(library.get(photo.id).status.export).toBe('done');
+  });
+
+  it('writes all, IPTC-only, copyright-only and no metadata, with GPS stripped on request', async () => {
+    const cases = [
+      { name: 'all', metadata: 'all' as const, stripGps: false },
+      { name: 'all-no-gps', metadata: 'all' as const, stripGps: true },
+      { name: 'iptc', metadata: 'iptc' as const, stripGps: false },
+      { name: 'copyright', metadata: 'copyright' as const, stripGps: false },
+      { name: 'none', metadata: 'none' as const, stripGps: false },
+    ];
+    const outputs = new Map<string, string>();
+    for (const testCase of cases) {
+      const photo = await addPhoto(testCase.name);
+      const exported = await service.exportOne({
+        photoId: photo.id,
+        preset: preset({
+          metadata: testCase.metadata,
+          stripGps: testCase.stripGps,
+          sendTo: [],
+        }),
+        rendered,
+      });
+      outputs.set(testCase.name, exported.path);
+    }
+
+    const tags = async (name: string): Promise<Record<string, unknown>> =>
+      exiftool.read(outputs.get(name)!);
+
+    const all = await tags('all');
+    expect(all['IFD0:Make']).toBe('Nikon');
+    expect(all['GPS:GPSLatitude']).toBeDefined();
+    expect(all['XMP-photoshop:Credit']).toBe('Sportfotografen');
+    expect((await readIptc(outputs.get('all')!, exiftool)).headline).toBe('Cup final');
+
+    const noGps = await tags('all-no-gps');
+    expect(noGps['IFD0:Make']).toBe('Nikon');
+    expect(noGps['GPS:GPSLatitude']).toBeUndefined();
+
+    const iptc = await tags('iptc');
+    expect(iptc['IFD0:Make']).toBeUndefined();
+    expect(iptc['GPS:GPSLatitude']).toBeUndefined();
+
+    const copyright = await readIptc(outputs.get('copyright')!, exiftool);
+    expect(copyright.copyright).toBe('© Sportfotografen');
+    expect(copyright.credit).toBeUndefined();
+    expect(copyright.headline).toBeUndefined();
+
+    const iptcFields = await readIptc(outputs.get('iptc')!, exiftool);
+    expect(iptcFields).toMatchObject({
+      credit: 'Sportfotografen',
+      headline: 'Cup final',
+      copyright: '© Sportfotografen',
+    });
+
+    const none = await tags('none');
+    expect(none['IFD0:Make']).toBeUndefined();
+    expect(none['XMP-photoshop:Credit']).toBeUndefined();
+    expect(none['XMP-photoshop:Headline']).toBeUndefined();
+    const noneFields = await readIptc(outputs.get('none')!, exiftool);
+    expect(noneFields).toEqual({});
+
+    // The files themselves are real JPEGs.
+    expect((await sharp(await readFile(outputs.get('all')!)).metadata()).format).toBe('jpeg');
   });
 });

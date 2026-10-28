@@ -136,6 +136,29 @@ export class ExifToolService {
     });
   }
 
+  /**
+   * Copy selected tags from another file without touching the destination's
+   * other metadata. Used by export to carry camera EXIF/GPS into a JPEG that
+   * was encoded from pixels (the encoder itself writes no EXIF).
+   */
+  async copyTags(target: string, source: string, tags: readonly string[]): Promise<void> {
+    if (tags.length === 0) return;
+    await this.#withLimit(async () => {
+      await this.#et.write(
+        target,
+        {},
+        {
+          writeArgs: [
+            '-overwrite_original',
+            '-TagsFromFile',
+            source,
+            ...tags.map((tag) => `-${tag}`),
+          ],
+        },
+      );
+    });
+  }
+
   /** Stop the ExifTool process and remove the generated config. Idempotent. */
   async close(): Promise<void> {
     if (this.#closed) return;
