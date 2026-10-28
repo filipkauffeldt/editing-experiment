@@ -1,4 +1,5 @@
 import { asPhotoId } from '@ee/contracts';
+import { cropAspect } from '@ee/develop-gl';
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -164,6 +165,63 @@ describe('retouch version', () => {
     store.select(asPhotoId('mock-03'));
     await waitFor(() => expect(screen.getByTestId('retouch-version-indicator')).toBeTruthy());
     expect(screen.queryByTestId('retouch-toolbar')).toBeNull();
+  });
+});
+
+describe('crop mode', () => {
+  it('opens with C, edits aspect and angle, and applies through develop:setParams', async () => {
+    const { store, fake } = await renderApp();
+    const photo = activePhoto(store.getState());
+    if (!photo) throw new Error('no selection');
+
+    fireEvent.keyDown(window, { key: 'c' });
+    await waitFor(() => expect(store.getState().crop).toBeDefined());
+    expect(await screen.findByTestId('crop-overlay')).toBeTruthy();
+    const toolbar = screen.getByTestId('crop-toolbar');
+
+    fireEvent.click(within(toolbar).getByText('3:2'));
+    const landscape = store.getState().crop;
+    if (!landscape) throw new Error('no crop session');
+    expect(
+      cropAspect(landscape.crop, {
+        width: photo.width ?? 0,
+        height: photo.height ?? 0,
+      }),
+    ).toBeCloseTo(3 / 2, 6);
+
+    fireEvent.change(screen.getByLabelText('Straighten angle'), { target: { value: '3' } });
+    expect(store.getState().crop?.crop.angle).toBeCloseTo(3, 9);
+
+    fireEvent.keyDown(window, { key: 'x' });
+    expect(store.getState().crop?.flipped).toBe(true);
+
+    fireEvent.click(screen.getByTestId('apply-crop'));
+    await waitFor(() => expect(store.getState().crop).toBeUndefined());
+    await waitFor(() => {
+      expect(
+        fake.calls.some(
+          (call) =>
+            call.channel === 'develop:setParams' &&
+            (call.args[0] as { params: { crop?: { angle: number } } }).params.crop?.angle === 3,
+        ),
+      ).toBe(true);
+    });
+  });
+
+  it('cancels with Escape without saving a crop', async () => {
+    const { store, fake } = await renderApp();
+    fireEvent.keyDown(window, { key: 'c' });
+    await waitFor(() => expect(store.getState().crop).toBeDefined());
+    fireEvent.change(screen.getByLabelText('Straighten angle'), { target: { value: '5' } });
+    fireEvent.keyDown(window, { key: 'Escape' });
+    await waitFor(() => expect(store.getState().crop).toBeUndefined());
+    expect(
+      fake.calls.some(
+        (call) =>
+          call.channel === 'develop:setParams' &&
+          (call.args[0] as { params: { crop?: unknown } }).params.crop !== undefined,
+      ),
+    ).toBe(false);
   });
 });
 

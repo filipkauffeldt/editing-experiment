@@ -31,6 +31,15 @@ export function PenIcon(props: IconProps) {
   );
 }
 
+export function CropIcon(props: IconProps) {
+  return (
+    <Icon {...props}>
+      <path d="M4.5 1.5v10a1 1 0 0 0 1 1h9" />
+      <path d="M1.5 4.5h10a1 1 0 0 1 1 1v9" />
+    </Icon>
+  );
+}
+
 export function StackIcon(props: IconProps) {
   return (
     <Icon {...props}>

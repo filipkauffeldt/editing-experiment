@@ -13,6 +13,14 @@ const GROUPS: { title: string; rows: [string, string][] }[] = [
     ],
   },
   {
+    title: 'Crop and straighten',
+    rows: [
+      ['C', 'Enter crop mode / apply the crop'],
+      ['X', 'Swap portrait / landscape'],
+      ['Enter / Esc', 'Apply / cancel the crop'],
+    ],
+  },
+  {
     title: 'Cull and classify',
     rows: [
       ['T', 'Tag / untag photo'],
