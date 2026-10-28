@@ -15,6 +15,7 @@ pnpm lint && pnpm typecheck && pnpm test
 cargo fmt --check && cargo clippy --all-targets -- -D warnings && cargo test
 pnpm screenshot          # builds, launches the app with mock data, writes screenshots/*.png
 pnpm fetch-fixtures      # CC0 Nikon NEF samples into fixtures/raw/ (gitignored)
+pnpm fetch-retouch       # YuNet model + public-domain face photos into fixtures/ (gitignored)
 EE_SAMPLE_NEF_DIR=~/nefs pnpm test   # optionally also run the raw tests on your own NEFs
 ```
 

@@ -1,8 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { PACKAGE_NAME } from '../src/index';
+import * as retouch from '../src/index';
 
-describe('@ee/retouch', () => {
-  it('is wired into the workspace', () => {
-    expect(PACKAGE_NAME).toBe('@ee/retouch');
+describe('@ee/retouch public API', () => {
+  it('exports the browser-safe selection, mosaic and magic-wand helpers', () => {
+    expect(typeof retouch.applyMosaic).toBe('function');
+    expect(typeof retouch.rasterizeShapes).toBe('function');
+    expect(typeof retouch.magicWand).toBe('function');
+    expect(typeof retouch.pointInPolygon).toBe('function');
   });
 });
