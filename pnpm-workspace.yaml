@@ -3,12 +3,15 @@ packages:
   - packages/*
   - crates/*
 
-# Only these dependencies may run install scripts (esbuild unpacks a platform
-# binary); everything else stays blocked. Electron has no install script: it
-# downloads its binary on first use (`require('electron')`).
-# Optional native accelerators with pure-JS fallbacks; not needed for the PoC.
+# Only these dependencies may run install scripts. esbuild unpacks a platform
+# binary. onnxruntime-node is deliberately denied: its postinstall fetches
+# optional CUDA binaries, but the CPU runtime used here ships in the package.
+# The others are optional native accelerators with pure-JS fallbacks; not needed
+# for the PoC. Electron has no install script: it downloads its binary on first
+# use (`require('electron')`).
 allowBuilds:
   esbuild: true
+  onnxruntime-node: false
   cpu-features: false
   dtrace-provider: false
   ssh2: false

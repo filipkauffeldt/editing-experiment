@@ -18,7 +18,8 @@
     "build": "pnpm -r --workspace-concurrency=1 run --if-present build",
     "dev": "pnpm build:native && pnpm --filter @ee/desktop run dev",
     "screenshot": "pnpm build && node scripts/screenshot.ts",
-    "fetch-fixtures": "node scripts/fetch-fixtures.ts"
+    "fetch-fixtures": "node scripts/fetch-fixtures.ts",
+    "fetch-retouch": "node scripts/fetch-retouch.ts"
   },
   "devDependencies": {
     "@eslint/js": "10.0.1",
