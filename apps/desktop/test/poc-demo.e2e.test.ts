@@ -114,6 +114,17 @@ describe.skipIf(nefs.length === 0 || !haveDisplay)('PoC demo (real Electron app)
     });
   };
 
+  /** Wait until every image and app:// request has finished before closing. */
+  const settle = async (): Promise<void> => {
+    await window.waitForFunction(() => {
+      const images = [
+        ...document.querySelectorAll<HTMLImageElement>('[data-testid="film-strip"] img'),
+      ];
+      return images.every((image) => image.complete);
+    });
+    await window.waitForLoadState('networkidle');
+  };
+
   const selectPhoto = async (fileName: string): Promise<void> => {
     await window.locator(`button[title^="${fileName}"]`).click();
     await window.waitForFunction(
@@ -204,11 +215,41 @@ describe.skipIf(nefs.length === 0 || !haveDisplay)('PoC demo (real Electron app)
     await window.waitForFunction(() => 'eeTransport' in window);
 
     const problems: string[] = [];
+    const failures: string[] = [];
     window.on('console', (message) => {
       if (message.type() === 'error') problems.push(message.text());
     });
     window.on('pageerror', (error) => problems.push(error.message));
-    (window as Page & { __problems?: string[] }).__problems = problems;
+    window.on('response', (response) => {
+      const url = response.url();
+      if (url.startsWith('app://') && response.status() >= 400) {
+        failures.push(`${response.status()} ${url}`);
+      }
+    });
+    window.on('requestfailed', (request) => {
+      if (request.url().startsWith('app://')) {
+        failures.push(`${request.failure()?.errorText ?? 'failed'} ${request.url()}`);
+      }
+    });
+    (
+      window as Page & {
+        __problems?: string[];
+        __failures?: string[];
+        __events?: unknown[];
+      }
+    ).__problems = problems;
+    (window as Page & { __failures?: string[] }).__failures = failures;
+    const captureEvents = async (): Promise<void> => {
+      await window.evaluate(() => {
+        const w = window as unknown as {
+          __events: unknown[];
+          eeTransport: { subscribe(c: string, l: (p: unknown) => void): void };
+        };
+        w.__events = [];
+        w.eeTransport.subscribe('jobs:event', (event) => w.__events.push(event));
+      });
+    };
+    await captureEvents();
 
     // Import the Lightroom preset through the real backend, then reload so the
     // renderer's store loads it with everything else.
@@ -216,6 +257,7 @@ describe.skipIf(nefs.length === 0 || !haveDisplay)('PoC demo (real Electron app)
     await window.reload();
     await window.waitForFunction(() => 'eeTransport' in window);
     await window.waitForSelector('[data-store-ready="true"]');
+    await captureEvents();
 
     for (const source of [sourceA, sourceB, sourcePool]) {
       await invoke('sources:save', { source });
@@ -261,15 +303,31 @@ describe.skipIf(nefs.length === 0 || !haveDisplay)('PoC demo (real Electron app)
   }, 240_000);
 
   afterAll(async () => {
-    const problems = (window as (Page & { __problems?: string[] }) | undefined)?.__problems ?? [];
+    const page = window as
+      | (Page & {
+          __problems?: string[];
+          __failures?: string[];
+          __events?: { type?: string; scope?: string; message?: string }[];
+        })
+      | undefined;
+    await settle().catch(() => undefined);
+    const problems = [...(page?.__problems ?? [])];
+    const failures = [...(page?.__failures ?? [])];
+    const jobErrors = (page?.__events ?? []).filter((event) => event.type === 'job.error');
     await app?.close().catch(() => undefined);
     await sourceServer?.close().catch(() => undefined);
     await destServer?.close().catch(() => undefined);
     display?.stop();
     if (root) rmSync(root, { recursive: true, force: true });
-    if (problems.length > 0) {
-      // Surfacing renderer errors here keeps a failing run diagnosable.
-      throw new Error(`renderer reported errors:\n${problems.join('\n')}`);
+    if (problems.length > 0 || failures.length > 0 || jobErrors.length > 0) {
+      throw new Error(
+        [
+          'renderer reported errors:',
+          ...problems,
+          ...failures,
+          ...jobErrors.map((event) => `jobs: ${event.scope}: ${event.message}`),
+        ].join('\n'),
+      );
     }
   }, 60_000);
 
