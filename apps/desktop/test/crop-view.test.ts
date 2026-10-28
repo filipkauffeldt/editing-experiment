@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   cropFit,
+  createDoubleClickGuard,
   cropLayout,
   cursorFor,
   frameRect,
@@ -159,5 +160,33 @@ describe('previewPlacement', () => {
     // ...then slide it so that point sits at the frame centre.
     expect(place.translateX).toBeCloseTo(10, 9);
     expect(place.translateY).toBeCloseTo(-10, 9);
+  });
+});
+
+describe('createDoubleClickGuard', () => {
+  it('allows a commit after two stationary clicks', () => {
+    const guard = createDoubleClickGuard();
+    guard.press({ x: 100, y: 100 });
+    guard.move({ x: 102, y: 101 });
+    guard.press({ x: 102, y: 101 });
+    expect(guard.allowsCommit()).toBe(true);
+  });
+
+  it('refuses when the current press was dragged more than a few pixels', () => {
+    const guard = createDoubleClickGuard();
+    guard.press({ x: 100, y: 100 });
+    guard.move({ x: 100, y: 130 });
+    expect(guard.allowsCommit()).toBe(false);
+  });
+
+  it('refuses when the first of the two clicks was a drag', () => {
+    const guard = createDoubleClickGuard();
+    guard.press({ x: 100, y: 100 });
+    guard.move({ x: 160, y: 100 });
+    guard.press({ x: 160, y: 100 });
+    expect(guard.allowsCommit()).toBe(false);
+    // Two clean clicks afterwards are fine again.
+    guard.press({ x: 160, y: 100 });
+    expect(guard.allowsCommit()).toBe(true);
   });
 });

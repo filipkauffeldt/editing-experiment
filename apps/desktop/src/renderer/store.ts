@@ -185,6 +185,8 @@ interface CropGestureState {
   aspect: number | undefined;
   freeAspect: number | undefined;
   desired: { width: number; height: number };
+  /** The session's `desired` before the gesture, restored if it is cancelled. */
+  startDesired: { width: number; height: number } | undefined;
 }
 
 /** Pixel aspect ratio of a crop session, or undefined for Free. */
@@ -1139,6 +1141,7 @@ export class AppStore {
       aspect: cropAspectRatio(session),
       freeAspect: geometry.height > 0 ? geometry.width / geometry.height : undefined,
       desired: session.desired ?? { width: geometry.width, height: geometry.height },
+      startDesired: session.desired,
     };
     this.updateCrop({ gesture: request.kind });
   };
@@ -1223,6 +1226,23 @@ export class AppStore {
     this.updateCrop({
       gesture: undefined,
       tool: gesture.request.kind === 'draw' ? 'crop' : session.tool,
+    });
+  };
+
+  /**
+   * The pointer was cancelled or lost mid-drag: put the frame back as it was
+   * before the gesture. Unlike {@link endCropGesture} this keeps the tool, so a
+   * cancelled draw does not silently hand back to the crop tool.
+   */
+  readonly cancelCropGesture = (): void => {
+    const gesture = this.cropGesture;
+    this.cropGesture = undefined;
+    if (!gesture || !this.state.crop) return;
+    this.updateCrop({
+      crop: gesture.crop,
+      pivot: gesture.pivot,
+      desired: gesture.startDesired,
+      gesture: undefined,
     });
   };
 

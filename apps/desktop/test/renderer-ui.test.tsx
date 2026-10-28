@@ -263,6 +263,118 @@ describe('crop mode', () => {
     expect(store.getState().crop).toBeUndefined();
   });
 
+  /** jsdom has no pointer capture; the overlay only needs it to exist. */
+  const stubCapture = (element: HTMLElement): void => {
+    Object.assign(element, {
+      setPointerCapture: () => undefined,
+      releasePointerCapture: () => undefined,
+      hasPointerCapture: () => false,
+    });
+  };
+
+  const frameOf = (overlay: HTMLElement) => {
+    const [left = 0, top = 0, width = 0, height = 0] = (overlay.getAttribute('data-frame') ?? '')
+      .split(',')
+      .map(Number);
+    return { left, top, width, height };
+  };
+
+  it('does not commit on a double-click that follows a pan', async () => {
+    const { store } = await renderApp();
+    fireEvent.keyDown(window, { key: 'c' });
+    await waitFor(() => expect(store.getState().crop).toBeDefined());
+    // A frame smaller than the image, so the pan has somewhere to go.
+    fireEvent.click(screen.getByText('1:1'));
+    const overlay = await screen.findByTestId('crop-overlay');
+    stubCapture(overlay);
+    const frame = frameOf(overlay);
+    const centre = { clientX: frame.left + frame.width / 2, clientY: frame.top + frame.height / 2 };
+
+    fireEvent.pointerDown(overlay, { ...centre, button: 0, pointerId: 1 });
+    fireEvent.pointerMove(overlay, {
+      clientX: centre.clientX + 40,
+      clientY: centre.clientY,
+      pointerId: 1,
+    });
+    fireEvent.pointerUp(overlay, {
+      clientX: centre.clientX + 40,
+      clientY: centre.clientY,
+      pointerId: 1,
+    });
+    fireEvent.doubleClick(overlay, { clientX: centre.clientX + 40, clientY: centre.clientY });
+    expect(store.getState().crop).toBeDefined();
+
+    // Two clean clicks do commit.
+    const moved = frameOf(overlay);
+    const again = { clientX: moved.left + moved.width / 2, clientY: moved.top + moved.height / 2 };
+    for (let i = 0; i < 2; i++) {
+      fireEvent.pointerDown(overlay, { ...again, button: 0, pointerId: 1 });
+      fireEvent.pointerUp(overlay, { ...again, pointerId: 1 });
+    }
+    fireEvent.doubleClick(overlay, again);
+    expect(store.getState().crop).toBeUndefined();
+  });
+
+  it('abandons a drag on pointer cancel and keeps the frame tool', async () => {
+    const { store } = await renderApp();
+    fireEvent.keyDown(window, { key: 'c' });
+    await waitFor(() => expect(store.getState().crop).toBeDefined());
+    fireEvent.click(screen.getByText('Free'));
+    fireEvent.keyDown(window, { key: 'r' });
+    expect(store.getState().crop?.tool).toBe('draw');
+    const overlay = await screen.findByTestId('crop-overlay');
+    stubCapture(overlay);
+    const frame = frameOf(overlay);
+    const before = store.getState().crop?.crop;
+
+    fireEvent.pointerDown(overlay, {
+      clientX: frame.left + 40,
+      clientY: frame.top + 40,
+      button: 0,
+      pointerId: 1,
+    });
+    fireEvent.pointerMove(overlay, {
+      clientX: frame.left + 200,
+      clientY: frame.top + 160,
+      pointerId: 1,
+    });
+    expect(store.getState().crop?.crop).not.toEqual(before);
+    fireEvent.pointerCancel(overlay, { pointerId: 1 });
+    expect(store.getState().crop?.crop).toEqual(before);
+    expect(store.getState().crop?.tool).toBe('draw');
+    expect(store.getState().crop?.gesture).toBeUndefined();
+  });
+
+  it('ignores A, O, X and R while an input has focus', async () => {
+    const { store } = await renderApp();
+    fireEvent.keyDown(window, { key: 'c' });
+    await waitFor(() => expect(store.getState().crop).toBeDefined());
+    fireEvent.click(screen.getByText('3:2'));
+    const before = store.getState().crop;
+    if (!before) throw new Error('no crop session');
+
+    for (const field of [
+      screen.getByLabelText('Straighten angle'),
+      document.createElement('textarea'),
+    ]) {
+      if (!field.isConnected) document.body.appendChild(field);
+      field.focus();
+      for (const key of ['a', 'A', 'o', 'O', 'x', 'X', 'r', 'R']) {
+        fireEvent.keyDown(field, { key });
+      }
+      const after = store.getState().crop;
+      expect(after?.tool).toBe(before.tool);
+      expect(after?.overlay).toBe(before.overlay);
+      expect(after?.flipped).toBe(before.flipped);
+      expect(after?.crop).toEqual(before.crop);
+      expect(store.getState().retouch).toBeUndefined();
+    }
+    // Out of the field the same keys act.
+    (document.activeElement as HTMLElement | null)?.blur();
+    fireEvent.keyDown(window, { key: 'o' });
+    expect(store.getState().crop?.overlay).not.toBe(before.overlay);
+  });
+
   it('cancels with Escape without saving a crop', async () => {
     const { store, fake } = await renderApp();
     fireEvent.keyDown(window, { key: 'c' });

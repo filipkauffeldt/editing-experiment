@@ -153,6 +153,32 @@ export function previewPlacement(
   };
 }
 
+/**
+ * A double-click on the frame commits the crop, but not when either press was
+ * really a drag (a pan or a rotation that happens to end in a second click).
+ */
+export function createDoubleClickGuard(tolerance = 4): {
+  press(point: Point): void;
+  move(point: Point): void;
+  allowsCommit(): boolean;
+} {
+  let start: Point | undefined;
+  let previousMoved = false;
+  let currentMoved = false;
+  return {
+    press(point) {
+      previousMoved = currentMoved;
+      currentMoved = false;
+      start = point;
+    },
+    move(point) {
+      if (start && Math.hypot(point.x - start.x, point.y - start.y) > tolerance)
+        currentMoved = true;
+    },
+    allowsCommit: () => !previousMoved && !currentMoved,
+  };
+}
+
 /** What a pointer press at a position would do. */
 export type FrameHit = CropHandle | 'move' | 'rotate';
 

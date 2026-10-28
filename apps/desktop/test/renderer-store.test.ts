@@ -1182,6 +1182,53 @@ describe('crop gestures', () => {
     expect(geometry().width).toBeCloseTo(small, 6);
   });
 
+  it('puts the frame back when a gesture is cancelled, whatever its kind', async () => {
+    const { store, session, handleAt } = await croppingSetup({ width: 6000, height: 4000 });
+    store.setCropAspect('free');
+    // Shrink the frame first so a pan has room.
+    const corner = handleAt('se');
+    store.beginCropGesture({ kind: 'resize', handle: 'se' }, corner);
+    store.updateCropGesture({ x: corner.x - 2000, y: corner.y - 1200 });
+    store.endCropGesture();
+    const before = session();
+
+    const pivot = before.pivot;
+    // The frame sits flush with the image's upper-left corner: the pan goes up-left
+    // (the image follows), the resize pulls the upper-left handle inwards.
+    for (const [request, dx, dy] of [
+      [{ kind: 'pan' }, -400, -350],
+      [{ kind: 'rotate' }, 400, 350],
+      [{ kind: 'resize', handle: 'nw' }, 400, 350],
+    ] as const) {
+      store.beginCropGesture(request, { x: pivot.x - 300, y: pivot.y - 200 });
+      store.updateCropGesture({ x: pivot.x - 300 + dx, y: pivot.y - 200 + dy });
+      expect(session().crop, request.kind).not.toEqual(before.crop);
+      store.cancelCropGesture();
+      expect(session().crop, request.kind).toEqual(before.crop);
+      expect(session().pivot, request.kind).toEqual(before.pivot);
+      expect(session().desired, request.kind).toEqual(before.desired);
+      expect(session().gesture, request.kind).toBeUndefined();
+    }
+  });
+
+  it('keeps the frame tool active when a draw is cancelled', async () => {
+    const { store, session } = await croppingSetup({ width: 6000, height: 4000 });
+    store.setCropAspect('free');
+    store.setCropTool('draw');
+    const before = session().crop;
+    store.beginCropGesture({ kind: 'draw' }, { x: 2500, y: 1800 });
+    store.updateCropGesture({ x: 3300, y: 2300 });
+    expect(session().crop).not.toEqual(before);
+    store.cancelCropGesture();
+    expect(session().crop).toEqual(before);
+    expect(session().tool).toBe('draw');
+    // Finishing a draw, by contrast, hands back to the crop tool.
+    store.beginCropGesture({ kind: 'draw' }, { x: 2500, y: 1800 });
+    store.updateCropGesture({ x: 3300, y: 2300 });
+    store.endCropGesture();
+    expect(session().tool).toBe('crop');
+  });
+
   it('cycles the overlay and toggles tools', async () => {
     const { store, session } = await croppingSetup();
     const seen = [session().overlay];

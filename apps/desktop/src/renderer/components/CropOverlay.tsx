@@ -3,6 +3,7 @@ import { cropGeometry, type CropHandle } from '@ee/develop-gl';
 import { useRef, useState } from 'react';
 import {
   cropLayout,
+  createDoubleClickGuard,
   cursorFor,
   frameRect,
   guideSegments,
@@ -43,6 +44,7 @@ export function CropOverlay({ session, stage }: { session: CropSession; stage: S
   const overlayRef = useRef<HTMLDivElement>(null);
   const active = useRef<'gesture' | 'line' | null>(null);
   const lineFrom = useRef<Point | null>(null);
+  const doubleClick = useRef(createDoubleClickGuard());
   const [hover, setHover] = useState<FrameHit>();
   // What the press that started the current drag landed on; keeps the cursor fixed while dragging.
   const [grabbed, setGrabbed] = useState<FrameHit>();
@@ -64,6 +66,7 @@ export function CropOverlay({ session, stage }: { session: CropSession; stage: S
     event.preventDefault();
     overlay.setPointerCapture(event.pointerId);
     const screen = localPoint(event);
+    doubleClick.current.press(screen);
     const view = screenToView(layout, screen);
     if (session.tool === 'straighten') {
       active.current = 'line';
@@ -90,6 +93,7 @@ export function CropOverlay({ session, stage }: { session: CropSession; stage: S
 
   const onPointerMove = (event: React.PointerEvent<HTMLDivElement>): void => {
     const screen = localPoint(event);
+    doubleClick.current.move(screen);
     if (active.current === 'gesture') {
       store.updateCropGesture(screenToView(layout, screen), {
         shift: event.shiftKey,
@@ -118,8 +122,27 @@ export function CropOverlay({ session, stage }: { session: CropSession; stage: S
     }
   };
 
+  // A cancelled pointer or lost capture abandons the drag instead of committing it.
+  const abandon = (event: React.PointerEvent<HTMLDivElement>): void => {
+    const overlay = overlayRef.current;
+    if (overlay?.hasPointerCapture(event.pointerId)) overlay.releasePointerCapture(event.pointerId);
+    const kind = active.current;
+    if (kind === null) return;
+    active.current = null;
+    setGrabbed(undefined);
+    if (kind === 'gesture') store.cancelCropGesture();
+    else {
+      lineFrom.current = null;
+      setLine(null);
+    }
+  };
+
   const onDoubleClick = (event: React.MouseEvent<HTMLDivElement>): void => {
-    if (session.tool === 'crop' && hitTestFrame(rect, localPoint(event)) === 'move') {
+    if (
+      session.tool === 'crop' &&
+      doubleClick.current.allowsCommit() &&
+      hitTestFrame(rect, localPoint(event)) === 'move'
+    ) {
       store.applyCrop();
     }
   };
@@ -162,7 +185,8 @@ export function CropOverlay({ session, stage }: { session: CropSession; stage: S
       onPointerDown={onPointerDown}
       onPointerMove={onPointerMove}
       onPointerUp={finish}
-      onPointerCancel={finish}
+      onPointerCancel={abandon}
+      onLostPointerCapture={abandon}
       onPointerLeave={() => setHover(undefined)}
       onDoubleClick={onDoubleClick}
     >
