@@ -429,3 +429,97 @@ describe('portrait crop parity', () => {
     expect(meanAbsDiff(gpu, cpu)).toBeLessThan(1.2);
   });
 });
+
+describe('crop view (crop mode on the GPU)', () => {
+  const chart = makeChart(W, H);
+  const image = { width: W, height: H };
+  const OUTSIDE: [number, number, number] = [0.2, 0.4, 0.6];
+
+  const pixel = (data: ArrayLike<number>, width: number, x: number, y: number): number[] => {
+    const o = (y * width + x) * 4;
+    return [data[o] ?? 0, data[o + 1] ?? 0, data[o + 2] ?? 0];
+  };
+
+  it('shows the committed crop inside the frame, pixel for pixel', () => {
+    for (const angle of [0, 12, -30, 45]) {
+      const crop = cropFromGeometry(48, 32, 40, 28, angle, image);
+      const params: EditParams = { Exposure2012: 0.3, Contrast2012: 15 };
+      renderer?.dispose();
+      renderer = createDevelopRenderer(canvas);
+      renderer.setImage(chart.header, chart.data);
+      renderer.renderView(params, {
+        crop,
+        pivot: { x: 48, y: 32 },
+        scale: 1,
+        frame: { x: 28, y: 18, w: 40, h: 28 },
+        dim: 0.5,
+        outside: OUTSIDE,
+      });
+      const view = readCanvas(canvas);
+      const committed = renderer.renderToRGBA({ ...params, crop }, { width: 40, height: 28 });
+      const inside = new Uint8Array(40 * 28 * 4);
+      for (let y = 0; y < 28; y++) {
+        for (let x = 0; x < 40; x++) {
+          inside.set(
+            view.subarray(((18 + y) * W + 28 + x) * 4, ((18 + y) * W + 28 + x) * 4 + 4),
+            (y * 40 + x) * 4,
+          );
+        }
+      }
+      // The committed crop is read from the framebuffer, the view from a canvas copy.
+      expect(maxAbsDiff(inside, committed), `angle ${angle}`).toBeLessThanOrEqual(MAX_LEVELS);
+    }
+  });
+
+  it('dims outside the frame and paints the empty canvas outside the image', () => {
+    const crop = cropFromGeometry(48, 32, 40, 28, 45, image);
+    const view = (dim: number) => ({
+      crop,
+      pivot: { x: 48, y: 32 },
+      scale: 1,
+      frame: { x: 28, y: 18, w: 40, h: 28 },
+      dim,
+      outside: OUTSIDE,
+    });
+    renderer = createDevelopRenderer(canvas);
+    renderer.setImage(chart.header, chart.data);
+    renderer.renderView({}, view(1));
+    const bright = readCanvas(canvas);
+    renderer.renderView({}, view(0.5));
+    const dimmed = readCanvas(canvas);
+
+    // Inside the image but outside the frame: dimmed to half.
+    const sample = pixel(bright, W, 48, 8);
+    const dimmedSample = pixel(dimmed, W, 48, 8);
+    expect(Math.max(...sample)).toBeGreaterThan(40);
+    sample.forEach((value, i) => expect(dimmedSample[i]).toBeCloseTo(value * 0.5, -0.3));
+    // Inside the frame: untouched by the dim.
+    expect(pixel(dimmed, W, 48, 32)).toEqual(pixel(bright, W, 48, 32));
+    // The corner of a 45 degree image is empty canvas, in the requested colour and not dimmed.
+    const corner = pixel(dimmed, W, 1, 1);
+    expect(corner[0]).toBeCloseTo(OUTSIDE[0] * 255, -0.3);
+    expect(corner[1]).toBeCloseTo(OUTSIDE[1] * 255, -0.3);
+    expect(corner[2]).toBeCloseTo(OUTSIDE[2] * 255, -0.3);
+  });
+
+  it('leaves the normal render alone afterwards', () => {
+    const crop = cropFromGeometry(48, 32, 40, 28, 10, image);
+    renderer = createDevelopRenderer(canvas);
+    renderer.setImage(chart.header, chart.data);
+    renderer.renderView(
+      {},
+      {
+        crop,
+        pivot: { x: 48, y: 32 },
+        scale: 1,
+        frame: { x: 28, y: 18, w: 40, h: 28 },
+        dim: 0.3,
+        outside: OUTSIDE,
+      },
+    );
+    renderer.render({});
+    expect(
+      maxAbsDiff(readCanvas(canvas), renderCpu(chart.header, chart.data, {})),
+    ).toBeLessThanOrEqual(MAX_LEVELS);
+  });
+});

@@ -7,7 +7,7 @@
 
 // WebGL2 renderer
 export { createDevelopRenderer, DevelopGlError } from './renderer';
-export type { DevelopRenderer, DevelopRendererOptions } from './renderer';
+export type { CropViewTransform, DevelopRenderer, DevelopRendererOptions } from './renderer';
 
 // Parameter model
 export { resolveUniforms, buildCurveLut } from './params';

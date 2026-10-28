@@ -22,11 +22,35 @@ export interface DevelopRendererOptions {
   grainSeed?: number;
 }
 
+/** Where the crop-mode view puts the image on the canvas, in drawing-buffer pixels. */
+export interface CropViewTransform {
+  /** The crop being edited (`EditParams.crop` units): gives the pivot in the source and the angle. */
+  crop: NonNullable<EditParams['crop']>;
+  /** Drawing-buffer position (origin top-left) of the crop centre, i.e. of the frame centre. */
+  pivot: { x: number; y: number };
+  /** Drawing-buffer pixels per pixel of the *uploaded* image. */
+  scale: number;
+  /** The crop frame in drawing-buffer pixels; outside it the image is dimmed. */
+  frame: { x: number; y: number; w: number; h: number };
+  /** Gain applied outside the frame, 0..1. */
+  dim: number;
+  /** sRGB colour (0..1) of the empty canvas outside the image. */
+  outside: [number, number, number];
+}
+
 export interface DevelopRenderer {
   /** Uploads the image (once). `data` is the sample buffer described by `header`; it is not retained. */
   setImage(header: LinearImageHeader, data: LinearImageBuffer): void;
   /** Draws the image scaled to the canvas drawing buffer. Cheap enough to call on every slider tick. */
   render(params: EditParams): void;
+  /**
+   * Draws the crop-mode view: the whole image, turned by `-view.crop.angle`
+   * about the frame centre, with empty canvas outside the image and a dimmed
+   * area outside the frame. It is the same mapping and shader as {@link render}
+   * (only the transform differs), so the pixels inside the frame are the
+   * committed crop's. `params.crop` is ignored.
+   */
+  renderView(params: EditParams, view: CropViewTransform): void;
   /**
    * Renders at an arbitrary size into a new 8-bit RGBA buffer (row 0 at the top),
    * through an offscreen framebuffer, in tiles when needed. Handles full resolution.
@@ -93,6 +117,10 @@ const UNIFORMS = [
   'u_coreMax',
   'u_flipY',
   'u_nearest',
+  'u_viewMode',
+  'u_frame',
+  'u_dim',
+  'u_outside',
 ] as const;
 type UniformName = (typeof UNIFORMS)[number];
 
@@ -116,11 +144,20 @@ interface Mapping {
   sin: number;
   /** Logical output size in pixels (the crop's size, not the preview buffer's). */
   logical: Size;
+  /** Source pixels per buffer pixel, per axis. */
+  outScale: { x: number; y: number };
+  /** The logical output position that sits at the rotation pivot. */
+  outCenter: { x: number; y: number };
   /** True when the output is the source pixel-for-pixel (no crop, no scaling). */
   identity: boolean;
 }
 
-function mappingFor(header: LinearImageHeader, params: EditParams, logical: Size): Mapping {
+function mappingFor(
+  header: LinearImageHeader,
+  params: EditParams,
+  logical: Size,
+  buffer: Size,
+): Mapping {
   const image = { width: header.width, height: header.height };
   const crop = params.crop;
   if (
@@ -137,6 +174,8 @@ function mappingFor(header: LinearImageHeader, params: EditParams, logical: Size
       cos: 1,
       sin: 0,
       logical,
+      outScale: { x: logical.width / buffer.width, y: logical.height / buffer.height },
+      outCenter: { x: logical.width / 2, y: logical.height / 2 },
       identity: logical.width === image.width && logical.height === image.height,
     };
   }
@@ -147,6 +186,25 @@ function mappingFor(header: LinearImageHeader, params: EditParams, logical: Size
     cos: Math.cos(radians),
     sin: Math.sin(radians),
     logical,
+    outScale: { x: logical.width / buffer.width, y: logical.height / buffer.height },
+    outCenter: { x: logical.width / 2, y: logical.height / 2 },
+    identity: false,
+  };
+}
+
+/** The crop-mode view as a mapping: buffer pixels about the pivot -> source pixels about the crop centre. */
+function viewMapping(header: LinearImageHeader, view: CropViewTransform, buffer: Size): Mapping {
+  const geometry = cropGeometry(view.crop, { width: header.width, height: header.height });
+  const radians = (geometry.angle * Math.PI) / 180;
+  const perBuffer = 1 / view.scale;
+  return {
+    center: { x: geometry.centerX, y: geometry.centerY },
+    cos: Math.cos(radians),
+    sin: Math.sin(radians),
+    // Unused by the view mapping, which sets the scale and pivot directly.
+    logical: buffer,
+    outScale: { x: perBuffer, y: perBuffer },
+    outCenter: { x: view.pivot.x * perBuffer, y: view.pivot.y * perBuffer },
     identity: false,
   };
 }
@@ -411,6 +469,22 @@ export function createDevelopRenderer(
     gl.activeTexture(gl.TEXTURE0);
   }
 
+  /** The crop view's uniforms; `undefined` switches the view mode off (the normal render). */
+  function setViewUniforms(view: CropViewTransform | undefined): void {
+    const l = res.uniforms;
+    gl.useProgram(res.program);
+    gl.uniform1i(l.u_viewMode, view ? 1 : 0);
+    gl.uniform4f(
+      l.u_frame,
+      view?.frame.x ?? 0,
+      view?.frame.y ?? 0,
+      (view?.frame.x ?? 0) + (view?.frame.w ?? 0),
+      (view?.frame.y ?? 0) + (view?.frame.h ?? 0),
+    );
+    gl.uniform1f(l.u_dim, view?.dim ?? 1);
+    gl.uniform3f(l.u_outside, ...(view?.outside ?? [0, 0, 0]));
+  }
+
   /**
    * Draws the viewport from one source tile. Fragments whose source sample is
    * not inside the tile's core are discarded, so the tiles partition the output
@@ -430,12 +504,8 @@ export function createDevelopRenderer(
     const core = entry.tile.core;
     gl.bindTexture(gl.TEXTURE_2D, entry.texture);
     gl.uniform2f(l.u_outSize, buffer.width, buffer.height);
-    gl.uniform2f(
-      l.u_outScale,
-      mapping.logical.width / buffer.width,
-      mapping.logical.height / buffer.height,
-    );
-    gl.uniform2f(l.u_outCenter, mapping.logical.width / 2, mapping.logical.height / 2);
+    gl.uniform2f(l.u_outScale, mapping.outScale.x, mapping.outScale.y);
+    gl.uniform2f(l.u_outCenter, mapping.outCenter.x, mapping.outCenter.y);
     gl.uniform2f(l.u_tileOrigin, tileOrigin.x, tileOrigin.y);
     gl.uniform2f(l.u_srcCenter, mapping.center.x, mapping.center.y);
     gl.uniform2f(l.u_srcRot, mapping.cos, mapping.sin);
@@ -489,7 +559,8 @@ export function createDevelopRenderer(
     render(params) {
       const src = requireSource();
       const out = { width: canvas.width, height: canvas.height };
-      const mapping = mappingFor(src.header, params, cropLogicalSize(src.header, params));
+      const mapping = mappingFor(src.header, params, cropLogicalSize(src.header, params), out);
+      setViewUniforms(undefined);
       setUniforms(resolveUniforms(src.header, params, { grainSeed: options.grainSeed }));
       gl.bindFramebuffer(gl.FRAMEBUFFER, null);
       for (const entry of src.tiles) {
@@ -505,6 +576,27 @@ export function createDevelopRenderer(
       }
     },
 
+    renderView(params, view) {
+      const src = requireSource();
+      const out = { width: canvas.width, height: canvas.height };
+      const mapping = viewMapping(src.header, view, out);
+      setUniforms(resolveUniforms(src.header, params, { grainSeed: options.grainSeed }));
+      setViewUniforms(view);
+      gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+      for (const entry of src.tiles) {
+        drawTile(
+          src,
+          entry,
+          out,
+          mapping,
+          { x: 0, y: 0, w: out.width, h: out.height },
+          { x: 0, y: 0 },
+          true,
+        );
+      }
+      setViewUniforms(undefined);
+    },
+
     renderToRGBA(params, size) {
       const src = requireSource();
       const width = Math.round(size.width);
@@ -515,8 +607,9 @@ export function createDevelopRenderer(
       const out = { width, height };
       // `size` is the render-target buffer; the logical space is the crop (or
       // the full image), so other sizes resample it like the old pipeline did.
-      const mapping = mappingFor(src.header, params, cropLogicalSize(src.header, params));
+      const mapping = mappingFor(src.header, params, cropLogicalSize(src.header, params), out);
 
+      setViewUniforms(undefined);
       setUniforms(resolveUniforms(src.header, params, { grainSeed: options.grainSeed }));
 
       const tileW = Math.min(width, maxOutputTile);

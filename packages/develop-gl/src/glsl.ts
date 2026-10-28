@@ -60,6 +60,10 @@ uniform vec2 u_coreMin;      // source rectangle this tile owns; fragments outsi
 uniform vec2 u_coreMax;
 uniform float u_flipY;       // 1 when drawing to the canvas (row 0 at the bottom of the framebuffer)
 uniform int u_nearest;       // 1 when output and source sizes match: fetch texels exactly
+uniform int u_viewMode;      // 1 for the crop-mode view: empty canvas outside the image, dimmed outside the frame
+uniform vec4 u_frame;        // view mode: crop frame (minX, minY, maxX, maxY) in buffer pixels, top-left based
+uniform float u_dim;         // view mode: gain applied outside the frame
+uniform vec3 u_outside;      // view mode: sRGB colour of the empty canvas outside the image
 
 out vec4 outColor;
 
@@ -176,11 +180,22 @@ void main() {
     u_srcRot.x * d.x - u_srcRot.y * d.y,
     u_srcRot.y * d.x + u_srcRot.x * d.y
   );
+  // Signed distance (buffer pixels, negative outside) to the nearest image edge,
+  // for the crop view's anti-aliased image border. u_outScale is source px per buffer px.
+  float coverage = 1.0;
+  if (u_viewMode == 1) {
+    vec2 inside = min(src, u_srcSize - src);
+    coverage = clamp(min(inside.x, inside.y) / u_outScale.x + 0.5, 0.0, 1.0);
+  }
   // Sample outside the image clamps to the edge, like the CPU reference and
   // CLAMP_TO_EDGE; clamping first also puts that fragment in the edge core.
   src = clamp(src, vec2(0.0), u_srcSize);
   if (src.x < u_coreMin.x || src.y < u_coreMin.y || src.x > u_coreMax.x || src.y > u_coreMax.y)
     discard;
+  if (coverage <= 0.0) {
+    outColor = vec4(u_outside, 1.0);
+    return;
+  }
 
   vec3 cam;
   if (u_nearest == 1) {
@@ -204,8 +219,19 @@ void main() {
   e = applyColorMixer(e);
   e = applyColorGrading(e);
   vec2 logN = pOut / max(u_outCenter, vec2(1.0)) - 1.0;
+  vec2 q = pix + 0.5;
+  if (u_viewMode == 1) {
+    // Effects follow the crop frame, as they will in the committed crop.
+    logN = (q - (u_frame.xy + u_frame.zw) * 0.5) / max((u_frame.zw - u_frame.xy) * 0.5, vec2(1.0));
+  }
   e = applyEffects(e, logN, src, u_outScale.x);
 
-  outColor = vec4(clamp(e, 0.0, 1.0), 1.0);
+  e = clamp(e, 0.0, 1.0);
+  if (u_viewMode == 1) {
+    bool inFrame = q.x >= u_frame.x && q.y >= u_frame.y && q.x <= u_frame.z && q.y <= u_frame.w;
+    if (!inFrame) e *= u_dim;
+    e = mix(u_outside, e, coverage);
+  }
+  outColor = vec4(e, 1.0);
 }
 `;
