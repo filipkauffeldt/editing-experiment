@@ -39,8 +39,7 @@ export default tseslint.config(
     // sharp (libvips) bundles its own glib, which crashes Electron on Linux, so
     // app code must use @ee/core for image work. Tests run in plain Node and may
     // use it as a devDependency (they live in `test/`, outside these globs).
-    // TODO: add 'apps/*/src/**' once apps/desktop has switched to @ee/core.
-    files: ['packages/*/src/**/*.{ts,tsx}', 'crates/core/src/**/*.ts'],
+    files: ['packages/*/src/**/*.{ts,tsx}', 'crates/core/src/**/*.ts', 'apps/*/src/**/*.{ts,tsx}'],
     rules: {
       'no-restricted-imports': [
         'error',
