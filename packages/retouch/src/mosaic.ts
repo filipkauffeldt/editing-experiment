@@ -1,5 +1,5 @@
-import type { MosaicOp } from '@ee/contracts';
-import { clamp, shapesBounds } from './geometry';
+import type { MosaicOp, Shape } from '@ee/contracts';
+import { clamp, shapeBounds, shapesBounds } from './geometry';
 import { maskBounds, rasterizePolygonPixels, rasterizeRectPixels, type Mask } from './mask';
 
 export const MIN_BLOCK_SIZE = 8;
@@ -11,31 +11,50 @@ export interface MosaicOptions {
   inPlace?: boolean;
 }
 
+function validateBlockSizeRel(blockSizeRel: number): void {
+  if (!Number.isFinite(blockSizeRel) || blockSizeRel <= 0) {
+    throw new RangeError(`applyMosaic: blockSizeRel must be positive, got ${blockSizeRel}`);
+  }
+}
+
+function requestedBlockSize(blockSizeRel: number, width: number, height: number): number {
+  return Math.max(MIN_BLOCK_SIZE, Math.round(blockSizeRel * Math.max(width, height)));
+}
+
 /**
- * The edge length actually used for mosaic blocks.
+ * Block size for one shape.
  *
  * `blockSizeRel` is relative to the longer image edge and never gives blocks
- * smaller than 8 px. On top of that, the block is enlarged so no shape is
- * covered by more than 8 blocks across its short side: a 40 px face with 8 px
+ * smaller than 8 px. On top of that, the block is enlarged so this shape is
+ * covered by at most 8 blocks across its short side: a 40 px face with 8 px
  * blocks would still be recognisable, a 5-block face is not.
  */
+export function blockSizeForShape(
+  shape: Shape,
+  blockSizeRel: number,
+  width: number,
+  height: number,
+): number {
+  validateBlockSizeRel(blockSizeRel);
+  const requested = requestedBlockSize(blockSizeRel, width, height);
+  const bounds = shapeBounds(shape);
+  if (bounds.w <= 0 || bounds.h <= 0) return requested;
+  const shortSide = Math.min(bounds.w * width, bounds.h * height);
+  return Math.max(requested, Math.ceil(shortSide / MAX_BLOCKS_ACROSS), 1);
+}
+
+/** Largest block required by any shape in the op (diagnostics/tests). */
 export function effectiveBlockSize(
   op: Pick<MosaicOp, 'shapes' | 'blockSizeRel'>,
   width: number,
   height: number,
 ): number {
-  if (!Number.isFinite(op.blockSizeRel) || op.blockSizeRel <= 0) {
-    throw new RangeError(`applyMosaic: blockSizeRel must be positive, got ${op.blockSizeRel}`);
-  }
-  const requested = Math.max(MIN_BLOCK_SIZE, Math.round(op.blockSizeRel * Math.max(width, height)));
-  let shapeMinimum = 0;
+  validateBlockSizeRel(op.blockSizeRel);
+  let size = requestedBlockSize(op.blockSizeRel, width, height);
   for (const shape of op.shapes) {
-    const bounds = shapesBounds([shape]);
-    if (!bounds) continue;
-    const shortSide = Math.min(bounds.w * width, bounds.h * height);
-    shapeMinimum = Math.max(shapeMinimum, Math.ceil(shortSide / MAX_BLOCKS_ACROSS));
+    size = Math.max(size, blockSizeForShape(shape, op.blockSizeRel, width, height));
   }
-  return Math.max(requested, shapeMinimum, 1);
+  return size;
 }
 
 function readAverage(
@@ -68,47 +87,26 @@ function readAverage(
   ];
 }
 
-/**
- * Pixelate the union of `op.shapes` in place or into a copy.
- *
- * Blocks are aligned to the image grid, not to the shapes, so preview and
- * full-resolution renders have the same block layout. Every block average
- * covers the whole block (including pixels outside the selection) before the
- * average is written only to selected pixels; otherwise the original edge
- * pixels would leak into the mosaic.
- */
-export function applyMosaic(
-  rgba: Uint8Array,
+function mosaicShapes(
+  source: Uint8Array,
+  destination: Uint8Array,
   width: number,
   height: number,
-  op: MosaicOp,
-  options: MosaicOptions = {},
-): Uint8Array {
-  if (!Number.isInteger(width) || !Number.isInteger(height) || width <= 0 || height <= 0) {
-    throw new RangeError(`applyMosaic: invalid size ${width}x${height}`);
-  }
-  if (rgba.length < width * height * 4) {
-    throw new RangeError(
-      `applyMosaic: RGBA buffer is too small (${rgba.length} < ${width * height * 4})`,
-    );
-  }
-  if (!Number.isFinite(op.blockSizeRel) || op.blockSizeRel <= 0) {
-    throw new RangeError(`applyMosaic: blockSizeRel must be positive, got ${op.blockSizeRel}`);
-  }
-  const destination = options.inPlace ? rgba : rgba.slice();
-  const bounds = shapesBounds(op.shapes);
-  if (!bounds || op.shapes.length === 0) return destination;
-
+  shapes: readonly Shape[],
+  blockSize: number,
+): void {
+  const bounds = shapesBounds(shapes);
+  if (!bounds) return;
   const imageX0 = clamp(Math.floor(bounds.x * width), 0, width);
   const imageY0 = clamp(Math.floor(bounds.y * height), 0, height);
   const imageX1 = clamp(Math.ceil((bounds.x + bounds.w) * width), 0, width);
   const imageY1 = clamp(Math.ceil((bounds.y + bounds.h) * height), 0, height);
-  if (imageX1 <= imageX0 || imageY1 <= imageY0) return destination;
+  if (imageX1 <= imageX0 || imageY1 <= imageY0) return;
 
   const localWidth = imageX1 - imageX0;
   const localHeight = imageY1 - imageY0;
   const mask: Mask = new Uint8Array(localWidth * localHeight);
-  for (const shape of op.shapes) {
+  for (const shape of shapes) {
     if (shape.type === 'rect') {
       rasterizeRectPixels(
         {
@@ -136,8 +134,7 @@ export function applyMosaic(
   }
 
   const masked = maskBounds(mask, localWidth, localHeight);
-  if (!masked) return destination;
-  const blockSize = effectiveBlockSize(op, width, height);
+  if (!masked) return;
   const regionX0 = imageX0 + masked.x;
   const regionY0 = imageY0 + masked.y;
   const regionX1 = regionX0 + masked.w;
@@ -158,7 +155,7 @@ export function applyMosaic(
       const x1 = Math.min(width, blockX + blockSize);
       const y1 = Math.min(height, blockY + blockSize);
       if (x1 <= x0 || y1 <= y0) continue;
-      const [r, g, b, a] = readAverage(rgba, width, x0, y0, x1, y1);
+      const [r, g, b, a] = readAverage(source, width, x0, y0, x1, y1);
       const writeX0 = Math.max(x0, imageX0);
       const writeY0 = Math.max(y0, imageY0);
       const writeX1 = Math.min(x1, imageX1);
@@ -176,6 +173,55 @@ export function applyMosaic(
         }
       }
     }
+  }
+}
+
+/**
+ * Pixelate the union of `op.shapes` in place or into a copy.
+ *
+ * Blocks are aligned to the image grid, not to the shapes, so preview and
+ * full-resolution renders have the same block layout. Each shape gets its own
+ * block size (so a small face beside a large one keeps fine blocks), and shapes
+ * with the same block size share one image-aligned grid. Every block average
+ * covers the whole block (including pixels outside the selection) before the
+ * average is written only to selected pixels; otherwise the original edge
+ * pixels would leak into the mosaic.
+ *
+ * Size classes are processed smallest block first. Where classes overlap, the
+ * later (coarser) mosaic wins; both are privacy-preserving averages of the
+ * original, and the result is deterministic.
+ */
+export function applyMosaic(
+  rgba: Uint8Array,
+  width: number,
+  height: number,
+  op: MosaicOp,
+  options: MosaicOptions = {},
+): Uint8Array {
+  if (!Number.isInteger(width) || !Number.isInteger(height) || width <= 0 || height <= 0) {
+    throw new RangeError(`applyMosaic: invalid size ${width}x${height}`);
+  }
+  if (rgba.length < width * height * 4) {
+    throw new RangeError(
+      `applyMosaic: RGBA buffer is too small (${rgba.length} < ${width * height * 4})`,
+    );
+  }
+  validateBlockSizeRel(op.blockSizeRel);
+  // In-place writes can land in a different size class, so always average from
+  // the untouched input.
+  const source = options.inPlace ? rgba.slice() : rgba;
+  const destination = options.inPlace ? rgba : rgba.slice();
+
+  const groups = new Map<number, Shape[]>();
+  for (const shape of op.shapes) {
+    const blockSize = blockSizeForShape(shape, op.blockSizeRel, width, height);
+    const group = groups.get(blockSize);
+    if (group) group.push(shape);
+    else groups.set(blockSize, [shape]);
+  }
+  const classes = [...groups.entries()].sort((a, b) => a[0] - b[0]);
+  for (const [blockSize, shapes] of classes) {
+    mosaicShapes(source, destination, width, height, shapes, blockSize);
   }
   return destination;
 }

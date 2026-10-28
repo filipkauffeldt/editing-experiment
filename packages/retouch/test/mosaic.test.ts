@@ -1,6 +1,6 @@
 import type { MosaicOp, Rect } from '@ee/contracts';
 import { describe, expect, it } from 'vitest';
-import { applyMosaic, effectiveBlockSize } from '../src/index';
+import { applyMosaic, blockSizeForShape, effectiveBlockSize } from '../src/index';
 
 const rect = (x: number, y: number, w: number, h: number): Rect => ({ type: 'rect', x, y, w, h });
 const op = (shapes: Rect[], blockSizeRel: number): MosaicOp => ({
@@ -117,6 +117,21 @@ describe('applyMosaic', () => {
       }
     }
     expect(result[index(99, 99)]).toBe(source[index(99, 99)]);
+  });
+
+  it('uses per-shape block sizes so a small face is not over-blocked', () => {
+    const width = 1000;
+    const height = 1000;
+    const small = rect(0.1, 0.1, 0.02, 0.02);
+    const large = rect(0.5, 0.5, 0.4, 0.4);
+    expect(blockSizeForShape(small, 0.001, width, height)).toBe(8);
+    expect(blockSizeForShape(large, 0.001, width, height)).toBe(50);
+
+    const source = gradient(width, height);
+    const result = applyMosaic(source, width, height, op([small, large], 0.001));
+    const index = (x: number, y: number): number => (y * width + x) * 4;
+    expect(result[index(100, 100)]).toBe(blockAverage(source, width, height, 96, 96, 8, 0));
+    expect(result[index(500, 500)]).toBe(blockAverage(source, width, height, 500, 500, 50, 0));
   });
 
   it('unions overlapping shapes', () => {

@@ -33,6 +33,7 @@ export {
 } from './mask';
 export {
   applyMosaic,
+  blockSizeForShape,
   effectiveBlockSize,
   MAX_BLOCKS_ACROSS,
   MIN_BLOCK_SIZE,
