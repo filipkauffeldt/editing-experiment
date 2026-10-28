@@ -7,9 +7,7 @@ import {
 } from '@ee/contracts';
 import type { JobsIncomingMessage, JobsOutgoingMessage } from '../shared/jobs-protocol';
 import { createSecretClient, electronSecretPort, type SecretPort } from '../shared/secret-port';
-import sharp from 'sharp';
 import { createBackend, type Backend } from './backend/backend';
-import { trace } from './backend/trace';
 import { createJobsHandlers } from './handlers';
 
 /**
@@ -24,14 +22,6 @@ const parentPort = process.parentPort;
 const send = (message: JobsOutgoingMessage): void => parentPort.postMessage(message);
 const emit = (channel: EventChannel, payload: unknown): void =>
   send({ kind: 'event', channel, payload });
-
-// Temporary diagnostics for a CI-only crash: tune sharp from the environment.
-if (process.env.EE_SHARP_CONCURRENCY) sharp.concurrency(Number(process.env.EE_SHARP_CONCURRENCY));
-if (process.env.EE_SHARP_CACHE === '0') sharp.cache(false);
-if (process.env.EE_SHARP_SIMD === '0') sharp.simd(false);
-trace(
-  `sharp ${JSON.stringify(sharp.versions)} simd=${sharp.simd()} concurrency=${sharp.concurrency()}`,
-);
 
 const mock = process.env.EE_MOCK === '1';
 const appVersion = process.env.EE_APP_VERSION ?? '0.0.0';

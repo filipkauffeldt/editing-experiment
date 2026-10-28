@@ -27,7 +27,6 @@ import { ExportService } from './export-service';
 import { SettingsStore } from './settings-store';
 import { reconcileDestination } from './reconcile';
 import { runTeardown } from './teardown';
-import { trace } from './trace';
 
 export interface BackendOptions {
   /** Electron `userData`; everything the backend persists lives below it. */
@@ -70,29 +69,24 @@ export async function createBackend(options: BackendOptions): Promise<Backend> {
   const { emit, getSecret } = options;
   const emitJob = (event: JobEvent): void => emit('jobs:event', event);
 
-  trace('before exiftool');
   const exiftool = new ExifToolService();
   const settings = new SettingsStore(
     layout.settingsFile,
     defaultSettings(options.homeDir ?? homedir()),
     (message) => console.warn(message),
   );
-  trace('before index');
   const index = new PhotoIndex(layout.indexDb);
   const photos = new PhotoLibrary(index, emit);
   const previews = new PreviewCache(layout.thumbDir, layout.previewDir);
   const metadata = new MetadataService(photos, exiftool, settings);
   const edits = new EditService(photos, exiftool);
-  trace('before seen');
   const seenStore = new SqliteSeenStore(layout.seenDb);
   const presets = new PresetStore(layout.presetsDir);
-  trace('before faces');
   const faces = new FaceService(
     photos,
     options.yunetModelPath ?? findYuNetModel(import.meta.dirname),
   );
   const apps = new AppResources({ photos, previews, linearDir: layout.linearDir });
-  trace('before apps');
   await apps.init();
 
   const reportJobError = (event: { jobId?: JobId; scope: string; message: string }): void =>
@@ -141,7 +135,6 @@ export async function createBackend(options: BackendOptions): Promise<Backend> {
     onEvent: emitJob,
   });
   late.exporter = exporter;
-  trace('before queue');
   queue.start();
 
   // Pick up files that were copied but never indexed (crash or failed index write).
@@ -165,7 +158,6 @@ export async function createBackend(options: BackendOptions): Promise<Backend> {
         }),
     });
   };
-  trace('backend ready');
   const reconciled = reconcile().then(
     () => undefined,
     (error: unknown) =>
