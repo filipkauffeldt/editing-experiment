@@ -16,6 +16,12 @@ import { type CropSession } from '../store';
 import { useAppStore } from '../store-context';
 import styles from './PhotoCanvas.module.css';
 
+/** The draft crop as `left,top,right,bottom,angle`, for tests that read the DOM. */
+const cropAttribute = ({ crop }: CropSession): string =>
+  [crop.left, crop.top, crop.right, crop.bottom, crop.angle]
+    .map((value) => value.toFixed(6))
+    .join(',');
+
 const HANDLES: CropHandle[] = ['nw', 'n', 'ne', 'e', 'se', 's', 'sw', 'w'];
 
 /**
@@ -151,6 +157,7 @@ export function CropOverlay({ session, stage }: { session: CropSession; stage: S
       data-guide={session.overlay}
       data-guides={guides.length}
       data-angle={session.crop.angle}
+      data-crop={cropAttribute(session)}
       data-frame={`${rect.left},${rect.top},${rect.right - rect.left},${rect.bottom - rect.top}`}
       onPointerDown={onPointerDown}
       onPointerMove={onPointerMove}

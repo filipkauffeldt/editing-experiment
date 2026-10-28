@@ -165,6 +165,86 @@ describe.skipIf(nefs.length === 0 || !haveDisplay)('PoC demo (real Electron app)
   /** Optional: where to save screenshots of the film strip (for pull requests). */
   const screenshotDir = process.env.EE_SCREENSHOT_DIR;
 
+  /** Finish & next, then check the uploaded JPEG has exactly the crop's output size. */
+  const finishAndCheckCropUpload = async (
+    photo: Photo,
+    expected: { width: number; height: number },
+    uploadName: string,
+  ): Promise<void> => {
+    await window.getByRole('button', { name: /Finish & next/ }).click();
+    const upload = await waitFor('the cropped upload', async () => {
+      const items = await invoke<UploadItem[]>('upload:list');
+      return items.find((item) => item.photoId === photo.id && item.state === 'done');
+    });
+    expect(upload.photoId).toBe(photo.id);
+    const uploaded = join(outRoot, 'incoming', uploadName);
+    await waitFor('the uploaded crop', () => existsSync(uploaded));
+    const decoded = await decodeJpeg(readFileSync(uploaded));
+    expect(decoded.width).toBe(expected.width);
+    expect(decoded.height).toBe(expected.height);
+  };
+
+  interface CropState {
+    /** The frame in CSS pixels relative to the overlay. */
+    frame: { left: number; top: number; width: number; height: number };
+    /** The draft crop: left, top, right, bottom (normalized), angle. */
+    crop: number[];
+    angle: number;
+    gesture: string;
+    guides: number;
+    tool: string;
+    /** The overlay's page position, to turn frame coordinates into mouse coordinates. */
+    origin: { x: number; y: number };
+  }
+
+  const cropState = async (): Promise<CropState> => {
+    const overlay = window.locator('[data-testid="crop-overlay"]');
+    const [left = 0, top = 0, width = 0, height = 0] = (
+      (await overlay.getAttribute('data-frame')) ?? ''
+    )
+      .split(',')
+      .map(Number);
+    const box = await overlay.boundingBox();
+    if (!box) throw new Error('crop overlay has no bounds');
+    return {
+      frame: { left, top, width, height },
+      crop: ((await overlay.getAttribute('data-crop')) ?? '').split(',').map(Number),
+      angle: Number(await overlay.getAttribute('data-angle')),
+      gesture: (await overlay.getAttribute('data-gesture')) ?? '',
+      guides: Number(await overlay.getAttribute('data-guides')),
+      tool: (await overlay.getAttribute('data-tool')) ?? '',
+      origin: { x: box.x, y: box.y },
+    };
+  };
+
+  const openCrop = async (fileName: string): Promise<void> => {
+    await selectPhoto(fileName);
+    await canvasReady();
+    await window.keyboard.press('c');
+    await window.locator('[data-testid="crop-toolbar"]').waitFor();
+    // The first frame of the rotated view has been drawn once the stage is ready.
+    await window.waitForSelector('[data-testid="develop-canvas"][data-visible="true"]');
+  };
+
+  const cancelCrop = async (): Promise<void> => {
+    await window.keyboard.press('Escape');
+    await window.locator('[data-testid="crop-toolbar"]').waitFor({ state: 'detached' });
+  };
+
+  const dragTo = async (
+    from: { x: number; y: number },
+    steps: { x: number; y: number }[],
+    keepDown = false,
+  ): Promise<void> => {
+    await window.mouse.move(from.x, from.y);
+    await window.mouse.down();
+    for (const step of steps) await window.mouse.move(step.x, step.y, { steps: 6 });
+    if (!keepDown) await window.mouse.up();
+  };
+
+  const nearly = (actual: number, expected: number, tolerance = 1.5): void =>
+    expect(Math.abs(actual - expected), `${actual} vs ${expected}`).toBeLessThanOrEqual(tolerance);
+
   beforeAll(async () => {
     const build = spawnSync('pnpm', ['--filter', '@ee/desktop', 'build'], {
       cwd: repoRoot,
@@ -494,18 +574,7 @@ describe.skipIf(nefs.length === 0 || !haveDisplay)('PoC demo (real Electron app)
     });
     expect(square.src).toMatch(/\?v=\d+$/);
 
-    await window.getByRole('button', { name: /Finish & next/ }).click();
-    const upload = await waitFor('the cropped upload', async () => {
-      const items = await invoke<UploadItem[]>('upload:list');
-      return items.find((item) => item.photoId === photo.id && item.state === 'done');
-    });
-    expect(upload.photoId).toBe(photo.id);
-    const uploaded = join(outRoot, 'incoming', 'cardA_002.jpg');
-    await waitFor('the uploaded crop', () => existsSync(uploaded));
-    const decoded = await decodeJpeg(readFileSync(uploaded));
-    expect(decoded.width).toBe(expected.width);
-    expect(decoded.height).toBe(expected.height);
-    expect(decoded.width).toBe(decoded.height);
+    await finishAndCheckCropUpload(photo, expected, 'cardA_002.jpg');
   }, 180_000);
 
   it('detects faces in a dragged region and commits the mosaic version', async () => {
@@ -775,5 +844,172 @@ describe.skipIf(nefs.length === 0 || !haveDisplay)('PoC demo (real Electron app)
     );
     expect(result.status).toBe(200);
     expect(JSON.parse(result.header!)).toMatchObject({ sampleType: 'f32' });
+  });
+
+  describe('Lightroom-style crop overlay', () => {
+    it('rotates the image by dragging outside a corner while the frame stays put', async () => {
+      await openCrop('pool_001.NEF');
+      const before = await cropState();
+      expect(before.angle).toBe(0);
+      const canvas = window.locator('[data-testid="develop-canvas"]');
+      const imageBefore = await canvas.screenshot();
+
+      // 18 px outside the lower-right corner, then sweep clockwise around the frame.
+      const { frame, origin } = before;
+      const corner = {
+        x: origin.x + frame.left + frame.width,
+        y: origin.y + frame.top + frame.height,
+      };
+      await dragTo(
+        { x: corner.x + 18, y: corner.y + 18 },
+        [
+          { x: corner.x - frame.width * 0.2, y: corner.y + 30 },
+          { x: corner.x - frame.width * 0.45, y: corner.y + 34 },
+        ],
+        true,
+      );
+      const during = await cropState();
+      expect(during.gesture).toBe('rotate');
+      // Clockwise sweep: the image turns clockwise, the crop angle goes negative.
+      expect(during.angle).toBeLessThan(-1);
+      // Rotation is about the frame centre, and the frame is a plain rectangle on screen.
+      nearly(during.frame.left + during.frame.width / 2, frame.left + frame.width / 2);
+      nearly(during.frame.top + during.frame.height / 2, frame.top + frame.height / 2);
+      expect(await window.locator('[data-testid="crop-overlay"] polygon').count()).toBe(0);
+      // A finer grid than the rule of thirds is up while rotating.
+      expect(during.guides).toBeGreaterThan(4);
+      // Constrained to the image: the frame shrank instead of showing empty canvas.
+      expect(during.frame.width).toBeLessThan(frame.width);
+      await window.mouse.up();
+
+      const after = await cropState();
+      expect(after.gesture).toBe('');
+      expect(after.angle).toBe(during.angle);
+      expect(Buffer.compare(imageBefore, await canvas.screenshot())).not.toBe(0);
+      await cancelCrop();
+    }, 120_000);
+
+    it('pans the image by dragging inside the frame', async () => {
+      await openCrop('pool_001.NEF');
+      await window.locator('[data-aspect="1:1"]').click();
+      const before = await cropState();
+      const { frame, origin } = before;
+      const centre = {
+        x: origin.x + frame.left + frame.width / 2,
+        y: origin.y + frame.top + frame.height / 2,
+      };
+      await dragTo(centre, [{ x: centre.x + 70, y: centre.y }]);
+
+      const after = await cropState();
+      // The frame did not move on screen; the image slid right under it, so the crop moved left.
+      nearly(after.frame.left, before.frame.left, 0.01);
+      nearly(after.frame.width, before.frame.width, 0.01);
+      expect(after.crop[0]!).toBeLessThan(before.crop[0]!);
+      expect(after.crop[2]! - after.crop[0]!).toBeCloseTo(before.crop[2]! - before.crop[0]!, 6);
+
+      // Dragged far beyond the edge, the crop stops at the image edge.
+      await dragTo(centre, [{ x: centre.x + 3000, y: centre.y }]);
+      expect((await cropState()).crop[0]!).toBeCloseTo(0, 6);
+      await cancelCrop();
+    }, 120_000);
+
+    it('keeps a 1:1 frame square while a handle is dragged, until Shift releases the lock', async () => {
+      await openCrop('pool_001.NEF');
+      await window.locator('[data-aspect="1:1"]').click();
+      const before = await cropState();
+      nearly(before.frame.width, before.frame.height, 0.5);
+      const { origin } = before;
+      const corner = (state: CropState) => ({
+        x: origin.x + state.frame.left + state.frame.width,
+        y: origin.y + state.frame.top + state.frame.height,
+      });
+
+      await dragTo(corner(before), [{ x: corner(before).x - 90, y: corner(before).y - 20 }]);
+      const square = await cropState();
+      nearly(square.frame.width, square.frame.height, 0.5);
+      expect(square.frame.width).toBeLessThan(before.frame.width);
+      // The opposite (upper-left) corner is the anchor.
+      nearly(square.frame.left, before.frame.left, 0.01);
+      nearly(square.frame.top, before.frame.top, 0.01);
+
+      await window.keyboard.down('Shift');
+      await dragTo(corner(square), [{ x: corner(square).x - 60, y: corner(square).y - 10 }]);
+      await window.keyboard.up('Shift');
+      const free = await cropState();
+      expect(Math.abs(free.frame.width - free.frame.height)).toBeGreaterThan(20);
+      await cancelCrop();
+    }, 120_000);
+
+    it('draws a new crop frame with the frame tool', async () => {
+      await openCrop('pool_001.NEF');
+      await window.locator('[data-aspect="free"]').click();
+      await window.locator('[data-tool="draw"]').click();
+      expect((await cropState()).tool).toBe('draw');
+      const before = await cropState();
+      const { frame, origin } = before;
+      const from = {
+        x: origin.x + frame.left + frame.width * 0.25,
+        y: origin.y + frame.top + frame.height * 0.2,
+      };
+      const to = {
+        x: origin.x + frame.left + frame.width * 0.7,
+        y: origin.y + frame.top + frame.height * 0.8,
+      };
+      await dragTo(from, [to]);
+
+      const drawn = await cropState();
+      nearly(drawn.frame.left, from.x - origin.x);
+      nearly(drawn.frame.top, from.y - origin.y);
+      nearly(drawn.frame.width, to.x - from.x);
+      nearly(drawn.frame.height, to.y - from.y);
+      // One frame per activation, then back to the normal crop tool.
+      expect(drawn.tool).toBe('crop');
+      await cancelCrop();
+    }, 120_000);
+
+    it('commits on Enter and the export has the crop shown in the editor', async () => {
+      await openCrop('pool_001.NEF');
+      const first = await cropState();
+      const { frame, origin } = first;
+      const corner = { x: origin.x + frame.left + frame.width, y: origin.y + frame.top };
+      // Rotate a little (outside the upper-right corner), then pan.
+      await dragTo({ x: corner.x + 16, y: corner.y - 16 }, [
+        { x: corner.x + 40, y: corner.y + 60 },
+      ]);
+      const rotated = await cropState();
+      expect(Math.abs(rotated.angle)).toBeGreaterThan(1);
+      const centre = {
+        x: origin.x + rotated.frame.left + rotated.frame.width / 2,
+        y: origin.y + rotated.frame.top + rotated.frame.height / 2,
+      };
+      await dragTo(centre, [{ x: centre.x - 20, y: centre.y + 10 }]);
+      const draft = await cropState();
+
+      await window.keyboard.press('Enter');
+      await window.locator('[data-testid="crop-toolbar"]').waitFor({ state: 'detached' });
+
+      const photo = photos.find((candidate) => candidate.fileName === 'pool_001.NEF')!;
+      const params = await waitFor('the saved crop', async () => {
+        const current = await invoke<{ crop?: CropParams }>('develop:getParams', {
+          photoId: photo.id,
+        });
+        return current.crop ? current : undefined;
+      });
+      const saved = params.crop!;
+      [saved.left, saved.top, saved.right, saved.bottom, saved.angle].forEach((value, index) =>
+        expect(value).toBeCloseTo(draft.crop[index]!, 5),
+      );
+      const expected = cropOutputPixels(saved, {
+        width: photo.width ?? 0,
+        height: photo.height ?? 0,
+      });
+
+      // The normal view shows the committed crop at the exported aspect ratio.
+      const shown = await window.locator('[data-testid="develop-canvas"]').boundingBox();
+      if (!shown) throw new Error('no canvas');
+      expect(shown.width / shown.height).toBeCloseTo(expected.width / expected.height, 1);
+
+      await finishAndCheckCropUpload(photo, expected, 'pool_001.jpg');
+    }, 180_000);
   });
 });
