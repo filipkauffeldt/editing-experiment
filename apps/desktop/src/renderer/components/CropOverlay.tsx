@@ -19,7 +19,7 @@ import styles from './PhotoCanvas.module.css';
 /** The draft crop as `left,top,right,bottom,angle`, for tests that read the DOM. */
 const cropAttribute = ({ crop }: CropSession): string =>
   [crop.left, crop.top, crop.right, crop.bottom, crop.angle]
-    .map((value) => value.toFixed(6))
+    .map((value) => value.toFixed(9))
     .join(',');
 
 const HANDLES: CropHandle[] = ['nw', 'n', 'ne', 'e', 'se', 's', 'sw', 'w'];
