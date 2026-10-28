@@ -84,8 +84,12 @@ Linux is the dev platform, but code must stay macOS/Windows compatible:
   upload with `gh pr edit <n> --attach '/abs/path.png#Alt text'`
   (run inside the repo, absolute paths). Never commit screenshots.
 - When you receive review feedback, address it in new commits on the same
-  branch (no force-push unless rebasing onto `main` is requested), push,
-  and reply with a short summary of what changed.
+  branch, push, and reply with a short summary of what changed.
+- Keep your branch up to date by **rebasing** onto `origin/main`, never by
+  merging `main` into it. Push the rebased branch with
+  `git push --force-with-lease`. Regenerate `pnpm-lock.yaml` with
+  `pnpm install` when it conflicts instead of hand-editing it.
+- PRs are merged into `main` with a merge commit (no squash) by the reviewer.
 - Do not merge your own PR.
 
 ## Code style
