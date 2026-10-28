@@ -1,7 +1,7 @@
 import type { PingResult, SystemInfo } from '@ee/contracts';
 import { useEffect, useState } from 'react';
 import { ee } from '../ee';
-import { activePhoto, sourceLabel, uploadSummary } from '../store';
+import { activePhoto, exportStatusText, sourceLabel, uploadSummary } from '../store';
 import { useAppState, useAppStore } from '../store-context';
 import { GearIcon, UploadIcon, WarningIcon } from './icons';
 import { UploadPopover } from './UploadPopover';
@@ -41,6 +41,7 @@ export function StatusBar({ className, photoCount, loadError }: StatusBarProps) 
   const summary = uploadSummary(state.uploads);
   const photo = activePhoto(state);
   const differs = photo?.status.metadataDiffersFromTemplate ?? false;
+  const exportStatus = exportStatusText(state);
 
   return (
     <div className={`${styles.bar} ${className ?? ''}`} data-testid="status-bar">
@@ -92,14 +93,9 @@ export function StatusBar({ className, photoCount, loadError }: StatusBarProps) 
 
       {loadError && <span className={styles.error}>{loadError}</span>}
 
-      {state.exportProgress && (
+      {exportStatus && (
         <span className={styles.exportProgress} data-testid="export-progress">
-          <span className={styles.exportLabel}>{state.exportProgress.label}</span>
-          {state.exportProgress.percent !== undefined && (
-            <span className={styles.exportBar}>
-              <span style={{ width: `${state.exportProgress.percent}%` }} />
-            </span>
-          )}
+          <span className={styles.exportLabel}>{exportStatus}</span>
         </span>
       )}
 

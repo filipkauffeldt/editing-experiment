@@ -25,6 +25,20 @@
   width: 142px;
 }
 
+.secondary {
+  padding: 4px 10px;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  background: var(--panel-raised);
+  color: var(--text-dim);
+  font-size: 11px;
+}
+
+.secondary:hover {
+  border-color: var(--border-strong);
+  color: var(--text);
+}
+
 .finish {
   padding: 11px 16px;
   border: 0;

@@ -19,7 +19,7 @@ function isTypingTarget(target: EventTarget | null): target is HTMLElement {
 /**
  * Global shortcuts. While an input, textarea, select or contenteditable has
  * focus only the explicit command shortcuts work (Ctrl/Cmd+Enter, Ctrl/Cmd+I,
- * Escape and Ctrl+Space inside the caption).
+ * Shift+Ctrl/Cmd+Enter, Shift+Ctrl/Cmd+E, Escape and Ctrl+Space inside the caption).
  */
 export function useKeyboardShortcuts(store: AppStore): void {
   useEffect(() => {
@@ -44,7 +44,7 @@ export function useKeyboardShortcuts(store: AppStore): void {
           store.toggleShortcuts(false);
           return;
         }
-        if (state.dialog) return;
+        if (state.dialog || state.exportOpen) return;
         if (typing) {
           event.preventDefault();
           event.target.blur();
@@ -52,11 +52,21 @@ export function useKeyboardShortcuts(store: AppStore): void {
         return;
       }
 
-      if (state.dialog || state.shortcutsOpen) return;
+      if (state.dialog || state.shortcutsOpen || state.exportOpen) return;
 
+      if (command && event.shiftKey && (event.key === 'e' || event.key === 'E')) {
+        event.preventDefault();
+        store.openExportDialog();
+        return;
+      }
+      if (command && event.shiftKey && event.key === 'Enter') {
+        event.preventDefault();
+        void store.exportSelected(true);
+        return;
+      }
       if (command && event.key === 'Enter') {
         event.preventDefault();
-        void store.finishAndNext();
+        void store.nextAndSend();
         return;
       }
       if (command && (event.key === 'i' || event.key === 'I')) {

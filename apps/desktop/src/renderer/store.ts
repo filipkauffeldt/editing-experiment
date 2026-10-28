@@ -27,6 +27,10 @@ import {
   type EditParams,
   type EditPreset,
   type EeBridge,
+  type ExportJob,
+  type ExportJobId,
+  type ExportPreset,
+  type PresetId,
   type IngestJobInfo,
   type IngestSettings,
   type IptcFields,
@@ -61,7 +65,8 @@ export const QUICK_FILTERS: readonly { id: QuickFilter; label: string }[] = [
 ];
 
 export type SortMode = 'filename' | 'capture-time';
-export type DialogTab = 'sources' | 'destinations' | 'ingest' | 'finish';
+export type SelectionMode = 'replace' | 'toggle' | 'range';
+export type DialogTab = 'sources' | 'destinations' | 'ingest';
 
 export interface FilterState {
   quick: QuickFilter;
@@ -225,13 +230,6 @@ function grabOffset(
   };
 }
 
-/** Progress of "Finish & next", shown in the status bar. */
-export interface ExportProgress {
-  label: string;
-  /** 0..100 when known; absent for indeterminate work. */
-  percent?: number;
-}
-
 export const DEFAULT_BLOCK_SIZE_REL = 0.012;
 /** Default extra padding around a detected face (horizontal fraction; vertical is 1.4x). */
 export const DEFAULT_FACE_PADDING = 0.25;
@@ -267,8 +265,14 @@ export interface AppState {
   editParams: Record<string, EditParams>;
   retouch?: RetouchSession;
   crop?: CropSession;
-  exportProgress?: ExportProgress;
+  exportPresets: ExportPreset[];
+  exportJobs: ExportJob[];
+  exportOpen: boolean;
   selectedId?: PhotoId;
+  /** All selected photo ids, in click order; `selectedId` is the active one. */
+  selection: PhotoId[];
+  /** Anchor for Shift-click ranges. */
+  selectionAnchor?: PhotoId;
   filter: FilterState;
   sort: SortMode;
   toasts: Toast[];
@@ -319,12 +323,47 @@ export function activePhoto(state: AppState): Photo | undefined {
   return state.photos.find((photo) => photo.id === state.selectedId);
 }
 
+/** The preset Next & send uses. */
+export function activeExportPreset(state: AppState): ExportPreset | undefined {
+  const activeId = state.settings?.activePresetId;
+  return state.exportPresets.find((preset) => preset.id === activeId) ?? state.exportPresets[0];
+}
+
+/** Photos that an export action applies to: the selection, else the active photo. */
+export function exportPhotoIds(state: AppState): PhotoId[] {
+  if (state.selection.length > 0) return state.selection;
+  return state.selectedId ? [state.selectedId] : [];
+}
+
+export function exportJobTerminal(job: ExportJob): boolean {
+  return job.state === 'done' || job.state === 'failed' || job.state === 'cancelled';
+}
+
+/** Text for the status bar, e.g. `Exporting 12/40 · Sending 3`. */
+export function exportStatusText(state: AppState): string | undefined {
+  const job = state.exportJobs.find(
+    (candidate) => candidate.state === 'running' || candidate.state === 'queued',
+  );
+  const sending = state.uploads.filter(
+    (upload) => upload.state === 'queued' || upload.state === 'uploading',
+  ).length;
+  if (!job) return sending > 0 ? `Sending ${sending}` : undefined;
+  const done = job.photos.filter(
+    (photo) =>
+      photo.state === 'done' ||
+      photo.state === 'skipped' ||
+      photo.state === 'failed' ||
+      photo.state === 'cancelled',
+  ).length;
+  return `Exporting ${done}/${job.photos.length}${sending > 0 ? ` · Sending ${sending}` : ''}`;
+}
+
 export function photoFlags(state: AppState, photoId: PhotoId): PhotoFlags {
   const photo = state.photos.find((candidate) => candidate.id === photoId);
   return { tagged: photo?.tagged ?? false, colorClass: photo?.colorClass ?? 0 };
 }
 
-/** The newest retouch version, which is the one "Finish & next" applies by default. */
+/** The newest retouch version, which is the one an export applies by default. */
 export function topRetouchVersion(photo: Photo | undefined) {
   if (!photo) return undefined;
   for (let i = photo.versions.length - 1; i >= 0; i--) {
@@ -446,6 +485,10 @@ const emptyState = (): AppState => ({
   sources: [],
   destinations: [],
   presets: [],
+  exportPresets: [],
+  exportJobs: [],
+  exportOpen: false,
+  selection: [],
   uploads: [],
   ingest: {},
   metadata: {},
@@ -487,6 +530,11 @@ export class AppStore {
   private finishing = false;
   private readonly editedPreviews: EditedPreviewScheduler | undefined;
   private editedPreviewErrorShown = false;
+  private renderChain: Promise<void> = Promise.resolve();
+  private readonly exportWaiters = new Map<
+    ExportJobId,
+    { resolve(): void; reject(error: Error): void }
+  >();
 
   constructor(
     private readonly bridge: EeBridge,
@@ -559,6 +607,8 @@ export class AppStore {
       window.addEventListener('beforeunload', this.beforeUnload);
     }
     await this.loadAll();
+    // Restored jobs wait for this before asking for their next render.
+    await this.bridge.invoke('export:rendererReady').catch(() => undefined);
   };
 
   /**
@@ -580,16 +630,27 @@ export class AppStore {
   };
 
   private async loadAll(): Promise<void> {
-    const [photos, sources, destinations, settings, presets, uploads, ingest] =
-      await Promise.allSettled([
-        this.bridge.invoke('photos:list'),
-        this.bridge.invoke('sources:list'),
-        this.bridge.invoke('destinations:list'),
-        this.bridge.invoke('settings:get'),
-        this.bridge.invoke('develop:listPresets'),
-        this.bridge.invoke('upload:list'),
-        this.bridge.invoke('ingest:status'),
-      ]);
+    const [
+      photos,
+      sources,
+      destinations,
+      settings,
+      presets,
+      uploads,
+      ingest,
+      exportPresets,
+      exportJobs,
+    ] = await Promise.allSettled([
+      this.bridge.invoke('photos:list'),
+      this.bridge.invoke('sources:list'),
+      this.bridge.invoke('destinations:list'),
+      this.bridge.invoke('settings:get'),
+      this.bridge.invoke('develop:listPresets'),
+      this.bridge.invoke('upload:list'),
+      this.bridge.invoke('ingest:status'),
+      this.bridge.invoke('exportPresets:list'),
+      this.bridge.invoke('export:list'),
+    ]);
 
     const value = <T>(result: PromiseSettledResult<T>): T | undefined =>
       result.status === 'fulfilled' ? result.value : undefined;
@@ -628,6 +689,8 @@ export class AppStore {
       destinations: value(destinations) ?? [],
       settings: value(settings),
       presets: value(presets) ?? [],
+      exportPresets: value(exportPresets) ?? [],
+      exportJobs: value(exportJobs) ?? [],
       uploads: value(uploads) ?? [],
       ingest: runs,
       loading: false,
@@ -745,15 +808,50 @@ export class AppStore {
     this.set({ photos });
   }
 
-  private applySelection(photoId: PhotoId | undefined): void {
-    if (photoId === this.state.selectedId) return;
+  private applySelection(photoId: PhotoId | undefined, mode: SelectionMode = 'replace'): void {
+    if (
+      photoId === this.state.selectedId &&
+      mode === 'replace' &&
+      this.state.selection.length <= 1
+    ) {
+      return;
+    }
     // Leaving a photo with an edit still settling: render it now, not when it is forgotten.
     if (this.state.selectedId) this.editedPreviews?.promote(this.state.selectedId);
-    this.set({ selectedId: photoId });
-    if (!photoId) return;
-    void this.loadMetadata(photoId);
-    void this.loadParams(photoId);
-    this.editedPreviews?.setSelected(photoId);
+    if (!photoId) {
+      this.set({ selectedId: undefined, selection: [], selectionAnchor: undefined });
+      this.editedPreviews?.setSelected(undefined);
+      return;
+    }
+
+    let selection: PhotoId[];
+    let anchor = this.state.selectionAnchor ?? this.state.selectedId ?? photoId;
+    if (mode === 'toggle') {
+      selection = this.state.selection.includes(photoId)
+        ? this.state.selection.filter((id) => id !== photoId)
+        : [...this.state.selection, photoId];
+      if (selection.length === 0) anchor = photoId;
+    } else if (mode === 'range') {
+      const order = this.getVisiblePhotos().map((photo) => photo.id);
+      const from = order.indexOf(anchor);
+      const to = order.indexOf(photoId);
+      selection =
+        from < 0 || to < 0 ? [photoId] : order.slice(Math.min(from, to), Math.max(from, to) + 1);
+    } else {
+      selection = [photoId];
+      anchor = photoId;
+    }
+
+    const selectedId =
+      mode === 'toggle' && !selection.includes(photoId) ? selection.at(-1) : photoId;
+    this.set({ selectedId, selection, selectionAnchor: anchor });
+    if (!selectedId) {
+      this.editedPreviews?.setSelected(undefined);
+      return;
+    }
+    void this.loadMetadata(selectedId);
+    void this.loadParams(selectedId);
+    this.editedPreviews?.setSelected(selectedId);
   }
 
   /**
@@ -764,22 +862,28 @@ export class AppStore {
     this.editedPreviews?.setVisible(photoIds);
   };
 
-  readonly select = (photoId: PhotoId | undefined): void => {
-    if (photoId === this.state.selectedId) return;
+  readonly select = (photoId: PhotoId | undefined, mode: SelectionMode = 'replace'): void => {
+    if (
+      photoId === this.state.selectedId &&
+      mode === 'replace' &&
+      this.state.selection.length <= 1
+    ) {
+      return;
+    }
     if (this.state.crop && this.state.crop.photoId !== photoId) this.applyCrop();
     const session = this.state.retouch;
     if (session && session.photoId !== photoId) {
       // Never lose an unreviewed mosaic by navigating away. The commit path is
-      // shared with Finish, so an in-flight save is awaited instead of duplicated.
+      // shared with exports, so an in-flight save is awaited instead of duplicated.
       if (session.busy || hasPendingRetouch(session)) {
         void this.commitRetouch().then((photo) => {
-          if (photo) this.applySelection(photoId);
+          if (photo) this.applySelection(photoId, mode);
         });
         return;
       }
       this.exitRetouch();
     }
-    this.applySelection(photoId);
+    this.applySelection(photoId, mode);
   };
 
   readonly selectRelative = (delta: number): void => {
@@ -792,10 +896,15 @@ export class AppStore {
 
   private ensureSelectionVisible(): void {
     const visible = this.getVisiblePhotos();
-    if (visible.some((photo) => photo.id === this.state.selectedId)) return;
+    const visibleIds = new Set(visible.map((photo) => photo.id));
+    if (visible.some((photo) => photo.id === this.state.selectedId)) {
+      const selection = this.state.selection.filter((id) => visibleIds.has(id));
+      if (selection.length !== this.state.selection.length) this.set({ selection });
+      return;
+    }
     const next = visible[0];
     if (next) this.select(next.id);
-    else this.set({ selectedId: undefined });
+    else this.set({ selectedId: undefined, selection: [], selectionAnchor: undefined });
   }
 
   readonly setQuickFilter = (quick: QuickFilter): void => {
@@ -1788,24 +1897,167 @@ export class AppStore {
     });
   }
 
-  // ------------------------------------------------------------------- finish
+  // ------------------------------------------------------------------ exports
 
-  /** Save a retouch session for this photo before exporting it. */
-  private async settleRetouchBeforeFinish(photo: Photo): Promise<void> {
+  /** Save retouch/crop drafts and debounced edits before an export reads them. */
+  private async settleBeforeExport(photoIds: readonly PhotoId[]): Promise<void> {
+    const ids = new Set(photoIds);
+    if (this.state.crop && ids.has(this.state.crop.photoId)) this.applyCrop();
     const session = this.state.retouch;
-    if (!session || session.photoId !== photo.id) return;
-    if (session.busy || hasPendingRetouch(session)) {
-      this.set({ exportProgress: { label: 'Saving retouch…' } });
-      const saved = await this.commitRetouch();
-      if (!saved) {
-        throw new Error('the retouch version could not be saved');
+    if (session && ids.has(session.photoId)) {
+      if (session.busy || hasPendingRetouch(session)) {
+        const saved = await this.commitRetouch();
+        if (!saved) throw new Error('the retouch version could not be saved');
+      } else {
+        this.exitRetouch();
       }
-      return;
     }
-    this.exitRetouch();
+    await this.flushPendingEdits();
   }
 
-  readonly finishAndNext = async (): Promise<void> => {
+  private orderedPhotoIds(photoIds: readonly PhotoId[]): PhotoId[] {
+    const order = new Map(this.getVisiblePhotos().map((photo, index) => [photo.id, index]));
+    return [...new Set(photoIds)].sort(
+      (left, right) =>
+        (order.get(left) ?? Number.MAX_SAFE_INTEGER) -
+        (order.get(right) ?? Number.MAX_SAFE_INTEGER),
+    );
+  }
+
+  private exportJob(jobId: ExportJobId): ExportJob | undefined {
+    return this.state.exportJobs.find((job) => job.id === jobId);
+  }
+
+  private settleExportJob(job: ExportJob): void {
+    if (job.state === 'failed') {
+      const failed = job.photos.filter((photo) => photo.state === 'failed');
+      const detail = failed.find((photo) => photo.error !== undefined)?.error;
+      throw new Error(detail ?? `${failed.length} photo(s) could not be exported`);
+    }
+    if (job.state === 'cancelled') throw new Error('the export was cancelled');
+  }
+
+  private notifyExportWaiter(job: ExportJob): void {
+    if (!exportJobTerminal(job)) return;
+    const waiter = this.exportWaiters.get(job.id);
+    if (!waiter) return;
+    this.exportWaiters.delete(job.id);
+    waiter.resolve();
+  }
+
+  private async refreshExportJobs(): Promise<ExportJob[]> {
+    const jobs = await this.bridge.invoke('export:list');
+    this.set({ exportJobs: jobs });
+    for (const job of jobs) this.notifyExportWaiter(job);
+    return jobs;
+  }
+
+  private waitForExportJob(jobId: ExportJobId): Promise<void> {
+    const existing = this.exportJob(jobId);
+    if (existing && exportJobTerminal(existing)) {
+      try {
+        this.settleExportJob(existing);
+        return Promise.resolve();
+      } catch (error) {
+        return Promise.reject(error);
+      }
+    }
+    return new Promise<void>((resolve, reject) => {
+      this.exportWaiters.set(jobId, {
+        resolve: () => {
+          const job = this.exportJob(jobId);
+          try {
+            if (job) this.settleExportJob(job);
+            resolve();
+          } catch (error) {
+            reject(error);
+          }
+        },
+        reject,
+      });
+      // A job can finish between the invoke returning and this registration.
+      const after = this.exportJob(jobId);
+      if (after && exportJobTerminal(after)) {
+        const waiter = this.exportWaiters.get(jobId);
+        this.exportWaiters.delete(jobId);
+        waiter?.resolve();
+      }
+    });
+  }
+
+  private async runExport(options: {
+    photoIds?: readonly PhotoId[];
+    presetId?: PresetId;
+    send: boolean;
+    wait?: boolean;
+  }): Promise<ExportJobId | undefined> {
+    const photoIds = this.orderedPhotoIds(options.photoIds ?? exportPhotoIds(this.state));
+    if (photoIds.length === 0) {
+      this.toast('error', 'Select at least one photo to export');
+      return undefined;
+    }
+    const presetId = options.presetId ?? activeExportPreset(this.state)?.id;
+    if (!presetId) {
+      this.toast('error', 'No export preset is configured');
+      return undefined;
+    }
+    try {
+      await this.settleBeforeExport(photoIds);
+      const jobId = await this.bridge.invoke('export:start', {
+        photoIds,
+        presetId,
+        ...(options.send ? {} : { send: [] }),
+      });
+      await this.refreshExportJobs();
+      if (options.wait) await this.waitForExportJob(jobId);
+      return jobId;
+    } catch (cause) {
+      this.toast('error', `Export failed: ${messageOf(cause)}`);
+      return undefined;
+    }
+  }
+
+  /** Fill an export job's render request from what the user currently sees. */
+  private async performExportRender(
+    request: Extract<JobEvent, { type: 'export.render' }>,
+  ): Promise<void> {
+    try {
+      const photo = this.photoById.get(request.photoId);
+      if (!photo) throw new Error(`no photo ${request.photoId}`);
+      await this.settleBeforeExport([photo.id]);
+      // Re-read after a retouch commit: the captured photo predates the new version.
+      const latest = this.photoById.get(photo.id) ?? photo;
+      const versionId = activeDevelopVersion(latest)?.id;
+      await Promise.all([
+        this.saveMetadata(latest.id),
+        this.flushDevelopParams(latest.id, versionId),
+      ]);
+      const params = this.state.editParams[editParamsKey(latest.id, versionId)] ?? {};
+      const ops = request.version === 'top' ? (topRetouchVersion(latest)?.ops ?? []) : [];
+      const rendered = await this.renderForExport({ photo: latest, params, ops });
+      await this.bridge.invoke('export:render', {
+        jobId: request.jobId,
+        requestId: request.requestId,
+        rendered,
+      });
+    } catch (cause) {
+      await this.bridge
+        .invoke('export:render', {
+          jobId: request.jobId,
+          requestId: request.requestId,
+          error: messageOf(cause),
+        })
+        .catch(() => undefined);
+    }
+  }
+
+  /** Queue the current selection (or the active photo) for a background export. */
+  readonly exportSelected = async (send: boolean, presetId?: PresetId): Promise<void> => {
+    await this.runExport({ send, presetId });
+  };
+
+  /** Export the active photo with the active preset, then advance to the next one. */
+  readonly nextAndSend = async (): Promise<void> => {
     if (this.finishing) return;
     const photo = activePhoto(this.state);
     if (!photo) return;
@@ -1813,50 +2065,46 @@ export class AppStore {
     const exportedIndex = order.findIndex((candidate) => candidate.id === photo.id);
     this.finishing = true;
     try {
-      if (this.state.crop?.photoId === photo.id) this.applyCrop();
-      await this.settleRetouchBeforeFinish(photo);
-      // Re-read after a commit: the captured photo predates the new version.
-      const latest = this.photoById.get(photo.id) ?? photo;
-      const versionId = activeDevelopVersion(latest)?.id;
-      // Export must see the edits that are still inside the UI debounce/throttle.
-      await Promise.all([
-        this.saveMetadata(latest.id),
-        this.flushDevelopParams(latest.id, versionId),
-      ]);
-      const params = this.state.editParams[editParamsKey(latest.id, versionId)] ?? {};
-      this.set({ exportProgress: { label: 'Rendering full resolution…' } });
-      const rendered = await this.renderForExport({
-        photo: latest,
-        params,
-        ops: topRetouchVersion(latest)?.ops ?? [],
-        onProgress: (progress) => this.set({ exportProgress: progress }),
-      });
-      this.set({ exportProgress: { label: 'Encoding and uploading…' } });
-      const result = await this.bridge.invoke('export:photo', {
-        photoId: latest.id,
-        versionId,
-        rendered,
-      });
-      if (result.uploads.length > 0) {
-        const created = new Set(result.uploads.map((upload) => upload.id));
-        this.set({
-          uploads: [
-            ...this.state.uploads.filter((upload) => !created.has(upload.id)),
-            ...result.uploads,
-          ],
-        });
-      }
-      // The handler owns the final name; do not reconstruct it from the path.
-      const fileName =
-        (result as typeof result & { fileName?: string }).fileName ?? latest.fileName;
-      this.toast('success', `Exported ${fileName}`);
+      const jobId = await this.runExport({ photoIds: [photo.id], send: true, wait: true });
+      if (jobId === undefined) return;
       const next = exportedIndex >= 0 ? order[exportedIndex + 1] : undefined;
       if (next) this.select(next.id);
-    } catch (cause) {
-      this.toast('error', `Export failed: ${messageOf(cause)}`);
     } finally {
       this.finishing = false;
-      this.set({ exportProgress: undefined });
+    }
+  };
+
+  readonly openExportDialog = (): void => this.set({ exportOpen: true, dialog: undefined });
+  readonly closeExportDialog = (): void => this.set({ exportOpen: false });
+
+  readonly saveExportPreset = async (preset: ExportPreset): Promise<void> => {
+    const saved = await this.bridge.invoke('exportPresets:save', { preset });
+    const presets = this.state.exportPresets.some((candidate) => candidate.id === saved.id)
+      ? this.state.exportPresets.map((candidate) => (candidate.id === saved.id ? saved : candidate))
+      : [...this.state.exportPresets, saved];
+    this.set({ exportPresets: presets });
+  };
+
+  readonly removeExportPreset = async (presetId: PresetId): Promise<void> => {
+    await this.bridge.invoke('exportPresets:remove', { presetId });
+    const [presets, settings] = await Promise.all([
+      this.bridge.invoke('exportPresets:list'),
+      this.bridge.invoke('settings:get'),
+    ]);
+    this.set({ exportPresets: presets, settings });
+  };
+
+  readonly setActivePreset = async (presetId: PresetId): Promise<void> => {
+    const settings = await this.bridge.invoke('settings:set', { activePresetId: presetId });
+    this.set({ settings });
+  };
+
+  readonly cancelExport = async (jobId: ExportJobId): Promise<void> => {
+    try {
+      await this.bridge.invoke('export:cancel', { jobId });
+      await this.refreshExportJobs();
+    } catch (cause) {
+      this.toast('error', `Could not cancel the export: ${messageOf(cause)}`);
     }
   };
 
@@ -2038,6 +2286,23 @@ export class AppStore {
 
   private handleJobEvent(event: JobEvent): void {
     switch (event.type) {
+      case 'export.render': {
+        this.renderChain = this.renderChain
+          .then(() => this.performExportRender(event))
+          .catch(() => undefined);
+        break;
+      }
+      case 'export.progress':
+      case 'export.state': {
+        const known = this.state.exportJobs.some((job) => job.id === event.job.id);
+        this.set({
+          exportJobs: known
+            ? this.state.exportJobs.map((job) => (job.id === event.job.id ? event.job : job))
+            : [event.job, ...this.state.exportJobs],
+        });
+        this.notifyExportWaiter(event.job);
+        break;
+      }
       case 'ingest.progress': {
         const current = this.state.ingest[event.sourceId];
         this.set({

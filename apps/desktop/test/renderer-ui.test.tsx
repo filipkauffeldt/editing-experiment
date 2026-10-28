@@ -99,7 +99,7 @@ describe('keyboard-first shell', () => {
 
     fireEvent.keyDown(window, { key: 'Enter', ctrlKey: true });
     await waitFor(() => {
-      expect(fake.calls.some((call) => call.channel === 'export:photo')).toBe(true);
+      expect(fake.calls.some((call) => call.channel === 'export:start')).toBe(true);
     });
     await waitFor(() => {
       expect(activePhoto(store.getState())?.id).not.toBe(first?.id);
@@ -108,6 +108,26 @@ describe('keyboard-first shell', () => {
 });
 
 describe('film strip', () => {
+  it('selects a range and exports it from the dialog without uploading', async () => {
+    const { store, fake } = await renderApp();
+    fireEvent.click(thumbnail('_DSC8330.NEF'));
+    fireEvent.click(thumbnail('_DSC8332.NEF'), { shiftKey: true });
+    expect(store.getState().selection).toHaveLength(3);
+
+    fireEvent.keyDown(window, { key: 'e', ctrlKey: true, shiftKey: true });
+    await screen.findByTestId('export-dialog');
+    expect(screen.getByTestId('export-dialog').textContent).toContain('3 photos selected');
+
+    fireEvent.click(screen.getByTestId('export-only'));
+    await waitFor(() => {
+      expect(fake.calls.some((call) => call.channel === 'export:start')).toBe(true);
+    });
+    const call = fake.calls.find((candidate) => candidate.channel === 'export:start');
+    expect(call?.args[0]).toMatchObject({ send: [] });
+    expect((call?.args[0] as { photoIds: string[] }).photoIds).toHaveLength(3);
+    await waitFor(() => expect(store.getState().exportOpen).toBe(false));
+  });
+
   it('shows edit, retouch, metadata and upload badges', async () => {
     await renderApp();
 

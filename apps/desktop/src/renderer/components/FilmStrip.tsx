@@ -175,6 +175,7 @@ export function FilmStrip({ photos }: { photos: Photo[] }) {
         {photos.slice(start, end).map((photo, offset) => {
           const index = start + offset;
           const selected = photo.id === state.selectedId;
+          const inSelection = state.selection.includes(photo.id);
           return (
             <button
               key={photo.id}
@@ -182,13 +183,20 @@ export function FilmStrip({ photos }: { photos: Photo[] }) {
               role="option"
               aria-selected={selected}
               title={`${photo.fileName} — ${photo.captureTime ?? 'no capture time'}`}
-              className={`${styles.frame} ${selected ? styles.selected : ''}`}
+              className={`${styles.frame} ${selected ? styles.selected : ''} ${
+                inSelection && !selected ? styles.inSelection : ''
+              }`}
               style={{
                 width: ITEM_WIDTH,
                 height: Math.round(ITEM_WIDTH * (2 / 3)),
                 left: index * STEP,
               }}
-              onClick={() => store.select(photo.id)}
+              onClick={(event) =>
+                store.select(
+                  photo.id,
+                  event.shiftKey ? 'range' : event.ctrlKey || event.metaKey ? 'toggle' : 'replace',
+                )
+              }
             >
               <img
                 src={appUrl.thumb(photo.id, photo.previewRevision)}

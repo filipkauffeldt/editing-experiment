@@ -473,7 +473,7 @@ function CanvasForPhoto({ photo }: { photo: Photo }) {
 
   // Live mosaic preview: render at the view size, mosaic the pixels on the CPU,
   // and paint them over the canvas. Runs in the normal view too, so a committed
-  // retouch version is what the user sees (and what Finish & next exports).
+  // retouch version is what the user sees (and what Next & send exports).
   useEffect(() => {
     const mosaic = mosaicRef.current;
     if (!mosaic) return;

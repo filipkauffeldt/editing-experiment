@@ -53,7 +53,7 @@ export interface OutputSize {
 }
 
 /**
- * Size of the "Finish & next" render. Full-resolution export must be the
+ * Size of the full-resolution export render. Full-resolution export must be the
  * source size, and the linear fetch is deliberately made without `maxEdge`;
  * a downscaled header here would silently export a preview-sized file.
  */
@@ -139,7 +139,7 @@ export function renderInWorker(
 const yieldToUi = (): Promise<void> => new Promise((resolve) => setTimeout(resolve, 0));
 
 /**
- * Full-resolution render for "Finish & next": the develop pipeline at the
+ * Full-resolution render for an export: the develop pipeline at the
  * source size, then every retouch op (the newest retouch version's mosaic).
  * Runs in a worker when the renderer can create one, with a yielding main
  * thread fallback.

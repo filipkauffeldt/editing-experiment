@@ -1092,147 +1092,7 @@ function IngestSection() {
   );
 }
 
-function FinishSection() {
-  const store = useAppStore();
-  const state = useAppState();
-  const [maxEdge, setMaxEdge] = useState('');
-  const [quality, setQuality] = useState('90');
-  const [metadata, setMetadata] = useState<'all' | 'iptc' | 'none'>('all');
-  const [destinationIds, setDestinationIds] = useState<string[]>([]);
-  const [status, setStatus] = useState<string>();
-  const [error, setError] = useState<string>();
-
-  useEffect(() => {
-    const action = state.settings?.finishAction;
-    if (!action) return;
-    // The form is a draft of the persisted finish action; seed it when it arrives.
-    /* eslint-disable react-hooks/set-state-in-effect */
-    setMaxEdge(action.exportPreset.maxEdge ? String(action.exportPreset.maxEdge) : '');
-    setQuality(String(action.exportPreset.quality));
-    setMetadata(action.exportPreset.metadata);
-    setDestinationIds(action.destinations);
-    /* eslint-enable react-hooks/set-state-in-effect */
-  }, [state.settings]);
-
-  const save = async (): Promise<void> => {
-    const parsedQuality = Number(quality);
-    if (!Number.isFinite(parsedQuality) || parsedQuality < 1 || parsedQuality > 100) {
-      setError('Quality must be between 1 and 100');
-      return;
-    }
-    const parsedEdge = maxEdge.trim() ? Number(maxEdge) : undefined;
-    if (parsedEdge !== undefined && (!Number.isFinite(parsedEdge) || parsedEdge <= 0)) {
-      setError('Longest edge must be a positive number');
-      return;
-    }
-    setError(undefined);
-    try {
-      await store.saveSettings({
-        finishAction: {
-          exportPreset: {
-            maxEdge: parsedEdge,
-            quality: Math.round(parsedQuality),
-            metadata,
-          },
-          destinations: destinationIds.map((id) => asDestinationId(id)),
-        },
-      });
-      setStatus('Finish action saved.');
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : String(cause));
-    }
-  };
-
-  return (
-    <form
-      className={styles.formWide}
-      onSubmit={(event) => {
-        event.preventDefault();
-        void save();
-      }}
-    >
-      <p className={styles.hint}>
-        Finish &amp; next renders a full-resolution JPEG, embeds the selected metadata and sends it
-        to every checked destination.
-      </p>
-
-      <div className={styles.gridTwo}>
-        <label className={styles.field}>
-          <span className={styles.label}>Longest edge (px, empty = full size)</span>
-          <input
-            className={styles.input}
-            type="number"
-            value={maxEdge}
-            placeholder="full resolution"
-            onChange={(event) => setMaxEdge(event.target.value)}
-          />
-        </label>
-        <label className={styles.field}>
-          <span className={styles.label}>JPEG quality (1–100)</span>
-          <input
-            className={styles.input}
-            type="number"
-            min={1}
-            max={100}
-            value={quality}
-            onChange={(event) => setQuality(event.target.value)}
-          />
-        </label>
-      </div>
-
-      <label className={styles.field}>
-        <span className={styles.label}>Metadata</span>
-        <select
-          className={styles.input}
-          value={metadata}
-          onChange={(event) => setMetadata(event.target.value as 'all' | 'iptc' | 'none')}
-        >
-          <option value="all">All (EXIF + IPTC)</option>
-          <option value="iptc">IPTC only</option>
-          <option value="none">None</option>
-        </select>
-      </label>
-
-      <div className={styles.field}>
-        <span className={styles.label}>Destinations</span>
-        <div className={styles.checkboxes}>
-          {state.destinations.map((destination) => (
-            <label key={destination.id} className={styles.checkbox}>
-              <input
-                type="checkbox"
-                checked={destinationIds.includes(destination.id)}
-                onChange={(event) =>
-                  setDestinationIds((current) =>
-                    event.target.checked
-                      ? [...current, destination.id]
-                      : current.filter((id) => id !== destination.id),
-                  )
-                }
-              />
-              {destination.name}
-              <span className={styles.listKind}>{destination.kind.toUpperCase()}</span>
-            </label>
-          ))}
-          {state.destinations.length === 0 && (
-            <span className={styles.hint}>No destinations configured yet.</span>
-          )}
-        </div>
-      </div>
-
-      {error && <p className={styles.error}>{error}</p>}
-      {status && <p className={styles.status}>{status}</p>}
-
-      <div className={styles.formActions}>
-        <span className={styles.spacer} />
-        <button type="submit" className={styles.primary}>
-          Save finish action
-        </button>
-      </div>
-    </form>
-  );
-}
-
-/** Settings modal: sources, destinations, ingest and the finish action. */
+/** Settings modal: sources, destinations and ingest. Export lives in its own dialog. */
 export function SettingsDialog() {
   const store = useAppStore();
   const state = useAppState();
@@ -1241,7 +1101,6 @@ export function SettingsDialog() {
     { id: 'sources', label: 'Sources' },
     { id: 'destinations', label: 'Destinations' },
     { id: 'ingest', label: 'Ingest' },
-    { id: 'finish', label: 'Finish' },
   ];
 
   return (
@@ -1275,7 +1134,6 @@ export function SettingsDialog() {
         {tab === 'sources' && <SourcesSection />}
         {tab === 'destinations' && <DestinationsSection />}
         {tab === 'ingest' && <IngestSection />}
-        {tab === 'finish' && <FinishSection />}
       </div>
     </Modal>
   );

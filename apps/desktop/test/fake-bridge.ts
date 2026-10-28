@@ -7,6 +7,8 @@ import {
   type EeBridge,
   type EditParams,
   type EventChannel,
+  type ExportJob,
+  type ExportPreset,
   type InvokeChannel,
   type IptcFields,
   type Photo,
@@ -36,6 +38,7 @@ export interface FakeBridge {
   emit(channel: EventChannel, payload: unknown): void;
   uploads: UploadItem[];
   settings: ReturnType<typeof mockSettings>;
+  exportPresets: ExportPreset[];
 }
 
 const versionKey = (photoId: PhotoId, versionId?: VersionId): string =>
@@ -65,6 +68,14 @@ export function createFakeBridge(
   const sources = mockSources();
   const destinations = mockDestinations();
   const presets = mockPresets();
+  let exportPresets = mockSettings().exportPresets as ExportPreset[];
+  const exportJobs: ExportJob[] = [];
+  let exportSequence = 0;
+  let exportRequestSequence = 0;
+  const renderWaiters = new Map<
+    string,
+    (outcome: { rendered?: unknown; error?: string }) => void
+  >();
   const template = mockTemplate();
   const calls: FakeBridge['calls'] = [];
   const listeners = new Map<EventChannel, Set<(payload: unknown) => void>>();
@@ -267,12 +278,112 @@ export function createFakeBridge(
       const item = uploads.find((candidate) => candidate.id === uploadId);
       if (item) item.state = 'cancelled';
     },
-    'export:photo': async (...args) => {
-      const { photoId } = args[0] as { photoId: PhotoId };
-      const photo = findPhoto(photoId);
-      const fileName = photo.fileName.replace(/\.NEF$/, '.jpg');
-      return { path: `/mock/outbox/${fileName}`, fileName, uploads: [] };
+    'exportPresets:list': async () => exportPresets,
+    'exportPresets:save': async (...args) => {
+      const { preset } = args[0] as { preset: ExportPreset };
+      const index = exportPresets.findIndex((candidate) => candidate.id === preset.id);
+      if (index >= 0)
+        exportPresets = exportPresets.map((candidate) =>
+          candidate.id === preset.id ? preset : candidate,
+        );
+      else exportPresets = [...exportPresets, preset];
+      return preset;
     },
+    'exportPresets:remove': async (...args) => {
+      const { presetId } = args[0] as { presetId: ExportPreset['id'] };
+      exportPresets = exportPresets.filter((preset) => preset.id !== presetId);
+    },
+    'export:start': async (...args) => {
+      const { photoIds, presetId, send } = args[0] as {
+        photoIds: PhotoId[];
+        presetId: ExportPreset['id'];
+        send?: ExportPreset['sendTo'];
+      };
+      const preset = exportPresets.find((candidate) => candidate.id === presetId);
+      if (!preset) throw new Error(`no export preset ${presetId}`);
+      const job: ExportJob = {
+        id: `test-export-${++exportSequence}` as ExportJob['id'],
+        presetId,
+        photoIds: [...photoIds],
+        send: send ?? preset.sendTo,
+        state: 'queued',
+        photos: photoIds.map((photoId) => ({ photoId, state: 'queued' })),
+        createdAt: Date.now(),
+      };
+      exportJobs.unshift(job);
+      const publish = (state: ExportJob['state']): void => {
+        job.state = state;
+        emit('jobs:event', {
+          type: 'export.state',
+          at: Date.now(),
+          jobId: job.id,
+          state,
+          job: { ...job, photos: job.photos.map((photo) => ({ ...photo })) },
+        });
+      };
+      const progress = (photoId: PhotoId): void =>
+        emit('jobs:event', {
+          type: 'export.progress',
+          at: Date.now(),
+          jobId: job.id,
+          photoId,
+          job: { ...job, photos: job.photos.map((photo) => ({ ...photo })) },
+        });
+      void (async () => {
+        publish('running');
+        for (const photo of job.photos) {
+          if (job.state === 'cancelled') break;
+          photo.state = 'rendering';
+          progress(photo.photoId);
+          const requestId = `render-${++exportRequestSequence}`;
+          const outcome = new Promise<{ rendered?: unknown; error?: string }>((resolve) => {
+            renderWaiters.set(requestId, resolve);
+          });
+          emit('jobs:event', {
+            type: 'export.render',
+            at: Date.now(),
+            jobId: job.id,
+            requestId,
+            photoId: photo.photoId,
+            presetId: job.presetId,
+            version: preset.version,
+          });
+          const renderedOutcome = await outcome;
+          renderWaiters.delete(requestId);
+          if (renderedOutcome.error !== undefined || renderedOutcome.rendered === undefined) {
+            photo.state = 'failed';
+            photo.error = renderedOutcome.error ?? 'the renderer returned no image';
+          } else {
+            photo.state = 'done';
+            photo.path = `/mock/exports/${photo.photoId}.jpg`;
+          }
+          progress(photo.photoId);
+        }
+        publish(
+          job.state === 'cancelled'
+            ? 'cancelled'
+            : job.photos.some((photo) => photo.state === 'failed')
+              ? 'failed'
+              : 'done',
+        );
+      })();
+      return job.id;
+    },
+    'export:cancel': async (...args) => {
+      const { jobId } = args[0] as { jobId: ExportJob['id'] };
+      const job = exportJobs.find((candidate) => candidate.id === jobId);
+      if (job) job.state = 'cancelled';
+    },
+    'export:list': async () => exportJobs,
+    'export:render': async (...args) => {
+      const { requestId, rendered, error } = args[0] as {
+        requestId: string;
+        rendered?: unknown;
+        error?: string;
+      };
+      renderWaiters.get(requestId)?.({ rendered, error });
+    },
+    'export:rendererReady': async () => {},
     'settings:get': async () => settings,
     'settings:set': async (...args) => {
       const patch = args[0] as Partial<typeof settings>;
@@ -334,6 +445,9 @@ export function createFakeBridge(
     uploads,
     get settings() {
       return settings;
+    },
+    get exportPresets() {
+      return exportPresets;
     },
   };
 }

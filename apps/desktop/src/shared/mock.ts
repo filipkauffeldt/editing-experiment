@@ -9,6 +9,7 @@ import {
   type Destination,
   type EditParams,
   type EditPreset,
+  type ExportPreset,
   type IptcFields,
   type Photo,
   type PhotoId,
@@ -65,26 +66,64 @@ export function mockSources(): SourceConfig[] {
   ];
 }
 
-/** Export destinations used by "Finish & next" and the upload queue. */
+/** Export destinations used by the mock presets and the upload queue. */
 export function mockDestinations(): Destination[] {
   return [
     {
       id: DEST_OUTBOX,
       kind: 'folder',
-      name: 'Local outbox',
-      path: '/mock/outbox',
+      name: 'Sportfotografen outbox',
+      path: '/mock/exports/outbox',
       remotePathTemplate: '{date}/{fileName}',
     },
     {
       id: DEST_DESK,
       kind: 'ftp',
-      name: 'Picture desk',
-      host: 'upload.presspool.test',
+      name: 'Sportfotografen FTP',
+      host: 'ftp.sportfotografen.se',
       port: 21,
       username: 'ftpuser',
       credentialRef: 'mock-credential-desk',
       remotePathTemplate: '/incoming/{event}/{fileName}',
       security: 'explicit-tls',
+    },
+  ];
+}
+
+/** Export presets shown by the mock export dialog. */
+export function mockExportPresets(): ExportPreset[] {
+  return [
+    {
+      id: asPresetId('mock-export-preset'),
+      name: 'Sportfotografen',
+      folderTemplate: '{folder}/Export/{preset}',
+      fileNameTemplate: '{filenamebase}',
+      ifExists: 'suffix',
+      format: 'jpeg',
+      quality: 90,
+      colorSpace: 'srgb',
+      resize: { mode: 'none' },
+      outputSharpening: { target: 'none', amount: 'standard' },
+      metadata: 'all',
+      stripGps: false,
+      version: 'top',
+      sendTo: [DEST_OUTBOX, DEST_DESK],
+    },
+    {
+      id: asPresetId('mock-export-preset-web'),
+      name: 'Web',
+      folderTemplate: '{folder}/Export/{preset}',
+      fileNameTemplate: '{filenamebase}',
+      ifExists: 'suffix',
+      format: 'jpeg',
+      quality: 82,
+      colorSpace: 'srgb',
+      resize: { mode: 'longEdge', pixels: 2400 },
+      outputSharpening: { target: 'screen', amount: 'standard' },
+      metadata: 'iptc',
+      stripGps: true,
+      version: 'top',
+      sendTo: [DEST_OUTBOX],
     },
   ];
 }
@@ -99,10 +138,9 @@ export function mockSettings(): AppSettings {
       metadataTemplatePath: MOCK_TEMPLATE_PATH,
       codeReplacementPaths: [MOCK_CODE_REPLACEMENT_PATH],
     },
-    finishAction: {
-      exportPreset: { maxEdge: 3000, quality: 90, metadata: 'all' },
-      destinations: [DEST_OUTBOX, DEST_DESK],
-    },
+    exportRoot: '/mock/exports',
+    exportPresets: mockExportPresets(),
+    activePresetId: asPresetId('mock-export-preset'),
   };
 }
 
@@ -219,9 +257,9 @@ export function mockTemplate(): IptcFields {
     keywords: ['football', 'premier league', 'manchester city', 'liverpool'],
     byline: 'Alex Morgan',
     bylineTitle: 'Staff Photographer',
-    credit: 'Northern Press Agency',
-    source: 'Northern Press',
-    copyright: '© 2026 Northern Press Agency',
+    credit: 'Sportfotografen',
+    source: 'Sportfotografen',
+    copyright: '© 2026 Sportfotografen',
     city: 'Manchester',
     state: 'England',
     country: 'United Kingdom',
