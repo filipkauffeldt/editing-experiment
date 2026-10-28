@@ -665,12 +665,15 @@ export class AppStore {
     if (!photoId) return;
     void this.loadMetadata(photoId);
     void this.loadParams(photoId);
-    this.editedPreviews?.ensure(photoId);
+    this.editedPreviews?.setSelected(photoId);
   }
 
-  /** Photos in the film strip: draw the edited thumbnail of those that never got one. */
-  readonly ensureEditedPreviews = (photoIds: readonly PhotoId[]): void => {
-    for (const photoId of photoIds) this.editedPreviews?.ensure(photoId);
+  /**
+   * The frames the film strip shows now: draw the edited thumbnails of those that
+   * never got one, and stop working on photos that scrolled out of view.
+   */
+  readonly setVisibleEditedPreviews = (photoIds: readonly PhotoId[]): void => {
+    this.editedPreviews?.setVisible(photoIds);
   };
 
   readonly select = (photoId: PhotoId | undefined): void => {

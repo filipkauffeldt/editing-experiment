@@ -32,6 +32,8 @@ export interface EditedPreviewDeps {
   /** The photo as the backend has it after a render was stored (or refused). */
   onStored?(photo: Photo): void;
   onError(photo: Photo, error: unknown): void;
+  /** The photo turned out to have no edits at all; its stale flag can be cleared locally. */
+  onNoEdits?(photo: Photo): void;
   /** Quiet time after the last edit before rendering. Default 750 ms. */
   debounceMs?: number;
   /** Pause between two background renders of photos nobody edited. Default 250 ms. */
@@ -51,6 +53,8 @@ interface Job {
   timer: ReturnType<typeof setTimeout> | undefined;
   /** Waiting for its turn, with this priority. */
   queued: Priority | undefined;
+  /** When it was queued; background jobs go newest first. */
+  queuedSeq: number;
   refusals: number;
 }
 
@@ -70,17 +74,25 @@ export function hasDevelopEdits(params: EditParams): boolean {
  * - `schedule` (an edit) waits for the edits to settle, then renders. Edits to the
  *   same photo coalesce into one render and restart the wait.
  * - `scheduleNow` (a retouch commit) skips the wait: a face must not stay visible.
- * - `ensure` (a photo is viewed or in the film strip) renders photos whose edits
- *   never made it into the cache, one at a time with pauses between.
+ * - `setSelected` / `setVisible` (the photo on screen, the film strip's frames) render
+ *   photos whose edits never made it into the cache, one at a time with pauses
+ *   between. Only what is on screen counts: when the strip scrolls on, queued photos
+ *   that left it are dropped, and the rest go selected first, then newest first.
  *
  * Renders run one at a time so the GPU and the IPC stay free for the sliders. A
- * pending photo is kept when the user selects another one, so its thumbnail still
- * gets made. Nothing here blocks a caller; errors go to `onError`.
+ * pending edit is kept when the user selects another photo, so its thumbnail still
+ * gets made. Finished jobs are forgotten, so a long session does not accumulate
+ * state per photo. Nothing here blocks a caller; errors go to `onError`.
  */
 export class EditedPreviewScheduler {
   private readonly jobs = new Map<PhotoId, Job>();
   private readonly failedAt = new Map<PhotoId, number>();
+  /** Photos found to have no edits since their last edit; not looked at again. */
+  private readonly noEdits = new Set<PhotoId>();
+  private visible: ReadonlySet<PhotoId> = new Set();
+  private selected: PhotoId | undefined;
   private lastRevision = 0;
+  private seq = 0;
   private running: PhotoId | undefined;
   private finishedAt = 0;
   private pumpTimer: ReturnType<typeof setTimeout> | undefined;
@@ -121,13 +133,41 @@ export class EditedPreviewScheduler {
     this.enqueue(job, 'edit');
   }
 
-  /**
-   * The photo is on screen: make sure its cached images show its edits. Only
-   * photos the backend reports as stale are rendered (edited in Lightroom before
-   * ingest, edited before the app quit mid-debounce, a wiped cache).
-   */
-  ensure(photoId: PhotoId): void {
+  /** The photo in the main view. Its edits are drawn before those of the film strip. */
+  setSelected(photoId: PhotoId | undefined): void {
     if (this.disposed) return;
+    this.selected = photoId;
+    if (photoId !== undefined) this.ensure(photoId);
+  }
+
+  /**
+   * The frames the film strip shows now (the strip reports its whole window, not
+   * only the stale ones). Queued background renders of photos that scrolled out of
+   * view are dropped; the ones in view are queued, newest first.
+   */
+  setVisible(photoIds: readonly PhotoId[]): void {
+    if (this.disposed) return;
+    this.visible = new Set(photoIds);
+    for (const job of [...this.jobs.values()]) {
+      if (job.queued === 'background' && !this.wanted(job.photoId)) {
+        job.queued = undefined;
+        this.forget(job);
+      }
+    }
+    for (const photoId of photoIds) this.ensure(photoId);
+  }
+
+  private wanted(photoId: PhotoId): boolean {
+    return photoId === this.selected || this.visible.has(photoId);
+  }
+
+  /**
+   * Make sure an on-screen photo's cached images show its edits. Only photos the
+   * backend reports as stale are rendered (edited in Lightroom before ingest, edited
+   * before the app quit mid-debounce, a wiped cache).
+   */
+  private ensure(photoId: PhotoId): void {
+    if (!this.wanted(photoId)) return;
     const photo = this.deps.getPhoto(photoId);
     if (!photo?.status.edited || !photo.previewStale) return;
     const existing = this.jobs.get(photoId);
@@ -163,6 +203,14 @@ export class EditedPreviewScheduler {
     for (const resolve of this.idle.splice(0)) resolve();
   }
 
+  private noteFailure(photoId: PhotoId): void {
+    const now = Date.now();
+    this.failedAt.set(photoId, now);
+    if (this.failedAt.size <= 100) return;
+    const backoff = this.deps.failureBackoffMs ?? 30_000;
+    for (const [id, at] of this.failedAt) if (now - at >= backoff) this.failedAt.delete(id);
+  }
+
   private nextRevision(): number {
     // Wall-clock based so revisions keep growing across app restarts, which the
     // backend compares against what it already stored.
@@ -173,7 +221,14 @@ export class EditedPreviewScheduler {
   private job(photoId: PhotoId): Job {
     let job = this.jobs.get(photoId);
     if (!job) {
-      job = { photoId, revision: 0, timer: undefined, queued: undefined, refusals: 0 };
+      job = {
+        photoId,
+        revision: 0,
+        timer: undefined,
+        queued: undefined,
+        queuedSeq: 0,
+        refusals: 0,
+      };
       this.jobs.set(photoId, job);
     }
     return job;
@@ -184,8 +239,17 @@ export class EditedPreviewScheduler {
       clearTimeout(job.timer);
       job.timer = undefined;
     }
-    if (job.queued === undefined || RANK[priority] < RANK[job.queued]) job.queued = priority;
+    if (job.queued === undefined || RANK[priority] < RANK[job.queued]) {
+      job.queued = priority;
+      job.queuedSeq = ++this.seq;
+    }
     this.pump();
+  }
+
+  /** Drop a job that has nothing left to do, so state does not pile up per photo. */
+  private forget(job: Job): void {
+    if (job.timer !== undefined || job.queued !== undefined || this.running === job.photoId) return;
+    if (this.jobs.get(job.photoId) === job) this.jobs.delete(job.photoId);
   }
 
   private hasQueued(): boolean {
@@ -193,11 +257,20 @@ export class EditedPreviewScheduler {
     return false;
   }
 
+  /** Urgent before edits before background; the selected photo first; background newest first. */
+  private goesBefore(a: Job, b: Job): boolean {
+    const [rankA, rankB] = [RANK[a.queued!], RANK[b.queued!]];
+    if (rankA !== rankB) return rankA < rankB;
+    const selectedA = a.photoId === this.selected;
+    if (selectedA !== (b.photoId === this.selected)) return selectedA;
+    return a.queued === 'background' ? a.queuedSeq > b.queuedSeq : a.queuedSeq < b.queuedSeq;
+  }
+
   private next(): Job | undefined {
     let best: Job | undefined;
     for (const job of this.jobs.values()) {
       if (job.queued === undefined) continue;
-      if (!best || RANK[job.queued] < RANK[best.queued!]) best = job;
+      if (!best || this.goesBefore(job, best)) best = job;
     }
     return best;
   }
@@ -225,6 +298,7 @@ export class EditedPreviewScheduler {
     void this.run(job, priority!).finally(() => {
       this.running = undefined;
       this.finishedAt = Date.now();
+      this.forget(job);
       this.pump();
     });
   }
@@ -266,7 +340,7 @@ export class EditedPreviewScheduler {
       }
     } catch (error) {
       if (this.disposed) return;
-      this.failedAt.set(job.photoId, Date.now());
+      this.noteFailure(job.photoId);
       deps.onError(photo, error);
     }
   }

@@ -298,7 +298,7 @@ describe('queue', () => {
   });
 });
 
-describe('ensure (photos edited before the cache knew)', () => {
+describe('photos edited before the cache knew (on screen)', () => {
   const stale = (photo: Photo): Photo => ({
     ...photo,
     status: { ...photo.status, edited: true },
@@ -311,8 +311,7 @@ describe('ensure (photos edited before the cache knew)', () => {
     h.photos.set(photoB.id, { ...photoB, status: { ...photoB.status, edited: true } });
     h.params.set(photoA.id, { Exposure2012: 0.3 });
     h.params.set(photoB.id, { Exposure2012: 0.3 });
-    h.scheduler.ensure(photoA.id);
-    h.scheduler.ensure(photoB.id);
+    h.scheduler.setVisible([photoA.id, photoB.id]);
     await advance(0);
     expect(h.rendered.map((r) => r.photoId)).toEqual([photoA.id]);
   });
@@ -323,8 +322,7 @@ describe('ensure (photos edited before the cache knew)', () => {
     h.photos.set(photoB.id, stale(photoB));
     h.params.set(photoA.id, { Exposure2012: 0.3 });
     h.params.set(photoB.id, { Exposure2012: 0.3 });
-    h.scheduler.ensure(photoA.id);
-    h.scheduler.ensure(photoB.id);
+    h.scheduler.setVisible([photoA.id, photoB.id]);
     await advance(0);
     expect(h.rendered).toHaveLength(1);
     await advance(100);
@@ -343,18 +341,18 @@ describe('ensure (photos edited before the cache knew)', () => {
     });
     h.photos.set(photoA.id, stale(photoA));
     h.params.set(photoA.id, { Exposure2012: 0.3 });
-    h.scheduler.ensure(photoA.id);
-    h.scheduler.ensure(photoA.id);
+    h.scheduler.setVisible([photoA.id]);
+    h.scheduler.setVisible([photoA.id]);
     await advance(0);
     expect(h.errors).toHaveLength(1);
 
-    h.scheduler.ensure(photoA.id);
+    h.scheduler.setVisible([photoA.id]);
     await advance(1_000);
     expect(h.errors).toHaveLength(1);
 
     fail = false;
     await advance(30_000);
-    h.scheduler.ensure(photoA.id);
+    h.scheduler.setVisible([photoA.id]);
     await advance(0);
     expect(h.stored).toHaveLength(1);
   });
@@ -364,10 +362,81 @@ describe('ensure (photos edited before the cache knew)', () => {
     h.photos.set(photoA.id, stale(photoA));
     h.params.set(photoA.id, { Exposure2012: 0.3 });
     h.scheduler.schedule(photoA.id);
-    h.scheduler.ensure(photoA.id);
+    h.scheduler.setVisible([photoA.id]);
     await advance(749);
     expect(h.rendered).toHaveLength(0);
     await advance(1);
     expect(h.rendered).toHaveLength(1);
+  });
+});
+
+describe('what is on screen goes first', () => {
+  const stale = (photo: Photo, id: string): Photo => ({
+    ...photo,
+    id: id as PhotoId,
+    status: { ...photo.status, edited: true },
+    previewStale: true,
+  });
+  const many = (h: Harness, count: number): PhotoId[] =>
+    Array.from({ length: count }, (_, i) => {
+      const photo = stale(photoA, `p${i}`);
+      h.photos.set(photo.id, photo);
+      h.params.set(photo.id, { Exposure2012: 0.3 });
+      return photo.id;
+    });
+  const jobCount = (h: Harness): number =>
+    (h.scheduler as unknown as { jobs: Map<PhotoId, unknown> }).jobs.size;
+
+  it('does not queue the photos of a long strip that were only scrolled past', async () => {
+    const h = harness();
+    const all = many(h, 2000);
+    // Scroll the whole strip in windows of 20 frames, faster than anything renders.
+    for (let from = 0; from + 20 <= all.length; from += 5) {
+      h.scheduler.setVisible(all.slice(from, from + 20));
+    }
+    expect(jobCount(h)).toBeLessThanOrEqual(21);
+
+    await advance(30_000);
+    const last = new Set(all.slice(-20));
+    const rendered = h.rendered.map((r) => r.photoId);
+    // At most the one render that had already started, and everything now on screen.
+    expect(rendered.filter((id) => !last.has(id))).toHaveLength(1);
+    expect(new Set(rendered.filter((id) => last.has(id))).size).toBe(20);
+    expect(h.stored).toHaveLength(21);
+    // Finished jobs are forgotten.
+    expect(jobCount(h)).toBe(0);
+  });
+
+  it('draws the selected photo first, then the newest frames', async () => {
+    const h = harness();
+    const [a, b, c, d, e] = many(h, 5) as [PhotoId, PhotoId, PhotoId, PhotoId, PhotoId];
+    h.scheduler.setVisible([a, b, c]);
+    h.scheduler.setVisible([a, b, c, d, e]);
+    h.scheduler.setSelected(c);
+    await advance(5_000);
+    // `a` was already rendering; then the selected `c`; then the newest first.
+    expect(h.rendered.map((r) => r.photoId)).toEqual([a, c, e, d, b]);
+  });
+
+  it('puts edits and retouch commits ahead of background work', async () => {
+    const h = harness();
+    const [a, b] = many(h, 2) as [PhotoId, PhotoId];
+    h.gate.hold = true;
+    h.scheduler.setVisible([a, b]);
+    h.params.set(photoB.id, { Exposure2012: 0.1 });
+    h.scheduler.scheduleNow(photoB.id);
+    h.gate.hold = false;
+    h.gate.release();
+    await advance(5_000);
+    expect(h.rendered.map((r) => r.photoId)).toEqual([a, photoB.id, b]);
+  });
+
+  it('forgets photos that were only edited once', async () => {
+    const h = harness();
+    h.params.set(photoA.id, { Exposure2012: 0.3 });
+    h.scheduler.schedule(photoA.id);
+    await advance(1_000);
+    expect(h.stored).toHaveLength(1);
+    expect(jobCount(h)).toBe(0);
   });
 });

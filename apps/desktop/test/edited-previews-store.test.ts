@@ -175,14 +175,14 @@ describe('edited thumbnails and previews in the store', () => {
     expect(rendered.map((r) => r.photoId)).toEqual([second!.id]);
 
     // The film strip asks for the ones in view; the throttle spaces them out.
-    store.ensureEditedPreviews([second!.id, third!.id]);
+    store.setVisibleEditedPreviews([second!.id, third!.id]);
     await vi.advanceTimersByTimeAsync(400);
     expect(rendered.map((r) => r.photoId)).toEqual([second!.id, third!.id]);
   });
 
   it('renders nothing for an unedited photo and when no renderer is wired', async () => {
     const { store, rendered } = await setup();
-    store.ensureEditedPreviews(
+    store.setVisibleEditedPreviews(
       store
         .getState()
         .photos.slice(0, 3)

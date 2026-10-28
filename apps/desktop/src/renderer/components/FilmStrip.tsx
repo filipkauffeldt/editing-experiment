@@ -143,16 +143,19 @@ export function FilmStrip({ photos }: { photos: Photo[] }) {
   const start = Math.max(0, Math.floor(scrollLeft / STEP) - OVERSCAN);
   const end = Math.min(photos.length, Math.ceil((scrollLeft + viewportWidth) / STEP) + OVERSCAN);
 
-  // Photos edited before ingest (or whose cache was lost) only show the camera
-  // preview until their edited thumbnail is drawn; ask for the visible ones.
-  const staleVisible = photos
-    .slice(start, end)
+  // Photos edited before ingest (or whose cache was lost) only show the camera preview
+  // until their edited thumbnail is drawn. Tell the store which frames are on screen so
+  // it draws those, and nothing that has scrolled past. The stale ones are in the key
+  // because a photo can turn stale while it stays in view.
+  const visibleSlice = photos.slice(start, end);
+  const visibleKey = visibleSlice.map((photo) => photo.id).join(',');
+  const staleKey = visibleSlice
     .filter((photo) => photo.status.edited && photo.previewStale)
     .map((photo) => photo.id)
     .join(',');
   useEffect(() => {
-    if (staleVisible) store.ensureEditedPreviews(staleVisible.split(',') as PhotoId[]);
-  }, [store, staleVisible]);
+    store.setVisibleEditedPreviews(visibleKey === '' ? [] : (visibleKey.split(',') as PhotoId[]));
+  }, [store, visibleKey, staleKey]);
 
   if (photos.length === 0) {
     return <div className={styles.empty}>No photos match the current filters.</div>;
