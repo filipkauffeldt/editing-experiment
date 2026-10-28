@@ -18,6 +18,8 @@ export interface DevelopRendererOptions {
   maxTextureSize?: number;
   /** Largest tile rendered per pass by `renderToRGBA` (default 4096, bounded by GL limits). */
   maxOutputTileSize?: number;
+  /** Stable per-photo grain seed; use {@link grainSeedFromId}. Preview and export must match. */
+  grainSeed?: number;
 }
 
 export interface DevelopRenderer {
@@ -53,6 +55,31 @@ const UNIFORMS = [
   'u_hasCurve',
   'u_vibrance',
   'u_saturation',
+  'u_calibration',
+  'u_shadowTint',
+  'u_mixerActive',
+  'u_hslHue',
+  'u_hslSat',
+  'u_hslLum',
+  'u_gradingActive',
+  'u_gradeShadow',
+  'u_gradeMidtone',
+  'u_gradeHighlight',
+  'u_gradeGlobal',
+  'u_gradeBlending',
+  'u_gradeBalance',
+  'u_vignetteAmount',
+  'u_vignetteStyle',
+  'u_vignetteHighlights',
+  'u_vignetteScale',
+  'u_vignettePower',
+  'u_vignetteMidpoint',
+  'u_vignetteFeather',
+  'u_grainAmount',
+  'u_grainCell',
+  'u_grainCoarse',
+  'u_grainFine',
+  'u_grainSeed',
   'u_outSize',
   'u_outScale',
   'u_outCenter',
@@ -320,6 +347,51 @@ export function createDevelopRenderer(
     gl.uniform1f(l.u_vibrance, u.vibrance);
     gl.uniform1f(l.u_saturation, u.saturation);
 
+    gl.uniformMatrix3fv(l.u_calibration, false, toColumnMajor(u.calibration.matrix));
+    gl.uniform1f(l.u_shadowTint, u.calibration.shadow);
+    gl.uniform1i(l.u_mixerActive, u.mixer.active ? 1 : 0);
+    gl.uniform1fv(
+      l.u_hslHue,
+      u.mixer.bands.map((band) => band.hue),
+    );
+    gl.uniform1fv(
+      l.u_hslSat,
+      u.mixer.bands.map((band) => band.sat),
+    );
+    gl.uniform1fv(
+      l.u_hslLum,
+      u.mixer.bands.map((band) => band.lum),
+    );
+    gl.uniform1i(l.u_gradingActive, u.grading.active ? 1 : 0);
+    const grade = (region: { hue: number; sat: number; lum: number }): number[] => [
+      region.hue,
+      region.sat,
+      region.lum,
+      0,
+    ];
+    gl.uniform4fv(l.u_gradeShadow, grade(u.grading.shadows));
+    gl.uniform4fv(l.u_gradeMidtone, grade(u.grading.midtones));
+    gl.uniform4fv(l.u_gradeHighlight, grade(u.grading.highlights));
+    gl.uniform4fv(l.u_gradeGlobal, grade(u.grading.global));
+    gl.uniform1f(l.u_gradeBlending, u.grading.blending);
+    gl.uniform1f(l.u_gradeBalance, u.grading.balance);
+    const vignette = u.vignette;
+    gl.uniform1f(l.u_vignetteAmount, vignette?.amount ?? 0);
+    gl.uniform1i(
+      l.u_vignetteStyle,
+      vignette?.style === 'Color Priority' ? 2 : vignette?.style === 'Paint Overlay' ? 3 : 0,
+    );
+    gl.uniform1f(l.u_vignetteHighlights, vignette?.highlights ?? 0);
+    gl.uniform2f(l.u_vignetteScale, vignette?.scaleX ?? 1, vignette?.scaleY ?? 1);
+    gl.uniform1f(l.u_vignettePower, vignette?.power ?? 2);
+    gl.uniform1f(l.u_vignetteMidpoint, vignette?.midpoint ?? 0);
+    gl.uniform1f(l.u_vignetteFeather, vignette?.feather ?? 0.5);
+    gl.uniform1f(l.u_grainAmount, u.grain?.amount ?? 0);
+    gl.uniform1f(l.u_grainCell, u.grain?.cell ?? 1);
+    gl.uniform1f(l.u_grainCoarse, u.grain?.coarse ?? 0);
+    gl.uniform1f(l.u_grainFine, u.grain?.fine ?? 0);
+    gl.uniform1ui(l.u_grainSeed, (u.grain?.seed ?? 0) >>> 0);
+
     gl.activeTexture(gl.TEXTURE1);
     gl.bindTexture(gl.TEXTURE_2D, res.curveTexture);
     if (u.curveLut && res.uploadedCurve !== u.curveLut) {
@@ -411,14 +483,14 @@ export function createDevelopRenderer(
     },
 
     resolve(params) {
-      return resolveUniforms(requireSource().header, params);
+      return resolveUniforms(requireSource().header, params, { grainSeed: options.grainSeed });
     },
 
     render(params) {
       const src = requireSource();
       const out = { width: canvas.width, height: canvas.height };
       const mapping = mappingFor(src.header, params, cropLogicalSize(src.header, params));
-      setUniforms(resolveUniforms(src.header, params));
+      setUniforms(resolveUniforms(src.header, params, { grainSeed: options.grainSeed }));
       gl.bindFramebuffer(gl.FRAMEBUFFER, null);
       for (const entry of src.tiles) {
         drawTile(
@@ -445,7 +517,7 @@ export function createDevelopRenderer(
       // the full image), so other sizes resample it like the old pipeline did.
       const mapping = mappingFor(src.header, params, cropLogicalSize(src.header, params));
 
-      setUniforms(resolveUniforms(src.header, params));
+      setUniforms(resolveUniforms(src.header, params, { grainSeed: options.grainSeed }));
 
       const tileW = Math.min(width, maxOutputTile);
       const tileH = Math.min(height, maxOutputTile);
