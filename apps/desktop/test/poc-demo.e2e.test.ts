@@ -14,7 +14,7 @@ import {
   type UploadItem,
 } from '@ee/contracts';
 import { decodeJpeg } from '@ee/core';
-import { cropOutputPixels } from '@ee/develop-gl';
+import { cropOutputPixels, sourceToCroppedPixels } from '@ee/develop-gl';
 import { assertNoEmbeddedPreviews } from '@ee/export';
 import { ExifToolService, readIptc } from '@ee/metadata';
 import { blockSizeForShape } from '@ee/retouch';
@@ -521,6 +521,25 @@ describe.skipIf(nefs.length === 0 || !haveDisplay)('PoC demo (real Electron app)
         ) > 0,
     );
 
+    // Add a 5 degree straighten and crop on top of the committed mosaic.
+    await window.keyboard.press('c');
+    await window.locator('[data-testid="crop-toolbar"]').waitFor();
+    await window.locator('input[aria-label="Straighten angle"]').evaluate((element) => {
+      const input = element as HTMLInputElement;
+      const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set;
+      setter?.call(input, '5');
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+      input.dispatchEvent(new Event('change', { bubbles: true }));
+    });
+    await window.locator('[data-testid="apply-crop"]').click();
+    await window.locator('[data-testid="crop-toolbar"]').waitFor({ state: 'detached' });
+    await waitFor('the saved crop', async () => {
+      const current = await invoke<{ crop?: CropParams }>('develop:getParams', {
+        photoId: photos.find((candidate) => candidate.fileName === 'cardB_001.jpg')!.id,
+      });
+      return current.crop ? current : undefined;
+    });
+
     const photo = (await invoke<Photo[]>('photos:list')).find(
       (candidate) => candidate.fileName === 'cardB_001.jpg',
     )!;
@@ -562,23 +581,31 @@ describe.skipIf(nefs.length === 0 || !haveDisplay)('PoC demo (real Electron app)
     }
 
     const decoded = await decodeJpeg(readFileSync(uploaded));
+    const crop = (
+      await invoke<{ crop?: CropParams }>('develop:getParams', { photoId: exportedPhoto.id })
+    ).crop;
+    if (!crop) throw new Error('the retouched export has no crop');
+    const source = {
+      width: exportedPhoto.width ?? decoded.width,
+      height: exportedPhoto.height ?? decoded.height,
+    };
     const mosaic = exportedPhoto.versions.filter((version) => version.kind === 'retouch').at(-1)
       ?.ops[0];
     expect(mosaic && mosaic.type === 'mosaic' ? mosaic.shapes.length : 0).toBeGreaterThan(0);
     const shape = mosaic && mosaic.type === 'mosaic' ? mosaic.shapes[0] : undefined;
     if (!shape || mosaic?.type !== 'mosaic') throw new Error('no mosaic shape');
-    const block = blockSizeForShape(shape, mosaic.blockSizeRel, decoded.width, decoded.height);
-    const centreX = Math.floor(
-      (shape.type === 'rect' ? shape.x + shape.w / 2 : 0.5) * decoded.width,
-    );
-    const centreY = Math.floor(
-      (shape.type === 'rect' ? shape.y + shape.h / 2 : 0.5) * decoded.height,
-    );
-    const x0 = Math.floor(centreX / block) * block + Math.floor(block / 4);
-    const y0 = Math.floor(centreY / block) * block + Math.floor(block / 4);
+    const block = blockSizeForShape(shape, mosaic.blockSizeRel, source.width, source.height);
+    const centreX = (shape.type === 'rect' ? shape.x + shape.w / 2 : 0.5) * source.width;
+    const centreY = (shape.type === 'rect' ? shape.y + shape.h / 2 : 0.5) * source.height;
+    // A source-space block centre, mapped through the crop to the exported JPEG.
+    const blockX = Math.floor(centreX / block) * block + block / 2;
+    const blockY = Math.floor(centreY / block) * block + block / 2;
+    const outputPoint = sourceToCroppedPixels(crop, source, { x: blockX, y: blockY });
+    const x0 = Math.max(0, Math.round(outputPoint.x) - 1);
+    const y0 = Math.max(0, Math.round(outputPoint.y) - 1);
     const values: number[][] = [];
-    for (let y = y0; y < y0 + Math.max(2, Math.floor(block / 2)); y++) {
-      for (let x = x0; x < x0 + Math.max(2, Math.floor(block / 2)); x++) {
+    for (let y = y0; y < Math.min(decoded.height, y0 + 3); y++) {
+      for (let x = x0; x < Math.min(decoded.width, x0 + 3); x++) {
         const index = (y * decoded.width + x) * 4;
         values.push([decoded.rgba[index]!, decoded.rgba[index + 1]!, decoded.rgba[index + 2]!]);
       }
