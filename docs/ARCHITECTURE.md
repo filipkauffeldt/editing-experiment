@@ -50,6 +50,37 @@ Renderer (React)  ── typed IPC (contracts) ──>  Main (thin: windows, rou
   (seen remote files), upload queue. It is a cache: XMP sidecars are the
   source of truth for metadata and edits.
 
+## Backend (jobs process)
+
+`apps/desktop/src/jobs/backend` implements every `IpcApi` channel outside mock mode. It has no
+Electron dependency (`createBackend({ userDataDir, emit, getSecret })`), so integration tests run it
+in plain Node. Files under Electron's `userData`:
+
+```
+settings.json        sources, destinations, ingest options, finish action
+index.sqlite         photo index (cache; sidecars are the source of truth)
+seen.sqlite          files already ingested per source
+uploads.sqlite       upload queue
+presets/*.json       imported develop presets
+credentials.json     written by main only: ciphertext from safeStorage
+cache/{thumb,preview,linear}   disposable
+exports/<photoId>/   exported JPEGs
+```
+
+- Ingest: `@ee/ingest` with the `{variable}` expander from `@ee/metadata` and a per-file hook that reads
+  camera data, caches a 2560px preview and a 320px thumbnail, applies the PM template, indexes the
+  photo and emits `photos:added`. Ingest awaits the hook per source, so photos appear in copy order.
+- `app://thumb|preview` are cached JPEGs. `app://linear/<id>?maxEdge=N` is decoded in the jobs process
+  (f16), written to `cache/linear` (small LRU) and streamed from there by main, with the
+  `LinearImageHeader` in `x-ee-linear-image`. Main only streams files below `cache/`.
+- Secrets: `credentials:set/remove` run in main (`safeStorage`, no plaintext fallback). The jobs process asks
+  for a secret by `credentialRef` over a private `MessagePort` (`shared/secret-port.ts`) when it connects;
+  there is no channel that returns a secret to the renderer.
+- Edits: develop params are the `crs:` block of the sidecar (one develop version per photo), retouch
+  versions are `ee:RetouchVersions`. Writes to one photo's sidecar are serialised.
+- On quit, main asks the jobs process to shut down (stop ingest, close the upload queue, ExifTool and
+  the databases) and kills it only after a timeout.
+
 ## Contracts (`packages/contracts`)
 
 Key types (names are binding, fields can grow):
