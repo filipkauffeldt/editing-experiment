@@ -9,7 +9,11 @@ import {
   toneRgb,
   vibranceSaturation,
 } from './ops';
-import { resolveUniforms, type DevelopUniforms } from './params';
+import { resolveUniforms, type DevelopUniforms, type ResolveOptions } from './params';
+import { applyCalibration } from './color/calibration';
+import { applyColorMixer } from './color/mixer';
+import { applyColorGrading } from './color/grading';
+import { applyVignette, grainNoise } from './color/effects';
 
 /**
  * CPU reference of the develop pipeline: the exact maths of the shaders, on
@@ -19,12 +23,25 @@ import { resolveUniforms, type DevelopUniforms } from './params';
 
 const clamp01 = (x: number): number => Math.min(1, Math.max(0, x));
 
+/** Where a pixel sits, for the spatial effects; omitted by callers that only need colour. */
+export interface PixelPosition {
+  /** Output position normalized to -1..1 (the crop output, not the preview buffer). */
+  nx: number;
+  ny: number;
+  /** Source pixel position, as the shader samples it. */
+  srcX: number;
+  srcY: number;
+  /** Full-resolution source pixels per rendered pixel (1 for a full-size render). */
+  scale: number;
+}
+
 /** One pixel: camera RGB (unity white balance) to display-referred sRGB-encoded RGB in 0..1. */
 export function developPixel(
   r: number,
   g: number,
   b: number,
   u: DevelopUniforms,
+  position?: PixelPosition,
 ): [number, number, number] {
   const m = u.colorMatrix as [
     number,
@@ -39,9 +56,14 @@ export function developPixel(
   ];
   const k = u.exposureGain;
   const [wr, wg, wb] = clipHighlights([r, g, b], u.multipliers);
-  let lr = (m[0] * wr + m[1] * wg + m[2] * wb) * k;
-  let lg = (m[3] * wr + m[4] * wg + m[5] * wb) * k;
-  let lb = (m[6] * wr + m[7] * wg + m[8] * wb) * k;
+  let lr = m[0] * wr + m[1] * wg + m[2] * wb;
+  let lg = m[3] * wr + m[4] * wg + m[5] * wb;
+  let lb = m[6] * wr + m[7] * wg + m[8] * wb;
+  // Calibration sits next to the camera matrix, before exposure and tone.
+  [lr, lg, lb] = applyCalibration([lr, lg, lb], u.calibration);
+  lr *= k;
+  lg *= k;
+  lb *= k;
 
   if (u.toneActive) [lr, lg, lb] = toneRgb(lr, lg, lb, u.tone);
 
@@ -56,6 +78,23 @@ export function developPixel(
   }
   if (u.vibrance !== 0 || u.saturation !== 0) {
     [er, eg, eb] = vibranceSaturation(er, eg, eb, u.vibrance, u.saturation);
+  }
+  [er, eg, eb] = applyColorMixer(er, eg, eb, u.mixer);
+  [er, eg, eb] = applyColorGrading(er, eg, eb, u.grading);
+  if (position) {
+    if (u.vignette) [er, eg, eb] = applyVignette(er, eg, eb, u.vignette, position.nx, position.ny);
+    if (u.grain) {
+      const noise = grainNoise(
+        u.grain,
+        position.srcX,
+        position.srcY,
+        position.scale,
+        0.2126 * er + 0.7152 * eg + 0.0722 * eb,
+      );
+      er += noise;
+      eg += noise;
+      eb += noise;
+    }
   }
   return [clamp01(er), clamp01(eg), clamp01(eb)];
 }
@@ -75,9 +114,10 @@ export function renderCpuFloat(
   data: LinearImageBuffer,
   params: EditParams,
   size: RenderSize = header,
+  options: ResolveOptions = {},
 ): Float32Array {
   const samples = toFloat32Samples(header, data);
-  const u = resolveUniforms(header, params);
+  const u = resolveUniforms(header, params, options);
   const { width: sw, height: sh } = header;
   const out = new Float32Array(size.width * size.height * 4);
   // Same crop mapping as the shader: output pixel -> source point around the
@@ -134,7 +174,25 @@ export function renderCpuFloat(
           px[c] = top * (1 - wy) + bottom * wy;
         }
       }
-      const [r, g, b] = developPixel(px[0] ?? 0, px[1] ?? 0, px[2] ?? 0, u);
+      // The shader's `src` is exactly the position the bilinear tap used (for
+      // the identity path, source pixel centre x + 0.5).
+      const srcX = same
+        ? x + 0.5
+        : centerX +
+          cos * ((x + 0.5) * scaleX - logicalWidth / 2) -
+          sin * ((y + 0.5) * scaleY - logicalHeight / 2);
+      const srcY = same
+        ? y + 0.5
+        : centerY +
+          sin * ((x + 0.5) * scaleX - logicalWidth / 2) +
+          cos * ((y + 0.5) * scaleY - logicalHeight / 2);
+      const [r, g, b] = developPixel(px[0] ?? 0, px[1] ?? 0, px[2] ?? 0, u, {
+        nx: ((x + 0.5) / size.width) * 2 - 1,
+        ny: ((y + 0.5) / size.height) * 2 - 1,
+        srcX,
+        srcY,
+        scale: scaleX,
+      });
       const o = (y * size.width + x) * 4;
       out[o] = r;
       out[o + 1] = g;
@@ -151,8 +209,9 @@ export function renderCpu(
   data: LinearImageBuffer,
   params: EditParams,
   size: RenderSize = header,
+  options: ResolveOptions = {},
 ): Uint8Array {
-  const f = renderCpuFloat(header, data, params, size);
+  const f = renderCpuFloat(header, data, params, size, options);
   const out = new Uint8Array(f.length);
   for (let i = 0; i < f.length; i++) out[i] = Math.round(clamp01(f[i] ?? 0) * 255);
   return out;

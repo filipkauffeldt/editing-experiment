@@ -16,6 +16,7 @@ const renderer = vi.hoisted(() => ({
 
 vi.mock('@ee/develop-gl', () => ({
   createDevelopRenderer: () => renderer,
+  grainSeedFromId: () => 0,
 }));
 
 const pendingLinear = (): { resolve(response: Response): void; called: () => boolean } => {

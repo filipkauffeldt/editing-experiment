@@ -18,7 +18,7 @@ import { asBoolean, asNumber, asString, asStringList } from './values';
  * property is `crs:Temperature`, but ExifTool exposes the writable tag under
  * its display name. Verified against ExifTool 13.59 (`XMP.pm`, crs table).
  */
-const SCALAR_TAGS: Readonly<Record<Exclude<keyof EditParams, 'crop' | ToneCurveKey>, string>> = {
+const SCALAR_TAGS: Readonly<Record<ScalarKey, string>> = {
   ProcessVersion: 'XMP-crs:ProcessVersion',
   WhiteBalance: 'XMP-crs:WhiteBalance',
   Temperature: 'XMP-crs:ColorTemperature',
@@ -31,7 +31,78 @@ const SCALAR_TAGS: Readonly<Record<Exclude<keyof EditParams, 'crop' | ToneCurveK
   Blacks2012: 'XMP-crs:Blacks2012',
   Vibrance: 'XMP-crs:Vibrance',
   Saturation: 'XMP-crs:Saturation',
+  HueAdjustmentRed: 'XMP-crs:HueAdjustmentRed',
+  SaturationAdjustmentRed: 'XMP-crs:SaturationAdjustmentRed',
+  LuminanceAdjustmentRed: 'XMP-crs:LuminanceAdjustmentRed',
+  HueAdjustmentOrange: 'XMP-crs:HueAdjustmentOrange',
+  SaturationAdjustmentOrange: 'XMP-crs:SaturationAdjustmentOrange',
+  LuminanceAdjustmentOrange: 'XMP-crs:LuminanceAdjustmentOrange',
+  HueAdjustmentYellow: 'XMP-crs:HueAdjustmentYellow',
+  SaturationAdjustmentYellow: 'XMP-crs:SaturationAdjustmentYellow',
+  LuminanceAdjustmentYellow: 'XMP-crs:LuminanceAdjustmentYellow',
+  HueAdjustmentGreen: 'XMP-crs:HueAdjustmentGreen',
+  SaturationAdjustmentGreen: 'XMP-crs:SaturationAdjustmentGreen',
+  LuminanceAdjustmentGreen: 'XMP-crs:LuminanceAdjustmentGreen',
+  HueAdjustmentAqua: 'XMP-crs:HueAdjustmentAqua',
+  SaturationAdjustmentAqua: 'XMP-crs:SaturationAdjustmentAqua',
+  LuminanceAdjustmentAqua: 'XMP-crs:LuminanceAdjustmentAqua',
+  HueAdjustmentBlue: 'XMP-crs:HueAdjustmentBlue',
+  SaturationAdjustmentBlue: 'XMP-crs:SaturationAdjustmentBlue',
+  LuminanceAdjustmentBlue: 'XMP-crs:LuminanceAdjustmentBlue',
+  HueAdjustmentPurple: 'XMP-crs:HueAdjustmentPurple',
+  SaturationAdjustmentPurple: 'XMP-crs:SaturationAdjustmentPurple',
+  LuminanceAdjustmentPurple: 'XMP-crs:LuminanceAdjustmentPurple',
+  HueAdjustmentMagenta: 'XMP-crs:HueAdjustmentMagenta',
+  SaturationAdjustmentMagenta: 'XMP-crs:SaturationAdjustmentMagenta',
+  LuminanceAdjustmentMagenta: 'XMP-crs:LuminanceAdjustmentMagenta',
+  ColorGradeShadowHue: 'XMP-crs:SplitToningShadowHue',
+  ColorGradeShadowSat: 'XMP-crs:SplitToningShadowSaturation',
+  ColorGradeShadowLum: 'XMP-crs:ColorGradeShadowLum',
+  ColorGradeMidtoneHue: 'XMP-crs:ColorGradeMidtoneHue',
+  ColorGradeMidtoneSat: 'XMP-crs:ColorGradeMidtoneSat',
+  ColorGradeMidtoneLum: 'XMP-crs:ColorGradeMidtoneLum',
+  ColorGradeHighlightHue: 'XMP-crs:SplitToningHighlightHue',
+  ColorGradeHighlightSat: 'XMP-crs:SplitToningHighlightSaturation',
+  ColorGradeHighlightLum: 'XMP-crs:ColorGradeHighlightLum',
+  ColorGradeGlobalHue: 'XMP-crs:ColorGradeGlobalHue',
+  ColorGradeGlobalSat: 'XMP-crs:ColorGradeGlobalSat',
+  ColorGradeGlobalLum: 'XMP-crs:ColorGradeGlobalLum',
+  ColorGradeBlending: 'XMP-crs:ColorGradeBlending',
+  ColorGradeBalance: 'XMP-crs:SplitToningBalance',
+  ShadowTint: 'XMP-crs:ShadowTint',
+  RedHue: 'XMP-crs:RedHue',
+  RedSaturation: 'XMP-crs:RedSaturation',
+  GreenHue: 'XMP-crs:GreenHue',
+  GreenSaturation: 'XMP-crs:GreenSaturation',
+  BlueHue: 'XMP-crs:BlueHue',
+  BlueSaturation: 'XMP-crs:BlueSaturation',
+  ParametricShadows: 'XMP-crs:ParametricShadows',
+  ParametricDarks: 'XMP-crs:ParametricDarks',
+  ParametricLights: 'XMP-crs:ParametricLights',
+  ParametricHighlights: 'XMP-crs:ParametricHighlights',
+  ParametricShadowSplit: 'XMP-crs:ParametricShadowSplit',
+  ParametricMidtoneSplit: 'XMP-crs:ParametricMidtoneSplit',
+  ParametricHighlightSplit: 'XMP-crs:ParametricHighlightSplit',
+  PostCropVignetteAmount: 'XMP-crs:PostCropVignetteAmount',
+  PostCropVignetteMidpoint: 'XMP-crs:PostCropVignetteMidpoint',
+  PostCropVignetteRoundness: 'XMP-crs:PostCropVignetteRoundness',
+  PostCropVignetteFeather: 'XMP-crs:PostCropVignetteFeather',
+  PostCropVignetteHighlights: 'XMP-crs:PostCropVignetteHighlightContrast',
+  PostCropVignetteStyle: 'XMP-crs:PostCropVignetteStyle',
+  GrainAmount: 'XMP-crs:GrainAmount',
+  GrainSize: 'XMP-crs:GrainSize',
+  GrainFrequency: 'XMP-crs:GrainFrequency',
 };
+
+type LegacySplitToningKey =
+  | 'SplitToningShadowHue'
+  | 'SplitToningShadowSaturation'
+  | 'SplitToningHighlightHue'
+  | 'SplitToningHighlightSaturation'
+  | 'SplitToningBalance';
+
+/** Model keys written as `crs:` scalars (legacy split toning is folded into Color Grade). */
+type ScalarKey = Exclude<keyof EditParams, 'crop' | ToneCurveKey | LegacySplitToningKey>;
 
 type ToneCurveKey =
   'ToneCurvePV2012' | 'ToneCurvePV2012Red' | 'ToneCurvePV2012Green' | 'ToneCurvePV2012Blue';
@@ -62,6 +133,12 @@ export interface CropSpace {
 }
 
 const DEFAULT_PROCESS_VERSION = '11.0';
+
+const VIGNETTE_STYLES: readonly NonNullable<EditParams['PostCropVignetteStyle']>[] = [
+  'Highlight Priority',
+  'Color Priority',
+  'Paint Overlay',
+];
 
 function usableCropSpace(space: CropSpace | undefined): space is CropSpace & {
   width: number;
@@ -124,10 +201,22 @@ export async function readEditParams(
 
   const params: EditParams = {};
 
-  for (const [key, tag] of Object.entries(SCALAR_TAGS) as Array<
-    [Exclude<keyof EditParams, 'crop' | ToneCurveKey>, string]
-  >) {
+  for (const [key, tag] of Object.entries(SCALAR_TAGS) as Array<[ScalarKey, string]>) {
     const raw = tags[tag];
+    if (key === 'PostCropVignetteStyle') {
+      const text = asString(raw)?.trim();
+      const byCode = (
+        { 1: 'Highlight Priority', 2: 'Color Priority', 3: 'Paint Overlay' } as Record<
+          string,
+          NonNullable<EditParams['PostCropVignetteStyle']>
+        >
+      )[text ?? ''];
+      const style =
+        byCode ??
+        VIGNETTE_STYLES.find((candidate) => candidate.toLowerCase() === text?.toLowerCase());
+      if (style) params.PostCropVignetteStyle = style;
+      continue;
+    }
     if (key === 'ProcessVersion' || key === 'WhiteBalance') {
       const text = asString(raw);
       if (text !== undefined && text !== '') {
@@ -150,6 +239,25 @@ export async function readEditParams(
   for (const [key, tag] of Object.entries(TONE_CURVE_TAGS) as Array<[ToneCurveKey, string]>) {
     const points = parseToneCurve(tags[tag]);
     if (points.length > 0) params[key] = points;
+  }
+
+  // A sidecar with split-toning tags but no modern ColorGrade tags is a legacy
+  // split-tone edit, which Lightroom renders as grading at Blending 100.
+  const hasSplitToning = Object.values(SCALAR_TAGS).some(
+    (tag) => tag.startsWith('XMP-crs:SplitToning') && tags[tag] !== undefined,
+  );
+  const hasModernGrading = [
+    'XMP-crs:ColorGradeMidtoneHue',
+    'XMP-crs:ColorGradeMidtoneSat',
+    'XMP-crs:ColorGradeMidtoneLum',
+    'XMP-crs:ColorGradeShadowLum',
+    'XMP-crs:ColorGradeHighlightLum',
+    'XMP-crs:ColorGradeGlobalHue',
+    'XMP-crs:ColorGradeGlobalSat',
+    'XMP-crs:ColorGradeGlobalLum',
+  ].some((tag) => tags[tag] !== undefined);
+  if (hasSplitToning && !hasModernGrading && params.ColorGradeBlending === undefined) {
+    params.ColorGradeBlending = 100;
   }
 
   // Lightroom's `crs:HasCrop` gates the rectangle: stale coordinates from a
@@ -225,9 +333,7 @@ export async function writeEditParams(
   const tags: Record<string, ExifToolTagValue> = {};
   let anySetting = false;
 
-  for (const [key, tag] of Object.entries(SCALAR_TAGS) as Array<
-    [Exclude<keyof EditParams, 'crop' | ToneCurveKey>, string]
-  >) {
+  for (const [key, tag] of Object.entries(SCALAR_TAGS) as Array<[ScalarKey, string]>) {
     const value = params[key];
     if (value === undefined) {
       tags[tag] = null;

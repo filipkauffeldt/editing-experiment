@@ -62,6 +62,21 @@ const CURVE_KEYS = {
 
 const SLIDER_NAMES = Object.keys(SLIDER_SPECS) as SliderParam[];
 
+const VIGNETTE_STYLES: readonly NonNullable<EditParams['PostCropVignetteStyle']>[] = [
+  'Highlight Priority',
+  'Color Priority',
+  'Paint Overlay',
+];
+
+/** Legacy split-toning keys, mapped to Color Grading when a preset has no ColorGrade* values. */
+const LEGACY_SPLIT_TONING: ReadonlyArray<[keyof EditParams, keyof EditParams, number, number]> = [
+  ['SplitToningShadowHue', 'ColorGradeShadowHue', 0, 360],
+  ['SplitToningShadowSaturation', 'ColorGradeShadowSat', 0, 100],
+  ['SplitToningHighlightHue', 'ColorGradeHighlightHue', 0, 360],
+  ['SplitToningHighlightSaturation', 'ColorGradeHighlightSat', 0, 100],
+  ['SplitToningBalance', 'ColorGradeBalance', -100, 100],
+];
+
 /** Preset bookkeeping that is not a develop setting, so it is neither applied nor reported as unsupported. */
 const METADATA_KEYS = new Set([
   'PresetType',
@@ -169,7 +184,21 @@ export function settingsToPreset(
   for (const [key, setting] of settings) {
     if (isMetadata(key) || CROP_KEYS.has(key)) continue;
 
-    if (key === 'WhiteBalance' && setting.kind === 'scalar') {
+    if (key === 'PostCropVignetteStyle' && setting.kind === 'scalar') {
+      const text = setting.value.trim();
+      // Lightroom writes the style as 1/2/3; ExifTool and presets may name it.
+      const byCode = (
+        { 1: 'Highlight Priority', 2: 'Color Priority', 3: 'Paint Overlay' } as Record<
+          string,
+          (typeof VIGNETTE_STYLES)[number]
+        >
+      )[text];
+      const style =
+        byCode ??
+        VIGNETTE_STYLES.find((candidate) => candidate.toLowerCase() === text.toLowerCase());
+      if (style) params.PostCropVignetteStyle = style;
+      else unsupported.push(key);
+    } else if (key === 'WhiteBalance' && setting.kind === 'scalar') {
       const mode = WHITE_BALANCE_MODES.find(
         (m) => m.toLowerCase() === setting.value.trim().toLowerCase(),
       );
@@ -184,10 +213,31 @@ export function settingsToPreset(
     } else if (key in CURVE_KEYS && setting.kind === 'curve') {
       const points = normalizeCurvePoints(setting.points);
       if (points.length >= 2) params[key as keyof typeof CURVE_KEYS] = points;
+    } else if (key.startsWith('SplitToning') && setting.kind === 'scalar') {
+      // Mapped to Color Grading after the loop when no ColorGrade* values exist.
     } else if (!isDefaultValue(setting)) {
       unsupported.push(key);
     }
   }
+
+  const hasModernGrading = [...settings.keys()].some(
+    (key) => key.startsWith('ColorGrade') && key !== 'ColorGradeBlending',
+  );
+  let mappedLegacy = false;
+  // Lightroom writes a grading region's Shadow/Highlight hue and saturation as
+  // SplitToning* even in modern presets; Global and Midtone use ColorGrade*.
+  for (const [legacy, modern, min, max] of LEGACY_SPLIT_TONING) {
+    const setting = settings.get(legacy as string);
+    if (setting?.kind !== 'scalar') continue;
+    if ((params as Record<string, unknown>)[modern as string] !== undefined) continue;
+    const n = Number(setting.value);
+    if (!Number.isFinite(n) || n === 0) continue;
+    (params as Record<string, unknown>)[modern as string] = Math.min(max, Math.max(min, n));
+    mappedLegacy = true;
+  }
+  // A record with only split-toning tags is a legacy split tone, which Lightroom
+  // renders as Color Grading at Blending 100.
+  if (mappedLegacy && !hasModernGrading) params.ColorGradeBlending = 100;
 
   const crop = readCrop(settings);
   if (crop) params.crop = crop;

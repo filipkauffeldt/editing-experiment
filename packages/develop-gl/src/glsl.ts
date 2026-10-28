@@ -1,4 +1,5 @@
 import { TUNING as T } from './tuning';
+import { COLOR_MATH_GLSL, COLOR_UNIFORMS } from './glsl/color';
 
 /**
  * GLSL ES 3.00 sources of the develop pipeline. Each function mirrors the
@@ -42,6 +43,9 @@ uniform int u_hasCurve;
 uniform float u_vibrance;
 uniform float u_saturation;
 
+// EE colour/effects insertion point: uniforms.
+${COLOR_UNIFORMS}
+
 // Output / source mapping (see renderer.ts and crop.ts): output pixel -> source texel.
 uniform vec2 u_outSize;      // size of this render target in pixels (buffer, not logical crop size)
 uniform vec2 u_outScale;     // logical output pixels per buffer pixel (crop preview scaling)
@@ -79,6 +83,9 @@ float srgbEncode(float x) {
 float srgbDecode(float e) {
   return e <= 0.04045 ? max(e, 0.0) / 12.92 : pow((max(e, 0.04045) + 0.055) / 1.055, 2.4);
 }
+
+// EE colour/effects insertion point: maths (ported from RAWmakase, MIT).
+${COLOR_MATH_GLSL}
 
 float highlightsShadows(float y, float highlights, float shadows) {
   float e = srgbEncode(y);
@@ -182,7 +189,8 @@ void main() {
     cam = texture(u_image, (src - u_srcOrigin) / u_srcTexSize).rgb;
   }
 
-  vec3 lin = (u_color * clipHighlights(cam, u_wb)) * u_exposure;
+  // EE colour/effects insertion point: calibration sits next to the camera matrix.
+  vec3 lin = applyCalibration(u_color * clipHighlights(cam, u_wb)) * u_exposure;
   if (u_toneActive == 1) lin = toneRgb(lin);
 
   vec3 e = vec3(srgbEncode(shoulder(lin.r)), srgbEncode(shoulder(lin.g)), srgbEncode(shoulder(lin.b)));
@@ -191,6 +199,12 @@ void main() {
     e = vec3(lookupCurve(e.r, 0), lookupCurve(e.g, 1), lookupCurve(e.b, 2));
   }
   if (u_vibrance != 0.0 || u_saturation != 0.0) e = vibranceSaturation(e, u_vibrance, u_saturation);
+
+  // EE colour/effects insertion point: per-pixel colour, then spatial effects.
+  e = applyColorMixer(e);
+  e = applyColorGrading(e);
+  vec2 logN = pOut / max(u_outCenter, vec2(1.0)) - 1.0;
+  e = applyEffects(e, logN, src, u_outScale.x);
 
   outColor = vec4(clamp(e, 0.0, 1.0), 1.0);
 }

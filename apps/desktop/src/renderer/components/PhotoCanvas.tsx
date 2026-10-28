@@ -9,6 +9,7 @@ import {
 import {
   createDevelopRenderer,
   cropDevelopedRgba,
+  grainSeedFromId,
   cropOutputSize,
   type DevelopRenderer,
 } from '@ee/develop-gl';
@@ -287,6 +288,7 @@ function CanvasForPhoto({ photo }: { photo: Photo }) {
     let created: DevelopRenderer;
     try {
       created = createDevelopRenderer(canvas, {
+        grainSeed: grainSeedFromId(photo.id),
         onContextLost: () => {
           setContextLost(true);
           setFirstFrame(false);
@@ -306,7 +308,7 @@ function CanvasForPhoto({ photo }: { photo: Photo }) {
       rendererRef.current = null;
       setRenderer(null);
     };
-  }, []);
+  }, [photo.id]);
 
   // Keep the drawing buffer exactly the size the image is fitted to (capped).
   useLayoutEffect(() => {

@@ -1,12 +1,20 @@
 import type { EditParams, LinearImageHeader, SliderParam } from '@ee/contracts';
 import { SLIDER_SPECS } from '@ee/contracts';
 import { contrastGamma, exposureGain, lookupCurve, type ToneParams } from './ops';
+import { cropGeometry } from './crop';
 import { isIdentityCurve, sampleCurve } from './spline';
+import { resolveCalibration, type Calibration } from './color/calibration';
+import { resolveColorGrading, type ColorGrading } from './color/grading';
+import { resolveColorMixer, type ColorMixer } from './color/mixer';
+import { buildParametricLut } from './color/parametric';
+import { resolveGrain, resolveVignette, type GrainField, type Vignette } from './color/effects';
+import { clamp01 } from './color/common';
 import { TUNING } from './tuning';
 import { resolveWhiteBalance, type ResolvedWhiteBalance, type WhiteBalanceCamera } from './wb';
 
 /** The header fields the develop pipeline reads. */
-export type DevelopCamera = Pick<LinearImageHeader, 'cameraToSrgb'> & WhiteBalanceCamera;
+export type DevelopCamera = Pick<LinearImageHeader, 'cameraToSrgb' | 'width' | 'height'> &
+  WhiteBalanceCamera;
 
 /** Everything the shader / CPU reference needs for one render; no further lookups into `EditParams`. */
 export interface DevelopUniforms {
@@ -29,6 +37,12 @@ export interface DevelopUniforms {
   curveLut: Float32Array | null;
   /** The white balance that was resolved, for slider display. */
   whiteBalance: ResolvedWhiteBalance;
+  /** Camera Calibration, applied right after the camera matrix. */
+  calibration: Calibration;
+  mixer: ColorMixer;
+  grading: ColorGrading;
+  vignette: Vignette | null;
+  grain: GrainField | null;
 }
 
 const sliderValue = (params: EditParams, name: SliderParam): number => {
@@ -51,6 +65,13 @@ export function buildCurveLut(params: EditParams): Float32Array | null {
     params.ToneCurvePV2012Red,
     params.ToneCurvePV2012Green,
     params.ToneCurvePV2012Blue,
+    params.ParametricShadows,
+    params.ParametricDarks,
+    params.ParametricLights,
+    params.ParametricHighlights,
+    params.ParametricShadowSplit,
+    params.ParametricMidtoneSplit,
+    params.ParametricHighlightSplit,
   ]);
   if (memo?.key !== key) memo = { key, lut: computeCurveLut(params, TUNING.curveLutSize) };
   return memo.lut;
@@ -63,7 +84,8 @@ export function computeCurveLut(params: EditParams, size: number): Float32Array 
     params.ToneCurvePV2012Green,
     params.ToneCurvePV2012Blue,
   ];
-  if (curves.every(isIdentityCurve)) return null;
+  const parametric = buildParametricLut(params, size);
+  if (parametric === null && curves.every(isIdentityCurve)) return null;
   const master = sampleCurve(params.ToneCurvePV2012, size);
   const channels = [
     params.ToneCurvePV2012Red,
@@ -72,7 +94,10 @@ export function computeCurveLut(params: EditParams, size: number): Float32Array 
   ].map((points) => sampleCurve(points, size));
   const lut = new Float32Array(size * 4);
   for (let i = 0; i < size; i++) {
-    const afterMaster = master[i] ?? 0;
+    // The parametric curve sits between the basic tone stage and the point
+    // curve, as in Lightroom and RAWmakase.
+    const afterParametric = parametric ? (parametric[i] ?? 0) : i / (size - 1);
+    const afterMaster = lookupCurve(master, 0, 1, clamp01(afterParametric));
     for (let c = 0; c < 3; c++) {
       lut[i * 4 + c] = lookupCurve(channels[c] ?? master, 0, 1, afterMaster);
     }
@@ -82,7 +107,40 @@ export function computeCurveLut(params: EditParams, size: number): Float32Array 
 }
 
 /** Resolves `EditParams` (any subset, values clamped to `SLIDER_SPECS`) against the image's colour data. */
-export function resolveUniforms(camera: DevelopCamera, params: EditParams): DevelopUniforms {
+export interface ResolveOptions {
+  /** Stable per-photo grain seed. Preview and export must use the same value. */
+  grainSeed?: number;
+}
+
+/** The crop's full-resolution output size, which the vignette is relative to. */
+function logicalOutputSize(
+  camera: DevelopCamera,
+  params: EditParams,
+): { width: number; height: number } {
+  const crop = params.crop;
+  if (
+    crop &&
+    Number.isFinite(crop.left) &&
+    Number.isFinite(crop.top) &&
+    Number.isFinite(crop.right) &&
+    Number.isFinite(crop.bottom) &&
+    crop.right > crop.left &&
+    crop.bottom > crop.top
+  ) {
+    const geometry = cropGeometry(crop, { width: camera.width, height: camera.height });
+    return {
+      width: Math.max(1, Math.round(geometry.width)),
+      height: Math.max(1, Math.round(geometry.height)),
+    };
+  }
+  return { width: camera.width, height: camera.height };
+}
+
+export function resolveUniforms(
+  camera: DevelopCamera,
+  params: EditParams,
+  options: ResolveOptions = {},
+): DevelopUniforms {
   const whiteBalance = resolveWhiteBalance(camera, params);
   const m = whiteBalance.multipliers;
 
@@ -95,7 +153,13 @@ export function resolveUniforms(camera: DevelopCamera, params: EditParams): Deve
     blacks: sliderValue(params, 'Blacks2012') / 100,
   };
 
+  const logical = logicalOutputSize(camera, params);
   return {
+    calibration: resolveCalibration(params),
+    mixer: resolveColorMixer(params),
+    grading: resolveColorGrading(params),
+    vignette: resolveVignette(params, logical),
+    grain: resolveGrain(params, Math.max(camera.width, camera.height), options.grainSeed ?? 0),
     multipliers: [m.r, m.g, m.b],
     colorMatrix: camera.cameraToSrgb,
     exposureGain: exposureGain(sliderValue(params, 'Exposure2012')),
