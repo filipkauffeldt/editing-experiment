@@ -1,6 +1,6 @@
 // @vitest-environment node
 import { IpcError } from '@ee/contracts';
-import { mkdtemp, readFile, readdir, rm } from 'node:fs/promises';
+import { mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { MessageChannel } from 'node:worker_threads';
@@ -76,6 +76,28 @@ describe('CredentialStore', () => {
     }
     expect(await readdir(dir)).toEqual([]);
   });
+
+  it.each([['not json {'], ['{"version":1,"entries":[1,2]}'], ['null']])(
+    'sets a corrupt file aside and starts empty (%s)',
+    async (content) => {
+      const dir = await tempDir();
+      const file = join(dir, 'credentials.json');
+      await writeFile(file, content);
+      const warnings: string[] = [];
+      const store = new CredentialStore(file, fakeSafeStorage(), (m) => warnings.push(m));
+
+      expect(warnings).toHaveLength(1);
+      expect(warnings[0]).toContain('credentials.json.corrupt-');
+      expect(warnings[0]).not.toContain(content);
+      const names = await readdir(dir);
+      expect(names).toHaveLength(1);
+      expect(names[0]).toMatch(/^credentials\.json\.corrupt-\d+$/);
+      expect(() => store.get('anything')).toThrowError(/no credential/);
+      // The store still works and writes a fresh file.
+      const ref = store.set({ password: 'again' });
+      expect(new CredentialStore(file, fakeSafeStorage()).get(ref)).toEqual({ password: 'again' });
+    },
+  );
 
   it('removes secrets, and removing an unknown reference is fine', async () => {
     const store = new CredentialStore(join(await tempDir(), 'c.json'), fakeSafeStorage());

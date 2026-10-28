@@ -1,6 +1,6 @@
 import { IpcError, type CredentialSecret, type NamespaceHandlers } from '@ee/contracts';
 import { randomUUID } from 'node:crypto';
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, readFileSync, renameSync } from 'node:fs';
 import { writeJsonAtomic } from '../jobs/backend/atomic-json';
 
 /** The part of Electron's `safeStorage` the store uses (a fake stands in for it in tests). */
@@ -33,14 +33,32 @@ interface Stored {
 export class CredentialStore {
   private entries: Record<string, string>;
 
+  /**
+   * @param onWarning told when an unreadable file was set aside; the message never
+   *   contains file contents
+   */
   constructor(
     private readonly file: string,
     private readonly safeStorage: SafeStorageLike,
+    onWarning: (message: string) => void = () => {},
   ) {
     this.entries = {};
-    if (existsSync(file)) {
+    if (!existsSync(file)) return;
+    try {
       const parsed = JSON.parse(readFileSync(file, 'utf8')) as Partial<Stored>;
-      this.entries = parsed.entries ?? {};
+      const entries = parsed?.entries;
+      if (typeof entries !== 'object' || entries === null || Array.isArray(entries)) {
+        throw new Error('unexpected structure');
+      }
+      this.entries = entries;
+    } catch {
+      // Starting without stored credentials beats not starting; the user can enter them again.
+      const aside = `${file}.corrupt-${Date.now()}`;
+      renameSync(file, aside);
+      onWarning(
+        `The saved credentials file could not be read and was moved to ${aside}. ` +
+          'Passwords have to be entered again.',
+      );
     }
   }
 
