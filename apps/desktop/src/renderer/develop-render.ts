@@ -1,4 +1,4 @@
-import { createDevelopRenderer } from '@ee/develop-gl';
+import { createDevelopRenderer, cropDevelopedRgba } from '@ee/develop-gl';
 import { applyMosaic } from '@ee/retouch';
 import type { EditParams, LinearImageHeader, RetouchOp } from '@ee/contracts';
 
@@ -34,6 +34,47 @@ function createCanvas(): HTMLCanvasElement | OffscreenCanvas {
  * sensor-sized images are fine as long as the sample buffer fits in memory.
  * This function blocks while the GPU draws; callers run it in a worker.
  */
+export interface ComposeRequest {
+  params: EditParams;
+  ops: RetouchOp[];
+  /** Output size in pixels (the crop size for a cropped export). */
+  width: number;
+  height: number;
+  /** Size of the rendered source buffer, in pixels. */
+  source: { width: number; height: number };
+  /** Renders the develop pipeline at `size`; a WebGL call in production, a stub in tests. */
+  render(params: EditParams, size: { width: number; height: number }): Uint8Array;
+}
+
+/**
+ * The full-resolution pixel path after the GL draw: apply retouch ops and crop.
+ *
+ * Mosaics live in uncropped source coordinates. When a crop is present the
+ * source is rendered and mosaicked first, then cropped/rotated, so resampling
+ * can only blur mosaic blocks, never expose a face that the mosaic covered.
+ */
+export function composeDevelopedRgba({
+  params,
+  ops,
+  width,
+  height,
+  source,
+  render,
+}: ComposeRequest): Uint8Array {
+  const mosaic = ops.filter((op) => op.type === 'mosaic');
+  if (params.crop !== undefined && mosaic.length > 0) {
+    const uncropped: EditParams = { ...params };
+    delete uncropped.crop;
+    const rgba = render(uncropped, source);
+    for (const op of mosaic) applyMosaic(rgba, source.width, source.height, op, { inPlace: true });
+    return cropDevelopedRgba(rgba, source, params.crop, { width, height });
+  }
+
+  const rgba = render(params, { width, height });
+  for (const op of mosaic) applyMosaic(rgba, width, height, op, { inPlace: true });
+  return rgba;
+}
+
 export function renderDevelopRgba(request: RenderRequest): RenderResult {
   const { header, data, params, ops, width, height } = request;
   const canvas = createCanvas();
@@ -41,14 +82,15 @@ export function renderDevelopRgba(request: RenderRequest): RenderResult {
   try {
     renderer.setImage(header, data);
     request.onProgress?.(0.3);
-    const rgba = renderer.renderToRGBA(params, { width, height });
-    request.onProgress?.(0.8);
-    if (ops.length > 0) {
-      for (const op of ops) {
-        if (op.type === 'mosaic') applyMosaic(rgba, width, height, op, { inPlace: true });
-      }
-      request.onProgress?.(0.95);
-    }
+    const rgba = composeDevelopedRgba({
+      params,
+      ops,
+      width,
+      height,
+      source: { width: header.width, height: header.height },
+      render: (renderParams, size) => renderer.renderToRGBA(renderParams, size),
+    });
+    request.onProgress?.(0.95);
     return { width, height, rgba };
   } finally {
     renderer.dispose();

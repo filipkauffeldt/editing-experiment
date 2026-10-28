@@ -7,6 +7,7 @@ import {
   type RenderedImage,
   type RetouchOp,
 } from '@ee/contracts';
+import { cropOutputPixels } from '@ee/develop-gl';
 import {
   renderDevelopRgba,
   type DevelopWorkerRequest,
@@ -114,12 +115,15 @@ export async function renderFullResolution({
   onProgress,
 }: FullResolutionRenderRequest): Promise<RenderedImage> {
   const { header, data } = await fetchLinear(photo.id, { onProgress });
-  const width = header.sourceWidth > 0 ? header.sourceWidth : header.width;
-  const height = header.sourceHeight > 0 ? header.sourceHeight : header.height;
+  // The exported file is the crop's pixel size, not the whole sensor frame.
+  const source = { width: header.width, height: header.height };
+  const output = params.crop
+    ? cropOutputPixels(params.crop, source)
+    : { width: source.width, height: source.height };
   onProgress?.({ label: 'Rendering full resolution…', percent: 20 });
 
   try {
-    const rendered = await renderInWorker(header, data, params, ops, width, height);
+    const rendered = await renderInWorker(header, data, params, ops, output.width, output.height);
     onProgress?.({ label: 'Rendering full resolution…', percent: 90 });
     return rendered;
   } catch {
@@ -135,8 +139,8 @@ export async function renderFullResolution({
       data: fallbackData,
       params,
       ops,
-      width,
-      height,
+      width: output.width,
+      height: output.height,
     });
     onProgress?.({ label: 'Rendering full resolution…', percent: 90 });
     await yieldToUi();
