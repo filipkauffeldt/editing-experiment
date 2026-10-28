@@ -1,3 +1,4 @@
+// @vitest-environment node
 import { _electron as electron, type ElectronApplication, type Page } from '@playwright/test';
 import {
   LINEAR_IMAGE_HEADER,

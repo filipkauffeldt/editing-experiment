@@ -1,3 +1,4 @@
+// @vitest-environment node
 import { asDestinationId, asSourceId, type FolderDestination } from '@ee/contracts';
 import { mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';

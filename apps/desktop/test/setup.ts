@@ -3,5 +3,6 @@ import { afterEach } from 'vitest';
 
 afterEach(() => {
   cleanup();
-  delete (window as { eeTransport?: unknown }).eeTransport;
+  // Backend tests run in the node environment, which has no window.
+  if (typeof window !== 'undefined') delete (window as { eeTransport?: unknown }).eeTransport;
 });

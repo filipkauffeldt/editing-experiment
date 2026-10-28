@@ -1,3 +1,4 @@
+// @vitest-environment node
 import { IpcError } from '@ee/contracts';
 import { mkdtemp, readFile, readdir, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
