@@ -1,4 +1,11 @@
-import { asPhotoId, type Photo } from '@ee/contracts';
+import {
+  asPhotoId,
+  asSourceId,
+  type ExportPhotoResult,
+  type IptcFields,
+  type Photo,
+  type SourceConfig,
+} from '@ee/contracts';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { createFakeBridge, type FakeBridge } from './fake-bridge';
 import type { AppStore } from '../src/renderer/store';
@@ -26,11 +33,25 @@ async function setup(options: Parameters<typeof createFakeBridge>[0] = {}): Prom
   return { store, fake };
 }
 
-afterEach(() => {
-  for (const store of stores.splice(0)) store.dispose();
+afterEach(async () => {
+  for (const store of stores.splice(0)) await store.dispose();
 });
 
 const visible = (store: AppStore) => selectVisiblePhotos(store.getState());
+
+function deferred<T>(): {
+  promise: Promise<T>;
+  resolve(value: T): void;
+  reject(error: unknown): void;
+} {
+  let resolve!: (value: T) => void;
+  let reject!: (error: unknown) => void;
+  const promise = new Promise<T>((res, rej) => {
+    resolve = res;
+    reject = rej;
+  });
+  return { promise, resolve, reject };
+}
 
 describe('photo list', () => {
   it('sorts filenames naturally by default and by capture time on request', async () => {
@@ -141,7 +162,9 @@ describe('metadata', () => {
     });
 
     const result = await store.expandCaption(photoId);
-    expect(result?.text).toContain('Manchester City v Liverpool at the Etihad Stadium.');
+    expect(result?.text).toContain(
+      'Manchester City Manchester City v Liverpool at the Etihad Stadium.',
+    );
     expect(result?.text).toContain('{photographer}');
     expect(result?.unresolved).toEqual(['{photographer}']);
     expect(store.getState().metadataUnresolved[photoId]).toEqual(['{photographer}']);
@@ -249,6 +272,7 @@ describe('uploads and finish', () => {
       kind: 'ftp',
       credentialRef: source.credentialRef,
     });
+    expect(JSON.stringify(store.getState())).not.toContain('very-secret');
   });
 });
 
@@ -260,5 +284,329 @@ describe('settings', () => {
     const infos = await store.startIngest(ingest);
     expect(infos).toHaveLength(store.getState().sources.length);
     expect(fake.calls.some((call) => call.channel === 'ingest:start')).toBe(true);
+  });
+});
+
+describe('edit flushing', () => {
+  it('writes the last slider value after a trailing throttle', async () => {
+    const { store, fake } = await setup();
+    const photo = activePhoto(store.getState());
+    if (!photo) throw new Error('no selection');
+
+    store.setSlider('Exposure2012', 0.1);
+    store.setSlider('Exposure2012', 0.2);
+    store.setSlider('Exposure2012', 0.3);
+
+    await vi.waitFor(() => {
+      const writes = fake.calls.filter((call) => call.channel === 'develop:setParams');
+      const last = writes.at(-1);
+      expect((last?.args[0] as { params: { Exposure2012?: number } }).params.Exposure2012).toBe(
+        0.3,
+      );
+    });
+  });
+
+  it('still saves metadata for the old photo after switching selection', async () => {
+    const { store, fake } = await setup();
+    const first = activePhoto(store.getState());
+    if (!first) throw new Error('no selection');
+    await vi.waitFor(() => expect(store.getState().metadata[first.id]).toBeDefined());
+
+    store.updateMetadataField(first.id, 'headline', 'Queued before switching');
+    store.select(asPhotoId('mock-02'));
+
+    await vi.waitFor(() => {
+      expect(
+        fake.calls.some(
+          (call) =>
+            call.channel === 'metadata:write' &&
+            (call.args[0] as { photoId: string }).photoId === first.id,
+        ),
+      ).toBe(true);
+    });
+  });
+
+  it('flushes metadata and develop edits before export', async () => {
+    const { store, fake } = await setup();
+    const photo = activePhoto(store.getState());
+    if (!photo) throw new Error('no selection');
+    await vi.waitFor(() => expect(store.getState().metadata[photo.id]).toBeDefined());
+
+    store.updateMetadataField(photo.id, 'headline', 'Export headline');
+    store.setSlider('Exposure2012', 0.75);
+    await store.finishAndNext();
+
+    const channels = fake.calls.map((call) => call.channel);
+    const metadataWrite = channels.indexOf('metadata:write');
+    const developWrite = channels.indexOf('develop:setParams');
+    const exportCall = channels.indexOf('export:photo');
+    expect(metadataWrite).toBeGreaterThanOrEqual(0);
+    expect(metadataWrite).toBeLessThan(exportCall);
+    expect(developWrite).toBeGreaterThanOrEqual(0);
+    expect(developWrite).toBeLessThan(exportCall);
+    const write = fake.calls.find((call) => call.channel === 'metadata:write');
+    expect(write?.args[0]).toMatchObject({
+      photoId: photo.id,
+      fields: { headline: 'Export headline' },
+    });
+  });
+
+  it('advances from the exported photo even if the selection changed meanwhile', async () => {
+    const exportResult = deferred<ExportPhotoResult>();
+    const { store, fake } = await setup({
+      handlers: { 'export:photo': async () => exportResult.promise },
+    });
+    const first = activePhoto(store.getState());
+    if (!first) throw new Error('no selection');
+
+    const finished = store.finishAndNext();
+    await vi.waitFor(() =>
+      expect(fake.calls.some((call) => call.channel === 'export:photo')).toBe(true),
+    );
+    store.select(asPhotoId('mock-10'));
+    exportResult.resolve({ path: '/out/x.jpg', fileName: 'x.jpg', uploads: [] });
+    await finished;
+
+    expect(activePhoto(store.getState())?.fileName).toBe('_DSC8331.NEF');
+  });
+
+  it('flushes pending metadata on dispose and stops listening', async () => {
+    const { store, fake } = await setup();
+    const photo = activePhoto(store.getState());
+    if (!photo) throw new Error('no selection');
+    await vi.waitFor(() => expect(store.getState().metadata[photo.id]).toBeDefined());
+
+    store.updateMetadataField(photo.id, 'headline', 'Saved on dispose');
+    await store.dispose();
+
+    expect(
+      fake.calls.some(
+        (call) =>
+          call.channel === 'metadata:write' &&
+          (call.args[0] as { fields: { headline?: string } }).fields.headline ===
+            'Saved on dispose',
+      ),
+    ).toBe(true);
+
+    const count = store.getState().photos.length;
+    fake.emit('photos:added', { ...photo, id: asPhotoId('after-dispose') });
+    expect(store.getState().photos).toHaveLength(count);
+  });
+});
+
+describe('load races', () => {
+  it('keeps metadata edited while the read was in flight', async () => {
+    const read = deferred<IptcFields>();
+    const { store, fake } = await setup({
+      handlers: { 'metadata:read': async () => read.promise },
+    });
+    const photo = activePhoto(store.getState());
+    if (!photo) throw new Error('no selection');
+    await vi.waitFor(() =>
+      expect(fake.calls.some((call) => call.channel === 'metadata:read')).toBe(true),
+    );
+
+    store.updateMetadataField(photo.id, 'headline', 'Local edit');
+    read.resolve({ headline: 'Stale server value', city: 'Leeds' });
+
+    await vi.waitFor(() => {
+      expect(store.getState().metadata[photo.id]?.headline).toBe('Local edit');
+      expect(store.getState().metadata[photo.id]?.city).toBe('Leeds');
+    });
+  });
+
+  it('keeps develop params edited while the read was in flight', async () => {
+    const read = deferred<{ Exposure2012?: number }>();
+    const { store, fake } = await setup({
+      handlers: { 'develop:getParams': async () => read.promise },
+    });
+    const photo = activePhoto(store.getState());
+    if (!photo) throw new Error('no selection');
+    await vi.waitFor(() =>
+      expect(fake.calls.some((call) => call.channel === 'develop:getParams')).toBe(true),
+    );
+
+    store.setSlider('Exposure2012', 1.5);
+    read.resolve({ Exposure2012: -2 });
+
+    await vi.waitFor(() => {
+      expect(paramsForPhoto(store.getState(), photo).Exposure2012).toBe(1.5);
+    });
+  });
+
+  it('does not overwrite caption typing that started during expansion', async () => {
+    const expanded = deferred<{ text: string; unresolved: string[] }>();
+    const { store, fake } = await setup({
+      handlers: { 'metadata:expandCaption': async () => expanded.promise },
+    });
+    const photo = activePhoto(store.getState());
+    if (!photo) throw new Error('no selection');
+    await vi.waitFor(() => expect(store.getState().metadata[photo.id]).toBeDefined());
+
+    store.updateMetadataField(photo.id, 'caption', '=t1= at {event}');
+    const pending = store.expandCaption(photo.id);
+    await vi.waitFor(() =>
+      expect(fake.calls.some((call) => call.channel === 'metadata:expandCaption')).toBe(true),
+    );
+    store.updateMetadataField(photo.id, 'caption', 'Typing kept');
+
+    expanded.resolve({ text: 'Expanded result', unresolved: ['{unknown}'] });
+    expect(await pending).toBeUndefined();
+    expect(store.getState().metadata[photo.id]?.caption).toBe('Typing kept');
+    expect(store.getState().metadataUnresolved[photo.id] ?? []).toEqual([]);
+  });
+});
+
+describe('photo events', () => {
+  it('coalesces added/updated events per frame and dedupes by id', async () => {
+    const { store, fake } = await setup();
+    const base = mockPhotos()[0];
+    if (!base) throw new Error('no mock photo');
+    const added: Photo = {
+      ...base,
+      id: asPhotoId('mock-new'),
+      fileName: '_DSC9999.NEF',
+      status: { ...base.status, upload: 'queued' },
+    };
+    fake.emit('photos:added', added);
+    fake.emit('photos:added', { ...added, status: { ...added.status, upload: 'uploading' } });
+    fake.emit('photos:updated', { ...added, status: { ...added.status, upload: 'failed' } });
+
+    await vi.waitFor(() => {
+      expect(store.getState().photos.filter((photo) => photo.id === added.id)).toHaveLength(1);
+    });
+    expect(store.getState().photos.find((photo) => photo.id === added.id)?.status.upload).toBe(
+      'failed',
+    );
+  });
+
+  it('applies upload and ingest job events to photos and runs', async () => {
+    const { store, fake } = await setup();
+    const upload = store.getState().uploads.find((item) => item.state === 'queued');
+    if (!upload) throw new Error('no queued upload');
+
+    fake.emit('jobs:event', {
+      type: 'upload.state',
+      at: Date.now(),
+      uploadId: upload.id,
+      photoId: upload.photoId,
+      destinationId: upload.destinationId,
+      state: 'failed',
+      error: 'Network down',
+    });
+    expect(store.getState().uploads.find((item) => item.id === upload.id)).toMatchObject({
+      state: 'failed',
+      error: 'Network down',
+    });
+    expect(
+      store.getState().photos.find((photo) => photo.id === upload.photoId)?.status.upload,
+    ).toBe('failed');
+
+    const source = store.getState().sources[0];
+    if (!source) throw new Error('no source');
+    fake.emit('jobs:event', {
+      type: 'ingest.progress',
+      at: Date.now(),
+      jobId: 'test-job' as never,
+      sourceId: source.id,
+      filesTotal: 20,
+      filesDone: 19,
+      bytesDone: 123,
+    });
+    expect(store.getState().ingest[source.id]).toMatchObject({ filesDone: 19, filesTotal: 20 });
+  });
+
+  it('keeps the cached order when an upload event only changes status', async () => {
+    const { store, fake } = await setup();
+    const internals = store as unknown as { visibleCache?: { ids: unknown[] } };
+    const order = internals.visibleCache?.ids;
+    const upload = store.getState().uploads.find((item) => item.state === 'uploading');
+    if (!upload) throw new Error('no uploading item');
+
+    fake.emit('jobs:event', {
+      type: 'upload.state',
+      at: Date.now(),
+      uploadId: upload.id,
+      photoId: upload.photoId,
+      destinationId: upload.destinationId,
+      state: 'done',
+    });
+
+    expect(internals.visibleCache?.ids).toBe(order);
+    expect(
+      store.getState().photos.find((photo) => photo.id === upload.photoId)?.status.upload,
+    ).toBe('done');
+  });
+});
+
+describe('credentials cleanup', () => {
+  it('removes a stored secret when a source or destination is removed', async () => {
+    const { store, fake } = await setup();
+    const source = store.getState().sources.find((item) => item.kind === 'ftp');
+    const destination = store.getState().destinations.find((item) => item.kind === 'ftp');
+    if (!source || source.kind !== 'ftp' || !destination || destination.kind !== 'ftp') {
+      throw new Error('missing remote fixtures');
+    }
+
+    await store.removeSource(source.id);
+    await store.removeDestination(destination.id);
+
+    const removedRefs = fake.calls
+      .filter((call) => call.channel === 'credentials:remove')
+      .map((call) => (call.args[0] as { ref: string }).ref);
+    expect(removedRefs).toContain(source.credentialRef);
+    expect(removedRefs).toContain(destination.credentialRef);
+  });
+
+  it('removes an orphaned secret when saving the source fails', async () => {
+    const { store, fake } = await setup({
+      handlers: {
+        'sources:save': async () => {
+          throw new Error('disk full');
+        },
+      },
+    });
+    const fresh: SourceConfig = {
+      id: asSourceId('fresh-source'),
+      kind: 'ftp',
+      name: 'Fresh FTP',
+      host: 'fresh.test',
+      port: 21,
+      username: 'u',
+      credentialRef: '',
+      remotePath: '/in',
+      pollIntervalMs: 5000,
+      deleteAfterDownload: false,
+      security: 'none',
+    };
+
+    await expect(store.saveSource(fresh, { password: 'secret' })).rejects.toThrow('disk full');
+    expect(fake.calls.some((call) => call.channel === 'credentials:remove')).toBe(true);
+  });
+
+  it('tests a new remote source with an unsaved password and cleans up the temp ref', async () => {
+    const { store, fake } = await setup();
+    const fresh: SourceConfig = {
+      id: asSourceId('unsaved-source'),
+      kind: 'sftp',
+      name: 'Unsaved SFTP',
+      host: 'unsaved.test',
+      port: 22,
+      username: 'u',
+      credentialRef: '',
+      remotePath: '/in',
+      pollIntervalMs: 5000,
+      deleteAfterDownload: false,
+    };
+
+    const result = await store.testSource(fresh, { password: 'secret' });
+    expect(result).toMatchObject({ ok: true });
+    const testCall = fake.calls.find((call) => call.channel === 'sources:test');
+    expect((testCall?.args[0] as { source: { credentialRef: string } }).source.credentialRef).toBe(
+      'test-credential',
+    );
+    expect(fake.calls.some((call) => call.channel === 'credentials:remove')).toBe(true);
+    expect(fake.calls.some((call) => call.channel === 'sources:save')).toBe(false);
+    expect(store.getState().sources.some((source) => source.id === fresh.id)).toBe(false);
   });
 });

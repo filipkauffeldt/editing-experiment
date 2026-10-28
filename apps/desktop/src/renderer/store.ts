@@ -159,8 +159,10 @@ function matchesQuickFilter(state: AppState, photo: Photo, quick: QuickFilter): 
   }
 }
 
+const NAME_COLLATOR = new Intl.Collator(undefined, { numeric: true, sensitivity: 'base' });
+
 const naturalName = (left: Photo, right: Photo): number =>
-  left.fileName.localeCompare(right.fileName, undefined, { numeric: true, sensitivity: 'base' });
+  NAME_COLLATOR.compare(left.fileName, right.fileName);
 
 const captureTime = (photo: Photo): number => {
   const value = photo.captureTime ? Date.parse(photo.captureTime) : Number.NaN;
@@ -216,6 +218,24 @@ export function unsupportedSettings(preset: EditPreset): string[] {
 const messageOf = (cause: unknown): string =>
   cause instanceof Error ? cause.message : String(cause);
 
+/** Throttle for develop writes: first change goes out at once, then at most every 80 ms. */
+const DEVELOP_THROTTLE_MS = 80;
+
+interface VisibleCache {
+  ids: PhotoId[];
+  filter: FilterState;
+  flags: Record<string, PhotoFlags>;
+  sort: SortMode;
+}
+
+interface DevelopThrottle {
+  photoId: PhotoId;
+  versionId?: VersionId;
+  lastSentAt: number;
+  timer: ReturnType<typeof setTimeout> | null;
+  pending?: EditParams;
+}
+
 const emptyState = (): AppState => ({
   photos: [],
   sources: [],
@@ -243,8 +263,19 @@ export class AppStore {
   private readonly listeners = new Set<() => void>();
   private readonly unsubscribers: (() => void)[] = [];
   private readonly metadataTimers = new Map<PhotoId, ReturnType<typeof setTimeout>>();
-  private readonly developTimers = new Map<string, ReturnType<typeof setTimeout>>();
-  private pendingMetadata = new Map<PhotoId, Partial<IptcFields>>();
+  private readonly metadataWrites = new Map<PhotoId, Promise<void>>();
+  private readonly metadataEditVersion = new Map<PhotoId, number>();
+  private readonly pendingMetadata = new Map<PhotoId, Partial<IptcFields>>();
+  private readonly developThrottles = new Map<string, DevelopThrottle>();
+  private readonly paramWrites = new Map<string, Promise<void>>();
+  private readonly paramEditVersion = new Map<string, number>();
+  private readonly paramSequence = new Map<string, number>();
+  private readonly photoById = new Map<PhotoId, Photo>();
+  private readonly photoPositions = new Map<PhotoId, number>();
+  private readonly pendingPhotos = new Map<PhotoId, Photo>();
+  private photoFlush: ReturnType<typeof setTimeout> | number | null = null;
+  private visibleCache: VisibleCache | undefined;
+  private beforeUnload: (() => void) | undefined;
   private toastId = 0;
   private started = false;
   private finishing = false;
@@ -277,20 +308,35 @@ export class AppStore {
     if (this.started) return;
     this.started = true;
     this.unsubscribers.push(
-      this.bridge.on('photos:added', (photo) => this.upsertPhoto(photo)),
-      this.bridge.on('photos:updated', (photo) => this.upsertPhoto(photo)),
+      this.bridge.on('photos:added', (photo) => this.queuePhoto(photo)),
+      this.bridge.on('photos:updated', (photo) => this.queuePhoto(photo)),
       this.bridge.on('jobs:event', (event) => this.handleJobEvent(event)),
     );
+    if (typeof window !== 'undefined') {
+      this.beforeUnload = () => {
+        this.flushQueuedPhotos();
+        void this.flushPendingEdits();
+      };
+      window.addEventListener('beforeunload', this.beforeUnload);
+    }
     await this.loadAll();
   };
 
-  readonly dispose = (): void => {
+  /**
+   * Stop listening and write anything still sitting in a debounce/throttle.
+   * Returns a promise so tests and the window teardown can wait for the last
+   * writes to cross the bridge.
+   */
+  readonly dispose = async (): Promise<void> => {
     this.started = false;
     for (const unsubscribe of this.unsubscribers.splice(0)) unsubscribe();
-    for (const timer of this.metadataTimers.values()) clearTimeout(timer);
-    this.metadataTimers.clear();
-    for (const timer of this.developTimers.values()) clearTimeout(timer);
-    this.developTimers.clear();
+    if (this.beforeUnload && typeof window !== 'undefined') {
+      window.removeEventListener('beforeunload', this.beforeUnload);
+      this.beforeUnload = undefined;
+    }
+    this.cancelPhotoFlush();
+    this.flushQueuedPhotos();
+    await this.flushPendingEdits();
   };
 
   private async loadAll(): Promise<void> {
@@ -308,7 +354,21 @@ export class AppStore {
     const value = <T>(result: PromiseSettledResult<T>): T | undefined =>
       result.status === 'fulfilled' ? result.value : undefined;
 
-    const loadedPhotos = value(photos) ?? [];
+    const loadedPhotos = [...(value(photos) ?? [])];
+    const queued = [...this.pendingPhotos.values()];
+    this.pendingPhotos.clear();
+    for (const photo of queued) {
+      const position = loadedPhotos.findIndex((candidate) => candidate.id === photo.id);
+      if (position >= 0) loadedPhotos[position] = photo;
+      else loadedPhotos.push(photo);
+    }
+    this.photoById.clear();
+    this.photoPositions.clear();
+    loadedPhotos.forEach((photo, index) => {
+      this.photoById.set(photo.id, photo);
+      this.photoPositions.set(photo.id, index);
+    });
+    this.visibleCache = undefined;
     const runs: Record<string, IngestRun> = {};
     for (const info of value(ingest) ?? []) {
       runs[info.sourceId] = {
@@ -337,19 +397,111 @@ export class AppStore {
     const path = value(settings)?.ingest.metadataTemplatePath;
     if (path) void this.loadTemplate(path);
 
-    const first = selectVisiblePhotos(this.getState())[0];
+    const first = this.getVisiblePhotos()[0];
     if (first) this.select(first.id);
   }
 
   // ------------------------------------------------------------------- photos
 
+  /**
+   * Cache of the filtered/sorted photo ids. Upload and metadata events update
+   * photo objects without changing membership or order, so the cached order is
+   * reused and only the objects are re-mapped.
+   */
+  readonly getVisiblePhotos = (): Photo[] => {
+    const { filter, flags, sort } = this.state;
+    const cache = this.visibleCache;
+    if (cache && cache.filter === filter && cache.flags === flags && cache.sort === sort) {
+      return cache.ids
+        .map((id) => this.photoById.get(id))
+        .filter((photo): photo is Photo => photo !== undefined);
+    }
+    const result = selectVisiblePhotos(this.state);
+    this.visibleCache = { ids: result.map((photo) => photo.id), filter, flags, sort };
+    return result;
+  };
+
+  private photoAffectsVisible(previous: Photo | undefined, next: Photo): boolean {
+    if (!previous) return true;
+    if (previous.fileName !== next.fileName || previous.captureTime !== next.captureTime)
+      return true;
+    if (cameraKey(previous) !== cameraKey(next) || previous.sourceId !== next.sourceId) return true;
+    switch (this.state.filter.quick) {
+      case 'edited':
+        return previous.status.edited !== next.status.edited;
+      case 'not-uploaded':
+        return (previous.status.upload === 'done') !== (next.status.upload === 'done');
+      case 'failed-uploads':
+        return (previous.status.upload === 'failed') !== (next.status.upload === 'failed');
+      case 'metadata-differs':
+        return (
+          previous.status.metadataDiffersFromTemplate !== next.status.metadataDiffersFromTemplate
+        );
+      default:
+        return false;
+    }
+  }
+
+  private applyPhoto(photo: Photo, photos = [...this.state.photos]): Photo[] {
+    const previous = this.photoById.get(photo.id);
+    const position = this.photoPositions.get(photo.id);
+    if (position === undefined) {
+      this.photoPositions.set(photo.id, photos.length);
+      photos.push(photo);
+      this.visibleCache = undefined;
+    } else {
+      photos[position] = photo;
+      if (this.photoAffectsVisible(previous, photo)) this.visibleCache = undefined;
+    }
+    this.photoById.set(photo.id, photo);
+    return photos;
+  }
+
+  /** Internal status updates (metadata writes, upload events) apply at once. */
   private upsertPhoto(photo: Photo): void {
-    const exists = this.state.photos.some((candidate) => candidate.id === photo.id);
-    this.set({
-      photos: exists
-        ? this.state.photos.map((candidate) => (candidate.id === photo.id ? photo : candidate))
-        : [...this.state.photos, photo],
-    });
+    // Keep a not-yet-flushed event from overwriting this newer object next frame.
+    if (this.pendingPhotos.has(photo.id)) this.pendingPhotos.set(photo.id, photo);
+    this.set({ photos: this.applyPhoto(photo) });
+  }
+
+  /**
+   * Backend `photos:added` / `photos:updated` events are coalesced per frame.
+   * A burst of ingest updates therefore produces one resize/sort, and repeated
+   * events for the same id keep only the newest object.
+   */
+  private queuePhoto(photo: Photo): void {
+    this.pendingPhotos.set(photo.id, photo);
+    if (this.photoFlush !== null) return;
+    if (typeof requestAnimationFrame === 'function') {
+      this.photoFlush = requestAnimationFrame(() => {
+        this.photoFlush = null;
+        this.flushQueuedPhotos();
+      });
+    } else {
+      this.photoFlush = setTimeout(() => {
+        this.photoFlush = null;
+        this.flushQueuedPhotos();
+      }, 16);
+    }
+  }
+
+  private cancelPhotoFlush(): void {
+    if (this.photoFlush === null) return;
+    if (typeof cancelAnimationFrame === 'function' && typeof this.photoFlush === 'number') {
+      cancelAnimationFrame(this.photoFlush);
+    } else {
+      clearTimeout(this.photoFlush as ReturnType<typeof setTimeout>);
+    }
+    this.photoFlush = null;
+  }
+
+  private flushQueuedPhotos(): void {
+    if (this.pendingPhotos.size === 0) return;
+    const queued = [...this.pendingPhotos.values()];
+    this.pendingPhotos.clear();
+    const photos = [...this.state.photos];
+    for (const photo of queued) this.applyPhoto(photo, photos);
+    this.set({ photos });
   }
 
   readonly select = (photoId: PhotoId | undefined): void => {
@@ -361,7 +513,7 @@ export class AppStore {
   };
 
   readonly selectRelative = (delta: number): void => {
-    const photos = selectVisiblePhotos(this.state);
+    const photos = this.getVisiblePhotos();
     if (photos.length === 0) return;
     const index = photos.findIndex((photo) => photo.id === this.state.selectedId);
     const next = photos[Math.max(0, Math.min(photos.length - 1, index + delta))];
@@ -369,7 +521,7 @@ export class AppStore {
   };
 
   private ensureSelectionVisible(): void {
-    const visible = selectVisiblePhotos(this.state);
+    const visible = this.getVisiblePhotos();
     if (visible.some((photo) => photo.id === this.state.selectedId)) return;
     const next = visible[0];
     if (next) this.select(next.id);
@@ -415,8 +567,20 @@ export class AppStore {
   // ----------------------------------------------------------------- metadata
 
   private async loadMetadata(photoId: PhotoId): Promise<void> {
+    const startedAt = this.metadataEditVersion.get(photoId) ?? 0;
     try {
       const fields = await this.bridge.invoke('metadata:read', { photoId });
+      // An edit made while the read was in flight is newer than the response.
+      const local = this.state.metadata[photoId];
+      if ((this.metadataEditVersion.get(photoId) ?? 0) !== startedAt && local) {
+        this.set({
+          metadata: {
+            ...this.state.metadata,
+            [photoId]: { ...fields, ...local },
+          },
+        });
+        return;
+      }
       this.set({ metadata: { ...this.state.metadata, [photoId]: fields } });
     } catch (cause) {
       this.toast('error', `Could not read metadata: ${messageOf(cause)}`);
@@ -439,6 +603,7 @@ export class AppStore {
   ): void => {
     const fields = { ...(this.state.metadata[photoId] ?? {}) } as IptcFields;
     (fields as Record<string, unknown>)[field] = value;
+    this.metadataEditVersion.set(photoId, (this.metadataEditVersion.get(photoId) ?? 0) + 1);
     this.set({
       metadata: { ...this.state.metadata, [photoId]: fields },
       metadataUnresolved: { ...this.state.metadataUnresolved, [photoId]: [] },
@@ -461,22 +626,55 @@ export class AppStore {
     );
   }
 
+  private writeMetadata(photoId: PhotoId, fields: Partial<IptcFields>): Promise<void> {
+    const write = this.bridge
+      .invoke('metadata:write', { photoId, fields })
+      .then((photo) => {
+        this.upsertPhoto(photo);
+      })
+      .catch((cause: unknown) => {
+        this.toast('error', `Could not save metadata: ${messageOf(cause)}`);
+      })
+      .finally(() => {
+        if (this.metadataWrites.get(photoId) === write) this.metadataWrites.delete(photoId);
+      });
+    this.metadataWrites.set(photoId, write);
+    return write;
+  }
+
+  /** Write every pending field for a photo now, then wait for the bridge. */
   readonly saveMetadata = async (photoId: PhotoId): Promise<void> => {
-    const fields = this.pendingMetadata.get(photoId);
-    if (!fields) return;
-    this.pendingMetadata.delete(photoId);
     const timer = this.metadataTimers.get(photoId);
     if (timer) {
       clearTimeout(timer);
       this.metadataTimers.delete(photoId);
     }
-    try {
-      const photo = await this.bridge.invoke('metadata:write', { photoId, fields });
-      this.upsertPhoto(photo);
-    } catch (cause) {
-      this.toast('error', `Could not save metadata: ${messageOf(cause)}`);
+    for (;;) {
+      const inFlight = this.metadataWrites.get(photoId);
+      if (inFlight) await inFlight;
+      const fields = this.pendingMetadata.get(photoId);
+      if (!fields) return;
+      this.pendingMetadata.delete(photoId);
+      await this.writeMetadata(photoId, fields);
+      if (!this.pendingMetadata.has(photoId)) return;
     }
   };
+
+  private async flushPendingEdits(): Promise<void> {
+    const metadataIds = new Set([
+      ...this.pendingMetadata.keys(),
+      ...this.metadataWrites.keys(),
+      ...this.metadataTimers.keys(),
+    ]);
+    const developKeys = new Set([...this.developThrottles.keys(), ...this.paramWrites.keys()]);
+    await Promise.all([
+      ...[...metadataIds].map((photoId) => this.saveMetadata(photoId)),
+      ...[...developKeys].map((key) => {
+        const entry = this.developThrottles.get(key);
+        return entry ? this.flushDevelopParams(entry.photoId, entry.versionId) : Promise.resolve();
+      }),
+    ]);
+  }
 
   readonly expandCaption = async (
     photoId?: PhotoId,
@@ -487,6 +685,7 @@ export class AppStore {
     if (!text) return undefined;
     try {
       const result = await this.bridge.invoke('metadata:expandCaption', { photoId: id, text });
+      if ((this.state.metadata[id]?.caption ?? '') !== text) return undefined;
       this.updateMetadataField(id, 'caption', result.text);
       this.set({
         metadataUnresolved: { ...this.state.metadataUnresolved, [id]: result.unresolved },
@@ -538,16 +737,59 @@ export class AppStore {
   // ------------------------------------------------------------------ develop
 
   private async loadParams(photoId: PhotoId): Promise<void> {
-    const photo = this.state.photos.find((candidate) => candidate.id === photoId);
+    const photo = this.photoById.get(photoId);
     const versionId = activeDevelopVersion(photo)?.id;
+    const key = editParamsKey(photoId, versionId);
+    const startedAt = this.paramEditVersion.get(key) ?? 0;
     try {
       const params = await this.bridge.invoke('develop:getParams', { photoId, versionId });
+      if ((this.paramEditVersion.get(key) ?? 0) !== startedAt && this.state.editParams[key]) {
+        return;
+      }
       this.set({
-        editParams: { ...this.state.editParams, [editParamsKey(photoId, versionId)]: params },
+        editParams: { ...this.state.editParams, [key]: params },
       });
     } catch (cause) {
       this.toast('error', `Could not read develop settings: ${messageOf(cause)}`);
     }
+  }
+
+  private writeDevelop(
+    photoId: PhotoId,
+    versionId: VersionId | undefined,
+    params: EditParams,
+  ): Promise<void> {
+    const key = editParamsKey(photoId, versionId);
+    const sequence = (this.paramSequence.get(key) ?? 0) + 1;
+    this.paramSequence.set(key, sequence);
+    const write = this.bridge
+      .invoke('develop:setParams', { photoId, versionId, params })
+      .then(() => undefined)
+      .catch((cause: unknown) => {
+        // A stale response must not report an error after a newer write won.
+        if (this.paramSequence.get(key) === sequence) {
+          this.toast('error', `Could not save develop settings: ${messageOf(cause)}`);
+        }
+      })
+      .finally(() => {
+        if (this.paramWrites.get(key) === write) this.paramWrites.delete(key);
+      });
+    this.paramWrites.set(key, write);
+    return write;
+  }
+
+  private flushDevelopEntry(key: string): void {
+    const entry = this.developThrottles.get(key);
+    if (!entry) return;
+    if (entry.timer !== null) {
+      clearTimeout(entry.timer);
+      entry.timer = null;
+    }
+    const params = entry.pending;
+    entry.pending = undefined;
+    if (!params) return;
+    entry.lastSentAt = Date.now();
+    void this.writeDevelop(entry.photoId, entry.versionId, params);
   }
 
   private scheduleDevelopSave(
@@ -556,20 +798,55 @@ export class AppStore {
     params: EditParams,
   ): void {
     const key = editParamsKey(photoId, versionId);
-    const existing = this.developTimers.get(key);
-    if (existing) clearTimeout(existing);
-    this.developTimers.set(
-      key,
-      setTimeout(() => {
-        this.developTimers.delete(key);
-        void this.bridge
-          .invoke('develop:setParams', { photoId, versionId, params })
-          .catch((cause: unknown) =>
-            this.toast('error', `Could not save develop settings: ${messageOf(cause)}`),
-          );
-      }, 180),
-    );
+    const entry: DevelopThrottle = this.developThrottles.get(key) ?? {
+      photoId,
+      versionId,
+      lastSentAt: 0,
+      timer: null,
+    };
+    entry.photoId = photoId;
+    entry.versionId = versionId;
+    entry.pending = params;
+    this.developThrottles.set(key, entry);
+
+    const elapsed = Date.now() - entry.lastSentAt;
+    if (elapsed >= DEVELOP_THROTTLE_MS) {
+      this.flushDevelopEntry(key);
+    } else if (entry.timer === null) {
+      entry.timer = setTimeout(() => {
+        entry.timer = null;
+        this.flushDevelopEntry(key);
+      }, DEVELOP_THROTTLE_MS - elapsed);
+    }
   }
+
+  /** Send the latest slider/preset state now and wait for the bridge. */
+  readonly flushDevelopParams = async (
+    photoId: PhotoId,
+    versionId: VersionId | undefined,
+  ): Promise<void> => {
+    const key = editParamsKey(photoId, versionId);
+    if (!this.developThrottles.has(key) && !this.paramWrites.has(key)) return;
+    for (;;) {
+      const entry = this.developThrottles.get(key);
+      if (entry) {
+        if (entry.timer !== null) {
+          clearTimeout(entry.timer);
+          entry.timer = null;
+        }
+        const pending = entry.pending;
+        entry.pending = undefined;
+        if (pending) {
+          entry.lastSentAt = Date.now();
+          void this.writeDevelop(entry.photoId, entry.versionId, pending);
+        }
+      }
+      const inFlight = this.paramWrites.get(key);
+      if (inFlight) await inFlight;
+      const current = this.developThrottles.get(key);
+      if (!current || (!current.pending && !this.paramWrites.has(key))) return;
+    }
+  };
 
   private patchParams(updater: (current: EditParams) => EditParams): void {
     const photo = activePhoto(this.state);
@@ -577,6 +854,7 @@ export class AppStore {
     const versionId = activeDevelopVersion(photo)?.id;
     const key = editParamsKey(photo.id, versionId);
     const next = updater(this.state.editParams[key] ?? {});
+    this.paramEditVersion.set(key, (this.paramEditVersion.get(key) ?? 0) + 1);
     this.set({ editParams: { ...this.state.editParams, [key]: next } });
     this.scheduleDevelopSave(photo.id, versionId, next);
   }
@@ -676,9 +954,16 @@ export class AppStore {
     if (this.finishing) return;
     const photo = activePhoto(this.state);
     if (!photo) return;
+    const order = this.getVisiblePhotos();
+    const exportedIndex = order.findIndex((candidate) => candidate.id === photo.id);
     this.finishing = true;
     try {
       const versionId = activeDevelopVersion(photo)?.id;
+      // Export must see the edits that are still inside the UI debounce/throttle.
+      await Promise.all([
+        this.saveMetadata(photo.id),
+        this.flushDevelopParams(photo.id, versionId),
+      ]);
       const result = await this.bridge.invoke('export:photo', {
         photoId: photo.id,
         versionId,
@@ -686,8 +971,11 @@ export class AppStore {
         // mock backend ignores it. @ee/develop-gl integration replaces this.
         rendered: { width: 1, height: 1, rgba: new Uint8Array(4) },
       });
-      this.toast('success', `Exported ${result.path.split('/').pop() ?? photo.fileName}`);
-      this.selectRelative(1);
+      // The handler owns the final name; do not reconstruct it from the path.
+      const fileName = (result as typeof result & { fileName?: string }).fileName ?? photo.fileName;
+      this.toast('success', `Exported ${fileName}`);
+      const next = exportedIndex >= 0 ? order[exportedIndex + 1] : undefined;
+      if (next) this.select(next.id);
     } catch (cause) {
       this.toast('error', `Export failed: ${messageOf(cause)}`);
     } finally {
@@ -706,57 +994,142 @@ export class AppStore {
     secret?: CredentialSecret,
   ): Promise<SourceConfig> => {
     let next = source;
+    const previousRef =
+      next.kind === 'ftp' || next.kind === 'sftp' ? next.credentialRef : undefined;
+    let orphanedRef: string | undefined;
     if (secret && (next.kind === 'ftp' || next.kind === 'sftp')) {
       const { ref } = await this.bridge.invoke('credentials:set', {
         secret,
         ref: next.credentialRef,
       });
+      if (ref !== previousRef) orphanedRef = ref;
       next = { ...next, credentialRef: ref };
     }
-    const saved = await this.bridge.invoke('sources:save', { source: next });
-    const sources = this.state.sources.some((candidate) => candidate.id === saved.id)
-      ? this.state.sources.map((candidate) => (candidate.id === saved.id ? saved : candidate))
-      : [...this.state.sources, saved];
-    this.set({ sources });
-    return saved;
+    try {
+      const saved = await this.bridge.invoke('sources:save', { source: next });
+      const sources = this.state.sources.some((candidate) => candidate.id === saved.id)
+        ? this.state.sources.map((candidate) => (candidate.id === saved.id ? saved : candidate))
+        : [...this.state.sources, saved];
+      this.set({ sources });
+      return saved;
+    } catch (cause) {
+      if (orphanedRef) {
+        try {
+          await this.bridge.invoke('credentials:remove', { ref: orphanedRef });
+        } catch (cleanupCause) {
+          this.toast('error', `Could not remove the unused credential: ${messageOf(cleanupCause)}`);
+        }
+      }
+      throw cause;
+    }
   };
 
   readonly removeSource = async (sourceId: SourceId): Promise<void> => {
+    const source = this.state.sources.find((candidate) => candidate.id === sourceId);
     await this.bridge.invoke('sources:remove', { sourceId });
-    this.set({ sources: this.state.sources.filter((source) => source.id !== sourceId) });
+    if (source && (source.kind === 'ftp' || source.kind === 'sftp') && source.credentialRef) {
+      try {
+        await this.bridge.invoke('credentials:remove', { ref: source.credentialRef });
+      } catch (cause) {
+        this.toast('error', `Could not remove the source credential: ${messageOf(cause)}`);
+      }
+    }
+    this.set({ sources: this.state.sources.filter((candidate) => candidate.id !== sourceId) });
   };
 
-  readonly testSource = (source: SourceConfig) => this.bridge.invoke('sources:test', { source });
+  readonly testSource = async (source: SourceConfig, secret?: CredentialSecret) => {
+    let temporaryRef: string | undefined;
+    let testTarget = source;
+    if (secret && (source.kind === 'ftp' || source.kind === 'sftp')) {
+      const { ref } = await this.bridge.invoke('credentials:set', { secret });
+      temporaryRef = ref;
+      testTarget = { ...source, credentialRef: ref };
+    }
+    try {
+      return await this.bridge.invoke('sources:test', { source: testTarget });
+    } finally {
+      if (temporaryRef) {
+        try {
+          await this.bridge.invoke('credentials:remove', { ref: temporaryRef });
+        } catch (cause) {
+          this.toast('error', `Could not remove the temporary credential: ${messageOf(cause)}`);
+        }
+      }
+    }
+  };
 
   readonly saveDestination = async (
     destination: Destination,
     secret?: CredentialSecret,
   ): Promise<Destination> => {
     let next = destination;
+    const previousRef =
+      next.kind === 'ftp' || next.kind === 'sftp' ? next.credentialRef : undefined;
+    let orphanedRef: string | undefined;
     if (secret && (next.kind === 'ftp' || next.kind === 'sftp')) {
       const { ref } = await this.bridge.invoke('credentials:set', {
         secret,
         ref: next.credentialRef,
       });
+      if (ref !== previousRef) orphanedRef = ref;
       next = { ...next, credentialRef: ref };
     }
-    const saved = await this.bridge.invoke('destinations:save', { destination: next });
-    const destinations = this.state.destinations.some((candidate) => candidate.id === saved.id)
-      ? this.state.destinations.map((candidate) => (candidate.id === saved.id ? saved : candidate))
-      : [...this.state.destinations, saved];
-    this.set({ destinations });
-    return saved;
+    try {
+      const saved = await this.bridge.invoke('destinations:save', { destination: next });
+      const destinations = this.state.destinations.some((candidate) => candidate.id === saved.id)
+        ? this.state.destinations.map((candidate) =>
+            candidate.id === saved.id ? saved : candidate,
+          )
+        : [...this.state.destinations, saved];
+      this.set({ destinations });
+      return saved;
+    } catch (cause) {
+      if (orphanedRef) {
+        try {
+          await this.bridge.invoke('credentials:remove', { ref: orphanedRef });
+        } catch (cleanupCause) {
+          this.toast('error', `Could not remove the unused credential: ${messageOf(cleanupCause)}`);
+        }
+      }
+      throw cause;
+    }
   };
 
   readonly removeDestination = async (destination: Destination['id']): Promise<void> => {
+    const removed = this.state.destinations.find((candidate) => candidate.id === destination);
     await this.bridge.invoke('destinations:remove', { destinationId: destination });
+    if (removed && (removed.kind === 'ftp' || removed.kind === 'sftp') && removed.credentialRef) {
+      try {
+        await this.bridge.invoke('credentials:remove', { ref: removed.credentialRef });
+      } catch (cause) {
+        this.toast('error', `Could not remove the destination credential: ${messageOf(cause)}`);
+      }
+    }
     this.set({
       destinations: this.state.destinations.filter((item) => item.id !== destination),
     });
   };
 
-  readonly testDestination = (destination: Destination) =>
-    this.bridge.invoke('destinations:test', { destination });
+  readonly testDestination = async (destination: Destination, secret?: CredentialSecret) => {
+    let temporaryRef: string | undefined;
+    let testTarget = destination;
+    if (secret && (destination.kind === 'ftp' || destination.kind === 'sftp')) {
+      const { ref } = await this.bridge.invoke('credentials:set', { secret });
+      temporaryRef = ref;
+      testTarget = { ...destination, credentialRef: ref };
+    }
+    try {
+      return await this.bridge.invoke('destinations:test', { destination: testTarget });
+    } finally {
+      if (temporaryRef) {
+        try {
+          await this.bridge.invoke('credentials:remove', { ref: temporaryRef });
+        } catch (cause) {
+          this.toast('error', `Could not remove the temporary credential: ${messageOf(cause)}`);
+        }
+      }
+    }
+  };
 
   readonly saveSettings = async (patch: Partial<AppSettings>): Promise<void> => {
     const settings = await this.bridge.invoke('settings:set', patch);
