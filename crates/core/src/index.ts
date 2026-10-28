@@ -129,3 +129,28 @@ export function resizeRgba(
 ): Promise<RgbaImage> {
   return loadCore().resizeRgba(rgba, width, height, options);
 }
+
+export interface EncodeJpegOptions {
+  /** 1..=100. */
+  quality: number;
+  /** `'444'` keeps full-resolution chroma, `'420'` halves it in both directions. */
+  chroma: '444' | '420';
+  /** Embed the sRGB ICC profile (compact v2, CC0). */
+  iccSrgb: boolean;
+  /** Progressive scan order. Default false (baseline). */
+  progressive?: boolean;
+}
+
+/**
+ * Encodes RGBA pixels (alpha ignored) as a JPEG. The file contains JFIF (with no
+ * thumbnail), the sRGB ICC profile when `iccSrgb` is set, and nothing else: no
+ * EXIF, XMP, IPTC or embedded preview.
+ */
+export function encodeJpeg(
+  rgba: Uint8Array,
+  width: number,
+  height: number,
+  options: EncodeJpegOptions,
+): Promise<Buffer> {
+  return loadCore().encodeJpeg(rgba, width, height, options);
+}

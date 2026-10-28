@@ -1,6 +1,6 @@
 import sharp from 'sharp';
 import { describe, expect, it } from 'vitest';
-import { decodeJpeg, resizeRgba } from '../src/index';
+import { decodeJpeg, encodeJpeg, resizeRgba } from '../src/index';
 
 /**
  * Smooth asymmetric RGBA test image: red grows to the right, green downwards,
@@ -129,5 +129,108 @@ describe('resizeRgba', () => {
   it('rejects a buffer that does not match the size', async () => {
     await expect(resizeRgba(new Uint8Array(10), 4, 4, { maxEdge: 2 })).rejects.toThrow(/RGBA/);
     await expect(resizeRgba(new Uint8Array(64), 4, 4, { maxEdge: 0 })).rejects.toThrow(/maxEdge/);
+  });
+});
+
+/** Marker segments of a JPEG up to and including SOS, as `[marker, payload]`. */
+function segments(jpeg: Uint8Array): [number, Buffer][] {
+  const data = Buffer.from(jpeg.buffer, jpeg.byteOffset, jpeg.byteLength);
+  expect(data.readUInt16BE(0)).toBe(0xffd8);
+  const out: [number, Buffer][] = [];
+  let at = 2;
+  for (;;) {
+    expect(data[at]).toBe(0xff);
+    const marker = data[at + 1]!;
+    const length = data.readUInt16BE(at + 2);
+    out.push([marker, data.subarray(at + 4, at + 2 + length)]);
+    at += 2 + length;
+    if (marker === 0xda) return out;
+  }
+}
+
+describe('encodeJpeg', () => {
+  const width = 160;
+  const height = 120;
+  const source = pattern(width, height);
+
+  it('round-trips with low error', async () => {
+    const jpeg = await encodeJpeg(source, width, height, {
+      quality: 95,
+      chroma: '444',
+      iccSrgb: true,
+    });
+    const back = await decodeJpeg(jpeg);
+    expect([back.width, back.height]).toEqual([width, height]);
+    expect(meanAbsError(back.rgba, source)).toBeLessThan(1.5);
+  });
+
+  it('is readable by sharp with the requested chroma subsampling', async () => {
+    for (const chroma of ['444', '420'] as const) {
+      const jpeg = await encodeJpeg(source, width, height, { quality: 90, chroma, iccSrgb: false });
+      const meta = await sharp(jpeg).metadata();
+      expect(meta.format).toBe('jpeg');
+      expect(meta.chromaSubsampling).toBe(chroma === '444' ? '4:4:4' : '4:2:0');
+      expect(meta.isProgressive).toBe(false);
+    }
+  });
+
+  it('embeds the sRGB profile only when asked', async () => {
+    const withIcc = await encodeJpeg(source, width, height, {
+      quality: 90,
+      chroma: '420',
+      iccSrgb: true,
+    });
+    const without = await encodeJpeg(source, width, height, {
+      quality: 90,
+      chroma: '420',
+      iccSrgb: false,
+    });
+    const meta = await sharp(withIcc).metadata();
+    expect(meta.icc).toBeDefined();
+    expect(meta.icc!.subarray(12, 16).toString('latin1')).toBe('mntr');
+    expect((await sharp(without).metadata()).icc).toBeUndefined();
+    expect(withIcc.length).toBeGreaterThan(without.length);
+  });
+
+  it('writes nothing but JFIF (no thumbnail) and ICC', async () => {
+    for (const iccSrgb of [false, true]) {
+      const jpeg = await encodeJpeg(source, width, height, { quality: 85, chroma: '420', iccSrgb });
+      const apps = segments(jpeg).filter(([m]) => m >= 0xe0 && m <= 0xef);
+      expect(apps.map(([m]) => m)).toEqual(iccSrgb ? [0xe0, 0xe2] : [0xe0]);
+      const [, jfif] = apps[0]!;
+      expect(jfif.subarray(0, 5).toString('latin1')).toBe('JFIF\0');
+      expect([jfif[12], jfif[13]]).toEqual([0, 0]);
+      if (iccSrgb) expect(apps[1]![1].subarray(0, 12).toString('latin1')).toBe('ICC_PROFILE\0');
+    }
+  });
+
+  it('can write progressive JPEGs on request', async () => {
+    const jpeg = await encodeJpeg(source, width, height, {
+      quality: 85,
+      chroma: '420',
+      iccSrgb: false,
+      progressive: true,
+    });
+    expect((await sharp(jpeg).metadata()).isProgressive).toBe(true);
+  });
+
+  it('higher quality gives a larger file', async () => {
+    const encode = (quality: number) =>
+      encodeJpeg(source, width, height, { quality, chroma: '444', iccSrgb: false });
+    expect((await encode(95)).length).toBeGreaterThan((await encode(40)).length);
+  });
+
+  it('rejects bad arguments', async () => {
+    const ok = { quality: 90, chroma: '444', iccSrgb: false } as const;
+    await expect(encodeJpeg(new Uint8Array(10), 4, 4, ok)).rejects.toThrow(/RGBA/);
+    await expect(encodeJpeg(source, width, height, { ...ok, quality: 0 })).rejects.toThrow(
+      /quality/,
+    );
+    await expect(encodeJpeg(source, width, height, { ...ok, quality: 101 })).rejects.toThrow(
+      /quality/,
+    );
+    await expect(
+      encodeJpeg(source, width, height, { ...ok, chroma: '422' as '444' }),
+    ).rejects.toThrow(/chroma/);
   });
 });

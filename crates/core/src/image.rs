@@ -199,25 +199,22 @@ pub fn resize_max_edge(rgba: &[u8], width: u32, height: u32, max_edge: u32) -> R
 
 /// Encodes RGBA (alpha ignored) as a baseline sequential JPEG. Output holds a
 /// JFIF header without thumbnail, optionally an ICC profile, and nothing else.
-pub fn encode_jpeg(image: &Rgba8, options: EncodeOptions) -> Result<Vec<u8>> {
+pub fn encode_jpeg(
+    rgba: &[u8],
+    width: u32,
+    height: u32,
+    options: EncodeOptions,
+) -> Result<Vec<u8>> {
     if options.quality == 0 || options.quality > 100 {
         return Err(Error::InvalidArgument("quality must be 1..=100".to_owned()));
     }
-    let too_large = || Error::TooLarge {
-        width: image.width,
-        height: image.height,
-    };
-    let width = u16::try_from(image.width).map_err(|_| too_large())?;
-    let height = u16::try_from(image.height).map_err(|_| too_large())?;
-    if width == 0
-        || height == 0
-        || image.rgba.len() != image.width as usize * image.height as usize * 4
-    {
+    let too_large = || Error::TooLarge { width, height };
+    let w16 = u16::try_from(width).map_err(|_| too_large())?;
+    let h16 = u16::try_from(height).map_err(|_| too_large())?;
+    if w16 == 0 || h16 == 0 || rgba.len() != width as usize * height as usize * 4 {
         return Err(Error::InvalidArgument(format!(
-            "{} bytes is not a {}x{} RGBA image",
-            image.rgba.len(),
-            image.width,
-            image.height
+            "{} bytes is not a {width}x{height} RGBA image",
+            rgba.len()
         )));
     }
     let mut out = Vec::new();
@@ -233,7 +230,7 @@ pub fn encode_jpeg(image: &Rgba8, options: EncodeOptions) -> Result<Vec<u8>> {
             .map_err(|e| Error::Encode(e.to_string()))?;
     }
     encoder
-        .encode(&image.rgba, width, height, ColorType::Rgba)
+        .encode(rgba, w16, h16, ColorType::Rgba)
         .map_err(|e| Error::Encode(e.to_string()))?;
     Ok(out)
 }
@@ -257,8 +254,11 @@ pub struct PreviewOptions {
 pub fn make_previews(jpeg: &[u8], options: PreviewOptions) -> Result<Previews> {
     let image = decode_jpeg(jpeg, true)?;
     let encode = |edge: u32| -> Result<Vec<u8>> {
+        let small = resize_max_edge(&image.rgba, image.width, image.height, edge)?;
         encode_jpeg(
-            &resize_max_edge(&image.rgba, image.width, image.height, edge)?,
+            &small.rgba,
+            small.width,
+            small.height,
             EncodeOptions {
                 quality: options.quality,
                 chroma: Chroma::C420,
@@ -492,7 +492,13 @@ mod tests {
     fn encode_then_decode_round_trips_with_low_error() {
         let source = pattern(120, 80);
         for (quality, chroma, limit) in [(95, Chroma::C444, 1.5), (80, Chroma::C420, 4.0)] {
-            let jpeg = encode_jpeg(&source, opts(quality, chroma, true)).unwrap();
+            let jpeg = encode_jpeg(
+                &source.rgba,
+                source.width,
+                source.height,
+                opts(quality, chroma, true),
+            )
+            .unwrap();
             let decoded = decode_jpeg(&jpeg, true).unwrap();
             let error = mean_abs_error(&source, &decoded);
             assert!(error < limit, "q{quality} {chroma:?}: error {error}");
@@ -520,7 +526,13 @@ mod tests {
     fn output_has_only_jfif_and_optionally_icc() {
         let image = pattern(64, 64);
         for icc in [false, true] {
-            let jpeg = encode_jpeg(&image, opts(90, Chroma::C444, icc)).unwrap();
+            let jpeg = encode_jpeg(
+                &image.rgba,
+                image.width,
+                image.height,
+                opts(90, Chroma::C444, icc),
+            )
+            .unwrap();
             let apps: Vec<_> = segments(&jpeg)
                 .into_iter()
                 .filter(|(m, _)| (0xe0..=0xef).contains(m))
@@ -545,7 +557,13 @@ mod tests {
     fn chroma_option_controls_subsampling_and_progressive_is_off() {
         let image = pattern(64, 64);
         for (chroma, luma_sampling) in [(Chroma::C444, 0x11), (Chroma::C420, 0x22)] {
-            let jpeg = encode_jpeg(&image, opts(90, chroma, false)).unwrap();
+            let jpeg = encode_jpeg(
+                &image.rgba,
+                image.width,
+                image.height,
+                opts(90, chroma, false),
+            )
+            .unwrap();
             let segs = segments(&jpeg);
             let (marker, sof) = segs.iter().find(|(m, _)| matches!(m, 0xc0..=0xc2)).unwrap();
             assert_eq!(*marker, 0xc0, "baseline sequential");
@@ -560,14 +578,26 @@ mod tests {
     #[test]
     fn encode_rejects_bad_input() {
         let image = pattern(8, 8);
-        assert!(encode_jpeg(&image, opts(0, Chroma::C444, false)).is_err());
-        assert!(encode_jpeg(&image, opts(101, Chroma::C444, false)).is_err());
-        let truncated = Rgba8 {
-            rgba: vec![0; 10],
-            ..image
-        };
+        assert!(
+            encode_jpeg(
+                &image.rgba,
+                image.width,
+                image.height,
+                opts(0, Chroma::C444, false)
+            )
+            .is_err()
+        );
+        assert!(
+            encode_jpeg(
+                &image.rgba,
+                image.width,
+                image.height,
+                opts(101, Chroma::C444, false)
+            )
+            .is_err()
+        );
         assert!(matches!(
-            encode_jpeg(&truncated, opts(90, Chroma::C444, false)),
+            encode_jpeg(&[0; 10], 8, 8, opts(90, Chroma::C444, false)),
             Err(Error::InvalidArgument(_))
         ));
     }

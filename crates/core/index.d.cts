@@ -33,6 +33,23 @@ export interface DecodeLinearOptions {
   sampleType?: string
 }
 
+/**
+ * Encodes RGBA (alpha ignored) as a baseline JPEG. The file holds JFIF, the
+ * sRGB ICC profile when asked for, and no EXIF, XMP or thumbnail.
+ */
+export declare function encodeJpeg(rgba: Uint8Array, width: number, height: number, options: EncodeJpegOptions): Promise<Buffer>
+
+export interface EncodeJpegOptions {
+  /** 1..=100. */
+  quality: number
+  /** `'444'` or `'420'`. */
+  chroma: string
+  /** Embed the sRGB ICC profile. */
+  iccSrgb: boolean
+  /** Progressive scan order. Default false. */
+  progressive?: boolean
+}
+
 /** Extracts the largest embedded preview as a JPEG. */
 export declare function extractPreview(path: string): Promise<RawPreview>
 

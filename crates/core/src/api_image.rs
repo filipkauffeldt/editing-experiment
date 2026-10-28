@@ -2,6 +2,7 @@
 //! Same rules as [`crate::api`]: every function returns a Promise and runs on
 //! the libuv threadpool.
 
+use crate::error::Error;
 use crate::image::{self, Rgba8};
 use napi::bindgen_prelude::{AsyncTask, Buffer, Uint8Array};
 use napi::{Env, Task};
@@ -109,5 +110,80 @@ pub fn resize_rgba(
         width,
         height,
         max_edge: options.max_edge,
+    })
+}
+
+// --- encodeJpeg ----------------------------------------------------------------
+
+#[napi(object, js_name = "EncodeJpegOptions")]
+pub struct EncodeJpegOptions {
+    /// 1..=100.
+    pub quality: u32,
+    /// `'444'` or `'420'`.
+    pub chroma: String,
+    /// Embed the sRGB ICC profile.
+    pub icc_srgb: bool,
+    /// Progressive scan order. Default false.
+    pub progressive: Option<bool>,
+}
+
+fn parse_encode_options(options: EncodeJpegOptions) -> Result<image::EncodeOptions, String> {
+    let chroma = match options.chroma.as_str() {
+        "444" => image::Chroma::C444,
+        "420" => image::Chroma::C420,
+        other => return Err(format!("chroma must be '444' or '420', got '{other}'")),
+    };
+    let quality = u8::try_from(options.quality)
+        .ok()
+        .filter(|q| (1..=100).contains(q))
+        .ok_or_else(|| format!("quality must be 1..=100, got {}", options.quality))?;
+    Ok(image::EncodeOptions {
+        quality,
+        chroma,
+        icc_srgb: options.icc_srgb,
+        progressive: options.progressive.unwrap_or(false),
+    })
+}
+
+pub struct EncodeJpegTask {
+    rgba: Uint8Array,
+    width: u32,
+    height: u32,
+    options: Result<image::EncodeOptions, String>,
+}
+
+impl Task for EncodeJpegTask {
+    type Output = Vec<u8>;
+    type JsValue = Buffer;
+
+    fn compute(&mut self) -> napi::Result<Vec<u8>> {
+        let options = self.options.clone().map_err(Error::InvalidArgument)?;
+        Ok(image::encode_jpeg(
+            &self.rgba,
+            self.width,
+            self.height,
+            options,
+        )?)
+    }
+
+    fn resolve(&mut self, _env: Env, output: Vec<u8>) -> napi::Result<Buffer> {
+        Ok(output.into())
+    }
+}
+
+/// Encodes RGBA (alpha ignored) as a baseline JPEG. The file holds JFIF, the
+/// sRGB ICC profile when asked for, and no EXIF, XMP or thumbnail.
+#[napi(ts_return_type = "Promise<Buffer>")]
+pub fn encode_jpeg(
+    rgba: Uint8Array,
+    width: u32,
+    height: u32,
+    options: EncodeJpegOptions,
+) -> AsyncTask<EncodeJpegTask> {
+    AsyncTask::new(EncodeJpegTask {
+        rgba,
+        width,
+        height,
+        options: parse_encode_options(options),
     })
 }
