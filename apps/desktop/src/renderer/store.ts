@@ -369,6 +369,9 @@ export class AppStore {
     }
   }
 
+  /** Surface an operational message (e.g. a failed face detection) without a dialog. */
+  readonly notify = (kind: Toast['kind'], message: string): void => this.toast(kind, message);
+
   // ---------------------------------------------------------------- lifecycle
 
   readonly init = async (): Promise<void> => {

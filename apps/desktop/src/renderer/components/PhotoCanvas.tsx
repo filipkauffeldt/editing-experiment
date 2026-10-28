@@ -516,6 +516,9 @@ function CanvasForPhoto({ photo }: { photo: Photo }) {
     store.setRetouchBusy(true);
     try {
       const detections = await ee.invoke('retouch:detectFaces', { photoId: photo.id, region });
+      if (detections.length === 0) {
+        store.notify('info', 'No faces found in that area');
+      }
       const detected: RetouchFace[] = detections.map((face) => ({
         box: face.box,
         score: face.score,
@@ -523,7 +526,9 @@ function CanvasForPhoto({ photo }: { photo: Photo }) {
       }));
       store.setRetouchFaces(detected);
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : String(cause));
+      const message = cause instanceof Error ? cause.message : String(cause);
+      setError(message);
+      store.notify('error', `Face detection failed: ${message}`);
     } finally {
       store.setRetouchBusy(false);
     }
