@@ -151,6 +151,26 @@ describe('cropDevelopedRgba', () => {
     expect(out).toEqual(source);
   });
 
+  it('draws a smaller output as the whole crop, not its top-left corner', () => {
+    const wide = 64;
+    const gradient = new Uint8Array(wide * wide * 4);
+    for (let i = 0; i < wide * wide; i++) {
+      gradient[i * 4] = (i % wide) * 4;
+      gradient[i * 4 + 1] = Math.floor(i / wide) * 4;
+      gradient[i * 4 + 3] = 255;
+    }
+    const out = cropDevelopedRgba(gradient, { width: wide, height: wide }, full, {
+      width: 16,
+      height: 16,
+    });
+    // Output pixel x covers source columns 4x..4x+3, whose average is 4 * (4x + 1.5).
+    for (const x of [0, 7, 15]) {
+      expect(out[x * 4]).toBeCloseTo(4 * (4 * x + 1.5), -0.5);
+      expect(out[(x * 16 + x) * 4 + 1]).toBeCloseTo(4 * (4 * x + 1.5), -0.5);
+    }
+    expect(out[15 * 4]).toBeGreaterThan(200);
+  });
+
   it('samples the crop centre even when rotated', () => {
     const crop: CropParams = { left: 0.1, top: 0.1, right: 0.9, bottom: 0.9, angle: 5 };
     const out = cropDevelopedRgba(source, { width, height }, crop);

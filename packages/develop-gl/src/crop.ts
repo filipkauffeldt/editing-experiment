@@ -533,6 +533,9 @@ export function sanitizeCrop(crop: CropParams, maxAngle = 45): CropParams {
   };
 }
 
+/** Most samples per axis averaged for one output pixel when a crop is drawn smaller than its own size. */
+const MAX_CROP_TAPS = 8;
+
 /**
  * Crops and rotates an already-developed (sRGB 8-bit RGBA) buffer with the
  * same bilinear sampling as the shader. Used by the export path so a mosaic
@@ -557,28 +560,51 @@ export function cropDevelopedRgba(
     );
   }
   const out = new Uint8Array(width * height * 4);
+  // `output` may differ from the crop's own pixel size (a thumbnail): scale the
+  // sample positions to match, and average a few taps per pixel when shrinking
+  // so the result is not aliased. At the natural size both are exactly 1.
+  const natural = cropOutputPixels(crop, image);
+  const exact = width === natural.width && height === natural.height;
+  const size = cropOutputSize(crop, image);
+  const scaleX = exact ? 1 : size.width / width;
+  const scaleY = exact ? 1 : size.height / height;
+  const tapsX = Math.min(MAX_CROP_TAPS, Math.max(1, Math.ceil(scaleX)));
+  const tapsY = Math.min(MAX_CROP_TAPS, Math.max(1, Math.ceil(scaleY)));
+  const sum = [0, 0, 0, 0];
   for (let y = 0; y < height; y++) {
     for (let x = 0; x < width; x++) {
-      const point = croppedToSourcePixels(crop, image, { x: x + 0.5, y: y + 0.5 });
-      const fx = point.x - 0.5;
-      const fy = point.y - 0.5;
-      const x0 = Math.floor(fx);
-      const y0 = Math.floor(fy);
-      const wx = fx - x0;
-      const wy = fy - y0;
-      const xa = clamp(x0, 0, image.width - 1);
-      const xb = clamp(x0 + 1, 0, image.width - 1);
-      const ya = clamp(y0, 0, image.height - 1);
-      const yb = clamp(y0 + 1, 0, image.height - 1);
+      sum.fill(0);
+      for (let ty = 0; ty < tapsY; ty++) {
+        for (let tx = 0; tx < tapsX; tx++) {
+          const point = croppedToSourcePixels(crop, image, {
+            x: (x + (tx + 0.5) / tapsX) * scaleX,
+            y: (y + (ty + 0.5) / tapsY) * scaleY,
+          });
+          const fx = point.x - 0.5;
+          const fy = point.y - 0.5;
+          const x0 = Math.floor(fx);
+          const y0 = Math.floor(fy);
+          const wx = fx - x0;
+          const wy = fy - y0;
+          const xa = clamp(x0, 0, image.width - 1);
+          const xb = clamp(x0 + 1, 0, image.width - 1);
+          const ya = clamp(y0, 0, image.height - 1);
+          const yb = clamp(y0 + 1, 0, image.height - 1);
+          for (let channel = 0; channel < 4; channel++) {
+            const top =
+              (source[(ya * image.width + xa) * 4 + channel] ?? 0) * (1 - wx) +
+              (source[(ya * image.width + xb) * 4 + channel] ?? 0) * wx;
+            const bottom =
+              (source[(yb * image.width + xa) * 4 + channel] ?? 0) * (1 - wx) +
+              (source[(yb * image.width + xb) * 4 + channel] ?? 0) * wx;
+            sum[channel]! += top * (1 - wy) + bottom * wy;
+          }
+        }
+      }
       const o = (y * width + x) * 4;
+      const taps = tapsX * tapsY;
       for (let channel = 0; channel < 4; channel++) {
-        const top =
-          (source[(ya * image.width + xa) * 4 + channel] ?? 0) * (1 - wx) +
-          (source[(ya * image.width + xb) * 4 + channel] ?? 0) * wx;
-        const bottom =
-          (source[(yb * image.width + xa) * 4 + channel] ?? 0) * (1 - wx) +
-          (source[(yb * image.width + xb) * 4 + channel] ?? 0) * wx;
-        out[o + channel] = Math.round(top * (1 - wy) + bottom * wy);
+        out[o + channel] = Math.round(sum[channel]! / taps);
       }
     }
   }
