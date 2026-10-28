@@ -208,6 +208,61 @@ describe('crop mode', () => {
     });
   });
 
+  it('resets the angle by double-clicking the slider', async () => {
+    const { store } = await renderApp();
+    fireEvent.keyDown(window, { key: 'c' });
+    await waitFor(() => expect(store.getState().crop).toBeDefined());
+    const slider = screen.getByLabelText('Straighten angle');
+    fireEvent.change(slider, { target: { value: '7.5' } });
+    expect(store.getState().crop?.crop.angle).toBeCloseTo(7.5, 9);
+    fireEvent.doubleClick(slider);
+    expect(store.getState().crop?.crop.angle).toBe(0);
+  });
+
+  it('switches tools and overlays with R, A and O, and resets with Ctrl+Alt+R', async () => {
+    const { store } = await renderApp();
+    fireEvent.keyDown(window, { key: 'c' });
+    await waitFor(() => expect(store.getState().crop).toBeDefined());
+
+    fireEvent.keyDown(window, { key: 'r' });
+    expect(store.getState().crop?.tool).toBe('draw');
+    expect(store.getState().retouch).toBeUndefined();
+    fireEvent.keyDown(window, { key: 'r' });
+    expect(store.getState().crop?.tool).toBe('crop');
+    fireEvent.keyDown(window, { key: 'a' });
+    expect(store.getState().crop?.tool).toBe('straighten');
+
+    fireEvent.keyDown(window, { key: 'o' });
+    expect(store.getState().crop?.overlay).toBe('grid');
+    expect(screen.getByTestId('crop-overlay').getAttribute('data-guide')).toBe('grid');
+
+    store.setCropAngle(12);
+    fireEvent.keyDown(window, { key: 'r', code: 'KeyR', ctrlKey: true, altKey: true });
+    expect(store.getState().crop?.crop.angle).toBe(0);
+    expect(store.getState().crop?.tool).toBe('crop');
+    // Still in crop mode: reset does not leave it.
+    expect(store.getState().crop).toBeDefined();
+  });
+
+  it('applies on Enter and on a double-click inside the frame', async () => {
+    const { store } = await renderApp();
+    fireEvent.keyDown(window, { key: 'c' });
+    await waitFor(() => expect(store.getState().crop).toBeDefined());
+    store.setCropAngle(4);
+    fireEvent.keyDown(window, { key: 'Enter' });
+    expect(store.getState().crop).toBeUndefined();
+
+    fireEvent.keyDown(window, { key: 'c' });
+    await waitFor(() => expect(store.getState().crop).toBeDefined());
+    const overlay = await screen.findByTestId('crop-overlay');
+    const [left = 0, top = 0, width = 0, height = 0] = (overlay.getAttribute('data-frame') ?? '')
+      .split(',')
+      .map(Number);
+    // jsdom has no layout: the overlay's box is at 0,0, so frame coordinates are client coordinates.
+    fireEvent.doubleClick(overlay, { clientX: left + width / 2, clientY: top + height / 2 });
+    expect(store.getState().crop).toBeUndefined();
+  });
+
   it('cancels with Escape without saving a crop', async () => {
     const { store, fake } = await renderApp();
     fireEvent.keyDown(window, { key: 'c' });

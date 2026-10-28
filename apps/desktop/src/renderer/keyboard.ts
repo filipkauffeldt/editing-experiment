@@ -76,6 +76,12 @@ export function useKeyboardShortcuts(store: AppStore): void {
         store.applyCrop();
         return;
       }
+      // Ctrl/Cmd+Alt+R resets the crop. `code`, because Option+R types another character on macOS.
+      if (state.crop && command && event.altKey && event.code === 'KeyR') {
+        event.preventDefault();
+        store.resetCrop();
+        return;
+      }
       // Single-key shortcuts never fire with a command modifier, during IME
       // composition, or for the synthetic keydown an IME emits on commit.
       if (event.ctrlKey || event.metaKey || event.altKey) return;
@@ -105,7 +111,21 @@ export function useKeyboardShortcuts(store: AppStore): void {
         case 'r':
         case 'R':
           event.preventDefault();
-          store.toggleRetouch();
+          // In crop mode R is Lightroom's crop frame tool; retouch is off limits there.
+          if (state.crop) store.toggleCropTool('draw');
+          else store.toggleRetouch();
+          break;
+        case 'a':
+        case 'A':
+          if (!state.crop) break;
+          event.preventDefault();
+          store.toggleCropTool('straighten');
+          break;
+        case 'o':
+        case 'O':
+          if (!state.crop) break;
+          event.preventDefault();
+          store.cycleCropOverlay();
           break;
         case 'c':
         case 'C':
