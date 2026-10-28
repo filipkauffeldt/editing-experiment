@@ -28,7 +28,8 @@
   display: block;
   width: 100%;
   height: 100%;
-  object-fit: cover;
+  /* The whole edited thumbnail: a crop keeps its own shape instead of being re-cropped to 3:2. */
+  object-fit: contain;
   opacity: 0.92;
 }
 

@@ -1,4 +1,4 @@
-import { appUrl, type Photo } from '@ee/contracts';
+import { appUrl, type Photo, type PhotoId } from '@ee/contracts';
 import { useEffect, useRef, useState } from 'react';
 import { useAppState, useAppStore } from '../store-context';
 import {
@@ -143,6 +143,17 @@ export function FilmStrip({ photos }: { photos: Photo[] }) {
   const start = Math.max(0, Math.floor(scrollLeft / STEP) - OVERSCAN);
   const end = Math.min(photos.length, Math.ceil((scrollLeft + viewportWidth) / STEP) + OVERSCAN);
 
+  // Photos edited before ingest (or whose cache was lost) only show the camera
+  // preview until their edited thumbnail is drawn; ask for the visible ones.
+  const staleVisible = photos
+    .slice(start, end)
+    .filter((photo) => photo.status.edited && photo.previewStale)
+    .map((photo) => photo.id)
+    .join(',');
+  useEffect(() => {
+    if (staleVisible) store.ensureEditedPreviews(staleVisible.split(',') as PhotoId[]);
+  }, [store, staleVisible]);
+
   if (photos.length === 0) {
     return <div className={styles.empty}>No photos match the current filters.</div>;
   }
@@ -176,7 +187,11 @@ export function FilmStrip({ photos }: { photos: Photo[] }) {
               }}
               onClick={() => store.select(photo.id)}
             >
-              <img src={appUrl.thumb(photo.id)} alt={photo.fileName} draggable={false} />
+              <img
+                src={appUrl.thumb(photo.id, photo.previewRevision)}
+                alt={photo.fileName}
+                draggable={false}
+              />
               <PhotoBadges photo={photo} />
             </button>
           );

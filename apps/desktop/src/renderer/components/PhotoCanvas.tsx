@@ -611,7 +611,11 @@ function CanvasForPhoto({ photo }: { photo: Photo }) {
         {previewSource !== 'none' && (
           <img
             className={styles.image}
-            src={previewSource === 'thumb' ? appUrl.thumb(photo.id) : appUrl.preview(photo.id)}
+            src={
+              previewSource === 'thumb'
+                ? appUrl.thumb(photo.id, image.previewRevision)
+                : appUrl.preview(photo.id, image.previewRevision)
+            }
             alt={photo.fileName}
             draggable={false}
             data-testid="preview-image"
