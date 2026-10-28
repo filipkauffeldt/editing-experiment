@@ -292,7 +292,10 @@ function SourcesSection() {
     }
     setBusy(true);
     try {
-      const result = await store.testSource(source);
+      const secret: CredentialSecret | undefined = form.password
+        ? { password: form.password }
+        : undefined;
+      const result = await store.testSource(source, secret);
       setStatus(result.ok ? (result.message ?? 'Connection OK') : (result.message ?? 'Failed'));
       setError(result.ok ? undefined : result.message);
     } catch (cause) {
@@ -680,7 +683,10 @@ function DestinationsSection() {
       return;
     }
     try {
-      const result = await store.testDestination(destination);
+      const secret: CredentialSecret | undefined = form.password
+        ? { password: form.password }
+        : undefined;
+      const result = await store.testDestination(destination, secret);
       setStatus(result.message ?? (result.ok ? 'Connection OK' : 'Connection failed'));
       setError(result.ok ? undefined : result.message);
     } catch (cause) {
