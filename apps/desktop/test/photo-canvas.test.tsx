@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { AppStoreProvider } from '../src/renderer/store-context';
 import { PhotoCanvas } from '../src/renderer/components/PhotoCanvas';
 import { activePhoto, createAppStore, type AppStore } from '../src/renderer/store';
-import { createFakeBridge } from './fake-bridge';
+import { createFakeBridge, type FakeBridge } from './fake-bridge';
 
 const renderer = vi.hoisted(() => ({
   setImage: vi.fn(),
@@ -54,6 +54,7 @@ const linearResponse = (): Response =>
 
 describe('PhotoCanvas preview', () => {
   let store: AppStore;
+  let fake: FakeBridge;
 
   beforeEach(async () => {
     vi.stubGlobal('WebGL2RenderingContext', class {});
@@ -64,7 +65,14 @@ describe('PhotoCanvas preview', () => {
     vi.stubGlobal('cancelAnimationFrame', () => {});
     vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockImplementation(((type: string) =>
       type === '2d' ? { clearRect: vi.fn(), putImageData: vi.fn() } : null) as never);
-    const fake = createFakeBridge();
+    fake = createFakeBridge({
+      handlers: {
+        'retouch:detectFaces': async () => {
+          throw new Error('detector offline');
+        },
+      },
+    });
+    window.eeTransport = fake.transport;
     store = createAppStore(fake.bridge);
     await store.init();
   });
@@ -104,6 +112,63 @@ describe('PhotoCanvas preview', () => {
       expect(screen.getByTestId('develop-canvas').getAttribute('data-visible')).toBe('true'),
     );
     expect(preview.getAttribute('data-visible')).toBe('false');
+  });
+
+  it('shows a toast when face detection fails', async () => {
+    const photo = activePhoto(store.getState());
+    if (!photo) throw new Error('no selection');
+    const pending = pendingLinear();
+    render(
+      <AppStoreProvider store={store}>
+        <PhotoCanvas photo={photo} />
+      </AppStoreProvider>,
+    );
+
+    const preview = await screen.findByTestId('preview-image');
+    fireEvent.load(preview);
+    await act(async () => {
+      pending.resolve(linearResponse());
+      await Promise.resolve();
+    });
+    await waitFor(() =>
+      expect(screen.getByTestId('develop-canvas').getAttribute('data-visible')).toBe('true'),
+    );
+    act(() => {
+      store.toggleRetouch();
+      store.setRetouchTool('faces');
+    });
+    const overlay = await screen.findByTestId('retouch-overlay');
+    vi.spyOn(overlay, 'getBoundingClientRect').mockReturnValue({
+      x: 0,
+      y: 0,
+      width: 400,
+      height: 300,
+      top: 0,
+      right: 400,
+      bottom: 300,
+      left: 0,
+      toJSON: () => ({}),
+    });
+    Object.assign(overlay, {
+      setPointerCapture: vi.fn(),
+      releasePointerCapture: vi.fn(),
+      hasPointerCapture: () => false,
+    });
+    fireEvent.pointerDown(overlay, { clientX: 10, clientY: 200, pointerId: 1, button: 0 });
+    fireEvent.pointerMove(overlay, { clientX: 390, clientY: 290, pointerId: 1 });
+    fireEvent.pointerUp(overlay, { clientX: 390, clientY: 290, pointerId: 1, button: 0 });
+
+    await waitFor(() =>
+      expect(
+        store
+          .getState()
+          .toasts.some(
+            (toast) =>
+              toast.kind === 'error' &&
+              toast.message.includes('Face detection failed: detector offline'),
+          ),
+      ).toBe(true),
+    );
   });
 
   it('falls back to the thumbnail when the preview is not cached', async () => {
