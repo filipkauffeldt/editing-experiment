@@ -12,7 +12,7 @@ import { mkdir, rename, rm, stat, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { AppBackendResponse } from '../../shared/jobs-protocol';
 import type { PhotoLibrary } from './photo-library';
-import type { PreviewCache, PreviewKind } from './previews';
+import { SAFE_PHOTO_ID, type PreviewCache, type PreviewKind } from './previews';
 
 const text = (status: number, body: string): AppBackendResponse => ({
   status,
@@ -75,7 +75,15 @@ export class AppResources {
     }
     if (url.protocol !== `${APP_PROTOCOL}:`) return text(400, 'not an app:// URL');
     const kind = url.hostname;
-    const photoId = asPhotoId(decodeURIComponent(url.pathname.replace(/^\//, '')));
+    let rawId: string;
+    try {
+      rawId = decodeURIComponent(url.pathname.replace(/^\//, ''));
+    } catch {
+      return text(400, 'malformed photo id');
+    }
+    // Checked before the id reaches any file path: `..%2F`, `%5C`, absolute paths.
+    if (!SAFE_PHOTO_ID.test(rawId)) return text(400, 'invalid photo id');
+    const photoId = asPhotoId(rawId);
 
     if (kind === 'thumb' || kind === 'preview') return this.cachedJpeg(kind, photoId);
     if (kind === 'linear') return this.linear(photoId, url.searchParams.get('maxEdge'));

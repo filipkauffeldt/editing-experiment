@@ -12,6 +12,12 @@ export const THUMB_MAX_EDGE = 320;
 const PREVIEW_QUALITY = 85;
 const THUMB_QUALITY = 80;
 
+/**
+ * Photo ids are UUIDs minted at ingest. Anything else (separators, `..`, absolute
+ * paths) must never reach the file system.
+ */
+export const SAFE_PHOTO_ID = /^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/;
+
 export type PreviewKind = 'thumb' | 'preview';
 
 /**
@@ -55,6 +61,7 @@ export class PreviewCache {
   ) {}
 
   pathFor(kind: PreviewKind, photoId: PhotoId): string {
+    if (!SAFE_PHOTO_ID.test(photoId)) throw new Error(`unsafe photo id "${photoId}"`);
     return join(kind === 'thumb' ? this.thumbDir : this.previewDir, `${photoId}.jpg`);
   }
 
