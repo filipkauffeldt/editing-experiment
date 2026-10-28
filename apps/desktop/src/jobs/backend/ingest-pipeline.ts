@@ -164,7 +164,7 @@ export function createOnFileIngested(
     }
 
     const sidecarPath = raw ? sidecarPathFor(info.path) : info.path;
-    const labels = await readPhotoLabels(info.path, exiftool).catch(() => ({
+    const labels = await readPhotoLabels(info.path, { service: exiftool }).catch(() => ({
       tagged: false,
       colorClass: 0,
     }));
