@@ -370,8 +370,10 @@ export function createMockHandlers(world: MockWorld, emit: Emit): Partial<IpcHan
       const photo = findPhoto(photoId);
       photo.status.export = 'done';
       emitPhoto(world, emit, photo);
+      const fileName = photo.fileName.replace(/\.(nef|jpg|jpeg)$/i, '.jpg');
       return {
-        path: `/mock/outbox/${photo.fileName.replace(/\.(nef|jpg|jpeg)$/i, '.jpg')}`,
+        path: `/mock/outbox/${fileName}`,
+        fileName,
         uploads: [],
       };
     },

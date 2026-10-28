@@ -219,7 +219,8 @@ export function createFakeBridge(
     'export:photo': async (...args) => {
       const { photoId } = args[0] as { photoId: PhotoId };
       const photo = findPhoto(photoId);
-      return { path: `/mock/outbox/${photo.fileName.replace(/\.NEF$/, '.jpg')}`, uploads: [] };
+      const fileName = photo.fileName.replace(/\.NEF$/, '.jpg');
+      return { path: `/mock/outbox/${fileName}`, fileName, uploads: [] };
     },
     'settings:get': async () => settings,
     'settings:set': async (...args) => {
