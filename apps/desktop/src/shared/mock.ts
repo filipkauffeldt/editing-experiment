@@ -213,7 +213,7 @@ export function mockEditParams(n: number): EditParams {
 export function mockTemplate(): IptcFields {
   return {
     headline: 'Manchester City v Liverpool — Premier League',
-    caption: '\\t1\\ {event} at the {location}.',
+    caption: '=t1= {event} at the {location}.',
     keywords: ['football', 'premier league', 'manchester city', 'liverpool'],
     byline: 'Alex Morgan',
     bylineTitle: 'Staff Photographer',
@@ -312,7 +312,7 @@ export function mockUploads(): UploadItem[] {
 }
 
 /**
- * Expand Photo Mechanic code replacements (`\t1\`) and `{variables}` the way
+ * Expand Photo Mechanic code replacements (`=t1=`) and `{variables}` the way
  * the metadata service will. Unknown codes stay verbatim and are reported so
  * the caption editor can show them inline.
  */
@@ -345,7 +345,7 @@ export function expandMockCaption(
   };
   const unresolved: string[] = [];
   const expanded = text
-    .replace(/\\([A-Za-z0-9_]+)\\/g, (match, name: string) => {
+    .replace(/=([A-Za-z0-9_]+)=/g, (match, name: string) => {
       const value = codes[name];
       if (value === undefined) {
         unresolved.push(match);

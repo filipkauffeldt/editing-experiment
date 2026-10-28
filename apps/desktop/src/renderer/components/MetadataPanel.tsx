@@ -24,7 +24,7 @@ const SECTIONS: { title: string; fields: FieldSpec[] }[] = [
         name: 'caption',
         label: 'Caption',
         multiline: true,
-        placeholder: '\\code\\ and {variables} are expanded on blur',
+        placeholder: '=code= and {variables} are expanded on blur',
       },
       { name: 'keywords', label: 'Keywords' },
       { name: 'objectName', label: 'Object name' },
