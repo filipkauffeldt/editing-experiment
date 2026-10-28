@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useState } from 'react';
 import styles from './App.module.css';
 import { BottomBar } from './components/BottomBar';
 import { DevelopPanel } from './components/DevelopPanel';
@@ -10,7 +10,7 @@ import { StatusBar } from './components/StatusBar';
 import { Toasts } from './components/Toasts';
 import { ee } from './ee';
 import { useKeyboardShortcuts } from './keyboard';
-import { activePhoto, createAppStore, selectVisiblePhotos, type AppStore } from './store';
+import { activePhoto, createAppStore, type AppStore } from './store';
 import { AppStoreProvider, useAppState, useAppStore } from './store-context';
 
 function Shell() {
@@ -18,11 +18,9 @@ function Shell() {
   const state = useAppState();
   useKeyboardShortcuts(store);
 
-  const photos = useMemo(
-    () => selectVisiblePhotos(state),
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- only these slices affect the result
-    [state.photos, state.flags, state.filter, state.sort],
-  );
+  // The store memoises the filtered/sorted ids, so upload and metadata events
+  // re-render the strip without sorting 2 000 photos again.
+  const photos = store.getVisiblePhotos();
   const selected = activePhoto(state);
 
   return (
@@ -44,7 +42,9 @@ export function App({ store: provided }: { store?: AppStore } = {}) {
 
   useEffect(() => {
     void store.init();
-    return () => store.dispose();
+    return () => {
+      void store.dispose();
+    };
   }, [store]);
 
   return (
