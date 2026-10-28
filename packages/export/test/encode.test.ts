@@ -5,7 +5,7 @@ import sharp from 'sharp';
 import { ExifTool } from 'exiftool-vendored';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { ExportPreset } from '@ee/contracts';
-import { encodeJpeg } from '../src/index';
+import { assertNoEmbeddedPreviews, encodeJpeg } from '../src/index';
 import { testImage } from './helpers/images';
 
 const preset = (quality: number, maxEdge?: number): ExportPreset => ({
@@ -59,6 +59,18 @@ describe('encodeJpeg', () => {
     expect(String(highTags.YCbCrSubSampling)).toContain('4:4:4');
     expect(String(lowTags.YCbCrSubSampling)).toContain('4:2:0');
     expect(String(highTags.ProfileDescription ?? highTags.ICCProfileName)).toContain('sRGB');
+  });
+
+  it('writes no thumbnail or other preview, at any quality or size', async () => {
+    for (const [quality, maxEdge] of [
+      [95, undefined],
+      [80, 400],
+    ] as const) {
+      const encoded = await encodeJpeg(testImage(800, 600), preset(quality, maxEdge));
+      const file = path.join(dir, `clean-${quality}.jpg`);
+      await writeFile(file, encoded.data);
+      await assertNoEmbeddedPreviews(file);
+    }
   });
 
   it('higher quality produces a larger file', async () => {

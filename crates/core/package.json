@@ -2,7 +2,7 @@
   "name": "@ee/core",
   "version": "0.0.0",
   "private": true,
-  "description": "Rust native core (napi-rs): raw decode, previews. Node loader for the compiled addon.",
+  "description": "Rust native core (napi-rs): raw decode, previews, JPEG decode/resize/encode. Node loader for the compiled addon.",
   "license": "GPL-3.0-or-later",
   "type": "module",
   "exports": {
@@ -22,6 +22,7 @@
     "@ee/contracts": "workspace:*"
   },
   "devDependencies": {
-    "@napi-rs/cli": "3.10.9"
+    "@napi-rs/cli": "3.10.9",
+    "sharp": "0.35.5"
   }
 }

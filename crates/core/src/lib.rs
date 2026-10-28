@@ -2,9 +2,11 @@
 //! vendored LibRaw, exposed to Node via napi-rs.
 
 pub mod api;
+pub mod api_image;
 pub mod decode;
 pub mod error;
 pub mod ffi;
+pub mod image;
 pub mod info;
 pub mod libraw;
 pub mod orient;

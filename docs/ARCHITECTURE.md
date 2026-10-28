@@ -19,11 +19,11 @@
 
 ```
 apps/desktop          Electron app (electron-vite): main, preload, renderer (React)
-crates/core           Rust napi-rs addon: vendored LibRaw, previews, raw decode
+crates/core           Rust napi-rs addon: vendored LibRaw, previews, raw decode, JPEG decode/resize/encode
 packages/contracts    Shared TS types + IPC channel definitions (no runtime deps)
 packages/metadata     ExifTool service, PM templates, code replacements, variables, sidecars
 packages/ingest       Sources (folder/card, FTP/SFTP poller), copy workers, rename, verify
-packages/export       JPEG encode (sharp), thumbnail stripping, upload queue (FTP/FTPS/SFTP)
+packages/export       JPEG encode (@ee/core), thumbnail stripping, upload queue (FTP/FTPS/SFTP)
 packages/develop-gl   WebGL2 develop pipeline, crs: parameter model, LR preset parser
 packages/retouch      Selections, mosaic op, YuNet face detection (onnxruntime)
 scripts/              fetch-fixtures, screenshot helpers
@@ -82,6 +82,18 @@ Key types (names are binding, fields can grow):
 - `export:photo` sends the full-resolution RGBA render over IPC. That is fine for
   the PoC (about 180 MB for a 45 MP Z9 frame) but a known cost to optimise later
   (e.g. MessagePort transfer or a shared temp file).
+
+## Image ops (no sharp)
+
+`sharp` (libvips) ships its own glib, which clashes with the glib/GTK that Electron
+loads on Linux and segfaults the jobs process. App code therefore never imports it
+(ESLint enforces this for `packages/*/src` and `crates/core/src`; tests may use it as
+a devDependency). Image work goes through `@ee/core`, which is pure Rust (`zune-jpeg`,
+`fast_image_resize`, `jpeg-encoder`): `decodeJpeg` (EXIF orientation applied),
+`resizeRgba` (Lanczos3 on sRGB-encoded values, not gamma-correct, never upscales),
+`encodeJpeg` (4:4:4 or 4:2:0, optional compact sRGB ICC, JFIF only otherwise) and
+`makePreviews` (decode once, thumbnail and preview). Input is JPEG only; TIFF and PNG
+are not decoded.
 
 ## Metadata conventions
 

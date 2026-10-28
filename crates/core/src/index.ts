@@ -89,3 +89,90 @@ export async function decodeLinear(
   }
   return { header: { ...header, sampleType }, data };
 }
+
+/** 8-bit RGBA pixels, row-major, straight alpha: `rgba` is `width * height * 4` bytes. */
+export type RgbaImage = Native.NativeRgbaImage;
+
+export interface DecodeJpegOptions {
+  /** Return the pixels as stored instead of applying the EXIF orientation. Default false. */
+  skipOrientation?: boolean;
+}
+
+/**
+ * Decodes a JPEG to RGBA. The EXIF orientation is applied, so the result is
+ * upright (width and height swap for orientations 5..8) unless `skipOrientation`
+ * is set. Grayscale and YCbCr JPEGs are supported, CMYK is not.
+ */
+export function decodeJpeg(jpeg: Uint8Array, options: DecodeJpegOptions = {}): Promise<RgbaImage> {
+  return loadCore().decodeJpeg(jpeg, options);
+}
+
+export interface ResizeRgbaOptions {
+  /** Longest edge of the result in pixels. Never upscales. */
+  maxEdge: number;
+}
+
+/**
+ * Downscales RGBA pixels with Lanczos3 so the longest edge is at most `maxEdge`,
+ * keeping the aspect ratio (the shorter edge is rounded, minimum 1). An image
+ * that already fits is returned unchanged.
+ *
+ * Resampling works on the sRGB-encoded values directly, not in linear light:
+ * that is what browsers and most photo tools do for previews and exports, and
+ * it is about twice as fast. Alpha is resampled like a colour channel (no
+ * premultiplication): fine for the opaque photos and renders we handle.
+ */
+export function resizeRgba(
+  rgba: Uint8Array,
+  width: number,
+  height: number,
+  options: ResizeRgbaOptions,
+): Promise<RgbaImage> {
+  return loadCore().resizeRgba(rgba, width, height, options);
+}
+
+export interface EncodeJpegOptions {
+  /** 1..=100. */
+  quality: number;
+  /** `'444'` keeps full-resolution chroma, `'420'` halves it in both directions. */
+  chroma: '444' | '420';
+  /** Embed the sRGB ICC profile (compact v2, CC0). */
+  iccSrgb: boolean;
+  /** Progressive scan order. Default false (baseline). */
+  progressive?: boolean;
+}
+
+/**
+ * Encodes RGBA pixels (alpha ignored) as a JPEG. The file contains JFIF (with no
+ * thumbnail), the sRGB ICC profile when `iccSrgb` is set, and nothing else: no
+ * EXIF, XMP, IPTC or embedded preview.
+ */
+export function encodeJpeg(
+  rgba: Uint8Array,
+  width: number,
+  height: number,
+  options: EncodeJpegOptions,
+): Promise<Buffer> {
+  return loadCore().encodeJpeg(rgba, width, height, options);
+}
+
+export interface MakePreviewsOptions {
+  /** Longest edge of the thumbnail. */
+  thumbEdge: number;
+  /** Longest edge of the preview. */
+  previewEdge: number;
+  /** JPEG quality 1..=100 for both. */
+  quality: number;
+}
+
+/**
+ * Decodes a JPEG once, applies its EXIF orientation, and returns an upright
+ * thumbnail and preview as JPEGs (4:2:0, sRGB profile, no EXIF). Neither is
+ * upscaled, so a source smaller than an edge comes back at its own size.
+ */
+export function makePreviews(
+  jpeg: Uint8Array,
+  options: MakePreviewsOptions,
+): Promise<Native.NativePreviews> {
+  return loadCore().makePreviews(jpeg, options);
+}
