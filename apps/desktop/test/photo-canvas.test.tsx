@@ -1,4 +1,5 @@
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import type * as DevelopGl from '@ee/develop-gl';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { AppStoreProvider } from '../src/renderer/store-context';
 import { PhotoCanvas } from '../src/renderer/components/PhotoCanvas';
@@ -14,7 +15,9 @@ const renderer = vi.hoisted(() => ({
   dispose: vi.fn(),
 }));
 
-vi.mock('@ee/develop-gl', () => ({
+vi.mock('@ee/develop-gl', async (importOriginal) => ({
+  // The crop maths is real: the crop session in the store needs it.
+  ...(await importOriginal<typeof DevelopGl>()),
   createDevelopRenderer: () => renderer,
   grainSeedFromId: () => 0,
 }));
@@ -170,6 +173,48 @@ describe('PhotoCanvas preview', () => {
           ),
       ).toBe(true),
     );
+  });
+
+  it('busts the browser cache with the preview revision', async () => {
+    const photo = activePhoto(store.getState());
+    if (!photo) throw new Error('no selection');
+    act(() => fake.emit('photos:updated', { ...photo, previewRevision: 3 }));
+    pendingLinear();
+    render(
+      <AppStoreProvider store={store}>
+        <PhotoCanvas photo={photo} />
+      </AppStoreProvider>,
+    );
+    expect((await screen.findByTestId('preview-image')).getAttribute('src')).toBe(
+      `app://preview/${photo.id}?v=3`,
+    );
+  });
+
+  it('shows no cached image under a retouch or crop session: it is of the edited photo, not the uncropped one', async () => {
+    const photo = activePhoto(store.getState());
+    if (!photo) throw new Error('no selection');
+    pendingLinear();
+    const { rerender } = render(
+      <AppStoreProvider store={store}>
+        <PhotoCanvas photo={photo} />
+      </AppStoreProvider>,
+    );
+    await screen.findByTestId('preview-image');
+
+    act(() => store.toggleRetouch());
+    expect(screen.queryByTestId('preview-image')).toBeNull();
+    act(() => store.exitRetouch());
+    expect(screen.getByTestId('preview-image')).toBeTruthy();
+
+    act(() => store.toggleCrop());
+    rerender(
+      <AppStoreProvider store={store}>
+        <PhotoCanvas photo={photo} />
+      </AppStoreProvider>,
+    );
+    expect(screen.queryByTestId('preview-image')).toBeNull();
+    act(() => store.cancelCrop());
+    expect(screen.getByTestId('preview-image')).toBeTruthy();
   });
 
   it('falls back to the thumbnail when the preview is not cached', async () => {
