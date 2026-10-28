@@ -7,6 +7,7 @@
   "type": "module",
   "exports": {
     ".": "./src/index.ts",
+    "./crop": "./src/crop.ts",
     "./preset": "./src/preset/index.ts",
     "./react": "./src/react.ts"
   },

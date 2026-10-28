@@ -1,7 +1,7 @@
 import type { Photo } from '@ee/contracts';
 import { useAppState, useAppStore } from '../store-context';
 import { PhotoCanvas } from './PhotoCanvas';
-import { PenIcon, StackIcon } from './icons';
+import { CropIcon, PenIcon, StackIcon } from './icons';
 import styles from './PhotoView.module.css';
 
 interface PhotoViewProps {
@@ -14,6 +14,7 @@ export function PhotoView({ className, photo }: PhotoViewProps) {
   const store = useAppStore();
   const state = useAppState();
   const retouching = photo !== undefined && state.retouch?.photoId === photo.id;
+  const cropping = photo !== undefined && state.crop?.photoId === photo.id;
   return (
     <main className={`${styles.view} ${className ?? ''}`} data-testid="photo-view">
       <div className={styles.canvasArea}>
@@ -31,10 +32,21 @@ export function PhotoView({ className, photo }: PhotoViewProps) {
             <span className={styles.detail}>{photo.captureTime?.replace('T', ' ') ?? ''}</span>
             <button
               type="button"
+              className={`${styles.retouch} ${cropping ? styles.retouchActive : ''}`}
+              onClick={() => store.toggleCrop()}
+              title="Crop and straighten (C)"
+              data-testid="toggle-crop"
+              disabled={retouching || !photo.width || !photo.height}
+            >
+              <CropIcon size={11} /> {cropping ? 'Apply crop' : 'Crop'}
+            </button>
+            <button
+              type="button"
               className={`${styles.retouch} ${retouching ? styles.retouchActive : ''}`}
               onClick={() => store.toggleRetouch()}
               title="Retouch mode (R)"
               data-testid="toggle-retouch"
+              disabled={cropping}
             >
               {photo.versions.some((version) => version.kind === 'retouch') ? (
                 <StackIcon size={11} />

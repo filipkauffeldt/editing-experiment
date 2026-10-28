@@ -61,6 +61,13 @@ export interface Photo {
   /** Pixel size of the oriented full-resolution image, once known. */
   width?: number;
   height?: number;
+  /**
+   * EXIF orientation (1..8) of the original pixels, once known. `crs:Crop*`
+   * settings in the sidecar are stored in that pre-orientation space, while
+   * `EditParams.crop` and `width`/`height` are in the oriented space; the
+   * backend converts between the two.
+   */
+  orientation?: number;
   sourceId: SourceId;
   status: PhotoStatus;
   /** Photo Mechanic style tag flag, persisted in the sidecar (`photomechanic:Tagged`). */

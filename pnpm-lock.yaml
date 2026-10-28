@@ -386,6 +386,9 @@ importers:
       '@ee/contracts':
         specifier: workspace:*
         version: link:../contracts
+      '@ee/develop-gl':
+        specifier: workspace:*
+        version: link:../develop-gl
       exiftool-vendored:
         specifier: 39.0.1
         version: 39.0.1

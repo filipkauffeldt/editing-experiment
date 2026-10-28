@@ -1,9 +1,10 @@
 // Launches the built desktop app and saves PNGs.
 // Usage: pnpm screenshot [--out <dir>]
 //
-// 01-07 are the mock-data UI tour (no camera, no disk). 10-14 are a real-mode
-// run over the fetched CC0 NEF and face fixtures: developed raw, slider change,
-// retouch face detection, mosaic preview and the upload popover after export.
+// 01-09 are the mock-data UI tour (no camera, no disk), including crop mode
+// and a cropped result. 10-16 are a real-mode run over the fetched CC0 NEF and
+// face fixtures: developed raw, slider change, crop, retouch face detection,
+// mosaic preview and the upload popover after export.
 import { _electron as electron, type ElectronApplication, type Page } from '@playwright/test';
 import { spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, copyFileSync } from 'node:fs';
@@ -94,6 +95,22 @@ async function runMock(outDir: string): Promise<void> {
         'true',
     );
     await shoot('02-film-strip-badges.png', '[data-testid="film-strip"]');
+
+    // Crop mode: full image dimmed outside a 1:1 crop with a 3 degree straighten.
+    await window.locator('[data-testid="toggle-crop"]').click();
+    await window.locator('[data-testid="crop-toolbar"]').waitFor();
+    await window.locator('[data-aspect="1:1"]').click();
+    await window.locator('input[aria-label="Straighten angle"]').evaluate((element) => {
+      const input = element as HTMLInputElement;
+      const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set;
+      setter?.call(input, '3');
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+      input.dispatchEvent(new Event('change', { bubbles: true }));
+    });
+    await shoot('08-crop-mode.png');
+    await window.locator('[data-testid="apply-crop"]').click();
+    await window.locator('[data-testid="crop-toolbar"]').waitFor({ state: 'detached' });
+    await shoot('09-cropped-result.png');
 
     // Photo 5 deliberately carries metadata that differs from the ingest template.
     await window.locator('[title^="_DSC8334.NEF"]').click();

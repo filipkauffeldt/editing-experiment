@@ -117,6 +117,48 @@ describe('white balance in presets', () => {
   });
 });
 
+describe('crop in presets', () => {
+  const preset = (
+    crop: string,
+    hasCrop = 'True',
+  ): string => `<?xpacket begin="" id="W5M0MpCehiHzreSzNTczkc9d"?>
+<x:xmpmeta xmlns:x="adobe:ns:meta/">
+  <rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
+    <rdf:Description rdf:about=""
+      xmlns:crs="http://ns.adobe.com/camera-raw-settings/1.0/"
+      crs:PresetType="Normal"
+      crs:Name="Cropped"
+      crs:Exposure2012="0.2"
+      crs:HasCrop="${hasCrop}"
+      ${crop} />
+  </rdf:RDF>
+</x:xmpmeta>`;
+
+  it('carries the crop rectangle and angle when the preset has one', () => {
+    const parsed = parsePresetXmp(
+      preset(
+        'crs:CropLeft="0.1" crs:CropTop="0.15" crs:CropRight="0.9" crs:CropBottom="0.85" crs:CropAngle="-3.5"',
+      ),
+    );
+    expect(parsed.preset.params).toEqual({
+      Exposure2012: 0.2,
+      crop: { left: 0.1, top: 0.15, right: 0.9, bottom: 0.85, angle: -3.5 },
+    });
+    expect(parsed.unsupported).toEqual([]);
+  });
+
+  it('ignores the rectangle when HasCrop is false', () => {
+    const parsed = parsePresetXmp(
+      preset(
+        'crs:CropLeft="0.1" crs:CropTop="0.15" crs:CropRight="0.9" crs:CropBottom="0.85"',
+        'False',
+      ),
+    );
+    expect(parsed.preset.params.crop).toBeUndefined();
+    expect(parsed.unsupported).toEqual([]);
+  });
+});
+
 describe('.lrtemplate preset', () => {
   const { preset, unsupported } = parsePresetLrtemplate(fixture('classic.lrtemplate'));
 

@@ -6,13 +6,20 @@ import {
   type Rect,
   type Shape,
 } from '@ee/contracts';
-import { createDevelopRenderer, type DevelopRenderer } from '@ee/develop-gl';
+import {
+  createDevelopRenderer,
+  cropDevelopedRgba,
+  cropOutputSize,
+  type DevelopRenderer,
+} from '@ee/develop-gl';
 import { applyMosaic, magicWand, simplifyPolygon } from '@ee/retouch';
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { ee } from '../ee';
 import { paramsForPhoto, topRetouchVersion, type RetouchFace, type RetouchTool } from '../store';
 import { padFaceBox } from '../retouch-geometry';
 import { useAppState, useAppStore } from '../store-context';
+import { CropOverlay } from './CropOverlay';
+import { CropToolbar } from './CropToolbar';
 import { EyeIcon, PenIcon } from './icons';
 import styles from './PhotoCanvas.module.css';
 
@@ -188,6 +195,7 @@ function CanvasForPhoto({ photo }: { photo: Photo }) {
   const state = useAppState();
   const params = paramsForPhoto(state, photo);
   const session = state.retouch?.photoId === photo.id ? state.retouch : undefined;
+  const cropSession = state.crop?.photoId === photo.id ? state.crop : undefined;
   const image = state.photos.find((candidate) => candidate.id === photo.id) ?? photo;
 
   const containerRef = useRef<HTMLDivElement>(null);
@@ -229,11 +237,28 @@ function CanvasForPhoto({ photo }: { photo: Photo }) {
     return () => observer.disconnect();
   }, []);
 
-  const imageAspect = loaded
-    ? loaded.header.sourceWidth / loaded.header.sourceHeight
-    : image.width && image.height
-      ? image.width / image.height
-      : 3 / 2;
+  const sourceWidth = loaded?.header.width ?? image.width ?? 3000;
+  const sourceHeight = loaded?.header.height ?? image.height ?? 2000;
+  const sourceAspect = sourceWidth / sourceHeight;
+  const cropOutput = params.crop
+    ? cropOutputSize(params.crop, { width: sourceWidth, height: sourceHeight })
+    : undefined;
+  // While editing a crop or a retouch, the whole uncropped image is shown so
+  // shapes and handles stay in source coordinates. Otherwise the developed
+  // preview and the stage use the crop's aspect ratio.
+  const imageAspect =
+    session !== undefined || cropSession !== undefined
+      ? sourceAspect
+      : cropOutput !== undefined && cropOutput.height > 0
+        ? cropOutput.width / cropOutput.height
+        : sourceAspect;
+  const editing = session !== undefined || cropSession !== undefined;
+  const renderParams = useMemo(() => {
+    if (!editing || params.crop === undefined) return params;
+    const next = { ...params };
+    delete next.crop;
+    return next;
+  }, [editing, params]);
   const display = fitWithin(container, imageAspect);
 
   const dpr = typeof window === 'undefined' ? 1 : window.devicePixelRatio || 1;
@@ -359,7 +384,7 @@ function CanvasForPhoto({ photo }: { photo: Photo }) {
     if (!renderer || !loaded || contextLost) return;
     try {
       renderer.setImage(loaded.header, loaded.data);
-      renderer.render(params);
+      renderer.render(renderParams);
     } catch (cause) {
       queueMicrotask(() => setError(cause instanceof Error ? cause.message : String(cause)));
     }
@@ -371,7 +396,7 @@ function CanvasForPhoto({ photo }: { photo: Photo }) {
     if (!renderer || !loaded || contextLost) return;
     const frame = requestAnimationFrame(() => {
       try {
-        renderer.render(params);
+        renderer.render(renderParams);
         setRenderVersion((version) => version + 1);
         setFirstFrame(true);
       } catch (cause) {
@@ -379,7 +404,7 @@ function CanvasForPhoto({ photo }: { photo: Photo }) {
       }
     });
     return () => cancelAnimationFrame(frame);
-  }, [renderer, loaded, contextLost, params]);
+  }, [renderer, loaded, contextLost, renderParams]);
 
   // The committed retouch version is the default view; while editing, the
   // pending shapes and enabled faces replace it.
@@ -409,23 +434,38 @@ function CanvasForPhoto({ photo }: { photo: Photo }) {
     if (!mosaic) return;
     const context = mosaic.getContext('2d');
     if (!context) return;
-    if (mosaicShapes.length === 0 || !renderer || !loaded || contextLost) {
+    if (
+      cropSession !== undefined ||
+      mosaicShapes.length === 0 ||
+      !renderer ||
+      !loaded ||
+      contextLost
+    ) {
       context.clearRect(0, 0, mosaic.width, mosaic.height);
       return;
     }
+    const op = { type: 'mosaic' as const, shapes: mosaicShapes, blockSizeRel };
     const frame = requestAnimationFrame(() => {
       try {
-        const rgba = renderer.renderToRGBA(params, {
-          width: mosaic.width,
-          height: mosaic.height,
-        });
-        applyMosaic(
-          rgba,
-          mosaic.width,
-          mosaic.height,
-          { type: 'mosaic', shapes: mosaicShapes, blockSizeRel },
-          { inPlace: true },
-        );
+        let rgba: Uint8Array;
+        if (renderParams.crop !== undefined) {
+          // Mosaic in source space, then crop/rotate, matching the export path.
+          const source = { width: loaded.header.width, height: loaded.header.height };
+          const uncropped = { ...renderParams };
+          delete uncropped.crop;
+          const sourceRgba = renderer.renderToRGBA(uncropped, source);
+          applyMosaic(sourceRgba, source.width, source.height, op, { inPlace: true });
+          rgba = cropDevelopedRgba(sourceRgba, source, renderParams.crop, {
+            width: mosaic.width,
+            height: mosaic.height,
+          });
+        } else {
+          rgba = renderer.renderToRGBA(renderParams, {
+            width: mosaic.width,
+            height: mosaic.height,
+          });
+          applyMosaic(rgba, mosaic.width, mosaic.height, op, { inPlace: true });
+        }
         context.putImageData(
           new ImageData(new Uint8ClampedArray(rgba), mosaic.width, mosaic.height),
           0,
@@ -437,7 +477,7 @@ function CanvasForPhoto({ photo }: { photo: Photo }) {
       }
     });
     return () => cancelAnimationFrame(frame);
-  }, [mosaicShapes, blockSizeRel, renderer, loaded, contextLost, params]);
+  }, [mosaicShapes, blockSizeRel, renderer, loaded, contextLost, renderParams, cropSession]);
 
   const updateDraft = (event: React.PointerEvent): void => {
     const surface = overlayRef.current;
@@ -491,7 +531,7 @@ function CanvasForPhoto({ photo }: { photo: Photo }) {
     const mosaic = mosaicRef.current;
     if (!session || !renderer || !mosaic) return;
     try {
-      const rgba = renderer.renderToRGBA(params, {
+      const rgba = renderer.renderToRGBA(renderParams, {
         width: mosaic.width,
         height: mosaic.height,
       });
@@ -564,6 +604,7 @@ function CanvasForPhoto({ photo }: { photo: Photo }) {
           height: `${Math.round(display.height)}px`,
         }}
         data-photo-id={photo.id}
+        data-mode={cropSession ? 'crop' : session ? 'retouch' : 'develop'}
       >
         {previewSource !== 'none' && (
           <img
@@ -603,6 +644,8 @@ function CanvasForPhoto({ photo }: { photo: Photo }) {
             <PenIcon size={10} /> Retouch version
           </div>
         )}
+        {cropSession && <CropOverlay session={cropSession} />}
+        {cropSession && <CropToolbar session={cropSession} />}
         {session && (
           <svg
             ref={overlayRef}

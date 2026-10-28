@@ -1,4 +1,5 @@
 import type { CropParams, EditParams, ToneCurvePoint } from '@ee/contracts';
+import { cropOrientedToStored, cropStoredToOriented } from '@ee/develop-gl/crop';
 import { MetadataError } from './errors';
 import { getExifToolService, type ExifToolService, type ExifToolTagValue } from './exiftool';
 import {
@@ -8,7 +9,7 @@ import {
   metadataTargetFor,
   sidecarPathFor,
 } from './paths';
-import { asNumber, asString, asStringList } from './values';
+import { asBoolean, asNumber, asString, asStringList } from './values';
 
 /**
  * `EditParams` ↔ Camera Raw `crs:` XMP properties.
@@ -50,7 +51,49 @@ const CROP_TAGS = {
   angle: 'XMP-crs:CropAngle',
 } as const;
 
+/** Oriented image geometry needed to convert `crs:Crop*` to/from stored pixel space. */
+export interface CropSpace {
+  /** EXIF orientation (1..8) of the stored original. */
+  orientation?: number;
+  /** Oriented image width in pixels. */
+  width?: number;
+  /** Oriented image height in pixels. */
+  height?: number;
+}
+
 const DEFAULT_PROCESS_VERSION = '11.0';
+
+function usableCropSpace(space: CropSpace | undefined): space is CropSpace & {
+  width: number;
+  height: number;
+} {
+  return (
+    space !== undefined &&
+    space.width !== undefined &&
+    space.height !== undefined &&
+    space.width > 0 &&
+    space.height > 0
+  );
+}
+
+/** Lightroom stores crop corners in the pre-orientation array; the app uses oriented coordinates. */
+function toOrientedCrop(crop: CropParams, space: CropSpace | undefined): CropParams {
+  if (!usableCropSpace(space)) return crop;
+  return cropStoredToOriented(
+    crop,
+    { width: space.width, height: space.height },
+    space.orientation ?? 1,
+  );
+}
+
+function toStoredCrop(crop: CropParams, space: CropSpace | undefined): CropParams {
+  if (!usableCropSpace(space)) return crop;
+  return cropOrientedToStored(
+    crop,
+    { width: space.width, height: space.height },
+    space.orientation ?? 1,
+  );
+}
 
 async function readTargetTags(
   path: string,
@@ -74,6 +117,7 @@ async function readTargetTags(
 export async function readEditParams(
   path: string,
   service: ExifToolService = getExifToolService(),
+  cropSpace?: CropSpace,
 ): Promise<EditParams> {
   const tags = await readTargetTags(path, service);
   if (tags === undefined) return {};
@@ -108,18 +152,27 @@ export async function readEditParams(
     if (points.length > 0) params[key] = points;
   }
 
-  const left = asNumber(tags[CROP_TAGS.left]);
-  const top = asNumber(tags[CROP_TAGS.top]);
-  const right = asNumber(tags[CROP_TAGS.right]);
-  const bottom = asNumber(tags[CROP_TAGS.bottom]);
-  if (left !== undefined && top !== undefined && right !== undefined && bottom !== undefined) {
-    params.crop = {
-      left,
-      top,
-      right,
-      bottom,
-      angle: asNumber(tags[CROP_TAGS.angle]) ?? 0,
-    };
+  // Lightroom's `crs:HasCrop` gates the rectangle: stale coordinates from a
+  // reset crop must not come back. Missing `HasCrop` is tolerated for files
+  // written by other tools, but an explicit false always wins.
+  const hasCrop = asBoolean(tags['XMP-crs:HasCrop']);
+  if (hasCrop !== false) {
+    const left = asNumber(tags[CROP_TAGS.left]);
+    const top = asNumber(tags[CROP_TAGS.top]);
+    const right = asNumber(tags[CROP_TAGS.right]);
+    const bottom = asNumber(tags[CROP_TAGS.bottom]);
+    const angle = asNumber(tags[CROP_TAGS.angle]) ?? 0;
+    if (
+      left !== undefined &&
+      top !== undefined &&
+      right !== undefined &&
+      bottom !== undefined &&
+      right > left &&
+      bottom > top &&
+      Number.isFinite(angle)
+    ) {
+      params.crop = toOrientedCrop({ left, top, right, bottom, angle }, cropSpace);
+    }
   }
 
   return params;
@@ -154,6 +207,8 @@ function parseToneCurve(raw: unknown): ToneCurvePoint[] {
 
 export interface WriteEditParamsOptions {
   service?: ExifToolService;
+  /** Oriented size and EXIF orientation of the original, to write Lightroom's stored-space crop. */
+  cropSpace?: CropSpace;
 }
 
 /**
@@ -200,7 +255,7 @@ export async function writeEditParams(
     for (const tag of Object.values(CROP_TAGS)) tags[tag] = null;
     tags['XMP-crs:HasCrop'] = null;
   } else {
-    writeCrop(tags, params.crop);
+    writeCrop(tags, toStoredCrop(params.crop, options.cropSpace));
     anySetting = true;
   }
 

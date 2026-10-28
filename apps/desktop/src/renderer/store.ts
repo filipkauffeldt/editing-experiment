@@ -1,8 +1,19 @@
-import { applyPreset as mergePreset } from '@ee/develop-gl';
+import {
+  applyPreset as mergePreset,
+  constrainCrop,
+  cropFromGeometry,
+  cropGeometry,
+  isFullCrop,
+  largestCropForAspect,
+  resizeCropFromHandle,
+  sanitizeCrop,
+  type CropHandle,
+} from '@ee/develop-gl';
 import {
   SLIDER_SPECS,
   type AppSettings,
   type CredentialSecret,
+  type CropParams,
   type Destination,
   type EditParams,
   type EditPreset,
@@ -84,6 +95,50 @@ export interface RetouchSession {
   busy: boolean;
 }
 
+/** The aspect presets in the crop toolbar. */
+export type CropAspectId = 'original' | 'free' | '3:2' | '4:3' | '16:9' | '1:1' | '4:5';
+
+export const CROP_ASPECTS: readonly { id: CropAspectId; label: string }[] = [
+  { id: 'original', label: 'Original' },
+  { id: '3:2', label: '3:2' },
+  { id: '4:3', label: '4:3' },
+  { id: '16:9', label: '16:9' },
+  { id: '1:1', label: '1:1' },
+  { id: '4:5', label: '4:5' },
+  { id: 'free', label: 'Free' },
+];
+
+const CROP_ASPECT_RATIOS: Readonly<Record<Exclude<CropAspectId, 'original' | 'free'>, number>> = {
+  '3:2': 3 / 2,
+  '4:3': 4 / 3,
+  '16:9': 16 / 9,
+  '1:1': 1,
+  '4:5': 4 / 5,
+};
+
+/** The crop editing session for one photo. Nothing is saved until Enter/apply. */
+export interface CropSession {
+  photoId: PhotoId;
+  /** Oriented, uncropped image size in pixels. */
+  image: { width: number; height: number };
+  crop: CropParams;
+  aspect: CropAspectId;
+  /** Swaps the aspect preset's orientation (X), e.g. 3:2 → 2:3. */
+  flipped: boolean;
+  tool: 'crop' | 'straighten';
+}
+
+/** Pixel aspect ratio of a crop session, or undefined for Free. */
+export function cropAspectRatio(session: CropSession): number | undefined {
+  if (session.aspect === 'free') return undefined;
+  if (session.aspect === 'original') {
+    const base = session.image.width / session.image.height;
+    return session.flipped ? 1 / base : base;
+  }
+  const base = CROP_ASPECT_RATIOS[session.aspect];
+  return session.flipped ? 1 / base : base;
+}
+
 /** Progress of "Finish & next", shown in the status bar. */
 export interface ExportProgress {
   label: string;
@@ -125,6 +180,7 @@ export interface AppState {
   templatePath?: string;
   editParams: Record<string, EditParams>;
   retouch?: RetouchSession;
+  crop?: CropSession;
   exportProgress?: ExportProgress;
   selectedId?: PhotoId;
   filter: FilterState;
@@ -585,6 +641,7 @@ export class AppStore {
 
   readonly select = (photoId: PhotoId | undefined): void => {
     if (photoId === this.state.selectedId) return;
+    if (this.state.crop && this.state.crop.photoId !== photoId) this.applyCrop();
     const session = this.state.retouch;
     if (session && session.photoId !== photoId) {
       // Never lose an unreviewed mosaic by navigating away. The commit path is
@@ -691,6 +748,9 @@ export class AppStore {
 
   /** Enter retouch mode for the selected photo; leaving saves pending shapes first. */
   readonly toggleRetouch = (): void => {
+    // Crop and retouch are mutually exclusive; the R shortcut must not sneak
+    // past the disabled button while cropping.
+    if (this.state.crop) return;
     if (this.state.retouch) {
       void this.requestExitRetouch();
       return;
@@ -867,6 +927,177 @@ export class AppStore {
       this.toast('error', `Could not delete the version: ${messageOf(cause)}`);
       this.setRetouchBusy(false);
     }
+  };
+
+  // -------------------------------------------------------------------- crop
+
+  /** Enter crop mode (C) or apply the current crop when already in it. */
+  readonly toggleCrop = (): void => {
+    if (this.state.crop) {
+      this.applyCrop();
+      return;
+    }
+    if (this.state.retouch) return;
+    const photo = activePhoto(this.state);
+    if (!photo) return;
+    // Crop geometry needs the real oriented image size; disable the mode until
+    // the index has it rather than guessing an aspect ratio.
+    if (!photo.width || !photo.height || photo.width <= 0 || photo.height <= 0) return;
+    const image = { width: photo.width, height: photo.height };
+    const params = paramsForPhoto(this.state, photo);
+    const existing = params.crop ? sanitizeCrop(params.crop) : undefined;
+    const crop = existing
+      ? constrainCrop(existing, image)
+      : largestCropForAspect(image, 0, image.width / image.height);
+    this.set({
+      crop: {
+        photoId: photo.id,
+        image,
+        crop,
+        aspect: existing ? 'free' : 'original',
+        flipped: false,
+        tool: 'crop',
+      },
+    });
+  };
+
+  private updateCrop(change: Partial<CropSession>): void {
+    if (!this.state.crop) return;
+    this.set({ crop: { ...this.state.crop, ...change } });
+  }
+
+  readonly setCropTool = (tool: CropSession['tool']): void => {
+    this.updateCrop({ tool });
+  };
+
+  /** Replace the draft crop (e.g. from a drag); constrained to the image. */
+  readonly setCropDraft = (crop: CropParams): void => {
+    const session = this.state.crop;
+    if (!session) return;
+    this.updateCrop({ crop: constrainCrop(sanitizeCrop(crop), session.image) });
+  };
+
+  readonly dragCropHandle = (handle: CropHandle, point: { x: number; y: number }): void => {
+    const session = this.state.crop;
+    if (!session) return;
+    const next = resizeCropFromHandle(
+      session.crop,
+      session.image,
+      handle,
+      { x: point.x * session.image.width, y: point.y * session.image.height },
+      cropAspectRatio(session),
+    );
+    this.updateCrop({ crop: next });
+  };
+
+  readonly setCropAngle = (angle: number): void => {
+    const session = this.state.crop;
+    if (!session) return;
+    const clamped = Math.max(-45, Math.min(45, Number.isFinite(angle) ? angle : 0));
+    const geometry = cropGeometry(session.crop, session.image);
+    this.updateCrop({
+      crop: constrainCrop(
+        cropFromGeometry(
+          geometry.centerX,
+          geometry.centerY,
+          geometry.width,
+          geometry.height,
+          clamped,
+          session.image,
+        ),
+        session.image,
+      ),
+    });
+  };
+
+  readonly setCropAspect = (aspect: CropAspectId): void => {
+    const session = this.state.crop;
+    if (!session) return;
+    if (aspect === 'free') {
+      this.updateCrop({ aspect });
+      return;
+    }
+    const base =
+      aspect === 'original'
+        ? session.image.width / session.image.height
+        : CROP_ASPECT_RATIOS[aspect];
+    const ratio = session.flipped ? 1 / base : base;
+    const geometry = cropGeometry(session.crop, session.image);
+    this.updateCrop({
+      aspect,
+      crop: largestCropForAspect(session.image, geometry.angle, ratio, {
+        x: geometry.centerX,
+        y: geometry.centerY,
+      }),
+    });
+  };
+
+  /** Swap portrait/landscape for the current aspect preset (X). */
+  readonly swapCropOrientation = (): void => {
+    const session = this.state.crop;
+    if (!session) return;
+    if (session.aspect === '1:1') return;
+    if (session.aspect === 'free') {
+      const geometry = cropGeometry(session.crop, session.image);
+      this.updateCrop({
+        crop: constrainCrop(
+          cropFromGeometry(
+            geometry.centerX,
+            geometry.centerY,
+            geometry.height,
+            geometry.width,
+            geometry.angle,
+            session.image,
+          ),
+          session.image,
+        ),
+      });
+      return;
+    }
+    const flipped = !session.flipped;
+    const base =
+      session.aspect === 'original'
+        ? session.image.width / session.image.height
+        : CROP_ASPECT_RATIOS[session.aspect];
+    const ratio = flipped ? 1 / base : base;
+    const geometry = cropGeometry(session.crop, session.image);
+    this.updateCrop({
+      flipped,
+      crop: largestCropForAspect(session.image, geometry.angle, ratio, {
+        x: geometry.centerX,
+        y: geometry.centerY,
+      }),
+    });
+  };
+
+  readonly resetCrop = (): void => {
+    const session = this.state.crop;
+    if (!session) return;
+    this.updateCrop({
+      crop: { left: 0, top: 0, right: 1, bottom: 1, angle: 0 },
+      aspect: 'original',
+      flipped: false,
+    });
+  };
+
+  /** Leave crop mode without saving. */
+  readonly cancelCrop = (): void => {
+    if (!this.state.crop) return;
+    this.set({ crop: undefined });
+  };
+
+  /** Save the draft crop into the develop parameters (develop:setParams). */
+  readonly applyCrop = (): void => {
+    const session = this.state.crop;
+    if (!session) return;
+    const crop = constrainCrop(sanitizeCrop(session.crop), session.image);
+    this.patchParams((current) => {
+      const next = { ...current };
+      if (isFullCrop(crop)) delete next.crop;
+      else next.crop = crop;
+      return next;
+    });
+    this.set({ crop: undefined });
   };
 
   // ----------------------------------------------------------------- metadata
@@ -1279,6 +1510,7 @@ export class AppStore {
     const exportedIndex = order.findIndex((candidate) => candidate.id === photo.id);
     this.finishing = true;
     try {
+      if (this.state.crop?.photoId === photo.id) this.applyCrop();
       await this.settleRetouchBeforeFinish(photo);
       // Re-read after a commit: the captured photo predates the new version.
       const latest = this.photoById.get(photo.id) ?? photo;

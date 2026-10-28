@@ -13,6 +13,33 @@ export type { DevelopRenderer, DevelopRendererOptions } from './renderer';
 export { resolveUniforms, buildCurveLut } from './params';
 export type { DevelopCamera, DevelopUniforms } from './params';
 export { TUNING } from './tuning';
+export {
+  constrainCrop,
+  cropAspect,
+  cropCorners,
+  cropDevelopedRgba,
+  cropFromGeometry,
+  cropGeometry,
+  cropOutputPixels,
+  cropOutputSize,
+  cropOrientedToStored,
+  cropStoredToOriented,
+  croppedToSource,
+  croppedToSourcePixels,
+  isFullCrop,
+  largestCropForAspect,
+  normalizeOrientation,
+  orientedToStoredPoint,
+  resizeCropFromHandle,
+  rotatePoint,
+  sanitizeCrop,
+  sourceToCropped,
+  storedSizeForOrientation,
+  storedToOrientedPoint,
+  sourceToCroppedPixels,
+  unrotatePoint,
+} from './crop';
+export type { CropGeometry, CropHandle, Point as CropPoint, Size as CropSize } from './crop';
 
 // White balance
 export {

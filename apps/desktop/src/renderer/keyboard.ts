@@ -29,6 +29,11 @@ export function useKeyboardShortcuts(store: AppStore): void {
       const command = event.ctrlKey || event.metaKey;
 
       if (event.key === 'Escape') {
+        if (state.crop && !typing && !state.dialog) {
+          event.preventDefault();
+          store.cancelCrop();
+          return;
+        }
         if (state.retouch && !typing && !state.dialog) {
           event.preventDefault();
           void store.requestExitRetouch();
@@ -66,6 +71,11 @@ export function useKeyboardShortcuts(store: AppStore): void {
       }
 
       if (typing) return;
+      if (state.crop && event.key === 'Enter') {
+        event.preventDefault();
+        store.applyCrop();
+        return;
+      }
       // Single-key shortcuts never fire with a command modifier, during IME
       // composition, or for the synthetic keydown an IME emits on commit.
       if (event.ctrlKey || event.metaKey || event.altKey) return;
@@ -96,6 +106,17 @@ export function useKeyboardShortcuts(store: AppStore): void {
         case 'R':
           event.preventDefault();
           store.toggleRetouch();
+          break;
+        case 'c':
+        case 'C':
+          event.preventDefault();
+          store.toggleCrop();
+          break;
+        case 'x':
+        case 'X':
+          if (!state.crop) break;
+          event.preventDefault();
+          store.swapCropOrientation();
           break;
         default:
           if (/^[0-8]$/.test(event.key)) {

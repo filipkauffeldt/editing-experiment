@@ -7,6 +7,7 @@ import {
   type RenderedImage,
   type RetouchOp,
 } from '@ee/contracts';
+import { cropOutputPixels } from '@ee/develop-gl';
 import {
   renderDevelopRgba,
   type DevelopWorkerRequest,
@@ -43,6 +44,31 @@ async function fetchLinear(
     throw new Error('the full-resolution image has an unexpected size');
   }
   return { header, data };
+}
+
+export interface OutputSize {
+  width: number;
+  height: number;
+}
+
+/**
+ * Size of the "Finish & next" render. Full-resolution export must be the
+ * source size, and the linear fetch is deliberately made without `maxEdge`;
+ * a downscaled header here would silently export a preview-sized file.
+ */
+export function fullResolutionOutput(header: LinearImageHeader, params: EditParams): OutputSize {
+  const source = { width: header.sourceWidth, height: header.sourceHeight };
+  if (!(source.width > 0) || !(source.height > 0)) {
+    throw new Error(
+      `the full-resolution image has no source size (${source.width}x${source.height})`,
+    );
+  }
+  if (header.width !== source.width || header.height !== source.height) {
+    throw new Error(
+      `expected a full-resolution linear image (${source.width}x${source.height}), got ${header.width}x${header.height}`,
+    );
+  }
+  return params.crop ? cropOutputPixels(params.crop, source) : source;
 }
 
 const workerTimeoutMs = 120_000;
@@ -113,13 +139,14 @@ export async function renderFullResolution({
   ops,
   onProgress,
 }: FullResolutionRenderRequest): Promise<RenderedImage> {
+  // No `maxEdge`: export is always at the source resolution, and the crop's
+  // pixel size is derived from that source size.
   const { header, data } = await fetchLinear(photo.id, { onProgress });
-  const width = header.sourceWidth > 0 ? header.sourceWidth : header.width;
-  const height = header.sourceHeight > 0 ? header.sourceHeight : header.height;
+  const output = fullResolutionOutput(header, params);
   onProgress?.({ label: 'Rendering full resolution…', percent: 20 });
 
   try {
-    const rendered = await renderInWorker(header, data, params, ops, width, height);
+    const rendered = await renderInWorker(header, data, params, ops, output.width, output.height);
     onProgress?.({ label: 'Rendering full resolution…', percent: 90 });
     return rendered;
   } catch {
@@ -135,8 +162,8 @@ export async function renderFullResolution({
       data: fallbackData,
       params,
       ops,
-      width,
-      height,
+      width: output.width,
+      height: output.height,
     });
     onProgress?.({ label: 'Rendering full resolution…', percent: 90 });
     await yieldToUi();

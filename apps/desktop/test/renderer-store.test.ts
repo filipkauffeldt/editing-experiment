@@ -7,6 +7,7 @@ import {
   type SourceConfig,
 } from '@ee/contracts';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { cropAspect } from '@ee/develop-gl';
 import { createFakeBridge, type FakeBridge } from './fake-bridge';
 import type { AppStore } from '../src/renderer/store';
 import type { FullResolutionRenderRequest } from '../src/renderer/export-render';
@@ -297,6 +298,124 @@ describe('settings', () => {
     const infos = await store.startIngest(ingest);
     expect(infos).toHaveLength(store.getState().sources.length);
     expect(fake.calls.some((call) => call.channel === 'ingest:start')).toBe(true);
+  });
+});
+
+describe('crop editing', () => {
+  it('edits a draft crop and saves it through develop:setParams', async () => {
+    const { store, fake } = await setup();
+    const photo = activePhoto(store.getState());
+    if (!photo) throw new Error('no selection');
+    const image = { width: photo.width ?? 0, height: photo.height ?? 0 };
+
+    store.toggleCrop();
+    const initial = store.getState().crop;
+    expect(initial?.crop).toMatchObject({ left: 0, top: 0, right: 1, bottom: 1, angle: 0 });
+    expect(initial?.aspect).toBe('original');
+
+    store.setCropAspect('1:1');
+    const square = store.getState().crop;
+    if (!square) throw new Error('no crop session');
+    expect(cropAspect(square.crop, image)).toBeCloseTo(1, 6);
+
+    store.setCropAngle(3);
+    expect(store.getState().crop?.crop.angle).toBeCloseTo(3, 9);
+
+    const before = store.getState().crop?.crop;
+    store.dragCropHandle('se', { x: 0.75, y: 0.75 });
+    expect(store.getState().crop?.crop).not.toEqual(before);
+
+    store.applyCrop();
+    expect(store.getState().crop).toBeUndefined();
+    const params = paramsForPhoto(store.getState(), photo);
+    expect(params.crop?.angle).toBeCloseTo(3, 9);
+    expect(cropAspect(params.crop!, image)).toBeCloseTo(1, 3);
+
+    await vi.waitFor(() => {
+      const writes = fake.calls.filter((call) => call.channel === 'develop:setParams');
+      const last = writes.at(-1)?.args[0] as { params: { crop?: { angle: number } } } | undefined;
+      expect(last?.params.crop?.angle).toBeCloseTo(3, 9);
+    });
+  });
+
+  it('discards on cancel and restores the full frame on reset', async () => {
+    const { store } = await setup();
+    store.toggleCrop();
+    store.setCropAspect('1:1');
+    store.setCropAngle(10);
+    store.cancelCrop();
+    expect(store.getState().crop).toBeUndefined();
+    expect(paramsForPhoto(store.getState(), activePhoto(store.getState())).crop).toBeUndefined();
+
+    store.toggleCrop();
+    store.setCropAspect('1:1');
+    store.resetCrop();
+    const session = store.getState().crop;
+    expect(session?.aspect).toBe('original');
+    expect(session?.crop).toEqual({ left: 0, top: 0, right: 1, bottom: 1, angle: 0 });
+  });
+
+  it('swaps portrait and landscape with X', async () => {
+    const { store } = await setup();
+    store.toggleCrop();
+    const photo = activePhoto(store.getState());
+    if (!photo) throw new Error('no selection');
+    const image = { width: photo.width ?? 0, height: photo.height ?? 0 };
+    store.setCropAspect('3:2');
+    const landscape = cropAspect(store.getState().crop!.crop, image);
+    store.swapCropOrientation();
+    const portrait = cropAspect(store.getState().crop!.crop, image);
+    expect(portrait).toBeCloseTo(1 / landscape, 6);
+    expect(store.getState().crop?.flipped).toBe(true);
+  });
+
+  it('does not start retouch while cropping', async () => {
+    const { store } = await setup();
+    store.toggleCrop();
+    expect(store.getState().crop).toBeDefined();
+    store.toggleRetouch();
+    expect(store.getState().retouch).toBeUndefined();
+    expect(store.getState().crop).toBeDefined();
+  });
+
+  it('does not start cropping without the oriented image size', async () => {
+    const base = mockPhotos()[0];
+    if (!base) throw new Error('no mock photo');
+    const photos: Photo[] = [{ ...base, width: undefined, height: undefined }];
+    const { store } = await setup({ photos });
+    store.toggleCrop();
+    expect(store.getState().crop).toBeUndefined();
+  });
+
+  it('uses portrait dimensions instead of a landscape fallback', async () => {
+    const base = mockPhotos()[0];
+    if (!base) throw new Error('no mock photo');
+    const photos: Photo[] = [{ ...base, width: 4000, height: 6000 }];
+    const { store } = await setup({ photos });
+    store.toggleCrop();
+    const session = store.getState().crop;
+    expect(session?.image).toEqual({ width: 4000, height: 6000 });
+    store.setCropAspect('3:2');
+    const portrait = store.getState().crop;
+    if (!portrait) throw new Error('no crop session');
+    expect(cropAspect(portrait.crop, portrait.image)).toBeCloseTo(3 / 2, 6);
+    expect(portrait.image.height).toBeGreaterThan(portrait.image.width);
+  });
+
+  it('applies the draft crop before Finish & next', async () => {
+    const renders: FullResolutionRenderRequest[] = [];
+    const { store, fake } = await setup({}, async (request) => {
+      renders.push(request);
+      return { width: 1, height: 1, rgba: new Uint8Array(4) };
+    });
+    store.toggleCrop();
+    store.setCropAspect('1:1');
+    store.setCropAngle(-4);
+    await store.finishAndNext();
+
+    expect(renders[0]?.params.crop?.angle).toBeCloseTo(-4, 9);
+    const channels = fake.calls.map((call) => call.channel);
+    expect(channels.indexOf('develop:setParams')).toBeLessThan(channels.indexOf('export:photo'));
   });
 });
 

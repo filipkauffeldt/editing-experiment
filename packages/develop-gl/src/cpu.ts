@@ -1,4 +1,5 @@
 import type { EditParams, LinearImageHeader } from '@ee/contracts';
+import { cropGeometry, cropOutputSize } from './crop';
 import { toFloat32Samples, type LinearImageBuffer } from './image';
 import {
   clipHighlights,
@@ -79,17 +80,30 @@ export function renderCpuFloat(
   const u = resolveUniforms(header, params);
   const { width: sw, height: sh } = header;
   const out = new Float32Array(size.width * size.height * 4);
-  const sx = sw / size.width;
-  const sy = sh / size.height;
-  const same = size.width === sw && size.height === sh;
+  // Same crop mapping as the shader: output pixel -> source point around the
+  // crop centre, then bilinear sampling (pixel centres, edge clamp).
+  const crop = params.crop;
+  const geometry =
+    crop && crop.right > crop.left && crop.bottom > crop.top
+      ? cropGeometry(crop, { width: sw, height: sh })
+      : undefined;
+  const radians = ((geometry?.angle ?? 0) * Math.PI) / 180;
+  const cos = Math.cos(radians);
+  const sin = Math.sin(radians);
+  const centerX = geometry?.centerX ?? sw / 2;
+  const centerY = geometry?.centerY ?? sh / 2;
+  const cropOutput = geometry
+    ? cropOutputSize(crop as Exclude<typeof crop, undefined>, { width: sw, height: sh })
+    : undefined;
+  const logicalWidth = cropOutput ? Math.max(1, Math.round(cropOutput.width)) : sw;
+  const logicalHeight = cropOutput ? Math.max(1, Math.round(cropOutput.height)) : sh;
+  const scaleX = logicalWidth / size.width;
+  const scaleY = logicalHeight / size.height;
+  const same = geometry === undefined && size.width === sw && size.height === sh;
 
   const px = [0, 0, 0];
   for (let y = 0; y < size.height; y++) {
-    const fy = (y + 0.5) * sy - 0.5;
-    const y0 = Math.floor(fy);
-    const wy = fy - y0;
-    const ya = Math.min(sh - 1, Math.max(0, y0));
-    const yb = Math.min(sh - 1, Math.max(0, y0 + 1));
+    const dy = (y + 0.5) * scaleY - logicalHeight / 2;
     for (let x = 0; x < size.width; x++) {
       if (same) {
         const i = (y * sw + x) * 4;
@@ -97,11 +111,19 @@ export function renderCpuFloat(
         px[1] = samples[i + 1] ?? 0;
         px[2] = samples[i + 2] ?? 0;
       } else {
-        const fx = (x + 0.5) * sx - 0.5;
+        const dx = (x + 0.5) * scaleX - logicalWidth / 2;
+        const srcX = centerX + cos * dx - sin * dy;
+        const srcY = centerY + sin * dx + cos * dy;
+        const fx = srcX - 0.5;
+        const fy = srcY - 0.5;
         const x0 = Math.floor(fx);
+        const y0 = Math.floor(fy);
         const wx = fx - x0;
+        const wy = fy - y0;
         const xa = Math.min(sw - 1, Math.max(0, x0));
         const xb = Math.min(sw - 1, Math.max(0, x0 + 1));
+        const ya = Math.min(sh - 1, Math.max(0, y0));
+        const yb = Math.min(sh - 1, Math.max(0, y0 + 1));
         for (let c = 0; c < 3; c++) {
           const top =
             (samples[(ya * sw + xa) * 4 + c] ?? 0) * (1 - wx) +

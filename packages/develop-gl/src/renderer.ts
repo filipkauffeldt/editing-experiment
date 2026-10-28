@@ -1,8 +1,9 @@
 import type { EditParams, LinearImageHeader } from '@ee/contracts';
+import { cropGeometry, cropOutputSize, type Size } from './crop';
 import { FRAGMENT_SHADER, VERTEX_SHADER } from './glsl';
 import { samplesView, type LinearImageBuffer } from './image';
 import { resolveUniforms, type DevelopUniforms } from './params';
-import { outputRectOfCore, planSourceTiles, splitRect, type Rect, type SourceTile } from './tiling';
+import { planSourceTiles, splitRect, type Rect, type SourceTile } from './tiling';
 import { TUNING } from './tuning';
 
 /** Thrown when WebGL2 is unavailable or a GL resource cannot be created. */
@@ -53,10 +54,16 @@ const UNIFORMS = [
   'u_vibrance',
   'u_saturation',
   'u_outSize',
+  'u_outScale',
+  'u_outCenter',
   'u_tileOrigin',
-  'u_scale',
+  'u_srcCenter',
+  'u_srcRot',
   'u_srcOrigin',
   'u_srcTexSize',
+  'u_srcSize',
+  'u_coreMin',
+  'u_coreMax',
   'u_flipY',
   'u_nearest',
 ] as const;
@@ -72,6 +79,70 @@ interface Resources {
 interface Source {
   header: LinearImageHeader;
   tiles: { tile: SourceTile; texture: WebGLTexture }[];
+}
+
+/** How output pixels map to the source: crop centre + clockwise straighten angle. */
+interface Mapping {
+  /** Crop centre in source pixels; the rotation pivot. */
+  center: { x: number; y: number };
+  cos: number;
+  sin: number;
+  /** Logical output size in pixels (the crop's size, not the preview buffer's). */
+  logical: Size;
+  /** True when the output is the source pixel-for-pixel (no crop, no scaling). */
+  identity: boolean;
+}
+
+function mappingFor(header: LinearImageHeader, params: EditParams, logical: Size): Mapping {
+  const image = { width: header.width, height: header.height };
+  const crop = params.crop;
+  if (
+    !crop ||
+    !Number.isFinite(crop.left) ||
+    !Number.isFinite(crop.top) ||
+    !Number.isFinite(crop.right) ||
+    !Number.isFinite(crop.bottom) ||
+    !(crop.right > crop.left) ||
+    !(crop.bottom > crop.top)
+  ) {
+    return {
+      center: { x: image.width / 2, y: image.height / 2 },
+      cos: 1,
+      sin: 0,
+      logical,
+      identity: logical.width === image.width && logical.height === image.height,
+    };
+  }
+  const geometry = cropGeometry(crop, image);
+  const radians = (geometry.angle * Math.PI) / 180;
+  return {
+    center: { x: geometry.centerX, y: geometry.centerY },
+    cos: Math.cos(radians),
+    sin: Math.sin(radians),
+    logical,
+    identity: false,
+  };
+}
+
+function cropLogicalSize(header: LinearImageHeader, params: EditParams): Size {
+  const image = { width: header.width, height: header.height };
+  const crop = params.crop;
+  if (
+    crop &&
+    Number.isFinite(crop.left) &&
+    Number.isFinite(crop.top) &&
+    Number.isFinite(crop.right) &&
+    Number.isFinite(crop.bottom) &&
+    crop.right > crop.left &&
+    crop.bottom > crop.top
+  ) {
+    const size = cropOutputSize(crop, image);
+    return {
+      width: Math.max(1, Math.round(size.width)),
+      height: Math.max(1, Math.round(size.height)),
+    };
+  }
+  return image;
 }
 
 function compile(gl: WebGL2RenderingContext, type: number, source: string): WebGLShader {
@@ -268,33 +339,49 @@ export function createDevelopRenderer(
     gl.activeTexture(gl.TEXTURE0);
   }
 
-  /** Draws one rectangle of the output from one source tile. `target` is where the pixels go, in framebuffer coordinates. */
-  function drawRect(
+  /**
+   * Draws the viewport from one source tile. Fragments whose source sample is
+   * not inside the tile's core are discarded, so the tiles partition the output
+   * even when rotation makes their output regions non-rectangular (and overlap).
+   */
+  function drawTile(
     src: Source,
     entry: Source['tiles'][number],
-    out: { width: number; height: number },
-    rect: Rect,
+    buffer: Size,
+    mapping: Mapping,
+    viewport: Rect,
+    tileOrigin: { x: number; y: number },
     flipY: boolean,
   ): void {
     const l = res.uniforms;
-    const { header } = src;
     const t = entry.tile.texture;
+    const core = entry.tile.core;
     gl.bindTexture(gl.TEXTURE_2D, entry.texture);
-    gl.uniform2f(l.u_outSize, out.width, out.height);
-    gl.uniform2f(l.u_scale, header.width / out.width, header.height / out.height);
+    gl.uniform2f(l.u_outSize, buffer.width, buffer.height);
+    gl.uniform2f(
+      l.u_outScale,
+      mapping.logical.width / buffer.width,
+      mapping.logical.height / buffer.height,
+    );
+    gl.uniform2f(l.u_outCenter, mapping.logical.width / 2, mapping.logical.height / 2);
+    gl.uniform2f(l.u_tileOrigin, tileOrigin.x, tileOrigin.y);
+    gl.uniform2f(l.u_srcCenter, mapping.center.x, mapping.center.y);
+    gl.uniform2f(l.u_srcRot, mapping.cos, mapping.sin);
     gl.uniform2f(l.u_srcOrigin, t.x, t.y);
     gl.uniform2f(l.u_srcTexSize, t.w, t.h);
+    gl.uniform2f(l.u_srcSize, src.header.width, src.header.height);
+    gl.uniform2f(l.u_coreMin, core.x, core.y);
+    gl.uniform2f(l.u_coreMax, core.x + core.w, core.y + core.h);
     gl.uniform1f(l.u_flipY, flipY ? 1 : 0);
-    gl.uniform1i(l.u_nearest, out.width === header.width && out.height === header.height ? 1 : 0);
-    if (flipY) {
-      // Canvas: window coordinates are absolute, so the viewport places the rect.
-      gl.uniform2f(l.u_tileOrigin, 0, 0);
-      gl.viewport(rect.x, out.height - rect.y - rect.h, rect.w, rect.h);
-    } else {
-      // Framebuffer: the target holds just this rect, so shift the pixel coordinates.
-      gl.uniform2f(l.u_tileOrigin, rect.x, rect.y);
-      gl.viewport(0, 0, rect.w, rect.h);
-    }
+    gl.uniform1i(
+      l.u_nearest,
+      mapping.identity &&
+        mapping.logical.width === buffer.width &&
+        mapping.logical.height === buffer.height
+        ? 1
+        : 0,
+    );
+    gl.viewport(viewport.x, viewport.y, viewport.w, viewport.h);
     gl.drawArrays(gl.TRIANGLES, 0, 3);
   }
 
@@ -330,11 +417,19 @@ export function createDevelopRenderer(
     render(params) {
       const src = requireSource();
       const out = { width: canvas.width, height: canvas.height };
+      const mapping = mappingFor(src.header, params, cropLogicalSize(src.header, params));
       setUniforms(resolveUniforms(src.header, params));
       gl.bindFramebuffer(gl.FRAMEBUFFER, null);
       for (const entry of src.tiles) {
-        const rect = outputRectOfCore(entry.tile.core, src.header, out);
-        if (rect.w > 0 && rect.h > 0) drawRect(src, entry, out, rect, true);
+        drawTile(
+          src,
+          entry,
+          out,
+          mapping,
+          { x: 0, y: 0, w: out.width, h: out.height },
+          { x: 0, y: 0 },
+          true,
+        );
       }
     },
 
@@ -346,6 +441,9 @@ export function createDevelopRenderer(
         throw new RangeError(`Invalid render size ${size.width}x${size.height}`);
       const result = new Uint8Array(width * height * 4);
       const out = { width, height };
+      // `size` is the render-target buffer; the logical space is the crop (or
+      // the full image), so other sizes resample it like the old pipeline did.
+      const mapping = mappingFor(src.header, params, cropLogicalSize(src.header, params));
 
       setUniforms(resolveUniforms(src.header, params));
 
@@ -368,19 +466,26 @@ export function createDevelopRenderer(
           throw new DevelopGlError(`Offscreen framebuffer of ${tileW}x${tileH} is incomplete`);
         }
         const scratch = new Uint8Array(tileW * tileH * 4);
-        for (const entry of src.tiles) {
-          const coreRect = outputRectOfCore(entry.tile.core, src.header, out);
-          for (const rect of splitRect(coreRect, maxOutputTile)) {
-            drawRect(src, entry, out, rect, false);
-            // Rows come back bottom-up from the framebuffer, which the shader already compensates for.
-            gl.readPixels(0, 0, rect.w, rect.h, gl.RGBA, gl.UNSIGNED_BYTE, scratch);
-            for (let row = 0; row < rect.h; row++) {
-              const from = row * rect.w * 4;
-              result.set(
-                scratch.subarray(from, from + rect.w * 4),
-                ((rect.y + row) * width + rect.x) * 4,
-              );
-            }
+        for (const rect of splitRect({ x: 0, y: 0, w: width, h: height }, maxOutputTile)) {
+          for (const entry of src.tiles) {
+            drawTile(
+              src,
+              entry,
+              out,
+              mapping,
+              { x: 0, y: 0, w: rect.w, h: rect.h },
+              { x: rect.x, y: rect.y },
+              false,
+            );
+          }
+          // Rows come back bottom-up from the framebuffer, which the shader already compensates for.
+          gl.readPixels(0, 0, rect.w, rect.h, gl.RGBA, gl.UNSIGNED_BYTE, scratch);
+          for (let row = 0; row < rect.h; row++) {
+            const from = row * rect.w * 4;
+            result.set(
+              scratch.subarray(from, from + rect.w * 4),
+              ((rect.y + row) * width + rect.x) * 4,
+            );
           }
         }
       } finally {

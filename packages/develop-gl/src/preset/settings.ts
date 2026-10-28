@@ -1,4 +1,10 @@
-import type { EditParams, EditPreset, ToneCurvePoint, WhiteBalanceMode } from '@ee/contracts';
+import type {
+  CropParams,
+  EditParams,
+  EditPreset,
+  ToneCurvePoint,
+  WhiteBalanceMode,
+} from '@ee/contracts';
 import { asPresetId, SLIDER_SPECS, type SliderParam } from '@ee/contracts';
 import { normalizeCurvePoints } from '../spline';
 
@@ -83,6 +89,54 @@ const METADATA_KEYS = new Set([
 
 const isMetadata = (key: string): boolean => METADATA_KEYS.has(key) || key.startsWith('Supports');
 
+/** `crs:` crop properties. Lightroom presets usually omit them, but they may carry a crop. */
+const CROP_KEYS = new Set([
+  'CropLeft',
+  'CropTop',
+  'CropRight',
+  'CropBottom',
+  'CropAngle',
+  'HasCrop',
+  'CropWidth',
+  'CropHeight',
+  'CropUnits',
+  'CropUnit',
+]);
+
+function scalarNumber(settings: ReadonlyMap<string, RawSetting>, key: string): number | undefined {
+  const setting = settings.get(key);
+  if (setting?.kind !== 'scalar') return undefined;
+  const value = Number(setting.value);
+  return Number.isFinite(value) ? value : undefined;
+}
+
+/**
+ * Reads a camera-raw crop if the preset has one. `HasCrop` false(ish) means
+ * "no crop" even when stale coordinates remain in the file.
+ */
+function readCrop(settings: ReadonlyMap<string, RawSetting>): CropParams | undefined {
+  const hasCrop = settings.get('HasCrop');
+  if (hasCrop?.kind === 'scalar') {
+    const value = hasCrop.value.trim().toLowerCase();
+    if (value === 'false' || value === '0' || value === 'no') return undefined;
+  }
+  const left = scalarNumber(settings, 'CropLeft');
+  const top = scalarNumber(settings, 'CropTop');
+  const right = scalarNumber(settings, 'CropRight');
+  const bottom = scalarNumber(settings, 'CropBottom');
+  if (left === undefined || top === undefined || right === undefined || bottom === undefined) {
+    return undefined;
+  }
+  if (!(right > left) || !(bottom > top)) return undefined;
+  return {
+    left,
+    top,
+    right,
+    bottom,
+    angle: scalarNumber(settings, 'CropAngle') ?? 0,
+  };
+}
+
 /** A zero, empty or "False" value changes nothing, so it is not worth reporting as unsupported. */
 function isDefaultValue(setting: RawSetting): boolean {
   if (setting.kind !== 'scalar') return false;
@@ -113,7 +167,7 @@ export function settingsToPreset(
   const unsupported: string[] = [];
 
   for (const [key, setting] of settings) {
-    if (isMetadata(key)) continue;
+    if (isMetadata(key) || CROP_KEYS.has(key)) continue;
 
     if (key === 'WhiteBalance' && setting.kind === 'scalar') {
       const mode = WHITE_BALANCE_MODES.find(
@@ -134,6 +188,9 @@ export function settingsToPreset(
       unsupported.push(key);
     }
   }
+
+  const crop = readCrop(settings);
+  if (crop) params.crop = crop;
 
   const processVersion = settings.get('ProcessVersion');
   if (processVersion?.kind === 'scalar' && processVersion.value.trim() !== '') {
