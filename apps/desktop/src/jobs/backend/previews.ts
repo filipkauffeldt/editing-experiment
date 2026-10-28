@@ -3,6 +3,7 @@ import { randomUUID } from 'node:crypto';
 import { access, mkdir, rename, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import sharp, { type Sharp } from 'sharp';
+import { trace } from './trace';
 
 /** Longest edge of the cached preview shown in the main view. */
 export const PREVIEW_MAX_EDGE = 2560;
@@ -80,11 +81,13 @@ export class PreviewCache {
       mkdir(this.thumbDir, { recursive: true }),
       mkdir(this.previewDir, { recursive: true }),
     ]);
+    trace('generate: build pipeline');
     const input =
       'file' in source
         ? sharp(source.file, { failOn: 'none' }).rotate()
         : applyOrientation(sharp(source.jpeg, { failOn: 'none' }), source.orientation);
     // sharp drops metadata unless asked to keep it, so the cached files carry none.
+    trace('generate: preview encode');
     const preview = await input
       .resize({
         width: PREVIEW_MAX_EDGE,
@@ -94,6 +97,7 @@ export class PreviewCache {
       })
       .jpeg({ quality: PREVIEW_QUALITY })
       .toBuffer();
+    trace('generate: thumb encode');
     const thumb = await sharp(preview)
       .resize({
         width: THUMB_MAX_EDGE,
@@ -103,6 +107,7 @@ export class PreviewCache {
       })
       .jpeg({ quality: THUMB_QUALITY })
       .toBuffer();
+    trace('generate: write');
     await writeAtomic(this.pathFor('preview', photoId), preview);
     await writeAtomic(this.pathFor('thumb', photoId), thumb);
   }
