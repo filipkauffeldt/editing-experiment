@@ -7,7 +7,13 @@ import {
   type SourceConfig,
 } from '@ee/contracts';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { cropAspect } from '@ee/develop-gl';
+import {
+  cropAspect,
+  cropFitsImage,
+  cropGeometry,
+  cropImageToView,
+  cropViewToImage,
+} from '@ee/develop-gl';
 import { createFakeBridge, type FakeBridge } from './fake-bridge';
 import type { AppStore } from '../src/renderer/store';
 import type { FullResolutionRenderRequest } from '../src/renderer/export-render';
@@ -322,7 +328,13 @@ describe('crop editing', () => {
     expect(store.getState().crop?.crop.angle).toBeCloseTo(3, 9);
 
     const before = store.getState().crop?.crop;
-    store.dragCropHandle('se', { x: 0.75, y: 0.75 });
+    const pivot = store.getState().crop!.pivot;
+    store.beginCropGesture(
+      { kind: 'resize', handle: 'se' },
+      { x: pivot.x + 600, y: pivot.y + 600 },
+    );
+    store.updateCropGesture({ x: pivot.x + 400, y: pivot.y + 400 });
+    store.endCropGesture();
     expect(store.getState().crop?.crop).not.toEqual(before);
 
     store.applyCrop();
@@ -821,5 +833,324 @@ describe('retouch sessions', () => {
     store.addRetouchShape(rect);
     store.exitRetouch();
     expect(store.getState().retouch).toBeUndefined();
+  });
+});
+
+describe('crop gestures', () => {
+  const PORTRAIT = { width: 4000, height: 6000 };
+
+  async function croppingSetup(size: { width: number; height: number } = PORTRAIT) {
+    const base = mockPhotos()[0];
+    if (!base) throw new Error('no mock photo');
+    const photos: Photo[] = [{ ...base, ...size }];
+    const { store } = await setup({ photos });
+    store.toggleCrop();
+    const session = () => {
+      const current = store.getState().crop;
+      if (!current) throw new Error('no crop session');
+      return current;
+    };
+    const geometry = () => cropGeometry(session().crop, session().image);
+    /** Where an image point is on screen, in view coordinates. */
+    const viewOf = (point: { x: number; y: number }) =>
+      cropImageToView(geometry(), session().pivot, point);
+    return { store, session, geometry, viewOf };
+  }
+
+  it('starts with the frame at the view centre and the image unrotated', async () => {
+    const { session } = await croppingSetup();
+    expect(session().pivot).toEqual({ x: 2000, y: 3000 });
+    expect(session().tool).toBe('crop');
+    expect(session().overlay).toBe('thirds');
+    expect(session().gesture).toBeUndefined();
+  });
+
+  it('pans the image under a fixed frame and keeps the frame inside the image', async () => {
+    const { store, session, geometry, viewOf } = await croppingSetup();
+    // Shrink the frame so there is room to pan in both directions.
+    store.setCropAspect('free');
+    const full = geometry();
+    store.beginCropGesture({ kind: 'resize', handle: 'se' }, { x: 0, y: 0 });
+    store.updateCropGesture({
+      x: session().pivot.x + full.width / 2 - 1200,
+      y: session().pivot.y + full.height / 2 - 1500,
+    });
+    store.endCropGesture();
+    const pivot = session().pivot;
+    const before = geometry();
+    const probe = { x: before.centerX + 300, y: before.centerY + 100 };
+    const probeBefore = viewOf(probe);
+
+    store.beginCropGesture({ kind: 'pan' }, { x: 100, y: 100 });
+    expect(session().gesture).toBe('pan');
+    store.updateCropGesture({ x: 40, y: 80 });
+    // The image followed the pointer by (-60, -20); the frame did not move.
+    expect(viewOf(probe).x).toBeCloseTo(probeBefore.x - 60, 6);
+    expect(viewOf(probe).y).toBeCloseTo(probeBefore.y - 20, 6);
+    expect(session().pivot).toEqual(pivot);
+    expect(geometry().width).toBeCloseTo(before.width, 9);
+
+    store.updateCropGesture({ x: 1e6, y: -1e6 });
+    store.endCropGesture();
+    expect(session().gesture).toBeUndefined();
+    expect(cropFitsImage(session().crop, session().image)).toBe(true);
+  });
+
+  it('rotates about the frame centre with the pointer and constrains to the image', async () => {
+    const { store, session, geometry } = await croppingSetup();
+    const pivot = session().pivot;
+    const centre = { x: geometry().centerX, y: geometry().centerY };
+    const fullWidth = geometry().width;
+
+    // Pointer starts right of the frame and sweeps 10 degrees clockwise.
+    const radius = 3000;
+    store.beginCropGesture({ kind: 'rotate' }, { x: pivot.x + radius, y: pivot.y });
+    expect(session().gesture).toBe('rotate');
+    const sweep = (degrees: number) => ({
+      x: pivot.x + radius * Math.cos((degrees * Math.PI) / 180),
+      y: pivot.y + radius * Math.sin((degrees * Math.PI) / 180),
+    });
+    store.updateCropGesture(sweep(10.04));
+    // Image turns with the pointer: clockwise on screen is a negative crop angle.
+    expect(session().crop.angle).toBe(-10);
+    expect(geometry().centerX).toBeCloseTo(centre.x, 6);
+    expect(geometry().centerY).toBeCloseTo(centre.y, 6);
+    expect(session().pivot).toEqual(pivot);
+    expect(cropFitsImage(session().crop, session().image)).toBe(true);
+    // Constrained to the image: the frame had to shrink.
+    expect(geometry().width).toBeLessThan(fullWidth);
+    expect(cropAspect(session().crop, session().image)).toBeCloseTo(4000 / 6000, 6);
+
+    // Dragging back restores the size instead of ratcheting down.
+    store.updateCropGesture(sweep(0));
+    expect(session().crop.angle).toBe(0);
+    expect(geometry().width).toBeCloseTo(fullWidth, 6);
+    store.endCropGesture();
+  });
+
+  it('measures the rotation from the pointer angle, with 0.1 and Shift 1 degree steps', async () => {
+    const { store, session } = await croppingSetup();
+    const pivot = session().pivot;
+    const at = (degrees: number) => ({
+      x: pivot.x + 2000 * Math.cos((degrees * Math.PI) / 180),
+      y: pivot.y - 2000 * Math.sin((degrees * Math.PI) / 180),
+    });
+    store.beginCropGesture({ kind: 'rotate' }, at(0));
+    // Counter-clockwise on screen: positive crop angle.
+    store.updateCropGesture(at(3.27));
+    expect(session().crop.angle).toBe(3.3);
+    store.updateCropGesture(at(3.27), { shift: true });
+    expect(session().crop.angle).toBe(3);
+    store.endCropGesture();
+  });
+
+  it('keeps rotating through the 180 degree seam and stops at 45', async () => {
+    const { store, session } = await croppingSetup();
+    const pivot = session().pivot;
+    store.beginCropGesture({ kind: 'rotate' }, { x: pivot.x - 100, y: pivot.y + 1 });
+    // Walk the pointer over the left side, from just below to just above the pivot.
+    for (const y of [20, 5, -5, -20]) {
+      store.updateCropGesture({ x: pivot.x - 100, y: pivot.y + y });
+    }
+    expect(Math.abs(session().crop.angle)).toBeLessThan(15);
+    store.updateCropGesture({ x: pivot.x, y: pivot.y + 100 });
+    store.updateCropGesture({ x: pivot.x + 100, y: pivot.y });
+    store.updateCropGesture({ x: pivot.x, y: pivot.y - 100 });
+    expect(Math.abs(session().crop.angle)).toBe(45);
+    store.endCropGesture();
+  });
+
+  it('resizes from a handle keeping the opposite corner and the image still on screen', async () => {
+    const { store, session, geometry, viewOf } = await croppingSetup({ width: 6000, height: 4000 });
+    store.setCropAspect('free');
+    const frame = geometry();
+    const anchor = { x: frame.centerX + frame.width / 2, y: frame.centerY + frame.height / 2 };
+    store.setCropAngle(8);
+    const rotated = geometry();
+    const probe = { x: rotated.centerX - 400, y: rotated.centerY + 250 };
+    const probeBefore = viewOf(probe);
+    const pivot = session().pivot;
+
+    store.beginCropGesture({ kind: 'resize', handle: 'nw' }, { x: 0, y: 0 });
+    store.updateCropGesture({
+      x: pivot.x - rotated.width / 2 + 500,
+      y: pivot.y - rotated.height / 2 + 300,
+    });
+    store.endCropGesture();
+
+    const after = geometry();
+    expect(after.width).toBeCloseTo(rotated.width - 500, 5);
+    expect(after.height).toBeCloseTo(rotated.height - 300, 5);
+    // The image did not move on screen, so the frame centre did.
+    expect(viewOf(probe).x).toBeCloseTo(probeBefore.x, 6);
+    expect(viewOf(probe).y).toBeCloseTo(probeBefore.y, 6);
+    expect(session().pivot.x).toBeCloseTo(pivot.x + 250, 5);
+    expect(session().pivot.y).toBeCloseTo(pivot.y + 150, 5);
+    expect(anchor.x).toBeGreaterThan(0);
+  });
+
+  it('keeps a 1:1 lock square on a corner drag and Shift toggles the lock', async () => {
+    const { store, session, geometry } = await croppingSetup({ width: 6000, height: 4000 });
+    store.setCropAspect('1:1');
+    const pivot = session().pivot;
+    const size = geometry().width;
+    const drag = { kind: 'resize', handle: 'se' } as const;
+    store.beginCropGesture(drag, { x: 0, y: 0 });
+    store.updateCropGesture({ x: pivot.x + size / 2 - 300, y: pivot.y + size / 2 - 100 });
+    expect(cropAspect(session().crop, session().image)).toBeCloseTo(1, 9);
+    // The corner reaches the pointer on the longer axis, which is y here.
+    expect(geometry().width).toBeCloseTo(size - 100, 5);
+    // Shift releases the lock for this drag only.
+    store.updateCropGesture(
+      { x: pivot.x + size / 2 - 300, y: pivot.y + size / 2 - 100 },
+      { shift: true },
+    );
+    expect(cropAspect(session().crop, session().image)).not.toBeCloseTo(1, 3);
+    expect(session().aspect).toBe('1:1');
+    store.endCropGesture();
+  });
+
+  it('locks a Free crop to its own ratio while Shift is held', async () => {
+    const { store, session } = await croppingSetup({ width: 6000, height: 4000 });
+    store.setCropAspect('free');
+    const ratio = cropAspect(session().crop, session().image);
+    const pivot = session().pivot;
+    store.beginCropGesture({ kind: 'resize', handle: 'se' }, { x: 0, y: 0 });
+    store.updateCropGesture({ x: pivot.x + 1000, y: pivot.y + 500 }, { shift: true });
+    expect(cropAspect(session().crop, session().image)).toBeCloseTo(ratio, 6);
+    store.endCropGesture();
+  });
+
+  it('resizes about the centre with Alt', async () => {
+    const { store, session, geometry } = await croppingSetup({ width: 6000, height: 4000 });
+    store.setCropAspect('free');
+    const before = geometry();
+    store.setCropAngle(0);
+    const pivot = session().pivot;
+    store.beginCropGesture({ kind: 'resize', handle: 'e' }, { x: 0, y: 0 });
+    store.updateCropGesture({ x: pivot.x + before.width / 2 - 400, y: pivot.y }, { alt: true });
+    store.endCropGesture();
+    expect(geometry().width).toBeCloseTo(before.width - 800, 5);
+    expect(geometry().centerX).toBeCloseTo(before.centerX, 6);
+    expect(session().pivot.x).toBeCloseTo(pivot.x, 6);
+  });
+
+  it('draws a new frame over the rotated image and hands back to the crop tool', async () => {
+    const { store, session, geometry } = await croppingSetup({ width: 6000, height: 4000 });
+    store.setCropAspect('free');
+    store.setCropAngle(12);
+    store.setCropTool('draw');
+    const pivot = session().pivot;
+    const anchor = { x: pivot.x - 300, y: pivot.y - 200 };
+    store.beginCropGesture({ kind: 'draw' }, anchor);
+    expect(session().gesture).toBe('draw');
+    store.updateCropGesture({ x: anchor.x + 600, y: anchor.y + 400 });
+    expect(geometry().width).toBeCloseTo(600, 6);
+    expect(geometry().height).toBeCloseTo(400, 6);
+    expect(geometry().angle).toBe(12);
+    // The new frame is centred between the two points on screen.
+    expect(session().pivot.x).toBeCloseTo(pivot.x, 6);
+    expect(session().pivot.y).toBeCloseTo(pivot.y, 6);
+    const corner = cropViewToImage(geometry(), session().pivot, { x: anchor.x, y: anchor.y });
+    expect(cropFitsImage(session().crop, session().image)).toBe(true);
+    expect(Number.isFinite(corner.x)).toBe(true);
+    store.endCropGesture();
+    expect(session().tool).toBe('crop');
+  });
+
+  it('draws with the preset ratio and ignores a plain click', async () => {
+    const { store, session, geometry } = await croppingSetup({ width: 6000, height: 4000 });
+    store.setCropAspect('16:9');
+    store.setCropAngle(0);
+    const start = { x: 2500, y: 1800 };
+    store.beginCropGesture({ kind: 'draw' }, start);
+    store.updateCropGesture({ x: start.x + 1, y: start.y + 1 });
+    const unchanged = session().crop;
+    store.updateCropGesture({ x: start.x + 960, y: start.y + 100 });
+    expect(cropAspect(session().crop, session().image)).toBeCloseTo(16 / 9, 6);
+    expect(geometry().width).toBeCloseTo(960, 5);
+    expect(session().crop).not.toEqual(unchanged);
+    store.endCropGesture();
+  });
+
+  it('does not draw from the empty corner of a rotated image', async () => {
+    const { store, session } = await croppingSetup({ width: 6000, height: 4000 });
+    store.setCropAspect('free');
+    store.setCropAngle(30);
+    store.setCropTool('draw');
+    const crop = session().crop;
+    store.beginCropGesture({ kind: 'draw' }, { x: -2900, y: -1900 });
+    store.updateCropGesture({ x: -2000, y: -1500 });
+    store.endCropGesture();
+    expect(session().crop).toEqual(crop);
+  });
+
+  it('straightens along a line drawn on the displayed image', async () => {
+    const { store, session } = await croppingSetup({ width: 6000, height: 4000 });
+    store.setCropTool('straighten');
+    store.straightenAlongLine({ x: 1000, y: 1000 }, { x: 2000, y: 1100 });
+    expect(session().crop.angle).toBe(5.7);
+    expect(session().tool).toBe('crop');
+    // The line is measured on screen, so a second pass adds to the first.
+    store.straightenAlongLine({ x: 1000, y: 1000 }, { x: 2000, y: 1100 });
+    expect(session().crop.angle).toBe(11.4);
+    // A stray click does nothing.
+    store.straightenAlongLine({ x: 1000, y: 1000 }, { x: 1001, y: 1000 });
+    expect(session().crop.angle).toBe(11.4);
+  });
+
+  it('grows the frame back when the slider returns to level', async () => {
+    const { store, session, geometry } = await croppingSetup({ width: 6000, height: 4000 });
+    const level = geometry().width;
+    store.setCropAngle(20);
+    expect(geometry().width).toBeLessThan(level);
+    store.setCropAngle(0);
+    expect(geometry().width).toBeCloseTo(level, 6);
+    // A resize makes the new size the wanted one.
+    store.setCropAngle(20);
+    store.beginCropGesture({ kind: 'resize', handle: 'e' }, { x: 0, y: 0 });
+    store.updateCropGesture({ x: session().pivot.x, y: session().pivot.y });
+    store.endCropGesture();
+    const small = geometry().width;
+    store.setCropAngle(0);
+    expect(geometry().width).toBeCloseTo(small, 6);
+  });
+
+  it('cycles the overlay and toggles tools', async () => {
+    const { store, session } = await croppingSetup();
+    const seen = [session().overlay];
+    for (let i = 0; i < 4; i++) {
+      store.cycleCropOverlay();
+      seen.push(session().overlay);
+    }
+    expect(seen).toEqual(['thirds', 'grid', 'golden', 'none', 'thirds']);
+    store.toggleCropTool('draw');
+    expect(session().tool).toBe('draw');
+    store.toggleCropTool('draw');
+    expect(session().tool).toBe('crop');
+    store.toggleCropTool('straighten');
+    expect(session().tool).toBe('straighten');
+  });
+
+  it('resets the frame, the pivot and the tool', async () => {
+    const { store, session } = await croppingSetup();
+    store.setCropAspect('1:1');
+    store.setCropAngle(12);
+    store.setCropTool('draw');
+    store.resetCrop();
+    expect(session().crop).toEqual({ left: 0, top: 0, right: 1, bottom: 1, angle: 0 });
+    expect(session().pivot).toEqual({ x: 2000, y: 3000 });
+    expect(session().tool).toBe('crop');
+  });
+
+  it('starts a session on an existing crop with the frame at the view centre of that crop', async () => {
+    const { store, session } = await croppingSetup({ width: 6000, height: 4000 });
+    store.setCropAspect('1:1');
+    store.setCropAngle(6);
+    store.applyCrop();
+    store.toggleCrop();
+    expect(session().crop.angle).toBe(6);
+    const geometry = cropGeometry(session().crop, session().image);
+    expect(session().pivot).toEqual({ x: geometry.centerX, y: geometry.centerY });
   });
 });
