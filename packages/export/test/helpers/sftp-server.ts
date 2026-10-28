@@ -36,6 +36,18 @@ interface DropState {
   count: number;
 }
 
+let cachedHostKey: string | undefined;
+
+// RSA generation costs tens of milliseconds; one key per process is enough.
+function sharedHostKey(): string {
+  cachedHostKey ??= generateKeyPairSync('rsa', {
+    modulusLength: 2048,
+    privateKeyEncoding: { type: 'pkcs1', format: 'pem' },
+    publicKeyEncoding: { type: 'pkcs1', format: 'pem' },
+  }).privateKey;
+  return cachedHostKey;
+}
+
 export async function startSftpServer(options: {
   root: string;
   username?: string;
@@ -46,11 +58,7 @@ export async function startSftpServer(options: {
   const password = options.password ?? 's3cret-sftp-pass';
   await mkdir(options.root, { recursive: true });
 
-  const { privateKey } = generateKeyPairSync('rsa', {
-    modulusLength: 2048,
-    privateKeyEncoding: { type: 'pkcs1', format: 'pem' },
-    publicKeyEncoding: { type: 'pkcs1', format: 'pem' },
-  });
+  const privateKey = sharedHostKey();
   const parsed = utils.parseKey(privateKey);
   if (parsed instanceof Error) throw parsed;
   const key = Array.isArray(parsed) ? parsed[0] : parsed;

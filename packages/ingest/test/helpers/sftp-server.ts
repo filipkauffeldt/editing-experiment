@@ -1,4 +1,4 @@
-import { createHash } from 'node:crypto';
+import { createHash, generateKeyPairSync } from 'node:crypto';
 import { mkdir, readFile, readdir, rename, rm, stat, unlink } from 'node:fs/promises';
 import type { AddressInfo } from 'node:net';
 import { posix, resolve, sep } from 'node:path';
@@ -222,10 +222,25 @@ function attachHandlers(
   });
 }
 
+let cachedHostKey: string | undefined;
+
+// ssh2's own ed25519 generator emits OpenSSH keys that its parser rejects
+// ("Malformed OpenSSH private key") for roughly 1 in 300 random keys. RSA from
+// node:crypto in PKCS#1 PEM parses every time; generate it once per process
+// since RSA generation costs tens of milliseconds.
+function sharedHostKey(): string {
+  cachedHostKey ??= generateKeyPairSync('rsa', {
+    modulusLength: 2048,
+    privateKeyEncoding: { type: 'pkcs1', format: 'pem' },
+    publicKeyEncoding: { type: 'pkcs1', format: 'pem' },
+  }).privateKey;
+  return cachedHostKey;
+}
+
 export async function startSftpServer(options: TestSftpServerOptions): Promise<TestSftpServer> {
   const username = options.username ?? 'user';
   const password = options.password ?? 'secret';
-  const hostKey = utils.generateKeyPairSync('ed25519').private;
+  const hostKey = sharedHostKey();
   const parsedHostKey = utils.parseKey(hostKey);
   if (parsedHostKey instanceof Error) {
     throw parsedHostKey;
