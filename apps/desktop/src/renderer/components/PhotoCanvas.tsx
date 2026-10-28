@@ -19,7 +19,7 @@ import { applyMosaic, magicWand, simplifyPolygon } from '@ee/retouch';
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { ee } from '../ee';
 import { paramsForPhoto, topRetouchVersion, type RetouchFace, type RetouchTool } from '../store';
-import { cropLayout, fitWithin } from '../crop-view';
+import { cropFit, cropLayout, fitWithin } from '../crop-view';
 import { padFaceBox } from '../retouch-geometry';
 import { useAppState, useAppStore } from '../store-context';
 import { CropOverlay } from './CropOverlay';
@@ -254,10 +254,12 @@ function CanvasForPhoto({ photo }: { photo: Photo }) {
     delete next.crop;
     return next;
   }, [editing, params]);
-  const display = fitWithin(container, imageAspect);
+  const cropping = cropSession !== undefined;
+  const display = cropping
+    ? cropFit(container, imageAspect).size
+    : fitWithin(container, imageAspect);
   // Crop mode draws on the whole workspace: the rotated image is bigger than
   // the unrotated fit, and the frame is dragged around it.
-  const cropping = cropSession !== undefined;
   const stage = cropping ? { width: container.width, height: container.height } : display;
 
   const dpr = typeof window === 'undefined' ? 1 : window.devicePixelRatio || 1;

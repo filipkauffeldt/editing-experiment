@@ -35,13 +35,44 @@ export interface CropLayout {
   offset: Point;
 }
 
-/** The unrotated image centred in the stage, as large as the margin allows. */
-export function cropLayout(stage: Size, image: Size): CropLayout {
-  const fit = fitWithin(stage, image.width / image.height);
+/**
+ * Room kept around the image in crop mode, in CSS pixels: the toolbar on top,
+ * the hint below, and a margin on the sides. A full-frame crop must leave a
+ * strip outside the frame to grab, because dragging outside is how you rotate.
+ */
+export interface CropInsets {
+  top: number;
+  bottom: number;
+  side: number;
+}
+
+export const CROP_INSETS: CropInsets = { top: 92, bottom: 36, side: 48 };
+
+/** The unrotated image, as large as the insets allow, centred in the space they leave. */
+export function cropFit(
+  stage: Size,
+  aspect: number,
+  insets: CropInsets = CROP_INSETS,
+): { size: Size; offset: Point } {
+  const availableWidth = Math.max(50, stage.width - insets.side * 2);
+  const availableHeight = Math.max(50, stage.height - insets.top - insets.bottom);
+  const size =
+    availableWidth / availableHeight > aspect
+      ? { width: availableHeight * aspect, height: availableHeight }
+      : { width: availableWidth, height: availableWidth / aspect };
   return {
-    scale: fit.width / image.width,
-    offset: { x: (stage.width - fit.width) / 2, y: (stage.height - fit.height) / 2 },
+    size,
+    offset: {
+      x: (stage.width - size.width) / 2,
+      y: insets.top + (availableHeight - size.height) / 2,
+    },
   };
+}
+
+/** The unrotated image placed by {@link cropFit}. */
+export function cropLayout(stage: Size, image: Size): CropLayout {
+  const fit = cropFit(stage, image.width / image.height);
+  return { scale: fit.size.width / image.width, offset: fit.offset };
 }
 
 export function viewToScreen(layout: CropLayout, point: Point): Point {

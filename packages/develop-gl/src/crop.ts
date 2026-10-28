@@ -500,6 +500,28 @@ export function straightenAngleFromLine(currentAngle: number, from: Point, to: P
   return quantizeAngle(currentAngle + slope);
 }
 
+/** True when the stored corners keep the order the sidecar needs: right > left and bottom > top. */
+export function isStorableCrop(crop: CropParams): boolean {
+  return crop.right > crop.left && crop.bottom > crop.top;
+}
+
+/**
+ * The straighten angles a `width` x `height` frame can be saved at. The two
+ * stored corners are opposite corners of the *rotated* rectangle, so tilting a
+ * wide frame far counter-clockwise (or a tall one clockwise) swaps their order
+ * and the crop could not be written. The bounds are strict, rounded inwards to
+ * the 0.1 degree the UI works in.
+ */
+export function storableAngleRange(width: number, height: number): { min: number; max: number } {
+  const tidy = (degrees: number): number =>
+    Math.min(MAX_CROP_ANGLE, Math.floor(degrees * 10 - 1e-6) / 10);
+  if (!(width > 0) || !(height > 0)) return { min: 0, max: 0 };
+  return {
+    min: -tidy(Math.atan(height / width) / DEG),
+    max: tidy(Math.atan(width / height) / DEG),
+  };
+}
+
 /**
  * Pans the image under the fixed frame: the image moves by `delta` (view
  * units) and the crop follows, clamped so the frame stays inside the image.
@@ -555,7 +577,8 @@ export function shrinkCropToImage(crop: CropParams, image: Size): CropParams {
 /**
  * Straightens the crop to `angle` about the frame centre. The frame keeps its
  * aspect ratio and shrinks just enough that the rotated image still covers it;
- * pass the size the user asked for as `desired` so the frame grows back when
+ * the angle stops where the crop could no longer be saved (see
+ * {@link storableAngleRange}). Pass the size the user asked for as `desired` so the frame grows back when
  * the angle returns (otherwise a drag back and forth would ratchet it down).
  */
 export function rotateCrop(
@@ -566,13 +589,14 @@ export function rotateCrop(
 ): CropParams {
   const geometry = cropGeometry(crop, image);
   const size = desired ?? { width: geometry.width, height: geometry.height };
+  const range = storableAngleRange(size.width, size.height);
   return shrinkCropToImage(
     cropFromGeometry(
       geometry.centerX,
       geometry.centerY,
       size.width,
       size.height,
-      quantizeAngle(angle),
+      clamp(quantizeAngle(angle), range.min, range.max) + 0,
       image,
     ),
     image,

@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import {
+  cropFit,
   cropLayout,
   cursorFor,
-  fitWithin,
   frameRect,
   guideSegments,
   hitTestFrame,
@@ -11,18 +11,29 @@ import {
 } from '../src/renderer/crop-view';
 
 describe('crop layout', () => {
-  it('fits the image into the stage minus a margin and centres it', () => {
+  it('fits the image between the insets and centres it in the space left', () => {
     const layout = cropLayout({ width: 1000, height: 800 }, { width: 6000, height: 4000 });
-    // 968 x 768 available: width limited, 3:2.
-    expect(6000 * layout.scale).toBeCloseTo(968, 6);
-    expect(layout.offset.x).toBeCloseTo(16, 6);
-    expect(layout.offset.y).toBeCloseTo((800 - 968 / 1.5) / 2, 6);
+    // 904 wide, 672 tall available: 3:2 is limited by the width.
+    expect(6000 * layout.scale).toBeCloseTo(904, 6);
+    expect(layout.offset.x).toBeCloseTo(48, 6);
+    expect(layout.offset.y).toBeCloseTo(92 + (672 - 904 / 1.5) / 2, 6);
   });
 
-  it('fits a portrait image by its height', () => {
-    const fit = fitWithin({ width: 1000, height: 800 }, 4000 / 6000);
-    expect(fit.height).toBeCloseTo(768, 6);
-    expect(fit.width).toBeCloseTo(512, 6);
+  it('fits a portrait image by its height, below the toolbar', () => {
+    const fit = cropFit({ width: 1000, height: 800 }, 4000 / 6000);
+    expect(fit.size.height).toBeCloseTo(672, 6);
+    expect(fit.size.width).toBeCloseTo(448, 6);
+    expect(fit.offset.y).toBeCloseTo(92, 6);
+  });
+
+  it('leaves a strip around a full-frame crop to grab for rotating', () => {
+    const stage = { width: 1000, height: 800 };
+    const layout = cropLayout(stage, { width: 6000, height: 4000 });
+    const frame = frameRect(layout, { x: 3000, y: 2000 }, 6000, 4000);
+    expect(frame.left).toBeGreaterThanOrEqual(40);
+    expect(stage.width - frame.right).toBeGreaterThanOrEqual(40);
+    expect(frame.top).toBeGreaterThanOrEqual(92);
+    expect(stage.height - frame.bottom).toBeGreaterThanOrEqual(36);
   });
 
   it('round-trips between view and screen', () => {

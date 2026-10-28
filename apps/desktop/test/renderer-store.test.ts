@@ -945,6 +945,39 @@ describe('crop gestures', () => {
     store.endCropGesture();
   });
 
+  it('stops rotating where the crop could no longer be saved and still saves', async () => {
+    const { store, session } = await croppingSetup({ width: 6000, height: 4000 });
+    const pivot = session().pivot;
+    // A wide frame cannot be tilted far counter-clockwise on screen... the image clockwise here.
+    store.beginCropGesture({ kind: 'rotate' }, { x: pivot.x + 2000, y: pivot.y });
+    for (const degrees of [10, 30, 50, 70, 90]) {
+      store.updateCropGesture({
+        x: pivot.x + 2000 * Math.cos((degrees * Math.PI) / 180),
+        y: pivot.y + 2000 * Math.sin((degrees * Math.PI) / 180),
+      });
+    }
+    store.endCropGesture();
+    // 3:2 frame: -atan(2/3) = -33.7 degrees.
+    expect(session().crop.angle).toBe(-33.6);
+    expect(session().crop.right).toBeGreaterThan(session().crop.left);
+    expect(session().crop.bottom).toBeGreaterThan(session().crop.top);
+    store.applyCrop();
+    expect(store.getState().crop).toBeUndefined();
+  });
+
+  it('keeps a resize from creating a shape that cannot be saved at the angle', async () => {
+    const { store, session, handleAt } = await croppingSetup({ width: 6000, height: 4000 });
+    store.setCropAspect('free');
+    store.setCropAngle(-30);
+    const pivot = session().pivot;
+    // Stretch the frame far wider than tall: at -30 degrees that cannot be written.
+    store.beginCropGesture({ kind: 'resize', handle: 'n' }, handleAt('n'));
+    store.updateCropGesture({ x: pivot.x, y: pivot.y + 1500 });
+    store.endCropGesture();
+    expect(session().crop.bottom).toBeGreaterThan(session().crop.top);
+    expect(session().crop.right).toBeGreaterThan(session().crop.left);
+  });
+
   it('measures the rotation from the pointer angle, with 0.1 and Shift 1 degree steps', async () => {
     const { store, session } = await croppingSetup();
     const pivot = session().pivot;
@@ -961,7 +994,7 @@ describe('crop gestures', () => {
     store.endCropGesture();
   });
 
-  it('keeps rotating through the 180 degree seam and stops at 45', async () => {
+  it('keeps rotating through the 180 degree seam and stops at the storable limit', async () => {
     const { store, session } = await croppingSetup();
     const pivot = session().pivot;
     store.beginCropGesture({ kind: 'rotate' }, { x: pivot.x - 100, y: pivot.y + 1 });
@@ -973,7 +1006,8 @@ describe('crop gestures', () => {
     store.updateCropGesture({ x: pivot.x, y: pivot.y + 100 });
     store.updateCropGesture({ x: pivot.x + 100, y: pivot.y });
     store.updateCropGesture({ x: pivot.x, y: pivot.y - 100 });
-    expect(Math.abs(session().crop.angle)).toBe(45);
+    // Counter-clockwise sweep, portrait 2:3 frame: atan(2/3) = 33.7 degrees is as far as it goes.
+    expect(session().crop.angle).toBe(33.6);
     store.endCropGesture();
   });
 
