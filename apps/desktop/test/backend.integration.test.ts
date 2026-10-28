@@ -34,7 +34,7 @@ interface Collected {
 
 /** Everything pushed to the renderer, in order, with a way to sleep until the next push. */
 const events: Collected[] = [];
-let wakeWaiters: (() => void)[] = [];
+const wakeWaiters: (() => void)[] = [];
 const pushEvent = (event: Collected): void => {
   events.push(event);
   for (const wake of wakeWaiters.splice(0)) wake();
