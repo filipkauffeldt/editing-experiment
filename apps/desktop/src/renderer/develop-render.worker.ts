@@ -1,6 +1,7 @@
 /// <reference lib="webworker" />
 import type { DevelopWorkerRequest, DevelopWorkerResponse } from './develop-render';
 import { renderDevelopRgba } from './develop-render';
+import { transferableBuffer } from './transfer-buffer';
 
 interface WorkerScope {
   postMessage(message: DevelopWorkerResponse, transfer?: Transferable[]): void;
@@ -23,10 +24,7 @@ scope.addEventListener('message', (event) => {
       width: request.width,
       height: request.height,
     });
-    const rgba = result.rgba.buffer.slice(
-      result.rgba.byteOffset,
-      result.rgba.byteOffset + result.rgba.byteLength,
-    ) as ArrayBuffer;
+    const rgba = transferableBuffer(result.rgba);
     scope.postMessage(
       { id: request.id, ok: true, width: result.width, height: result.height, rgba },
       [rgba],
