@@ -2,7 +2,12 @@ import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
 import { join } from 'node:path';
 import { existsSync as exists } from 'node:fs';
 import { asVersionId, type EditParams, type RetouchVersion } from '@ee/contracts';
-import { cropFromGeometry } from '@ee/develop-gl/crop';
+import {
+  cropFromGeometry,
+  cropGeometry,
+  largestCropForAspect,
+  rotateCrop,
+} from '@ee/develop-gl/crop';
 import { ExifToolService } from '../src/exiftool';
 import { readEditParams, writeEditParams } from '../src/develop';
 import { readIptc, writeIptc } from '../src/iptc';
@@ -190,6 +195,41 @@ describe('develop and retouch XMP', () => {
       expect(written.crop?.bottom, `orientation ${orientation}`).toBeCloseTo(crop.bottom, 4);
       expect(written.crop?.angle, `orientation ${orientation}`).toBeCloseTo(crop.angle, 4);
     }
+  });
+
+  it('round-trips full-frame crops straightened to +-45 degrees, landscape and portrait', async () => {
+    const dir = await makeTempDir();
+    const jpeg = join(dir, 'photo.jpg');
+    await makeJpeg(jpeg);
+    for (const image of [
+      { width: 6000, height: 4000 },
+      { width: 4000, height: 6000 },
+    ]) {
+      for (const angle of [-45, -44.9, 45, 44.9]) {
+        const crop = rotateCrop({ left: 0, top: 0, right: 1, bottom: 1, angle: 0 }, image, angle);
+        for (const orientation of [1, 6]) {
+          const cropSpace = { orientation, ...image };
+          await writeEditParams(jpeg, { crop }, { service, cropSpace });
+          const read = (await readEditParams(jpeg, service, cropSpace)).crop;
+          const label = `${image.width}x${image.height} at ${angle}, orientation ${orientation}`;
+          if (!read) throw new Error(`crop lost: ${label}`);
+          const before = cropGeometry(crop, image);
+          const after = cropGeometry(read, image);
+          expect(after.width, label).toBeCloseTo(before.width, 0);
+          expect(after.height, label).toBeCloseTo(before.height, 0);
+          expect(after.centerX, label).toBeCloseTo(before.centerX, 0);
+          expect(after.centerY, label).toBeCloseTo(before.centerY, 0);
+          expect(after.angle, label).toBeCloseTo(angle, 4);
+        }
+      }
+    }
+    // A shrunk, off-centre frame at -45 too.
+    const crop = largestCropForAspect({ width: 6000, height: 4000 }, -45, 16 / 9, {
+      x: 3000,
+      y: 2100,
+    });
+    await writeEditParams(jpeg, { crop }, { service });
+    expect((await readEditParams(jpeg, service)).crop?.angle).toBeCloseTo(-45, 4);
   });
 
   it('writes an orientation 6 crop in stored space (displayed top-left is stored bottom-left)', async () => {

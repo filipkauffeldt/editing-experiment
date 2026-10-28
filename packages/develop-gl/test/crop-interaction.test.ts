@@ -10,7 +10,7 @@ import {
   cropViewToImage,
   croppedToSourcePixels,
   drawCrop,
-  isStorableCrop,
+  isUsableCrop,
   largestCropForAspect,
   panCrop,
   pointerAngleDelta,
@@ -18,7 +18,6 @@ import {
   resizeCropFromHandle,
   rotateCrop,
   shrinkCropToImage,
-  storableAngleRange,
   straightenAngleFromLine,
 } from '../src/crop';
 
@@ -190,9 +189,7 @@ describe.each(images)('shrinkCropToImage and rotateCrop (%s)', (_name, image) =>
   it.each(angles)('matches the largest centred crop at %s degrees', (angle) => {
     const full: CropParams = { left: 0, top: 0, right: 1, bottom: 1, angle: 0 };
     const rotated = rotateCrop(full, image, angle);
-    // The full frame's shape limits how far it can tilt and still be saved.
-    const range = storableAngleRange(image.width, image.height);
-    const reached = Math.min(range.max, Math.max(range.min, quantizeAngle(angle)));
+    const reached = quantizeAngle(angle);
     const expected = largestCropForAspect(image, reached, image.width / image.height);
     const got = cropGeometry(rotated, image);
     const want = cropGeometry(expected, image);
@@ -233,9 +230,8 @@ describe.each(images)('shrinkCropToImage and rotateCrop (%s)', (_name, image) =>
 
   it('clamps to +-45 degrees and 0.1 precision', () => {
     const crop = largestCropForAspect(image, 0, 1);
-    // A square frame is the one shape that reaches (almost) +-45 either way.
-    expect(rotateCrop(crop, image, 99).angle).toBe(44.9);
-    expect(rotateCrop(crop, image, -99).angle).toBe(-44.9);
+    expect(rotateCrop(crop, image, 99).angle).toBe(45);
+    expect(rotateCrop(crop, image, -99).angle).toBe(-45);
     expect(rotateCrop(crop, image, 2.04).angle).toBe(2);
   });
 });
@@ -433,56 +429,47 @@ describe.each(images)('drawCrop (%s)', (_name, image) => {
   });
 });
 
-describe('storable angles', () => {
-  it('limits a wide frame counter-clockwise and a tall one clockwise', () => {
-    // atan(2/3) = 33.69 degrees.
-    expect(storableAngleRange(3000, 2000)).toEqual({ min: -33.6, max: 45 });
-    expect(storableAngleRange(2000, 3000)).toEqual({ min: -45, max: 33.6 });
-  });
-
-  it('keeps a square frame just inside +-45', () => {
-    expect(storableAngleRange(1000, 1000)).toEqual({ min: -44.9, max: 44.9 });
-  });
-
-  it('matches what the stored corners can express', () => {
-    for (const [width, height] of [
-      [3000, 2000],
-      [2000, 3000],
-      [1000, 1000],
-      [1600, 900],
-      [900, 1600],
-    ] as const) {
-      const range = storableAngleRange(width, height);
-      for (const angle of [range.min, range.max, 0]) {
-        const crop = cropFromGeometry(3000, 3000, width, height, angle, {
-          width: 6000,
-          height: 6000,
-        });
-        expect(isStorableCrop(crop), `${width}x${height} at ${angle}`).toBe(true);
-      }
-      for (const angle of [range.min - 0.2, range.max + 0.2]) {
-        if (Math.abs(angle) > 45) continue;
-        const crop = cropFromGeometry(3000, 3000, width, height, angle, {
-          width: 6000,
-          height: 6000,
-        });
-        expect(isStorableCrop(crop), `${width}x${height} at ${angle}`).toBe(false);
-      }
+describe('rotation to +-45 degrees', () => {
+  it.each(images)('a full frame reaches +-45 and shrinks to fit (%s)', (_name, image) => {
+    const full: CropParams = { left: 0, top: 0, right: 1, bottom: 1, angle: 0 };
+    for (const angle of [-45, 45]) {
+      const crop = rotateCrop(full, image, angle);
+      expect(crop.angle).toBe(angle);
+      expect(cropFitsImage(crop, image)).toBe(true);
+      expect(isUsableCrop(crop)).toBe(true);
+      // Largest centred frame of the image's own aspect at that angle.
+      const want = cropGeometry(largestCropForAspect(image, angle), image);
+      expect(cropGeometry(crop, image).width).toBeCloseTo(want.width, 3);
+      expect(cropGeometry(crop, image).height).toBeCloseTo(want.height, 3);
     }
   });
 
-  it.each(images)('rotateCrop never produces a crop that cannot be saved (%s)', (_name, image) => {
-    for (const aspect of [3 / 2, 2 / 3, 1, 16 / 9, 4 / 5]) {
-      for (const angle of [-45, -40, -33, 0, 33, 40, 45]) {
-        const crop = rotateCrop(
-          largestCropForAspect(image, 0, aspect),
-          image,
-          angle,
-          cropGeometry(largestCropForAspect(image, 0, aspect), image),
-        );
-        expect(isStorableCrop(crop), `aspect ${aspect} at ${angle}`).toBe(true);
+  it.each(images)('any aspect rotates to +-45 without refusing (%s)', (_name, image) => {
+    for (const aspect of [3 / 2, 2 / 3, 1, 16 / 9, 4 / 5, 3]) {
+      const start = largestCropForAspect(image, 0, aspect);
+      const desired = cropGeometry(start, image);
+      for (const angle of [-45, -40, -33, 33, 40, 45]) {
+        const crop = rotateCrop(start, image, angle, desired);
+        expect(crop.angle, `aspect ${aspect}`).toBe(angle);
         expect(cropFitsImage(crop, image)).toBe(true);
+        expect(isUsableCrop(crop)).toBe(true);
+        expect(cropAspect(crop, image)).toBeCloseTo(aspect, 6);
       }
     }
+  });
+
+  it('stores a wide frame at -45 degrees with inverted corners that decode back', () => {
+    const crop = rotateCrop({ left: 0, top: 0, right: 1, bottom: 1, angle: 0 }, LANDSCAPE, -45);
+    // Opposite corners of the rotated rectangle: bottom < top here.
+    expect(crop.bottom).toBeLessThan(crop.top);
+    const geometry = cropGeometry(crop, LANDSCAPE);
+    expect(geometry.width / geometry.height).toBeCloseTo(1.5, 6);
+    expect(geometry.angle).toBe(-45);
+  });
+
+  it('rejects non-finite or identical corners', () => {
+    expect(isUsableCrop({ left: 0.2, top: 0.2, right: 0.2, bottom: 0.2, angle: 0 })).toBe(false);
+    expect(isUsableCrop({ left: 0, top: 0, right: Number.NaN, bottom: 1, angle: 0 })).toBe(false);
+    expect(isUsableCrop({ left: 0.5, top: 0.1, right: 0.5, bottom: 0.9, angle: 45 })).toBe(true);
   });
 });

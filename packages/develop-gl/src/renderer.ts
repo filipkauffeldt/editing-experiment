@@ -1,5 +1,5 @@
 import type { EditParams, LinearImageHeader } from '@ee/contracts';
-import { cropGeometry, cropOutputSize, type Size } from './crop';
+import { cropGeometry, cropOutputSize, isUsableCrop, type Size } from './crop';
 import { FRAGMENT_SHADER, VERTEX_SHADER } from './glsl';
 import { samplesView, type LinearImageBuffer } from './image';
 import { resolveUniforms, type DevelopUniforms } from './params';
@@ -160,15 +160,7 @@ function mappingFor(
 ): Mapping {
   const image = { width: header.width, height: header.height };
   const crop = params.crop;
-  if (
-    !crop ||
-    !Number.isFinite(crop.left) ||
-    !Number.isFinite(crop.top) ||
-    !Number.isFinite(crop.right) ||
-    !Number.isFinite(crop.bottom) ||
-    !(crop.right > crop.left) ||
-    !(crop.bottom > crop.top)
-  ) {
+  if (!crop || !isUsableCrop(crop)) {
     return {
       center: { x: image.width / 2, y: image.height / 2 },
       cos: 1,
@@ -212,15 +204,7 @@ function viewMapping(header: LinearImageHeader, view: CropViewTransform, buffer:
 function cropLogicalSize(header: LinearImageHeader, params: EditParams): Size {
   const image = { width: header.width, height: header.height };
   const crop = params.crop;
-  if (
-    crop &&
-    Number.isFinite(crop.left) &&
-    Number.isFinite(crop.top) &&
-    Number.isFinite(crop.right) &&
-    Number.isFinite(crop.bottom) &&
-    crop.right > crop.left &&
-    crop.bottom > crop.top
-  ) {
+  if (crop && isUsableCrop(crop)) {
     const size = cropOutputSize(crop, image);
     return {
       width: Math.max(1, Math.round(size.width)),

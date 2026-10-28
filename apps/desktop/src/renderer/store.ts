@@ -7,7 +7,6 @@ import {
   cropViewToImage,
   drawCrop,
   isFullCrop,
-  isStorableCrop,
   largestCropForAspect,
   minCropSize,
   panCrop,
@@ -1092,11 +1091,6 @@ export class AppStore {
     });
   };
 
-  /** Pulls a new frame shape's angle inside the range it can be saved at. */
-  private storable(crop: CropParams, image: { width: number; height: number }): CropParams {
-    return isStorableCrop(crop) ? crop : rotateCrop(crop, image, crop.angle);
-  }
-
   private updateCrop(change: Partial<CropSession>): void {
     if (!this.state.crop) return;
     this.set({ crop: { ...this.state.crop, ...change } });
@@ -1193,8 +1187,6 @@ export class AppStore {
           aspect,
           symmetric,
         );
-        // A shape that cannot be written to the sidecar at this angle is not reachable.
-        if (!isStorableCrop(crop)) break;
         // The image stays where it is on screen, so the frame centre moves with the edges.
         const next = cropGeometry(crop, image);
         this.updateCrop({
@@ -1216,7 +1208,7 @@ export class AppStore {
           aspect,
           symmetric,
         );
-        if (drawn && isStorableCrop(drawn.crop)) this.updateCrop({ ...drawn, desired: undefined });
+        if (drawn) this.updateCrop({ ...drawn, desired: undefined });
         break;
       }
     }
@@ -1272,13 +1264,10 @@ export class AppStore {
     this.updateCrop({
       aspect,
       desired: undefined,
-      crop: this.storable(
-        largestCropForAspect(session.image, geometry.angle, ratio, {
-          x: geometry.centerX,
-          y: geometry.centerY,
-        }),
-        session.image,
-      ),
+      crop: largestCropForAspect(session.image, geometry.angle, ratio, {
+        x: geometry.centerX,
+        y: geometry.centerY,
+      }),
     });
   };
 
@@ -1291,16 +1280,13 @@ export class AppStore {
       const geometry = cropGeometry(session.crop, session.image);
       this.updateCrop({
         desired: undefined,
-        crop: this.storable(
-          constrainCrop(
-            cropFromGeometry(
-              geometry.centerX,
-              geometry.centerY,
-              geometry.height,
-              geometry.width,
-              geometry.angle,
-              session.image,
-            ),
+        crop: constrainCrop(
+          cropFromGeometry(
+            geometry.centerX,
+            geometry.centerY,
+            geometry.height,
+            geometry.width,
+            geometry.angle,
             session.image,
           ),
           session.image,
@@ -1318,13 +1304,10 @@ export class AppStore {
     this.updateCrop({
       flipped,
       desired: undefined,
-      crop: this.storable(
-        largestCropForAspect(session.image, geometry.angle, ratio, {
-          x: geometry.centerX,
-          y: geometry.centerY,
-        }),
-        session.image,
-      ),
+      crop: largestCropForAspect(session.image, geometry.angle, ratio, {
+        x: geometry.centerX,
+        y: geometry.centerY,
+      }),
     });
   };
 

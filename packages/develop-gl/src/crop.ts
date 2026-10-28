@@ -500,26 +500,18 @@ export function straightenAngleFromLine(currentAngle: number, from: Point, to: P
   return quantizeAngle(currentAngle + slope);
 }
 
-/** True when the stored corners keep the order the sidecar needs: right > left and bottom > top. */
-export function isStorableCrop(crop: CropParams): boolean {
-  return crop.right > crop.left && crop.bottom > crop.top;
-}
-
 /**
- * The straighten angles a `width` x `height` frame can be saved at. The two
- * stored corners are opposite corners of the *rotated* rectangle, so tilting a
- * wide frame far counter-clockwise (or a tall one clockwise) swaps their order
- * and the crop could not be written. The bounds are strict, rounded inwards to
- * the 0.1 degree the UI works in.
+ * True when the stored corners describe a crop at all: finite numbers and two
+ * distinct corners. The corners are opposite corners of the *rotated* rectangle,
+ * so near +-45 degrees they are legitimately "inverted" (right < left or
+ * bottom < top for a wide frame tilted one way); the angle disambiguates, so
+ * order is not a validity test.
  */
-export function storableAngleRange(width: number, height: number): { min: number; max: number } {
-  const tidy = (degrees: number): number =>
-    Math.min(MAX_CROP_ANGLE, Math.floor(degrees * 10 - 1e-6) / 10);
-  if (!(width > 0) || !(height > 0)) return { min: 0, max: 0 };
-  return {
-    min: -tidy(Math.atan(height / width) / DEG),
-    max: tidy(Math.atan(width / height) / DEG),
-  };
+export function isUsableCrop(crop: CropParams): boolean {
+  return (
+    [crop.left, crop.top, crop.right, crop.bottom, crop.angle].every(Number.isFinite) &&
+    (crop.right !== crop.left || crop.bottom !== crop.top)
+  );
 }
 
 /**
@@ -577,8 +569,7 @@ export function shrinkCropToImage(crop: CropParams, image: Size): CropParams {
 /**
  * Straightens the crop to `angle` about the frame centre. The frame keeps its
  * aspect ratio and shrinks just enough that the rotated image still covers it;
- * the angle stops where the crop could no longer be saved (see
- * {@link storableAngleRange}). Pass the size the user asked for as `desired` so the frame grows back when
+ * this works all the way to +-45 degrees, never refusing. Pass the size the user asked for as `desired` so the frame grows back when
  * the angle returns (otherwise a drag back and forth would ratchet it down).
  */
 export function rotateCrop(
@@ -589,14 +580,13 @@ export function rotateCrop(
 ): CropParams {
   const geometry = cropGeometry(crop, image);
   const size = desired ?? { width: geometry.width, height: geometry.height };
-  const range = storableAngleRange(size.width, size.height);
   return shrinkCropToImage(
     cropFromGeometry(
       geometry.centerX,
       geometry.centerY,
       size.width,
       size.height,
-      clamp(quantizeAngle(angle), range.min, range.max) + 0,
+      quantizeAngle(angle),
       image,
     ),
     image,

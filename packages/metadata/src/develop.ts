@@ -1,5 +1,5 @@
 import type { CropParams, EditParams, ToneCurvePoint } from '@ee/contracts';
-import { cropOrientedToStored, cropStoredToOriented } from '@ee/develop-gl/crop';
+import { cropOrientedToStored, cropStoredToOriented, isUsableCrop } from '@ee/develop-gl/crop';
 import { MetadataError } from './errors';
 import { getExifToolService, type ExifToolService, type ExifToolTagValue } from './exiftool';
 import {
@@ -275,9 +275,7 @@ export async function readEditParams(
       top !== undefined &&
       right !== undefined &&
       bottom !== undefined &&
-      right > left &&
-      bottom > top &&
-      Number.isFinite(angle)
+      isUsableCrop({ left, top, right, bottom, angle })
     ) {
       params.crop = toOrientedCrop({ left, top, right, bottom, angle }, cropSpace);
     }
@@ -373,10 +371,12 @@ export async function writeEditParams(
 }
 
 function writeCrop(tags: Record<string, ExifToolTagValue>, crop: CropParams): void {
-  if (!(crop.right > crop.left) || !(crop.bottom > crop.top)) {
+  // Not `right > left`: the corners are opposite corners of the rotated rectangle,
+  // so a wide frame tilted far one way stores them inverted (see isUsableCrop).
+  if (!isUsableCrop(crop)) {
     throw new MetadataError(
       'INVALID_XMP',
-      `crop must have right > left and bottom > top, got ${JSON.stringify(crop)}`,
+      `crop needs finite, distinct corners, got ${JSON.stringify(crop)}`,
     );
   }
   tags[CROP_TAGS.left] = crop.left;

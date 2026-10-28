@@ -5,6 +5,7 @@ import {
   cropFromGeometry,
   cropOutputPixels,
   largestCropForAspect,
+  rotateCrop,
 } from '../src/crop';
 import { renderCpu } from '../src/cpu';
 import { floatToHalf } from '../src/image';
@@ -342,6 +343,10 @@ describe('crop and straighten parity', () => {
       crop: { left: 0.1, top: 0.15, right: 0.9, bottom: 0.85, angle: -45 },
     },
     { name: 'largest 1:1 crop +45 degrees', crop: largestCropForAspect(image, 45, 1) },
+    {
+      name: 'full frame straightened -45 degrees (inverted stored corners)',
+      crop: rotateCrop({ left: 0, top: 0, right: 1, bottom: 1, angle: 0 }, image, -45),
+    },
     { name: 'tiny crop 15 degrees', crop: cropFromGeometry(48, 32, 6, 4, 15, image) },
     {
       name: 'edge-hugging crop 30 degrees',

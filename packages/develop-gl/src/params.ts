@@ -1,7 +1,7 @@
 import type { EditParams, LinearImageHeader, SliderParam } from '@ee/contracts';
 import { SLIDER_SPECS } from '@ee/contracts';
 import { contrastGamma, exposureGain, lookupCurve, type ToneParams } from './ops';
-import { cropGeometry } from './crop';
+import { cropGeometry, isUsableCrop } from './crop';
 import { isIdentityCurve, sampleCurve } from './spline';
 import { resolveCalibration, type Calibration } from './color/calibration';
 import { resolveColorGrading, type ColorGrading } from './color/grading';
@@ -118,15 +118,7 @@ function logicalOutputSize(
   params: EditParams,
 ): { width: number; height: number } {
   const crop = params.crop;
-  if (
-    crop &&
-    Number.isFinite(crop.left) &&
-    Number.isFinite(crop.top) &&
-    Number.isFinite(crop.right) &&
-    Number.isFinite(crop.bottom) &&
-    crop.right > crop.left &&
-    crop.bottom > crop.top
-  ) {
+  if (crop && isUsableCrop(crop)) {
     const geometry = cropGeometry(crop, { width: camera.width, height: camera.height });
     return {
       width: Math.max(1, Math.round(geometry.width)),
