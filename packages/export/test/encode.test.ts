@@ -4,15 +4,15 @@ import path from 'node:path';
 import sharp from 'sharp';
 import { ExifTool } from 'exiftool-vendored';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import type { ExportPreset } from '@ee/contracts';
 import { assertNoEmbeddedPreviews, encodeJpeg } from '../src/index';
 import { testImage } from './helpers/images';
+import { testPreset } from './helpers/presets';
 
-const preset = (quality: number, maxEdge?: number): ExportPreset => ({
-  quality,
-  metadata: 'all',
-  ...(maxEdge === undefined ? {} : { maxEdge }),
-});
+const preset = (quality: number, maxEdge?: number) =>
+  testPreset({
+    quality,
+    ...(maxEdge === undefined ? {} : { resize: { mode: 'longEdge' as const, pixels: maxEdge } }),
+  });
 
 describe('encodeJpeg', () => {
   let dir: string;
@@ -44,6 +44,44 @@ describe('encodeJpeg', () => {
     const encoded = await encodeJpeg(testImage(60, 40), preset(80, 100));
     expect(encoded.width).toBe(60);
     expect(encoded.height).toBe(40);
+  });
+
+  it('resizes by short edge and by megapixels', async () => {
+    const short = await encodeJpeg(
+      testImage(1600, 1200),
+      testPreset({ quality: 90, resize: { mode: 'shortEdge', pixels: 600 } }),
+    );
+    expect(short.width).toBe(800);
+    expect(short.height).toBe(600);
+
+    const megapixels = await encodeJpeg(
+      testImage(1600, 1200),
+      testPreset({ quality: 90, resize: { mode: 'megapixels', megapixels: 0.48 } }),
+    );
+    expect(megapixels.width).toBe(800);
+    expect(megapixels.height).toBe(600);
+
+    const small = await encodeJpeg(
+      testImage(60, 40),
+      testPreset({ quality: 90, resize: { mode: 'shortEdge', pixels: 100 } }),
+    );
+    expect(small.width).toBe(60);
+    expect(small.height).toBe(40);
+  });
+
+  it('rejects invalid resize values', async () => {
+    await expect(
+      encodeJpeg(
+        testImage(100, 80),
+        testPreset({ quality: 90, resize: { mode: 'megapixels', megapixels: 0 } }),
+      ),
+    ).rejects.toMatchObject({ code: 'invalid_preset' });
+    await expect(
+      encodeJpeg(
+        testImage(100, 80),
+        testPreset({ quality: 90, resize: { mode: 'longEdge', pixels: 0 } }),
+      ),
+    ).rejects.toMatchObject({ code: 'invalid_preset' });
   });
 
   it('uses 4:4:4 at high quality, 4:2:0 below, and embeds sRGB', async () => {

@@ -1,4 +1,4 @@
-import { access, mkdtemp, readdir, rm, stat, writeFile } from 'node:fs/promises';
+import { access, mkdtemp, readFile, readdir, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { ExifTool } from 'exiftool-vendored';
@@ -7,9 +7,10 @@ import { asPhotoId } from '@ee/contracts';
 import { EmbeddedPreviewError, exportPhoto } from '../src/index';
 import { addExifThumbnail } from './helpers/embedded';
 import { testImage } from './helpers/images';
+import { testPreset } from './helpers/presets';
 
 const photoId = asPhotoId('photo-1');
-const preset = { quality: 88, metadata: 'all' as const };
+const preset = testPreset({ quality: 88, metadata: 'all' });
 
 describe('exportPhoto', () => {
   let dir: string;
@@ -21,7 +22,7 @@ describe('exportPhoto', () => {
     exiftool = new ExifTool();
     thumbnail = (
       await import('../src/index').then(({ encodeJpeg }) =>
-        encodeJpeg(testImage(32, 24), { quality: 80, metadata: 'none' }),
+        encodeJpeg(testImage(32, 24), testPreset({ quality: 80, metadata: 'none' })),
       )
     ).data;
   });
@@ -78,7 +79,7 @@ describe('exportPhoto', () => {
     let called = false;
     const result = await exportPhoto({
       image: testImage(40, 30),
-      preset: { quality: 80, metadata: 'none' },
+      preset: testPreset({ quality: 80, metadata: 'none' }),
       outputDir: path.join(dir, 'none'),
       fileName: 'plain.jpg',
       photoId,
@@ -150,5 +151,52 @@ describe('exportPhoto', () => {
       photoId,
     });
     expect(result.bytes).toBeGreaterThan(3);
+  });
+
+  it('adds a suffix instead of overwriting when asked', async () => {
+    const outputDir = path.join(dir, 'suffix');
+    await import('node:fs/promises').then(({ mkdir }) => mkdir(outputDir, { recursive: true }));
+    await writeFile(path.join(outputDir, 'same.jpg'), 'old');
+
+    const result = await exportPhoto({
+      image: testImage(30, 20),
+      preset,
+      outputDir,
+      fileName: 'same.jpg',
+      photoId,
+      ifExists: 'suffix',
+    });
+    expect(path.basename(result.path)).toBe('same-1.jpg');
+    expect(result.skipped).toBeUndefined();
+    expect(await readFile(path.join(outputDir, 'same.jpg'), 'utf8')).toBe('old');
+
+    const again = await exportPhoto({
+      image: testImage(30, 20),
+      preset,
+      outputDir,
+      fileName: 'same.jpg',
+      photoId,
+      ifExists: 'suffix',
+    });
+    expect(path.basename(again.path)).toBe('same-2.jpg');
+  });
+
+  it('skips and leaves the existing file untouched when asked', async () => {
+    const outputDir = path.join(dir, 'skip');
+    await import('node:fs/promises').then(({ mkdir }) => mkdir(outputDir, { recursive: true }));
+    const existing = path.join(outputDir, 'same.jpg');
+    await writeFile(existing, 'old');
+
+    const result = await exportPhoto({
+      image: testImage(30, 20),
+      preset,
+      outputDir,
+      fileName: 'same.jpg',
+      photoId,
+      ifExists: 'skip',
+    });
+    expect(result).toMatchObject({ path: existing, skipped: true });
+    expect(await readFile(existing, 'utf8')).toBe('old');
+    expect(await readdir(outputDir)).toEqual(['same.jpg']);
   });
 });

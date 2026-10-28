@@ -22,6 +22,7 @@ import {
   xmpThumbnailUtf16Segment,
 } from './helpers/embedded';
 import { testImage } from './helpers/images';
+import { testPreset } from './helpers/presets';
 
 describe('embedded preview detection', () => {
   let dir: string;
@@ -32,8 +33,11 @@ describe('embedded preview detection', () => {
   beforeAll(async () => {
     dir = await mkdtemp(path.join(tmpdir(), 'ee-previews-'));
     exiftool = new ExifTool();
-    cleanJpeg = (await encodeJpeg(testImage(96, 64), { quality: 90, metadata: 'all' })).data;
-    thumbnailJpeg = (await encodeJpeg(testImage(24, 16), { quality: 80, metadata: 'none' })).data;
+    cleanJpeg = (await encodeJpeg(testImage(96, 64), testPreset({ quality: 90, metadata: 'all' })))
+      .data;
+    thumbnailJpeg = (
+      await encodeJpeg(testImage(24, 16), testPreset({ quality: 80, metadata: 'none' }))
+    ).data;
   });
 
   afterAll(async () => {
