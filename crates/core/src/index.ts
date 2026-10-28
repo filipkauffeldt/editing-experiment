@@ -106,3 +106,26 @@ export interface DecodeJpegOptions {
 export function decodeJpeg(jpeg: Uint8Array, options: DecodeJpegOptions = {}): Promise<RgbaImage> {
   return loadCore().decodeJpeg(jpeg, options);
 }
+
+export interface ResizeRgbaOptions {
+  /** Longest edge of the result in pixels. Never upscales. */
+  maxEdge: number;
+}
+
+/**
+ * Downscales RGBA pixels with Lanczos3 so the longest edge is at most `maxEdge`,
+ * keeping the aspect ratio (the shorter edge is rounded, minimum 1). An image
+ * that already fits is returned unchanged.
+ *
+ * Resampling works on the sRGB-encoded values directly, not in linear light:
+ * that is what browsers and most photo tools do for previews and exports, and
+ * it is about twice as fast.
+ */
+export function resizeRgba(
+  rgba: Uint8Array,
+  width: number,
+  height: number,
+  options: ResizeRgbaOptions,
+): Promise<RgbaImage> {
+  return loadCore().resizeRgba(rgba, width, height, options);
+}

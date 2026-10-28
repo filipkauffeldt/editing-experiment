@@ -1,6 +1,6 @@
 import sharp from 'sharp';
 import { describe, expect, it } from 'vitest';
-import { decodeJpeg } from '../src/index';
+import { decodeJpeg, resizeRgba } from '../src/index';
 
 /**
  * Smooth asymmetric RGBA test image: red grows to the right, green downwards,
@@ -88,5 +88,46 @@ describe('decodeJpeg', () => {
     await expect(decodeJpeg(Buffer.from('definitely not a jpeg'))).rejects.toThrow(
       /decoding failed/,
     );
+  });
+});
+
+describe('resizeRgba', () => {
+  it('fits the longest edge and keeps the aspect ratio', async () => {
+    const landscape = await resizeRgba(pattern(600, 400), 600, 400, { maxEdge: 150 });
+    expect([landscape.width, landscape.height]).toEqual([150, 100]);
+    expect(landscape.rgba.length).toBe(150 * 100 * 4);
+    const portrait = await resizeRgba(pattern(400, 600), 400, 600, { maxEdge: 150 });
+    expect([portrait.width, portrait.height]).toEqual([100, 150]);
+  });
+
+  it('never upscales', async () => {
+    const small = pattern(40, 30);
+    const out = await resizeRgba(small, 40, 30, { maxEdge: 500 });
+    expect([out.width, out.height]).toEqual([40, 30]);
+    expect(Buffer.compare(out.rgba, small)).toBe(0);
+  });
+
+  it('matches sharp Lanczos3 closely on a photo-like gradient', async () => {
+    const source = pattern(640, 480);
+    const ours = await resizeRgba(source, 640, 480, { maxEdge: 160 });
+    const reference = await sharp(source, { raw: { width: 640, height: 480, channels: 4 } })
+      .resize(160, 120, { fit: 'fill', kernel: 'lanczos3' })
+      .raw()
+      .toBuffer();
+    expect(meanAbsError(ours.rgba, reference)).toBeLessThan(1.5);
+  });
+
+  it('keeps flat colour exact and alpha opaque', async () => {
+    const flat = Buffer.alloc(64 * 64 * 4);
+    for (let i = 0; i < flat.length; i += 4) flat.set([10, 200, 90, 255], i);
+    const out = await resizeRgba(flat, 64, 64, { maxEdge: 7 });
+    for (let i = 0; i < out.rgba.length; i += 4) {
+      expect([...out.rgba.subarray(i, i + 4)]).toEqual([10, 200, 90, 255]);
+    }
+  });
+
+  it('rejects a buffer that does not match the size', async () => {
+    await expect(resizeRgba(new Uint8Array(10), 4, 4, { maxEdge: 2 })).rejects.toThrow(/RGBA/);
+    await expect(resizeRgba(new Uint8Array(64), 4, 4, { maxEdge: 0 })).rejects.toThrow(/maxEdge/);
   });
 });

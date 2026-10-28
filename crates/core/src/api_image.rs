@@ -60,3 +60,54 @@ pub fn decode_jpeg(
     let orient = !options.and_then(|o| o.skip_orientation).unwrap_or(false);
     AsyncTask::new(DecodeJpegTask { jpeg, orient })
 }
+
+// --- resizeRgba ----------------------------------------------------------------
+
+#[napi(object, js_name = "ResizeRgbaOptions")]
+pub struct ResizeRgbaOptions {
+    /// Longest edge of the result in pixels. Never upscales.
+    pub max_edge: u32,
+}
+
+pub struct ResizeRgbaTask {
+    rgba: Uint8Array,
+    width: u32,
+    height: u32,
+    max_edge: u32,
+}
+
+impl Task for ResizeRgbaTask {
+    type Output = Rgba8;
+    type JsValue = RgbaImageJs;
+
+    fn compute(&mut self) -> napi::Result<Rgba8> {
+        Ok(image::resize_max_edge(
+            &self.rgba,
+            self.width,
+            self.height,
+            self.max_edge,
+        )?)
+    }
+
+    fn resolve(&mut self, _env: Env, output: Rgba8) -> napi::Result<RgbaImageJs> {
+        Ok(output.into())
+    }
+}
+
+/// Downscales RGBA pixels with Lanczos3 so the longest edge is at most `maxEdge`.
+/// Works on the sRGB-encoded values directly (not gamma-correct). Never upscales:
+/// a smaller image is returned unchanged.
+#[napi(ts_return_type = "Promise<NativeRgbaImage>")]
+pub fn resize_rgba(
+    rgba: Uint8Array,
+    width: u32,
+    height: u32,
+    options: ResizeRgbaOptions,
+) -> AsyncTask<ResizeRgbaTask> {
+    AsyncTask::new(ResizeRgbaTask {
+        rgba,
+        width,
+        height,
+        max_edge: options.max_edge,
+    })
+}

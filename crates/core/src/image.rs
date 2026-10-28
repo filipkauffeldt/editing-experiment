@@ -153,19 +153,29 @@ pub fn fit_size(width: u32, height: u32, max_edge: u32) -> (u32, u32) {
     (scaled(width), scaled(height))
 }
 
-/// Resizes to exactly `out_w` x `out_h` with Lanczos3 (area-aware when
-/// shrinking, so no aliasing).
-pub fn resize_exact(image: &Rgba8, out_w: u32, out_h: u32) -> Result<Rgba8> {
+/// Resizes `rgba` (a `width` x `height` image) to exactly `out_w` x `out_h`
+/// with Lanczos3 (the kernel widens when shrinking, so no aliasing).
+pub fn resize_exact(rgba: &[u8], width: u32, height: u32, out_w: u32, out_h: u32) -> Result<Rgba8> {
     if out_w == 0 || out_h == 0 {
         return Err(Error::InvalidArgument(format!(
             "cannot resize to {out_w}x{out_h}"
         )));
     }
-    if (out_w, out_h) == (image.width, image.height) {
-        return Ok(image.clone());
+    if rgba.len() != width as usize * height as usize * 4 {
+        return Err(Error::InvalidArgument(format!(
+            "{} bytes is not a {width}x{height} RGBA image",
+            rgba.len()
+        )));
     }
-    let src = ImageRef::new(image.width, image.height, &image.rgba, PixelType::U8x4)
+    let src = ImageRef::new(width, height, rgba, PixelType::U8x4)
         .map_err(|e| Error::InvalidArgument(e.to_string()))?;
+    if (out_w, out_h) == (width, height) {
+        return Ok(Rgba8 {
+            width,
+            height,
+            rgba: rgba.to_vec(),
+        });
+    }
     let mut dst = Image::new(out_w, out_h, PixelType::U8x4);
     let options = ResizeOptions::new().resize_alg(ResizeAlg::Convolution(FilterType::Lanczos3));
     Resizer::new()
@@ -179,12 +189,12 @@ pub fn resize_exact(image: &Rgba8, out_w: u32, out_h: u32) -> Result<Rgba8> {
 }
 
 /// Downscales so the longest edge is at most `max_edge`; never upscales.
-pub fn resize_max_edge(image: &Rgba8, max_edge: u32) -> Result<Rgba8> {
+pub fn resize_max_edge(rgba: &[u8], width: u32, height: u32, max_edge: u32) -> Result<Rgba8> {
     if max_edge == 0 {
         return Err(Error::InvalidArgument("maxEdge must be positive".into()));
     }
-    let (w, h) = fit_size(image.width, image.height, max_edge);
-    resize_exact(image, w, h)
+    let (w, h) = fit_size(width, height, max_edge);
+    resize_exact(rgba, width, height, w, h)
 }
 
 /// Encodes RGBA (alpha ignored) as a baseline sequential JPEG. Output holds a
@@ -248,7 +258,7 @@ pub fn make_previews(jpeg: &[u8], options: PreviewOptions) -> Result<Previews> {
     let image = decode_jpeg(jpeg, true)?;
     let encode = |edge: u32| -> Result<Vec<u8>> {
         encode_jpeg(
-            &resize_max_edge(&image, edge)?,
+            &resize_max_edge(&image.rgba, image.width, image.height, edge)?,
             EncodeOptions {
                 quality: options.quality,
                 chroma: Chroma::C420,
@@ -439,7 +449,7 @@ mod tests {
     #[test]
     fn resize_downscales_a_gradient_without_visible_error() {
         let big = pattern(800, 600);
-        let small = resize_max_edge(&big, 200).unwrap();
+        let small = resize_max_edge(&big.rgba, big.width, big.height, 200).unwrap();
         assert_eq!((small.width, small.height), (200, 150));
         // The gradient is linear, so the small version is the same gradient
         // sampled at the pixel centres.
@@ -456,7 +466,7 @@ mod tests {
             height: 48,
             rgba: [200, 100, 50, 255].repeat(64 * 48),
         };
-        let out = resize_exact(&flat, 17, 9).unwrap();
+        let out = resize_exact(&flat.rgba, 64, 48, 17, 9).unwrap();
         assert_eq!((out.width, out.height), (17, 9));
         assert!(
             out.rgba
@@ -465,13 +475,17 @@ mod tests {
                 .iter()
                 .all(|p| *p == [200, 100, 50, 255])
         );
-        assert!(resize_exact(&flat, 0, 5).is_err());
+        assert!(resize_exact(&flat.rgba, 64, 48, 0, 5).is_err());
+        assert!(
+            resize_exact(&flat.rgba, 64, 47, 5, 5).is_err(),
+            "length mismatch"
+        );
     }
 
     #[test]
     fn resize_does_not_upscale_through_max_edge() {
         let small = pattern(20, 10);
-        assert_eq!(resize_max_edge(&small, 100).unwrap(), small);
+        assert_eq!(resize_max_edge(&small.rgba, 20, 10, 100).unwrap(), small);
     }
 
     #[test]

@@ -840,3 +840,4 @@ module.exports.decodeJpeg = nativeBinding.decodeJpeg
 module.exports.decodeLinear = nativeBinding.decodeLinear
 module.exports.extractPreview = nativeBinding.extractPreview
 module.exports.readRawInfo = nativeBinding.readRawInfo
+module.exports.resizeRgba = nativeBinding.resizeRgba

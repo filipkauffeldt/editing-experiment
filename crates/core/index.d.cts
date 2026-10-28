@@ -104,3 +104,15 @@ export interface RawPreview {
 
 /** Reads metadata of a raw file without decoding pixels. */
 export declare function readRawInfo(path: string): Promise<RawInfo>
+
+/**
+ * Downscales RGBA pixels with Lanczos3 so the longest edge is at most `maxEdge`.
+ * Works on the sRGB-encoded values directly (not gamma-correct). Never upscales:
+ * a smaller image is returned unchanged.
+ */
+export declare function resizeRgba(rgba: Uint8Array, width: number, height: number, options: ResizeRgbaOptions): Promise<NativeRgbaImage>
+
+export interface ResizeRgbaOptions {
+  /** Longest edge of the result in pixels. Never upscales. */
+  maxEdge: number
+}
