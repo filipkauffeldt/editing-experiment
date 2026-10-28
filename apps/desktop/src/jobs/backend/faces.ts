@@ -4,8 +4,7 @@ import { isRawPath } from '@ee/metadata';
 import { YUNET_MODEL_FILE, decodeImageFile, detectFaces } from '@ee/retouch/faces';
 import { existsSync } from 'node:fs';
 import { dirname, join } from 'node:path';
-import sharp from 'sharp';
-import { applyOrientation } from './previews';
+import { decodeOrientedRgba } from './image-ops';
 import type { PhotoLibrary } from './photo-library';
 
 /**
@@ -76,17 +75,5 @@ async function decodeEmbeddedPreview(
   path: string,
 ): Promise<{ rgba: Uint8Array; width: number; height: number }> {
   const preview = await extractPreview(path);
-  const { data, info } = await applyOrientation(
-    sharp(preview.jpeg, { failOn: 'none' }),
-    preview.orientation,
-  )
-    .toColourspace('srgb')
-    .ensureAlpha()
-    .raw()
-    .toBuffer({ resolveWithObject: true });
-  return {
-    rgba: new Uint8Array(data.buffer, data.byteOffset, data.byteLength),
-    width: info.width,
-    height: info.height,
-  };
+  return decodeOrientedRgba(preview.jpeg, preview.orientation);
 }

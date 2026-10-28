@@ -16,12 +16,11 @@ import {
   type ExifToolService,
 } from '@ee/metadata';
 import { copyFile } from 'node:fs/promises';
-import sharp from 'sharp';
-import { trace } from './trace';
 import type { EditService } from './edit-service';
 import type { MetadataService } from './metadata-service';
 import type { PhotoLibrary } from './photo-library';
-import type { PreviewCache, PreviewSource } from './previews';
+import { readImageSize, type PreviewSource } from './image-ops';
+import type { PreviewCache } from './previews';
 import { developVersionId, versionsEdited } from './edit-service';
 
 export interface IngestPipelineDeps {
@@ -42,14 +41,8 @@ interface Basics {
   preview?: PreviewSource;
 }
 
-/** EXIF orientations 5..8 swap width and height. */
-const swapsAxes = (orientation: number | undefined): boolean =>
-  orientation !== undefined && orientation >= 5 && orientation <= 8;
-
 async function readRaw(path: string): Promise<Basics> {
-  trace(`readRawInfo+extractPreview ${path}`);
   const [info, preview] = await Promise.allSettled([readRawInfo(path), extractPreview(path)]);
-  trace('read done');
   const basics: Basics = {};
   if (preview.status === 'fulfilled') {
     basics.preview = { jpeg: preview.value.jpeg, orientation: preview.value.orientation };
@@ -80,18 +73,14 @@ class PreviewError extends Error {
 }
 
 async function readImage(path: string, exiftool: ExifToolService): Promise<Basics> {
-  const [tags, meta] = await Promise.all([
-    exiftool.read(path),
-    sharp(path, { failOn: 'none' }).metadata(),
-  ]);
+  const [tags, size] = await Promise.all([exiftool.read(path), readImageSize(path)]);
   const captureTime = toIsoDate(tags['ExifIFD:DateTimeOriginal'] ?? tags['IFD0:ModifyDate']);
   const make = asString(tags['IFD0:Make']);
   const model = asString(tags['IFD0:Model']);
   const lens = asString(tags['ExifIFD:LensModel']);
   const serial = asString(tags['ExifIFD:BodySerialNumber']);
-  const width = meta.width ?? asNumber(tags['File:ImageWidth']);
-  const height = meta.height ?? asNumber(tags['File:ImageHeight']);
-  const [w, h] = swapsAxes(meta.orientation) ? [height, width] : [width, height];
+  const w = size.width ?? asNumber(tags['File:ImageWidth']);
+  const h = size.height ?? asNumber(tags['File:ImageHeight']);
   return {
     ...(captureTime === undefined ? {} : { captureTime }),
     ...(make || model || lens || serial
@@ -151,9 +140,7 @@ export function createOnFileIngested(
 
     if (basics.preview) {
       try {
-        trace('sharp preview start');
         await previews.generate(info.photoId, basics.preview);
-        trace('sharp preview done');
       } catch (error) {
         problem('preview', error);
       }
@@ -163,9 +150,7 @@ export function createOnFileIngested(
     const templatePath = config.metadataTemplatePath;
     if (templatePath) {
       try {
-        trace('template start');
         ({ differs } = await metadata.applyToFile(info.path, templatePath, mode));
-        trace('template done');
         await mirrorToBackup(info);
       } catch (error) {
         problem('metadata', error);
@@ -202,9 +187,7 @@ export function createOnFileIngested(
     // Reconciliation and a normal ingest can reach the same file; index it once.
     if (photos.hasPath(info.path)) return;
     try {
-      trace('index add');
       photos.add(photo, templatePath);
-      trace('index added');
     } catch (error) {
       // The file is copied and verified but will not show up; say so, and where it is.
       problem(

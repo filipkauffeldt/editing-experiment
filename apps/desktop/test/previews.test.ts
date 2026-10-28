@@ -4,7 +4,8 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import sharp, { type Sharp } from 'sharp';
 import { afterEach, describe, expect, it } from 'vitest';
-import { PreviewCache, applyOrientation } from '../src/jobs/backend/previews';
+import { applyOrientation, makePreviewJpegs } from '../src/jobs/backend/image-ops';
+import { PreviewCache } from '../src/jobs/backend/previews';
 import { asPhotoId } from '@ee/contracts';
 
 const dirs: string[] = [];
@@ -86,5 +87,22 @@ describe('PreviewCache', () => {
       await readFile(cache.pathFor('preview', asPhotoId('s'))),
     ).metadata();
     expect([preview.width, preview.height]).toEqual([200, 100]);
+  });
+});
+
+describe('makePreviewJpegs', () => {
+  it('returns bounded, upright, metadata-free preview and thumbnail', async () => {
+    const jpeg = await sharp({
+      create: { width: 3000, height: 2000, channels: 3, background: '#468' },
+    })
+      .jpeg()
+      .toBuffer();
+    const { preview, thumb } = await makePreviewJpegs({ jpeg, orientation: 8 });
+    const p = await sharp(preview).metadata();
+    const t = await sharp(thumb).metadata();
+    expect([p.width, p.height]).toEqual([1707, 2560]);
+    expect([t.width, t.height]).toEqual([213, 320]);
+    expect(p.exif).toBeUndefined();
+    expect(t.exif).toBeUndefined();
   });
 });
