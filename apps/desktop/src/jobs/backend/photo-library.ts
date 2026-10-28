@@ -35,6 +35,10 @@ export class PhotoLibrary {
     return this.record(photoId).photo;
   }
 
+  hasPath(path: string): boolean {
+    return this.index.hasPath(path);
+  }
+
   /** Index a newly ingested photo and announce it. */
   add(photo: Photo, templatePath?: string): void {
     this.index.save(photo, templatePath);

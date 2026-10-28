@@ -30,6 +30,8 @@ export class PhotoIndex {
   private readonly listStatement: StatementSync;
   private readonly listBySourceStatement: StatementSync;
   private readonly templateStatement: StatementSync;
+  private readonly pathsStatement: StatementSync;
+  private readonly hasPathStatement: StatementSync;
 
   constructor(filePath: string) {
     if (filePath !== ':memory:') mkdirSync(dirname(filePath), { recursive: true });
@@ -40,14 +42,17 @@ export class PhotoIndex {
         seq INTEGER PRIMARY KEY AUTOINCREMENT,
         id TEXT NOT NULL UNIQUE,
         source_id TEXT NOT NULL,
+        path TEXT NOT NULL,
         template_path TEXT,
         json TEXT NOT NULL
       );
       CREATE INDEX IF NOT EXISTS photos_source ON photos (source_id, seq);
+      CREATE INDEX IF NOT EXISTS photos_path ON photos (path);
     `);
     this.upsertStatement = this.db.prepare(
-      `INSERT INTO photos (id, source_id, template_path, json) VALUES (?, ?, ?, ?)
-       ON CONFLICT(id) DO UPDATE SET json = excluded.json, source_id = excluded.source_id`,
+      `INSERT INTO photos (id, source_id, path, template_path, json) VALUES (?, ?, ?, ?, ?)
+       ON CONFLICT(id) DO UPDATE SET json = excluded.json, source_id = excluded.source_id,
+         path = excluded.path`,
     );
     this.getStatement = this.db.prepare('SELECT json, template_path FROM photos WHERE id = ?');
     this.listStatement = this.db.prepare('SELECT json, template_path FROM photos ORDER BY seq');
@@ -55,11 +60,21 @@ export class PhotoIndex {
       'SELECT json, template_path FROM photos WHERE source_id = ? ORDER BY seq',
     );
     this.templateStatement = this.db.prepare('UPDATE photos SET template_path = ? WHERE id = ?');
+    this.hasPathStatement = this.db.prepare('SELECT 1 FROM photos WHERE path = ? LIMIT 1');
+    this.pathsStatement = this.db.prepare(
+      "SELECT json_extract(json, '$.path') AS path FROM photos",
+    );
   }
 
   /** Insert, or replace the stored photo while keeping its position. */
   save(photo: Photo, templatePath?: string): void {
-    this.upsertStatement.run(photo.id, photo.sourceId, templatePath ?? null, JSON.stringify(photo));
+    this.upsertStatement.run(
+      photo.id,
+      photo.sourceId,
+      photo.path,
+      templatePath ?? null,
+      JSON.stringify(photo),
+    );
   }
 
   setTemplatePath(photoId: PhotoId, templatePath: string | undefined): void {
@@ -76,6 +91,16 @@ export class PhotoIndex {
       ? this.listStatement.all()
       : this.listBySourceStatement.all(sourceId)) as unknown as Row[];
     return rows.map((row) => toRecord(row).photo);
+  }
+
+  hasPath(path: string): boolean {
+    return this.hasPathStatement.get(path) !== undefined;
+  }
+
+  /** Paths of every indexed photo, to find files on disk that are not indexed. */
+  paths(): Set<string> {
+    const rows = this.pathsStatement.all() as unknown as { path: string }[];
+    return new Set(rows.map((row) => row.path));
   }
 
   close(): void {

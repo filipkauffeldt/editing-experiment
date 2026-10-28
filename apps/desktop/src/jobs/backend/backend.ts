@@ -1,4 +1,4 @@
-import type { IpcHandlers, JobEvent } from '@ee/contracts';
+import type { IpcHandlers, JobEvent, JobId, TemplateApplyMode } from '@ee/contracts';
 import { SqliteSeenStore, type GetSecret } from '@ee/ingest';
 import { UploadQueue, type UploadQueueOptions } from '@ee/export';
 import { ExifToolService } from '@ee/metadata';
@@ -25,6 +25,7 @@ import { PresetStore } from './presets';
 import { PreviewCache } from './previews';
 import { ExportService } from './export-service';
 import { SettingsStore } from './settings-store';
+import { reconcileDestination } from './reconcile';
 import { runTeardown } from './teardown';
 
 export interface BackendOptions {
@@ -49,6 +50,10 @@ export interface BackendOptions {
 export interface Backend {
   handlers: Partial<IpcHandlers>;
   layout: UserDataLayout;
+  /** Settles when the startup scan for unindexed photos is done. */
+  reconciled: Promise<void>;
+  /** Index image files in the ingest destination that have no index entry; returns how many. */
+  reconcile(): Promise<number>;
   resolveAppRequest(url: string): Promise<AppBackendResponse>;
   /** Stop ingest and uploads, close ExifTool and the databases. Idempotent. */
   dispose(): Promise<void>;
@@ -83,6 +88,11 @@ export async function createBackend(options: BackendOptions): Promise<Backend> {
   );
   const apps = new AppResources({ photos, previews, linearDir: layout.linearDir });
   await apps.init();
+
+  const reportJobError = (event: { jobId?: JobId; scope: string; message: string }): void =>
+    emitJob({ type: 'job.error', at: Date.now(), ...event });
+  const templateMode = (): TemplateApplyMode =>
+    (settings.get().ingest as BackendIngestSettings).metadataTemplateMode ?? DEFAULT_TEMPLATE_MODE;
 
   const ingest = new IngestService({
     seenStore,
@@ -127,6 +137,36 @@ export async function createBackend(options: BackendOptions): Promise<Backend> {
   late.exporter = exporter;
   queue.start();
 
+  // Pick up files that were copied but never indexed (crash or failed index write).
+  const reconcileAbort = new AbortController();
+  const reconcile = async (): Promise<number> => {
+    const { ingest: ingestSettings } = settings.get();
+    const hook = createOnFileIngested(
+      { photos, previews, metadata, edits, exiftool, report: reportJobError },
+      { metadataTemplatePath: ingestSettings.metadataTemplatePath },
+      templateMode(),
+    );
+    return reconcileDestination({
+      directory: ingestSettings.destination.path,
+      known: index.paths(),
+      index: hook,
+      signal: reconcileAbort.signal,
+      onError: (path, error) =>
+        reportJobError({
+          scope: 'reconcile',
+          message: `${path}: ${error instanceof Error ? error.message : String(error)}`,
+        }),
+    });
+  };
+  const reconciled = reconcile().then(
+    () => undefined,
+    (error: unknown) =>
+      reportJobError({
+        scope: 'reconcile',
+        message: `could not look for unindexed photos: ${error instanceof Error ? error.message : String(error)}`,
+      }),
+  );
+
   const handlers = withIpcErrors(
     createBackendHandlers({
       appVersion: options.appVersion,
@@ -148,11 +188,14 @@ export async function createBackend(options: BackendOptions): Promise<Backend> {
   return {
     handlers,
     layout,
+    reconciled,
+    reconcile,
     resolveAppRequest: (url) => apps.resolve(url),
     dispose: () => {
       disposed ??= runTeardown([
         // Order matters: ingest and uploads use ExifTool and the databases.
         { name: 'ingest', run: () => ingest.dispose() },
+        { name: 'reconcile', run: () => (reconcileAbort.abort(), reconciled) },
         { name: 'face detection', run: () => faces.dispose() },
         { name: 'upload queue', run: () => queue.close() },
         { name: 'exiftool', run: () => exiftool.close() },

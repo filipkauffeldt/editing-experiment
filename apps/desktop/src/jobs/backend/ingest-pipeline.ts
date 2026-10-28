@@ -124,6 +124,7 @@ export function createOnFileIngested(
   const { photos, previews, metadata, edits, exiftool, report } = deps;
 
   return async (info: IngestedFileInfo): Promise<void> => {
+    if (photos.hasPath(info.path)) return;
     const raw = isRawPath(info.path);
     const problem = (scope: string, error: unknown): void =>
       report({
@@ -191,7 +192,20 @@ export function createOnFileIngested(
       },
       versions: versions ?? [{ id: developVersionId(info.photoId), kind: 'develop', ops: {} }],
     };
-    photos.add(photo, templatePath);
+    // Reconciliation and a normal ingest can reach the same file; index it once.
+    if (photos.hasPath(info.path)) return;
+    try {
+      photos.add(photo, templatePath);
+    } catch (error) {
+      // The file is copied and verified but will not show up; say so, and where it is.
+      problem(
+        'index',
+        new Error(
+          `copied to ${info.path} but could not be added to the photo index: ${error instanceof Error ? error.message : String(error)}`,
+        ),
+      );
+      throw error;
+    }
   };
 }
 
