@@ -366,8 +366,12 @@ describe.skipIf(nefs.length === 0)(
       const tags = await exiftool.read(raw.sidecarPath);
       expect(String(tags['XMP-photomech:Tagged'])).toMatch(/yes|true/i);
       expect(String(tags['XMP-photomech:ColorClass'])).toMatch(/^3\b/);
-      expect(String(tags['XMP-xmp:Label'])).toBe('Yellow');
-      expect(await readPhotoLabels(raw.path, exiftool)).toEqual({ tagged: true, colorClass: 3 });
+      expect(String(tags['XMP-photomech:Prefs'])).toMatch(/Tagged:1, ColorClass:3/);
+      expect(String(tags['XMP-xmp:Label'])).toBe('Superior');
+      expect(await readPhotoLabels(raw.path, { service: exiftool })).toEqual({
+        tagged: true,
+        colorClass: 3,
+      });
 
       const jpeg = bySource(cardB).find((photo) => photo.fileName.endsWith('.jpg'));
       if (jpeg) {
@@ -377,7 +381,7 @@ describe.skipIf(nefs.length === 0)(
           colorClass: 0,
         });
         expect(cleared).toMatchObject({ tagged: false, colorClass: 0 });
-        expect(await readPhotoLabels(jpeg.path, exiftool)).toEqual({
+        expect(await readPhotoLabels(jpeg.path, { service: exiftool })).toEqual({
           tagged: false,
           colorClass: 0,
         });
