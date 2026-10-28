@@ -307,6 +307,25 @@ importers:
       '@ee/contracts':
         specifier: workspace:*
         version: link:../contracts
+      basic-ftp:
+        specifier: 6.2.3
+        version: 6.2.3
+      ssh2-sftp-client:
+        specifier: 12.1.1
+        version: 12.1.1
+    devDependencies:
+      '@types/ssh2':
+        specifier: 1.15.6
+        version: 1.15.6
+      '@types/ssh2-sftp-client':
+        specifier: 9.0.6
+        version: 9.0.6
+      ftp-srv:
+        specifier: 4.6.3
+        version: 4.6.3
+      ssh2:
+        specifier: 1.17.0
+        version: 1.17.0
 
   packages/metadata:
     dependencies:

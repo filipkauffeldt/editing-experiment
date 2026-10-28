@@ -1,0 +1,19 @@
+import type { CredentialSecret } from '@ee/contracts';
+import { IngestError } from '../errors';
+import { openFtpConnection } from './ftp';
+import { openSftpConnection } from './sftp';
+import type { RemoteConnection, RemoteSource } from './types';
+
+export async function connectRemote(
+  source: RemoteSource,
+  credentials: CredentialSecret,
+  signal: AbortSignal,
+): Promise<RemoteConnection> {
+  if (source.kind === 'ftp') {
+    return openFtpConnection(source, credentials, signal);
+  }
+  if (source.kind === 'sftp') {
+    return openSftpConnection(source, credentials, signal);
+  }
+  throw new IngestError('Unsupported remote source', 'unsupported-source');
+}
