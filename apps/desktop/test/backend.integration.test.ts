@@ -3,6 +3,7 @@ import {
   asDestinationId,
   asSourceId,
   type CredentialSecret,
+  type FolderDestination,
   type FtpDestination,
   type FtpSource,
   type IngestConfig,
@@ -66,6 +67,20 @@ describe.skipIf(nefs.length === 0)('backend (jobs services in plain Node)', () =
   const bySource = (id: string): Photo[] => added().filter((p) => p.sourceId === id);
 
   let templatePath: string;
+  let ingestConfig: IngestConfig;
+  const ftpSource = (): FtpSource => ({
+    id: ftp,
+    name: 'ftp',
+    kind: 'ftp',
+    host: '127.0.0.1',
+    port: sourceServer.port,
+    username: 'cam',
+    credentialRef: 'source-ftp',
+    remotePath: '/',
+    pollIntervalMs: 200,
+    deleteAfterDownload: false,
+    security: 'none',
+  });
   const template = {
     caption: 'Match report',
     byline: 'Jane Doe',
@@ -118,31 +133,18 @@ describe.skipIf(nefs.length === 0)('backend (jobs services in plain Node)', () =
     });
     handlers = backend.handlers as IpcHandlers;
 
-    const sources: SourceConfig[] = [
-      { id: cardA, name: 'cardA', kind: 'folder', path: a! },
-      { id: cardB, name: 'cardB', kind: 'folder', path: b! },
-      {
-        id: ftp,
-        name: 'ftp',
-        kind: 'ftp',
-        host: '127.0.0.1',
-        port: sourceServer.port,
-        username: 'cam',
-        credentialRef: 'source-ftp',
-        remotePath: '/',
-        pollIntervalMs: 200,
-        deleteAfterDownload: false,
-        security: 'none',
-      } satisfies FtpSource,
-    ];
-    const config: IngestConfig = {
-      sources,
+    ingestConfig = {
+      sources: [
+        { id: cardA, name: 'cardA', kind: 'folder', path: a! },
+        { id: cardB, name: 'cardB', kind: 'folder', path: b! },
+        ftpSource(),
+      ],
       destination: { path: ingestDest!, subfolderTemplate: '{sourceName}' },
       renameTemplate: '{sourceName}_{seq:3}',
       metadataTemplatePath: templatePath,
       codeReplacementPaths: [],
     };
-    const jobs = await handlers['ingest:start']({ config });
+    const jobs = await handlers['ingest:start']({ config: ingestConfig });
     expect(jobs.map((job) => job.sourceId).sort()).toEqual([cardA, cardB, ftp].sort());
 
     const expected = 2 + userNefs.length + (hasFaceFixtures() ? 2 : 1) + 2;
@@ -441,6 +443,117 @@ describe.skipIf(nefs.length === 0)('backend (jobs services in plain Node)', () =
       }),
     ).rejects.toMatchObject({ code: 'not_found' });
   });
+
+  it('reports ingest status, tests sources, and a second run skips files already ingested', async () => {
+    const status = await handlers['ingest:status']();
+    expect(status.find((job) => job.sourceId === cardA)).toMatchObject({
+      state: 'finished',
+      filesDone: 2 + userNefs.length,
+    });
+    // Remote sources keep polling until stopped.
+    expect(status.find((job) => job.sourceId === ftp)).toMatchObject({
+      state: 'watching',
+      filesDone: 2,
+    });
+
+    expect(await handlers['sources:test']({ source: ftpSource() })).toMatchObject({ ok: true });
+    expect(
+      await handlers['sources:test']({ source: { ...ftpSource(), credentialRef: 'missing' } }),
+    ).toMatchObject({ ok: false });
+    expect(
+      await handlers['sources:test']({
+        source: { id: cardA, name: 'cardA', kind: 'folder', path: join(root, 'a') },
+      }),
+    ).toMatchObject({ ok: true });
+    expect(await handlers['sources:detectCards']()).toBeInstanceOf(Array);
+
+    const count = added().length;
+    await handlers['ingest:start']({ config: ingestConfig });
+    await waitFor(
+      'the rerun to finish',
+      async () =>
+        (await handlers['ingest:status']()).find((job) => job.sourceId === cardA)?.state ===
+        'finished',
+    );
+    await new Promise((resolve) => setTimeout(resolve, 500));
+    expect(added()).toHaveLength(count);
+
+    await handlers['ingest:stop']();
+    expect((await handlers['ingest:status']()).find((job) => job.sourceId === ftp)?.state).toBe(
+      'stopped',
+    );
+  });
+
+  it('delivers to folder destinations and surfaces failed uploads, retry and cancel', async () => {
+    const folder: FolderDestination = {
+      id: asDestinationId('folder'),
+      name: 'Folder',
+      kind: 'folder',
+      path: join(root, 'folder-dest'),
+      remotePathTemplate: '{filenamebase}-{event}.jpg',
+    };
+    const broken: FtpDestination = {
+      id: asDestinationId('broken'),
+      name: 'Broken',
+      kind: 'ftp',
+      host: '127.0.0.1',
+      port: destServer.port,
+      username: 'desk',
+      credentialRef: 'no-such-credential',
+      security: 'none',
+      remotePathTemplate: '/incoming/{fileName}',
+    };
+    await handlers['destinations:save']({ destination: folder });
+    await handlers['destinations:save']({ destination: broken });
+    expect(await handlers['destinations:test']({ destination: broken })).toMatchObject({
+      ok: false,
+    });
+
+    const photo = bySource(cardA)[0]!;
+    await handlers['metadata:write']({ photoId: photo.id, fields: { event: 'Derby' } });
+    const rendered = { width: 32, height: 32, rgba: new Uint8Array(32 * 32 * 4).fill(200) };
+    const { uploads } = await handlers['export:photo']({
+      photoId: photo.id,
+      rendered,
+      action: {
+        exportPreset: { quality: 80, metadata: 'iptc' },
+        destinations: [folder.id, broken.id],
+      },
+    });
+    expect(uploads).toHaveLength(2);
+
+    const settled = await waitFor('both uploads to settle', async () => {
+      const items = await handlers['upload:list']();
+      const mine = items.filter((item) => item.photoId === photo.id);
+      return mine.length === 2 && mine.every((i) => i.state === 'done' || i.state === 'failed')
+        ? mine
+        : undefined;
+    });
+    // Path templates see the photo's IPTC fields.
+    const delivered = join(root, 'folder-dest', 'cardA_001-Derby.jpg');
+    expect(settled.find((i) => i.destinationId === folder.id)?.state).toBe('done');
+    expect((await stat(delivered)).isFile()).toBe(true);
+    const failed = settled.find((i) => i.destinationId === broken.id)!;
+    expect(failed.state).toBe('failed');
+    expect(failed.error).toContain('no-such-credential');
+    expect(failed.error).not.toContain('dest-secret');
+    expect((await handlers['photos:get']({ photoId: photo.id })).status.upload).toBe('failed');
+
+    await handlers['upload:retry']({ uploadId: failed.id });
+    await waitFor(
+      'the retry to fail again',
+      async () =>
+        (await handlers['upload:list']()).find((i) => i.id === failed.id)?.state === 'failed',
+    );
+    await handlers['upload:cancel']({ uploadId: failed.id });
+    expect((await handlers['upload:list']()).find((i) => i.id === failed.id)?.state).toBe(
+      'cancelled',
+    );
+    expect((await handlers['photos:get']({ photoId: photo.id })).status.upload).toBe('done');
+    await expect(handlers['upload:retry']({ uploadId: 'nope' as never })).rejects.toMatchObject({
+      code: 'not_found',
+    });
+  }, 60_000);
 
   it('persists settings, sources and destinations as JSON', async () => {
     const saved = await handlers['sources:save']({
