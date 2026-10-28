@@ -77,8 +77,10 @@ jobs:
           sudo apt-get install -y --no-install-recommends xvfb xauth
 
       # Builds the native addon first (see root package.json), then runs vitest.
+      # Electron e2e (the PoC demo) uses a real window and WebGL, so the whole
+      # suite runs under one Xvfb server in CI.
       - name: Test
-        run: pnpm test
+        run: xvfb-run -a --server-args='-screen 0 1920x1080x24' pnpm test
 
       - name: Build
         run: pnpm build
