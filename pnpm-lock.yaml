@@ -208,13 +208,49 @@ importers:
       '@ee/core':
         specifier: workspace:*
         version: link:../../crates/core
+      '@ee/develop-gl':
+        specifier: workspace:*
+        version: link:../../packages/develop-gl
+      '@ee/export':
+        specifier: workspace:*
+        version: link:../../packages/export
+      '@ee/ingest':
+        specifier: workspace:*
+        version: link:../../packages/ingest
+      '@ee/metadata':
+        specifier: workspace:*
+        version: link:../../packages/metadata
+      '@ee/retouch':
+        specifier: workspace:*
+        version: link:../../packages/retouch
+      basic-ftp:
+        specifier: 6.2.3
+        version: 6.2.3
+      exiftool-vendored:
+        specifier: 39.0.1
+        version: 39.0.1
+      fast-xml-parser:
+        specifier: 5.11.2
+        version: 5.11.2
+      onnxruntime-node:
+        specifier: 1.31.1
+        version: 1.31.1
       react:
         specifier: 19.3.1
         version: 19.3.1
       react-dom:
         specifier: 19.3.1
         version: 19.3.1(react@19.3.1)
+      sharp:
+        specifier: 0.35.5
+        version: 0.35.5(@types/node@24.19.2)
+      ssh2-sftp-client:
+        specifier: 12.1.1
+        version: 12.1.1
     devDependencies:
+      '@playwright/test':
+        specifier: 1.64.1
+        version: 1.64.1
       '@types/react':
         specifier: 19.3.0
         version: 19.3.0
@@ -230,6 +266,9 @@ importers:
       electron-vite:
         specifier: 6.0.0
         version: 6.0.0(vite@7.3.7(@types/node@24.19.2)(lightningcss@1.33.0))
+      ftp-srv:
+        specifier: 4.6.3
+        version: 4.6.3
       vite:
         specifier: 7.3.7
         version: 7.3.7(@types/node@24.19.2)(lightningcss@1.33.0)

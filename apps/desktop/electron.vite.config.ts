@@ -5,7 +5,15 @@ import { resolve } from 'node:path';
 
 // Workspace packages are TypeScript source that Node cannot load, so they are
 // bundled into the main/jobs output instead of being left as external imports.
-const bundledWorkspacePackages = ['@ee/contracts', '@ee/core'];
+const bundledWorkspacePackages = [
+  '@ee/contracts',
+  '@ee/core',
+  '@ee/develop-gl',
+  '@ee/export',
+  '@ee/ingest',
+  '@ee/metadata',
+  '@ee/retouch',
+];
 
 // Only the renderer's own bundle and `app:` images may load; applied at build time
 // because the dev server needs inline scripts for React refresh.

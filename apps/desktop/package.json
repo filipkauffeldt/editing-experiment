@@ -15,15 +15,28 @@
   "dependencies": {
     "@ee/contracts": "workspace:*",
     "@ee/core": "workspace:*",
+    "@ee/develop-gl": "workspace:*",
+    "@ee/export": "workspace:*",
+    "@ee/ingest": "workspace:*",
+    "@ee/metadata": "workspace:*",
+    "@ee/retouch": "workspace:*",
+    "basic-ftp": "6.2.3",
+    "exiftool-vendored": "39.0.1",
+    "fast-xml-parser": "5.11.2",
+    "onnxruntime-node": "1.31.1",
     "react": "19.3.1",
-    "react-dom": "19.3.1"
+    "react-dom": "19.3.1",
+    "sharp": "0.35.5",
+    "ssh2-sftp-client": "12.1.1"
   },
   "devDependencies": {
+    "@playwright/test": "1.64.1",
     "@types/react": "19.3.0",
     "@types/react-dom": "19.3.0",
     "@vitejs/plugin-react": "5.2.0",
     "electron": "45.1.0",
     "electron-vite": "6.0.0",
+    "ftp-srv": "4.6.3",
     "vite": "7.3.7"
   }
 }
