@@ -80,6 +80,55 @@ describe('ingest hook when the index write fails', () => {
   });
 });
 
+describe('ingest hook for JPEG files', () => {
+  it('records the displayed size of a rotated JPEG and writes previews', async () => {
+    const dir = await tempDir();
+    const path = join(dir, 'turned.jpg');
+    await sharp({ create: { width: 600, height: 400, channels: 3, background: '#468' } })
+      .withMetadata({ orientation: 6 })
+      .jpeg()
+      .toFile(path);
+    const exiftool = new ExifToolService();
+    const added: Photo[] = [];
+    const previews = new PreviewCache(join(dir, 'thumb'), join(dir, 'preview'));
+    try {
+      const hook = createOnFileIngested(
+        {
+          photos: { hasPath: () => false, add: (photo: Photo) => added.push(photo) } as never,
+          previews,
+          metadata: {} as never,
+          edits: {} as never,
+          exiftool,
+          report: (event) => {
+            throw new Error(event.message);
+          },
+        },
+        {},
+        'fillEmpty',
+      );
+      await hook({
+        photoId: asPhotoId('turned'),
+        jobId: asJobId('j'),
+        sourceId: asSourceId('s'),
+        sourceKind: 'folder',
+        sourceName: 's',
+        sourcePath: path,
+        sourceFileName: 'turned.jpg',
+        path,
+        fileName: 'turned.jpg',
+        size: 1,
+        mtimeMs: 1,
+        sha256: '',
+        seq: 1,
+      });
+      expect(added[0]).toMatchObject({ width: 400, height: 600 });
+      expect(await previews.has('thumb', asPhotoId('turned'))).toBe(true);
+    } finally {
+      await exiftool.close();
+    }
+  });
+});
+
 describe('findUnindexed', () => {
   it('lists image files below the folder that are not known, skipping temp files', async () => {
     const dir = await tempDir();
