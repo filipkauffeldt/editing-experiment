@@ -1,7 +1,20 @@
-import { CROP_ASPECTS, cropAspectRatio, type CropSession } from '../store';
+import { CROP_ASPECTS, cropAspectRatio, type CropOverlayKind, type CropSession } from '../store';
 import { useAppStore } from '../store-context';
 import { CheckIcon, CropIcon, CrossIcon } from './icons';
 import styles from './PhotoCanvas.module.css';
+
+const OVERLAY_LABELS: Record<CropOverlayKind, string> = {
+  thirds: 'Thirds',
+  grid: 'Grid',
+  golden: 'Golden',
+  none: 'None',
+};
+
+const TOOL_HINTS: Record<CropSession['tool'], string> = {
+  crop: 'Drag inside to move the photo, outside to rotate it, a handle to resize. Enter applies, Esc cancels.',
+  draw: 'Drag on the photo to draw a new crop frame.',
+  straighten: 'Drag a line along the horizon.',
+};
 
 /** Crop-mode controls: aspect presets, straighten angle and apply/cancel. */
 export function CropToolbar({ session }: { session: CropSession }) {
@@ -32,18 +45,40 @@ export function CropToolbar({ session }: { session: CropSession }) {
           step={0.1}
           value={session.crop.angle}
           aria-label="Straighten angle"
+          title="Double-click to reset"
           onChange={(event) => store.setCropAngle(Number(event.target.value))}
+          onDoubleClick={() => store.setCropAngle(0)}
         />
       </label>
       <div className={styles.actions}>
         <button
           type="button"
+          className={`${styles.tool} ${session.tool === 'draw' ? styles.toolActive : ''}`}
+          onClick={() => store.toggleCropTool('draw')}
+          data-tool="draw"
+          aria-pressed={session.tool === 'draw'}
+          title="Crop frame tool: drag out a new frame (R)"
+        >
+          Frame
+        </button>
+        <button
+          type="button"
           className={`${styles.tool} ${session.tool === 'straighten' ? styles.toolActive : ''}`}
-          onClick={() => store.setCropTool(session.tool === 'straighten' ? 'crop' : 'straighten')}
+          onClick={() => store.toggleCropTool('straighten')}
           data-tool="straighten"
-          title="Draw a line along the horizon"
+          aria-pressed={session.tool === 'straighten'}
+          title="Straighten: draw a line along the horizon (A)"
         >
           Straighten
+        </button>
+        <button
+          type="button"
+          className={styles.secondary}
+          onClick={() => store.cycleCropOverlay()}
+          data-testid="crop-overlay-kind"
+          title="Cycle the overlay: thirds, grid, golden ratio, none (O)"
+        >
+          Overlay: {OVERLAY_LABELS[session.overlay]}
         </button>
         <button
           type="button"
@@ -54,7 +89,12 @@ export function CropToolbar({ session }: { session: CropSession }) {
         >
           Swap
         </button>
-        <button type="button" className={styles.secondary} onClick={() => store.resetCrop()}>
+        <button
+          type="button"
+          className={styles.secondary}
+          onClick={() => store.resetCrop()}
+          title="Reset the crop (Ctrl/⌘+Alt+R)"
+        >
           Reset
         </button>
         <button type="button" className={styles.secondary} onClick={() => store.cancelCrop()}>
@@ -70,7 +110,7 @@ export function CropToolbar({ session }: { session: CropSession }) {
         </button>
       </div>
       <div className={styles.toolHint}>
-        <CropIcon size={10} /> Drag a handle to crop; draw a line to straighten. Esc cancels.
+        <CropIcon size={10} /> {TOOL_HINTS[session.tool]}
       </div>
       <button
         type="button"

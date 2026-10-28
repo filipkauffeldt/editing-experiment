@@ -9,14 +9,17 @@ import {
 import {
   createDevelopRenderer,
   cropDevelopedRgba,
+  cropGeometry,
   grainSeedFromId,
   cropOutputSize,
+  type CropViewTransform,
   type DevelopRenderer,
 } from '@ee/develop-gl';
 import { applyMosaic, magicWand, simplifyPolygon } from '@ee/retouch';
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { ee } from '../ee';
 import { paramsForPhoto, topRetouchVersion, type RetouchFace, type RetouchTool } from '../store';
+import { cropLayout, fitWithin } from '../crop-view';
 import { padFaceBox } from '../retouch-geometry';
 import { useAppState, useAppStore } from '../store-context';
 import { CropOverlay } from './CropOverlay';
@@ -33,21 +36,12 @@ const MIN_EDGE = 64;
 const MAX_EDGE = 2560;
 const EDGE_BUCKET = 64;
 
-const clamp01 = (value: number): number => Math.min(1, Math.max(0, value));
+/** Crop mode: the image outside the frame is multiplied by this. */
+const CROP_DIM = 0.42;
+/** The empty canvas outside the rotated image (sRGB), a touch lighter than the app background. */
+const CROP_OUTSIDE: [number, number, number] = [0.1, 0.1, 0.11];
 
-function fitWithin(
-  container: { width: number; height: number },
-  aspect: number,
-): { width: number; height: number } {
-  const availableWidth = Math.max(50, container.width - 32);
-  const availableHeight = Math.max(50, container.height - 32);
-  if (availableWidth / availableHeight > aspect) {
-    const height = availableHeight;
-    return { width: height * aspect, height };
-  }
-  const width = availableWidth;
-  return { width, height: width / aspect };
-}
+const clamp01 = (value: number): number => Math.min(1, Math.max(0, value));
 
 const normalizedPoint = (event: React.PointerEvent, element: Element): { x: number; y: number } => {
   const rect = element.getBoundingClientRect();
@@ -261,6 +255,10 @@ function CanvasForPhoto({ photo }: { photo: Photo }) {
     return next;
   }, [editing, params]);
   const display = fitWithin(container, imageAspect);
+  // Crop mode draws on the whole workspace: the rotated image is bigger than
+  // the unrotated fit, and the frame is dragged around it.
+  const cropping = cropSession !== undefined;
+  const stage = cropping ? { width: container.width, height: container.height } : display;
 
   const dpr = typeof window === 'undefined' ? 1 : window.devicePixelRatio || 1;
   const requestedEdge =
@@ -275,10 +273,49 @@ function CanvasForPhoto({ photo }: { photo: Photo }) {
       : MAX_EDGE;
   const bufferScale =
     display.width > 0
-      ? Math.min(1, requestedEdge / (Math.max(display.width, display.height) * dpr))
+      ? Math.min(
+          1,
+          (cropping ? MAX_EDGE : requestedEdge) / (Math.max(stage.width, stage.height) * dpr),
+        )
       : 1;
-  const bufferWidth = Math.max(1, Math.round(display.width * dpr * bufferScale));
-  const bufferHeight = Math.max(1, Math.round(display.height * dpr * bufferScale));
+  // Drawing-buffer pixels per CSS pixel; the crop view maps through it.
+  const bufferRatio = dpr * bufferScale;
+  const bufferWidth = Math.max(1, Math.round(stage.width * bufferRatio));
+  const bufferHeight = Math.max(1, Math.round(stage.height * bufferRatio));
+
+  const cropView = useMemo((): CropViewTransform | undefined => {
+    if (!cropSession || !loaded) return undefined;
+    const layout = cropLayout(stage, cropSession.image);
+    const geometry = cropGeometry(cropSession.crop, cropSession.image);
+    const toBuffer = layout.scale * bufferRatio;
+    const centre = {
+      x: (layout.offset.x + cropSession.pivot.x * layout.scale) * bufferRatio,
+      y: (layout.offset.y + cropSession.pivot.y * layout.scale) * bufferRatio,
+    };
+    return {
+      crop: cropSession.crop,
+      pivot: centre,
+      // View units are pixels of the full oriented image; the texture may be a downscale of it.
+      scale: toBuffer * (cropSession.image.width / loaded.header.width),
+      frame: {
+        x: centre.x - (geometry.width * toBuffer) / 2,
+        y: centre.y - (geometry.height * toBuffer) / 2,
+        w: geometry.width * toBuffer,
+        h: geometry.height * toBuffer,
+      },
+      dim: CROP_DIM,
+      outside: CROP_OUTSIDE,
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [
+    cropSession?.crop,
+    cropSession?.pivot,
+    cropSession?.image,
+    loaded,
+    stage.width,
+    stage.height,
+    bufferRatio,
+  ]);
 
   // Create the WebGL renderer once per canvas; the image is uploaded separately.
   useEffect(() => {
@@ -396,9 +433,12 @@ function CanvasForPhoto({ photo }: { photo: Photo }) {
 
   useEffect(() => {
     if (!renderer || !loaded || contextLost) return;
+    // One draw per animation frame however fast pointer events arrive; the
+    // view transform is a uniform change, not a CPU resample.
     const frame = requestAnimationFrame(() => {
       try {
-        renderer.render(renderParams);
+        if (cropView) renderer.renderView(renderParams, cropView);
+        else renderer.render(renderParams);
         setRenderVersion((version) => version + 1);
         setFirstFrame(true);
       } catch (cause) {
@@ -406,7 +446,8 @@ function CanvasForPhoto({ photo }: { photo: Photo }) {
       }
     });
     return () => cancelAnimationFrame(frame);
-  }, [renderer, loaded, contextLost, renderParams]);
+    // The buffer size is a dependency: resizing a canvas clears it.
+  }, [renderer, loaded, contextLost, renderParams, cropView, bufferWidth, bufferHeight]);
 
   // The committed retouch version is the default view; while editing, the
   // pending shapes and enabled faces replace it.
@@ -436,13 +477,7 @@ function CanvasForPhoto({ photo }: { photo: Photo }) {
     if (!mosaic) return;
     const context = mosaic.getContext('2d');
     if (!context) return;
-    if (
-      cropSession !== undefined ||
-      mosaicShapes.length === 0 ||
-      !renderer ||
-      !loaded ||
-      contextLost
-    ) {
+    if (cropping || mosaicShapes.length === 0 || !renderer || !loaded || contextLost) {
       context.clearRect(0, 0, mosaic.width, mosaic.height);
       return;
     }
@@ -479,7 +514,17 @@ function CanvasForPhoto({ photo }: { photo: Photo }) {
       }
     });
     return () => cancelAnimationFrame(frame);
-  }, [mosaicShapes, blockSizeRel, renderer, loaded, contextLost, renderParams, cropSession]);
+  }, [
+    mosaicShapes,
+    blockSizeRel,
+    renderer,
+    loaded,
+    contextLost,
+    renderParams,
+    cropping,
+    bufferWidth,
+    bufferHeight,
+  ]);
 
   const updateDraft = (event: React.PointerEvent): void => {
     const surface = overlayRef.current;
@@ -602,8 +647,8 @@ function CanvasForPhoto({ photo }: { photo: Photo }) {
       <div
         className={styles.stage}
         style={{
-          width: `${Math.round(display.width)}px`,
-          height: `${Math.round(display.height)}px`,
+          width: `${Math.round(stage.width)}px`,
+          height: `${Math.round(stage.height)}px`,
         }}
         data-photo-id={photo.id}
         data-mode={cropSession ? 'crop' : session ? 'retouch' : 'develop'}
@@ -626,7 +671,10 @@ function CanvasForPhoto({ photo }: { photo: Photo }) {
             draggable={false}
             data-testid="preview-image"
             data-visible={!firstFrame && !contextLost ? 'true' : 'false'}
-            style={{ opacity: firstFrame || contextLost ? 0 : 1 }}
+            style={{
+              opacity: firstFrame || contextLost ? 0 : 1,
+              display: cropping ? 'none' : undefined,
+            }}
             onLoad={() => setPreviewLoaded(true)}
             onError={() => {
               setPreviewLoaded(false);
@@ -656,7 +704,7 @@ function CanvasForPhoto({ photo }: { photo: Photo }) {
             <PenIcon size={10} /> Retouch version
           </div>
         )}
-        {cropSession && <CropOverlay session={cropSession} />}
+        {cropSession && <CropOverlay session={cropSession} stage={stage} />}
         {cropSession && <CropToolbar session={cropSession} />}
         {session && (
           <svg

@@ -175,6 +175,8 @@ export interface CropModifiers {
 interface CropGestureState {
   request: CropGestureRequest;
   start: Point;
+  /** How far from the exact handle position the press landed, so the edge does not jump. */
+  grab: Point;
   last: Point;
   /** Clockwise degrees the pointer has swept around the pivot so far. */
   swept: number;
@@ -194,6 +196,31 @@ export function cropAspectRatio(session: CropSession): number | undefined {
   }
   const base = CROP_ASPECT_RATIOS[session.aspect];
   return session.flipped ? 1 / base : base;
+}
+
+/** Offset of a handle press from the handle's exact position, on the axes the handle moves. */
+function grabOffset(
+  request: CropGestureRequest,
+  start: Point,
+  pivot: Point,
+  frame: { width: number; height: number },
+): Point {
+  if (request.kind !== 'resize') return { x: 0, y: 0 };
+  const { handle } = request;
+  const x = handle.includes('w')
+    ? -frame.width / 2
+    : handle.includes('e')
+      ? frame.width / 2
+      : undefined;
+  const y = handle.includes('n')
+    ? -frame.height / 2
+    : handle.includes('s')
+      ? frame.height / 2
+      : undefined;
+  return {
+    x: x === undefined ? 0 : start.x - (pivot.x + x),
+    y: y === undefined ? 0 : start.y - (pivot.y + y),
+  };
 }
 
 /** Progress of "Finish & next", shown in the status bar. */
@@ -1108,6 +1135,7 @@ export class AppStore {
       swept: 0,
       crop: session.crop,
       pivot: session.pivot,
+      grab: grabOffset(request, start, session.pivot, geometry),
       aspect: cropAspectRatio(session),
       freeAspect: geometry.height > 0 ? geometry.width / geometry.height : undefined,
       desired: session.desired ?? { width: geometry.width, height: geometry.height },
@@ -1147,7 +1175,10 @@ export class AppStore {
       }
       case 'resize': {
         const start = cropGeometry(gesture.crop, image);
-        const target = cropViewToImage(start, gesture.pivot, point);
+        const target = cropViewToImage(start, gesture.pivot, {
+          x: point.x - gesture.grab.x,
+          y: point.y - gesture.grab.y,
+        });
         const crop = resizeCropFromHandle(
           gesture.crop,
           image,
@@ -1206,21 +1237,6 @@ export class AppStore {
       this.setCropAngle(straightenAngleFromLine(session.crop.angle, from, to));
     }
     this.updateCrop({ tool: 'crop' });
-  };
-
-  /** Resizes from a handle dragged to `point` (normalized image coordinates). */
-  readonly dragCropHandle = (handle: CropHandle, point: Point): void => {
-    const session = this.state.crop;
-    if (!session) return;
-    this.updateCrop({
-      crop: resizeCropFromHandle(
-        session.crop,
-        session.image,
-        handle,
-        { x: point.x * session.image.width, y: point.y * session.image.height },
-        cropAspectRatio(session),
-      ),
-    });
   };
 
   /** Slider and typed angle: the image turns about the frame centre. */
