@@ -143,5 +143,7 @@ GPL-3.0-or-later; see `LICENSE`.
   `packages/retouch/third_party/yunet/LICENSE`.
 - The embedded sRGB ICC profile is CC0 — see
   `crates/core/assets/sRGB-v2-magic.LICENSE.txt`.
+- Colour and effects maths in `packages/develop-gl/src/color` is ported from
+  RAWmakase (MIT) — see `packages/develop-gl/third_party/rawmakase/LICENSE`.
 
 See `docs/ARCHITECTURE.md` for the design.

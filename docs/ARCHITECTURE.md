@@ -176,13 +176,37 @@ One WebGL2 fragment shader (`packages/develop-gl`), per pixel, in this order:
 1. white balance multipliers in camera space, with raw highlight clipping (channels are
    clamped to the lowest white point and blown pixels fade to neutral, so clipped
    areas go white, not pink), then `cameraToSrgb` to linear Rec.709;
-2. exposure, then tone (highlights/shadows, contrast, whites/blacks) in linear light,
+2. Camera Calibration (`ShadowTint`, `RedHue/Saturation`, `GreenHue/Saturation`,
+   `BlueHue/Saturation`) next to the camera matrix, as in Lightroom and RAWmakase:
+   the measured primary matrices preserve neutrals, so greys stay grey;
+3. exposure, then tone (highlights/shadows, contrast, whites/blacks) in linear light,
    applied as a luminance gain so hue is kept;
-3. highlight shoulder per channel (values above ~0.9 roll off and reach 1.0 at 2.0
+4. highlight shoulder per channel (values above ~0.9 roll off and reach 1.0 at 2.0
    scene-linear, so nothing hard clips);
-4. sRGB encode (OETF);
-5. tone curve (master, then R/G/B), defined on the encoded 0..255 axis, as a 1D LUT;
-6. vibrance / saturation, in encoded space.
+5. sRGB encode (OETF);
+6. parametric tone curve (`ParametricShadows/Darks/Lights/Highlights` and the three
+   splits), then the point curve (master, then R/G/B), both folded into one encoded
+   1D LUT. Lightroom puts the parametric curve between the basic tone stage and the
+   point curve, and the point curve wins where they overlap;
+7. vibrance / saturation, then the Color Mixer (HSL bands with smooth, overlapping
+   hue weights; neutrals are gated out) and Color Grading (Shadows/Midtones/
+   Highlights/Global hue, saturation and luminance, shaped by Blending and Balance;
+   a legacy `SplitToning*` record renders as Blending 100), all in encoded space so
+   the controls stay perceptual;
+8. post-crop vignette, relative to the crop's output rectangle rather than the
+   uncropped source, then deterministic grain. Grain is seeded per photo and sampled
+   in full-resolution source pixels with the preview/export scale, so a preview and
+   the export get the same pattern with matching statistics.
+
+The colour and effects maths lives in `packages/develop-gl/src/color/*.ts`
+(`mixer`, `grading`, `calibration`, `parametric`, `effects`) with its GLSL mirror
+in `src/glsl/color.ts`; `glsl.ts` has one clearly marked insertion point for
+calibration and one for the per-pixel colour/effects stage. Calibration,
+vignette and grain formulas are ported from RAWmakase (MIT); the mixer and
+grading use smooth analytic weights rather than RAWmakase's measured binary
+tables, so they approximate Camera Raw rather than matching it byte for byte.
+`renderCpu` takes the same per-pixel positions and grain seed, which the browser
+parity tests hold to the shader.
 
 The sRGB encode comes before the curve because the curve is display-referred.
 Absent `Temperature`/`Tint` mean as shot. If `Temperature` or `Tint` is set it
