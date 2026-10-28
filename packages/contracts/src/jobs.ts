@@ -1,5 +1,5 @@
-import type { DestinationId, JobId, PhotoId, SourceId, UploadId } from './ids';
-import type { UploadItemState } from './export';
+import type { DestinationId, ExportJobId, JobId, PhotoId, SourceId, UploadId } from './ids';
+import type { ExportJob, ExportRenderRequest, UploadItemState } from './export';
 
 /** Common fields of every {@link JobEvent}. */
 interface JobEventBase {
@@ -57,9 +57,37 @@ export interface JobErrorEvent extends JobEventBase {
   message: string;
 }
 
+/** The jobs process asks the renderer to render one photo for an export job. */
+export interface ExportRenderEvent extends JobEventBase, ExportRenderRequest {
+  type: 'export.render';
+}
+
+/** One photo inside an export job changed state. */
+export interface ExportProgressEvent extends JobEventBase {
+  type: 'export.progress';
+  jobId: ExportJobId;
+  photoId: PhotoId;
+  job: ExportJob;
+}
+
+/** An export job changed state (queued, running, done, failed, cancelled). */
+export interface ExportStateEvent extends JobEventBase {
+  type: 'export.state';
+  jobId: ExportJobId;
+  state: ExportJob['state'];
+  job: ExportJob;
+}
+
 /** Stream of background work updates, delivered on the `jobs:event` channel. */
 export type JobEvent =
-  IngestProgressEvent | IngestStateEvent | UploadProgressEvent | UploadStateEvent | JobErrorEvent;
+  | IngestProgressEvent
+  | IngestStateEvent
+  | UploadProgressEvent
+  | UploadStateEvent
+  | JobErrorEvent
+  | ExportRenderEvent
+  | ExportProgressEvent
+  | ExportStateEvent;
 
 /** State of one source's ingest run. `watching` = remote source idle between polls. */
 export type IngestJobState = 'running' | 'watching' | 'stopped' | 'finished' | 'failed';

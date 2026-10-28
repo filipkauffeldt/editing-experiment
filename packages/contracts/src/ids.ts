@@ -14,8 +14,10 @@ export type SourceId = Brand<'SourceId'>;
 export type DestinationId = Brand<'DestinationId'>;
 /** Identifier of a photo version (a develop or retouch variant of one photo). */
 export type VersionId = Brand<'VersionId'>;
-/** Identifier of a background job (an ingest run, an export, ...). */
+/** Identifier of a background job (an ingest run, ...). */
 export type JobId = Brand<'JobId'>;
+/** Identifier of one background export batch. */
+export type ExportJobId = Brand<'ExportJobId'>;
 /** Identifier of one entry in the upload queue. */
 export type UploadId = Brand<'UploadId'>;
 /** Identifier of an imported develop preset. */
@@ -26,5 +28,6 @@ export const asSourceId = (value: string): SourceId => value as SourceId;
 export const asDestinationId = (value: string): DestinationId => value as DestinationId;
 export const asVersionId = (value: string): VersionId => value as VersionId;
 export const asJobId = (value: string): JobId => value as JobId;
+export const asExportJobId = (value: string): ExportJobId => value as ExportJobId;
 export const asUploadId = (value: string): UploadId => value as UploadId;
 export const asPresetId = (value: string): PresetId => value as PresetId;
