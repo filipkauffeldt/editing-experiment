@@ -386,6 +386,7 @@ describe.skipIf(nefs.length === 0)('backend (jobs services in plain Node)', () =
       rendered: { width: 640, height: 427, rgba },
     });
     expect(result.path.endsWith('cardB_001.jpg')).toBe(true);
+    expect(result.fileName).toBe('cardB_001.jpg');
     expect(result.uploads).toHaveLength(1);
 
     await assertNoEmbeddedPreviews(result.path);

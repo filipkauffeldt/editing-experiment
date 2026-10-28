@@ -35,7 +35,7 @@ const secretPort = new Promise<SecretPort>((resolve) => {
 let backend: Promise<Backend> | undefined;
 let mockHandlers: Partial<IpcHandlers> | undefined;
 if (mock) {
-  mockHandlers = createJobsHandlers({ mock, appVersion, emit });
+  mockHandlers = createJobsHandlers({ mock, appVersion, emit, simulate: true });
 } else {
   const userDataDir = process.env.EE_USER_DATA_DIR;
   backend = userDataDir

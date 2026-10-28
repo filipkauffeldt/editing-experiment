@@ -1,0 +1,146 @@
+.viewport {
+  position: relative;
+  flex: none;
+  min-width: 0;
+  height: 92px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding: 0 2px 6px;
+  outline: none;
+}
+
+.track {
+  position: relative;
+  height: 100%;
+}
+
+.frame {
+  position: absolute;
+  top: 0;
+  padding: 0;
+  border: 2px solid transparent;
+  border-radius: 3px;
+  background: var(--panel-sunken);
+  overflow: hidden;
+}
+
+.frame img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  opacity: 0.92;
+}
+
+.frame:hover img {
+  opacity: 1;
+}
+
+.selected {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 1px rgb(90 167 255 / 0.35);
+}
+
+.selected img {
+  opacity: 1;
+}
+
+.badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 17px;
+  height: 17px;
+  border-radius: 3px;
+  color: #f4f4f6;
+  box-shadow: 0 1px 3px rgb(0 0 0 / 0.45);
+}
+
+.badgeUploading {
+  background: rgb(44 92 148 / 0.92);
+  color: #bfe1ff;
+}
+
+.badgeDone {
+  background: rgb(32 108 76 / 0.92);
+  color: #b8f0d4;
+}
+
+.badgeFailed {
+  background: rgb(150 54 49 / 0.94);
+  color: #ffd9d5;
+}
+
+.badgeQueued {
+  background: rgb(118 87 33 / 0.92);
+  color: #f6dfb2;
+}
+
+.badgeEdit {
+  background: rgb(36 72 112 / 0.92);
+  color: #cbe3ff;
+}
+
+.badgeMeta {
+  background: rgb(118 87 33 / 0.92);
+  color: #f6dfb2;
+}
+
+.badgeTagged {
+  background: rgb(28 112 94 / 0.92);
+  color: #c4f2e6;
+}
+
+.badgeStack {
+  position: relative;
+}
+
+.stackPen {
+  position: absolute;
+  right: -2px;
+  bottom: -2px;
+  padding: 1px;
+  border-radius: 2px;
+  background: #1b4a76;
+}
+
+.colorClass {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 3px;
+}
+
+.topRight,
+.bottomLeft,
+.bottomRight {
+  position: absolute;
+  display: flex;
+  gap: 3px;
+}
+
+.topRight {
+  top: 4px;
+  right: 4px;
+}
+
+.bottomLeft {
+  bottom: 4px;
+  left: 4px;
+}
+
+.bottomRight {
+  right: 4px;
+  bottom: 4px;
+}
+
+.empty {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  justify-content: center;
+  height: 92px;
+  color: var(--text-faint);
+  font-size: 12px;
+}

@@ -11,7 +11,7 @@ import {
 import { exportPhoto, type ExpandPathTemplate, type UploadQueue } from '@ee/export';
 import { expandVariables, readIptc, writeIptc, type ExifToolService } from '@ee/metadata';
 import { rename } from 'node:fs/promises';
-import { join, parse } from 'node:path';
+import { basename, join, parse } from 'node:path';
 import type { PhotoLibrary } from './photo-library';
 import type { SettingsStore } from './settings-store';
 
@@ -102,7 +102,7 @@ export class ExportService {
     const uploads = await queue.enqueue(photo.id, exported.path, destinations);
     this.latestBatch.set(photo.id, new Set(uploads.map((upload) => upload.id)));
     this.refreshUploadStatus(photo.id);
-    return { path: exported.path, uploads };
+    return { path: exported.path, fileName: basename(exported.path), uploads };
   }
 
   /**

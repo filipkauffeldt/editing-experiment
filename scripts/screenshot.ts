@@ -30,7 +30,7 @@ function ensureDisplay(): void {
   }
   const rerun = spawnSync(
     'xvfb-run',
-    ['-a', '--server-args=-screen 0 1600x1000x24', process.execPath, ...process.argv.slice(1)],
+    ['-a', '--server-args=-screen 0 1920x1080x24', process.execPath, ...process.argv.slice(1)],
     { stdio: 'inherit' },
   );
   process.exit(rerun.status ?? 1);
@@ -60,6 +60,13 @@ async function main(): Promise<void> {
     });
     window.on('pageerror', (error) => problems.push(error.message));
 
+    const shoot = async (name: string, selector?: string): Promise<void> => {
+      const path = join(outDir, name);
+      if (selector) await window.locator(selector).screenshot({ path });
+      else await window.screenshot({ path });
+      console.log(`wrote ${path}`);
+    };
+
     await window.waitForFunction(
       () => {
         const images = [...document.querySelectorAll('[data-testid="film-strip"] img')];
@@ -68,12 +75,45 @@ async function main(): Promise<void> {
       undefined,
       { timeout: 20_000 },
     );
-    await window.getByText('MOCK').waitFor();
-    await window.getByText(/round trip/).waitFor();
+    await window.getByText('MOCK', { exact: true }).waitFor();
+    // Let the mock ingest/upload simulation produce a little progress.
+    await window.waitForTimeout(900);
+    await shoot('01-main-1440.png');
 
-    const layout = join(outDir, 'layout.png');
-    await window.screenshot({ path: layout });
-    console.log(`wrote ${layout}`);
+    // A retouched photo shows the stacked-frame badge and an active upload.
+    await window.locator('[title^="_DSC8332.NEF"]').click();
+    await window.waitForTimeout(350);
+    await shoot('02-film-strip-badges.png', '[data-testid="film-strip"]');
+
+    // Photo 5 deliberately carries metadata that differs from the ingest template.
+    await window.locator('[title^="_DSC8334.NEF"]').click();
+    await window.locator('[data-caption-input]').waitFor();
+    await window.waitForTimeout(350);
+    await shoot('03-metadata-template-diff.png', '[data-testid="metadata-panel"]');
+
+    await window.locator('[data-testid="upload-summary"]').click();
+    await window.getByRole('dialog', { name: 'Upload queue' }).waitFor();
+    await shoot('04-upload-popover.png');
+
+    await window.keyboard.press('Escape');
+    await window.locator('[data-testid="open-settings"]').click();
+    await window.getByRole('dialog', { name: 'Settings' }).waitFor();
+    await window.waitForTimeout(250);
+    await shoot('05-source-settings.png');
+
+    await window.getByRole('button', { name: 'Close', exact: true }).last().click();
+    await window.waitForTimeout(150);
+    await window.locator('[data-testid="photo-view"]').click({ position: { x: 10, y: 10 } });
+    await window.keyboard.press('Shift+/');
+    await window.getByTestId('shortcuts-overlay').waitFor();
+    await shoot('06-shortcuts.png');
+
+    await window.keyboard.press('Escape');
+    await app.evaluate(({ BrowserWindow }) => {
+      BrowserWindow.getAllWindows()[0]?.setSize(1920, 1080);
+    });
+    await window.waitForTimeout(600);
+    await shoot('07-main-1920.png');
 
     if (problems.length > 0) throw new Error(`renderer reported errors:\n${problems.join('\n')}`);
   } finally {
