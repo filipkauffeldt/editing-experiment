@@ -69,6 +69,8 @@ export class UploadQueue {
   private pumping = false;
   private repump = false;
   private retryTimer: NodeJS.Timeout | undefined;
+  /** Time of the latest scan for due rows; the retry timer must pick up where that scan stopped. */
+  private lastScanAt: number | undefined;
   private readonly active = new Map<string, ActiveUpload>();
   private readonly activePerDestination = new Map<string, number>();
   private readonly idleWaiters = new Set<() => void>();
@@ -254,6 +256,7 @@ export class UploadQueue {
       while (progressed && this.started && !this.closed) {
         progressed = false;
         const now = this.now();
+        this.lastScanAt = now;
         for (const item of this.store.queued(now)) {
           if (this.active.has(item.id)) continue;
           if ((this.activePerDestination.get(item.destinationId) ?? 0) >= this.concurrency) {
@@ -400,7 +403,10 @@ export class UploadQueue {
   private scheduleRetryTimer(): void {
     this.clearRetryTimer();
     if (!this.started || this.closed) return;
-    const next = this.store.nextQueuedAt(this.now());
+    // Rows that became due after the last scan but before this call must get a timer
+    // (with a zero delay). Looking them up from the current time would skip them, and
+    // nothing else would ever wake the queue for them.
+    const next = this.store.nextQueuedAt(this.lastScanAt ?? this.now());
     if (next === undefined) return;
     const delay = Math.max(0, next - this.now());
     this.retryTimer = setTimeout(() => {
