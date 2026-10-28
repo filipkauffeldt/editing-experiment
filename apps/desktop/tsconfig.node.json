@@ -13,7 +13,6 @@
     "src/preload",
     "src/jobs",
     "src/shared",
-    "scripts",
-    "test"
+    "scripts"
   ]
 }

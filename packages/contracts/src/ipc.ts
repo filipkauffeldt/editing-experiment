@@ -125,6 +125,8 @@ export interface ExportPhotoArgs extends VersionRef {
 export interface ExportPhotoResult {
   /** Absolute path of the exported JPEG. */
   path: string;
+  /** Final file name only (no directory separators), for display without parsing `path`. */
+  fileName?: string;
   /** Upload queue entries created, one per destination that needs an upload. */
   uploads: UploadItem[];
 }

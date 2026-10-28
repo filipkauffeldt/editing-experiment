@@ -1,4 +1,5 @@
-import { appUrl, type Photo } from '@ee/contracts';
+import type { Photo } from '@ee/contracts';
+import { PhotoCanvas } from './PhotoCanvas';
 import styles from './PhotoView.module.css';
 
 interface PhotoViewProps {
@@ -6,15 +7,29 @@ interface PhotoViewProps {
   photo: Photo | undefined;
 }
 
-/** Center view. Shows the cached preview for now; the WebGL develop canvas replaces the `<img>`. */
+/** Centre view: preview canvas plus a compact file strip beneath it. */
 export function PhotoView({ className, photo }: PhotoViewProps) {
   return (
     <main className={`${styles.view} ${className ?? ''}`} data-testid="photo-view">
-      {photo ? (
-        <img className={styles.image} src={appUrl.preview(photo.id)} alt={photo.fileName} />
-      ) : (
-        <span className={styles.empty}>No photos yet. Start an ingest to fill the film strip.</span>
-      )}
+      <div className={styles.canvasArea}>
+        <PhotoCanvas photo={photo} />
+      </div>
+      <footer className={styles.footer}>
+        {photo ? (
+          <>
+            <span className={styles.fileName}>{photo.fileName}</span>
+            <span className={styles.spacer} />
+            <span className={styles.detail}>
+              {photo.width && photo.height ? `${photo.width} × ${photo.height}` : '—'}
+            </span>
+            <span className={styles.detail}>{photo.camera?.lens ?? photo.camera?.model ?? ''}</span>
+            <span className={styles.detail}>{photo.captureTime?.replace('T', ' ') ?? ''}</span>
+            <span className={styles.zoom}>Fit</span>
+          </>
+        ) : (
+          <span className={styles.detail}>No photo selected</span>
+        )}
+      </footer>
     </main>
   );
 }
