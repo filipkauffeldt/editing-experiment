@@ -72,8 +72,9 @@ exports/<photoId>/   exported JPEGs
   camera data, caches a 2560px preview and a 320px thumbnail, applies the PM template, indexes the
   photo and emits `photos:added`. Ingest awaits the hook per source, so photos appear in copy order.
 - `app://thumb|preview` are cached JPEGs. `app://linear/<id>?maxEdge=N` is decoded in the jobs process
-  (f16), written to `cache/linear` (small LRU) and streamed from there by main, with the
-  `LinearImageHeader` in `x-ee-linear-image`. Main only streams files below `cache/`.
+  (f16 for raws, f32 for JPEGs), written to `cache/linear` (small LRU) and streamed from
+  there by main, with the `LinearImageHeader` in `x-ee-linear-image`. Main only streams
+  files below `cache/`.
 - Secrets: `credentials:set/remove` run in main (`safeStorage`, no plaintext fallback). The jobs process asks
   for a secret by `credentialRef` over a private `MessagePort` (`shared/secret-port.ts`) when it connects;
   there is no channel that returns a secret to the renderer. An absent/empty `credentialRef` on an FTP
@@ -87,7 +88,7 @@ exports/<photoId>/   exported JPEGs
 
 Key types (names are binding, fields can grow):
 
-- `PhotoId` (string, stable per file), `Photo { id, path, sidecarPath,
+- `PhotoId` (string, UUID minted at ingest), `Photo { id, path, sidecarPath,
   fileName, captureTime?, camera?, sourceId, status, versions }`
 - `PhotoStatus { ingest, edited, metadataDiffersFromTemplate, export, upload }`
 - `SourceConfig` = `FolderSource | CardSource | FtpSource | SftpSource`
