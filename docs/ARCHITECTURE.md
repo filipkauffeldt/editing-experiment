@@ -99,19 +99,23 @@ embedded preview is only made once, at ingest.
   rendered at once). A retouch commit/delete renders ahead of the debounce. A photo with no edits is
   not rendered. Photos the backend reports as `previewStale` (edited in Lightroom before ingest, or
   the app quit mid-debounce) are rendered, throttled, when selected or visible in the film strip.
+  The strip reports its visible frames; queued background renders of frames that scrolled away are
+  dropped, the selected photo goes first and then the newest frames, and finished jobs are forgotten.
+  A retouched photo whose render failed is retried as soon as it is selected.
 - **Store (jobs).** `photos:setEditedPreview` carries the RGBA of both sizes, a `revision` and the
-  `retouchOps` that were baked in. `EditedPreviews` encodes with `@ee/core`, writes
+  `retouchOps` and develop `params` that were drawn. `EditedPreviews` encodes with `@ee/core`, writes
   `<id>.edited.jpg` beside the camera previews `<id>.jpg` (kept, so reset can revert) plus a
   `<id>.edited.json` marker, bumps `Photo.previewRevision`, clears `previewStale` and emits
   `photos:updated`. It refuses a render with an older revision, with retouch ops that are no longer
-  the photo's, or for a photo without edits. When the last edit is removed it deletes the edited
+  the photo's, with params other than the ones last saved, or for a photo without edits. When the last edit is removed it deletes the edited
   files and the camera preview is served again.
 - **Privacy.** The camera preview shows the unretouched image, so `PreviewCache.resolve` serves it
   only for a photo whose newest retouch version has no ops. Otherwise it serves the edited JPEGs if
   they were drawn with exactly the current ops, and a grey placeholder (`no-store`) until they exist.
   `previewRevision` is bumped the moment the retouch ops change, so the `<img>` leaves the old image
   at once.
-- **Cache busting.** `appUrl.thumb|preview(id, previewRevision)` adds `?v=<n>`.
+- **Cache busting.** `appUrl.thumb|preview(id, previewRevision)` adds `?v=<n>`. The canvas does not
+  show the cached image under a crop or retouch session, where the stage is the uncropped image.
 
 ## Contracts (`packages/contracts`)
 
