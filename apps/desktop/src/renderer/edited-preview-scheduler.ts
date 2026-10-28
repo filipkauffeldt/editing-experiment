@@ -138,7 +138,12 @@ export class EditedPreviewScheduler {
   setSelected(photoId: PhotoId | undefined): void {
     if (this.disposed) return;
     this.selected = photoId;
-    if (photoId !== undefined) this.ensure(photoId);
+    if (photoId === undefined) return;
+    // A retouched photo that could not be drawn has a placeholder instead of an image
+    // until it is; whoever opens it should not wait out the backoff.
+    const photo = this.deps.getPhoto(photoId);
+    if (photo && this.deps.getRetouchOps(photo).length > 0) this.failedAt.delete(photoId);
+    this.ensure(photoId);
   }
 
   /**

@@ -370,6 +370,54 @@ describe('photos edited before the cache knew (on screen)', () => {
   });
 });
 
+describe('a render that failed', () => {
+  const stale = (photo: Photo): Photo => ({
+    ...photo,
+    status: { ...photo.status, edited: true },
+    previewStale: true,
+  });
+
+  it('is tried again at once when the retouched photo is selected, not after the backoff', async () => {
+    let fail = true;
+    const h = harness({
+      render: async () => {
+        if (fail) throw new Error('no GPU');
+        return { thumb: image(2), preview: image(4) };
+      },
+    });
+    h.photos.set(photoA.id, stale(photoA));
+    h.ops.set(photoA.id, [mosaic]);
+    h.scheduler.setVisible([photoA.id]);
+    await advance(0);
+    expect(h.errors).toHaveLength(1);
+
+    // Still in the film strip: left alone for the backoff.
+    h.scheduler.setVisible([photoA.id]);
+    await advance(1_000);
+    expect(h.errors).toHaveLength(1);
+
+    fail = false;
+    h.scheduler.setSelected(photoA.id);
+    await advance(0);
+    expect(h.stored.map((s) => s.photoId)).toEqual([photoA.id]);
+  });
+
+  it('keeps the backoff for a photo without retouching', async () => {
+    const h = harness({
+      render: async () => {
+        throw new Error('no GPU');
+      },
+    });
+    h.photos.set(photoA.id, stale(photoA));
+    h.params.set(photoA.id, { Exposure2012: 0.3 });
+    h.scheduler.setVisible([photoA.id]);
+    await advance(0);
+    h.scheduler.setSelected(photoA.id);
+    await advance(1_000);
+    expect(h.errors).toHaveLength(1);
+  });
+});
+
 describe('photos with nothing to draw', () => {
   it('looks at a stale photo without edits once, clears the flag, and leaves it alone while scrolling', async () => {
     let looks = 0;
