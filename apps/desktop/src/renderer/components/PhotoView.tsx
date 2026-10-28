@@ -41,7 +41,7 @@ export function PhotoView({ className, photo }: PhotoViewProps) {
               ) : (
                 <PenIcon size={11} />
               )}
-              {retouching ? 'Done' : 'Retouch'}
+              {retouching ? 'Exit' : 'Retouch'}
             </button>
             <span className={styles.zoom}>{retouching ? 'Retouch' : 'Fit'}</span>
           </>

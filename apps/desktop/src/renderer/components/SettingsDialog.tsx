@@ -115,7 +115,9 @@ function buildSource(form: SourceFormState): { source: SourceConfig; error?: str
     };
   }
   if (!form.host.trim()) return { source: {} as SourceConfig, error: 'Host is required' };
-  if (!form.username.trim()) return { source: {} as SourceConfig, error: 'Username is required' };
+  if (form.kind !== 'ftp' && !form.username.trim()) {
+    return { source: {} as SourceConfig, error: 'Username is required' };
+  }
   const remote = {
     id,
     name,
@@ -143,10 +145,12 @@ function SecretField({
   value,
   onChange,
   hasStored,
+  anonymous,
 }: {
   value: string;
   onChange(value: string): void;
   hasStored: boolean;
+  anonymous?: boolean;
 }) {
   return (
     <label className={styles.field}>
@@ -156,7 +160,13 @@ function SecretField({
         className={styles.input}
         value={value}
         autoComplete="new-password"
-        placeholder={hasStored ? 'Stored — leave blank to keep' : 'Not set'}
+        placeholder={
+          hasStored
+            ? 'Stored — leave blank to keep'
+            : anonymous
+              ? 'Anonymous (leave empty)'
+              : 'Not set'
+        }
         onChange={(event) => onChange(event.target.value)}
       />
     </label>
@@ -428,12 +438,14 @@ function SourcesSection() {
                 <input
                   className={styles.input}
                   value={form.username}
+                  placeholder={form.kind === 'ftp' ? 'anonymous' : undefined}
                   onChange={(event) => patch({ username: event.target.value })}
                 />
               </label>
               <SecretField
                 value={form.password}
                 hasStored={Boolean(form.credentialRef)}
+                anonymous={form.kind === 'ftp'}
                 onChange={(password) => patch({ password })}
               />
             </div>
@@ -594,8 +606,11 @@ function buildDestination(form: DestinationFormState): {
       destination: { id, kind: 'folder', name, path: form.path.trim(), remotePathTemplate },
     };
   }
-  if (!form.host.trim() || !form.username.trim()) {
-    return { destination: {} as Destination, error: 'Host and username are required' };
+  if (!form.host.trim()) {
+    return { destination: {} as Destination, error: 'Host is required' };
+  }
+  if (form.kind !== 'ftp' && !form.username.trim()) {
+    return { destination: {} as Destination, error: 'Username is required' };
   }
   const remote = {
     id,
@@ -795,12 +810,14 @@ function DestinationsSection() {
                 <input
                   className={styles.input}
                   value={form.username}
+                  placeholder={form.kind === 'ftp' ? 'anonymous' : undefined}
                   onChange={(event) => patch({ username: event.target.value })}
                 />
               </label>
               <SecretField
                 value={form.password}
                 hasStored={Boolean(form.credentialRef)}
+                anonymous={form.kind === 'ftp'}
                 onChange={(password) => patch({ password })}
               />
             </div>
