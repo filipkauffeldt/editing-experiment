@@ -77,6 +77,11 @@ jobs:
           sudo apt-get install -y --no-install-recommends xvfb xauth
 
       # Builds the native addon first (see root package.json), then runs vitest.
+      # Electron downloads its binary on first use. Do that once, before any
+      # test can launch it, so concurrent test files cannot race (ETXTBSY).
+      - name: Install Electron binary
+        run: node scripts/ensure-electron.mjs
+
       # Electron e2e (the PoC demo) uses a real window and WebGL, so the whole
       # suite runs under one Xvfb server in CI.
       - name: Test
