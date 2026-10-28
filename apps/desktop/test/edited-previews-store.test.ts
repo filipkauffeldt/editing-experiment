@@ -70,7 +70,11 @@ describe('edited thumbnails and previews in the store', () => {
     // The render sees the latest slider value, once it reached the sidecar.
     expect(rendered[0]).toMatchObject({ photoId: photo.id, params: { Exposure2012: 0.8 } });
     expect(stored(fake)).toHaveLength(1);
-    expect(stored(fake)[0]).toMatchObject({ photoId: photo.id, retouchOps: [] });
+    expect(stored(fake)[0]).toMatchObject({
+      photoId: photo.id,
+      retouchOps: [],
+      params: { Exposure2012: 0.8 },
+    });
     expect(fake.calls.some((c) => c.channel === 'develop:setParams')).toBe(true);
 
     // The backend's photos:updated reaches the store, so the <img> URL changes.

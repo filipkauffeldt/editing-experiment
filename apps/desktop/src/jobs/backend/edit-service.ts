@@ -81,6 +81,7 @@ export class EditService {
     this.assertDevelopVersion(ref);
     await this.photos.withLock(ref.photoId, async () => {
       const photo = this.photos.get(ref.photoId);
+      this.previews.noteParams(photo.id, ref.params);
       await writeEditParams(photo.path, ref.params, {
         service: this.exiftool,
         cropSpace: cropSpaceFor(photo),

@@ -335,6 +335,7 @@ export class EditedPreviewScheduler {
         photoId: job.photoId,
         revision,
         retouchOps: ops,
+        params,
         ...images,
       });
       deps.onStored?.(stored);

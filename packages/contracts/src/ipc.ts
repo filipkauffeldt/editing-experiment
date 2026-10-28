@@ -135,6 +135,12 @@ export interface SetEditedPreviewArgs {
    * an old render can never put an unmosaicked face back.
    */
   retouchOps: RetouchOp[];
+  /**
+   * The develop params the pixels were drawn with. The backend refuses a render when
+   * it has since received other params for the photo, so a render of older slider
+   * values can never mark the photo's previews as up to date.
+   */
+  params: EditParams;
   /** About 320 px on the long edge, upright and cropped. */
   thumb: RenderedImage;
   /** About 2560 px on the long edge, upright and cropped. */

@@ -104,17 +104,27 @@ describe('edited thumbnails and previews (jobs side)', () => {
     events = [];
   });
 
-  const develop = (params: EditParams) =>
-    edits.setParams({ photoId: id, versionId: developVersionId(id), params });
+  /** What the renderer would have drawn with: the params last saved. */
+  let drawn: EditParams = {};
+  const develop = (params: EditParams) => {
+    drawn = params;
+    return edits.setParams({ photoId: id, versionId: developVersionId(id), params });
+  };
   const retouch = async (ops: MosaicOp[]) => {
     const version = await edits.createVersion({ photoId: id, kind: 'retouch' });
     await edits.setRetouch({ photoId: id, versionId: version.id, ops });
   };
-  const send = (revision: number, red: number, retouchOps: MosaicOp[] = []) =>
+  const send = (
+    revision: number,
+    red: number,
+    retouchOps: MosaicOp[] = [],
+    params: EditParams = drawn,
+  ) =>
     edited.set({
       photoId: id,
       revision,
       retouchOps,
+      params,
       thumb: flat(16, 16, red),
       preview: flat(40, 40, red),
     });
@@ -168,6 +178,47 @@ describe('edited thumbnails and previews (jobs side)', () => {
     expect((await send(21, 150)).previewRevision).toBe(2);
   });
 
+  it('refuses a render drawn from older slider values and accepts one from the saved ones', async () => {
+    await develop({ Exposure2012: 0.5 });
+    await develop({ Exposure2012: 0.9 });
+    events = [];
+
+    const late = await send(1, 100, [], { Exposure2012: 0.5 });
+    expect(late.previewStale).toBe(true);
+    expect(late.previewRevision).toBeUndefined();
+    expect(events).toHaveLength(0);
+    expect((await served('thumb')).file).toBe(cache.pathFor('thumb', id));
+
+    const current = await send(2, 100, [], { Exposure2012: 0.9 });
+    expect(current.previewStale).toBe(false);
+    expect(current.previewRevision).toBe(1);
+  });
+
+  it('compares params whatever the order of their keys', async () => {
+    await develop({
+      Exposure2012: 0.5,
+      Contrast2012: 10,
+      crop: { left: 0, top: 0, right: 1, bottom: 0.5, angle: 2 },
+    });
+    const photo = await send(1, 100, [], {
+      crop: { angle: 2, bottom: 0.5, right: 1, top: 0, left: 0 },
+      Contrast2012: 10,
+      Exposure2012: 0.5,
+    });
+    expect(photo.previewStale).toBe(false);
+  });
+
+  it('accepts a render when no params were saved this session (edits from before)', async () => {
+    // The photo is edited by its sidecar alone, as after ingest of a Lightroom edit.
+    photos.update(id, (photo) => ({
+      ...photo,
+      status: { ...photo.status, edited: true },
+      previewStale: true,
+    }));
+    const photo = await send(1, 100, [], { Exposure2012: 0.4 });
+    expect(photo.previewStale).toBe(false);
+  });
+
   it('refuses a render of a photo without edits', async () => {
     const photo = await send(1, 100);
     expect(photo.previewRevision).toBeUndefined();
@@ -182,6 +233,7 @@ describe('edited thumbnails and previews (jobs side)', () => {
         photoId: id,
         revision: 1,
         retouchOps: [],
+        params: {},
         thumb: { width: 4, height: 4, rgba: new Uint8Array(3) },
         preview: flat(4, 4, 1),
       }),

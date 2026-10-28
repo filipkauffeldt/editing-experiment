@@ -1,5 +1,6 @@
 import {
   IpcError,
+  type EditParams,
   type PhotoId,
   type PhotoVersion,
   type RenderedImage,
@@ -7,6 +8,7 @@ import {
   type Photo,
   type SetEditedPreviewArgs,
 } from '@ee/contracts';
+import { createHash } from 'node:crypto';
 import { encodeEditedJpegs } from './image-ops';
 import type { PhotoLibrary } from './photo-library';
 import type { PreviewCache } from './previews';
@@ -32,6 +34,24 @@ export function retouchKey(versions: PhotoVersion[]): string {
   return ops.length === 0 ? '' : JSON.stringify(ops);
 }
 
+/** Order-independent fingerprint of develop params, for comparing what was drawn with what was saved. */
+function paramsKey(params: EditParams): string {
+  const canonical = (value: unknown): unknown =>
+    Array.isArray(value)
+      ? value.map(canonical)
+      : value !== null && typeof value === 'object'
+        ? Object.fromEntries(
+            Object.entries(value as Record<string, unknown>)
+              .filter(([, item]) => item !== undefined)
+              .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
+              .map(([key, item]) => [key, canonical(item)]),
+          )
+        : value;
+  return createHash('sha256')
+    .update(JSON.stringify(canonical(params)))
+    .digest('base64url');
+}
+
 function assertImage(name: string, image: RenderedImage | undefined): void {
   if (
     !(image?.rgba instanceof Uint8Array) ||
@@ -54,11 +74,18 @@ function assertImage(name: string, image: RenderedImage | undefined): void {
 export class EditedPreviews {
   /** Newest renderer revision stored per photo, to drop a render that arrives late. */
   private readonly newest = new Map<PhotoId, number>();
+  /** Fingerprint of the develop params last saved per photo this session. */
+  private readonly saved = new Map<PhotoId, string>();
 
   constructor(
     private readonly photos: PhotoLibrary,
     private readonly cache: PreviewCache,
   ) {}
+
+  /** The develop params of a photo were just saved (called under the photo lock). */
+  noteParams(photoId: PhotoId, params: EditParams): void {
+    this.saved.set(photoId, paramsKey(params));
+  }
 
   /** Store a render, unless it is out of date. Resolves with the photo as it is now. */
   async set(args: SetEditedPreviewArgs): Promise<Photo> {
@@ -78,6 +105,10 @@ export class EditedPreviews {
       if (JSON.stringify(args.retouchOps) !== JSON.stringify(topRetouchOps(photo.versions))) {
         return photo;
       }
+      // Drawn from slider values that were replaced since. Nothing saved yet this
+      // session (an edit made earlier, a Lightroom sidecar) means nothing to compare.
+      const saved = this.saved.get(photo.id);
+      if (saved !== undefined && saved !== paramsKey(args.params)) return photo;
       const jpegs = await encodeEditedJpegs(args);
       await this.cache.writeEdited(photo.id, jpegs, {
         revision: args.revision,
