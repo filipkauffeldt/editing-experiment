@@ -1,5 +1,5 @@
 import type { FaceDetection, Point, Rect } from '@ee/contracts';
-import sharp from 'sharp';
+import { resizeRgba } from '@ee/core';
 import { clamp } from '../geometry';
 import type { PixelRect } from '../geometry';
 import { defaultModelPath } from './model';
@@ -51,41 +51,21 @@ function validateOptions(
   };
 }
 
-async function resizeRgba(
+/** Copies the `regionWidth` x `regionHeight` window at (`regionX`, `regionY`) out of `rgba`. */
+function cropRgba(
   rgba: Uint8Array,
   width: number,
-  height: number,
-  targetWidth: number,
-  targetHeight: number,
-): Promise<Uint8Array> {
-  const buffer = await sharp(rgba, {
-    raw: { width, height, channels: 4 },
-  })
-    .resize(targetWidth, targetHeight, { fit: 'fill' })
-    .raw()
-    .toBuffer();
-  return new Uint8Array(buffer.buffer, buffer.byteOffset, buffer.byteLength);
-}
-
-async function cropAndResizeRgba(
-  rgba: Uint8Array,
-  width: number,
-  height: number,
   regionX: number,
   regionY: number,
   regionWidth: number,
   regionHeight: number,
-  targetWidth: number,
-  targetHeight: number,
-): Promise<Uint8Array> {
-  const buffer = await sharp(rgba, {
-    raw: { width, height, channels: 4 },
-  })
-    .extract({ left: regionX, top: regionY, width: regionWidth, height: regionHeight })
-    .resize(targetWidth, targetHeight, { fit: 'fill' })
-    .raw()
-    .toBuffer();
-  return new Uint8Array(buffer.buffer, buffer.byteOffset, buffer.byteLength);
+): Uint8Array {
+  const out = new Uint8Array(regionWidth * regionHeight * 4);
+  for (let row = 0; row < regionHeight; row++) {
+    const start = ((regionY + row) * width + regionX) * 4;
+    out.set(rgba.subarray(start, start + regionWidth * 4), row * regionWidth * 4);
+  }
+  return out;
 }
 
 interface MappedCandidate extends FaceCandidate {
@@ -205,20 +185,13 @@ export async function detectFaces(
     // whole region once at `maxInputEdge` so such faces stay intact.
     const longestSide = Math.max(regionWidth, regionHeight);
     if (longestSide > settings.maxInputEdge) {
-      const scale = settings.maxInputEdge / longestSide;
-      const scaledWidth = Math.max(1, Math.round(regionWidth * scale));
-      const scaledHeight = Math.max(1, Math.round(regionHeight * scale));
-      const regionRgba = await cropAndResizeRgba(
-        rgba,
-        width,
-        height,
-        regionX,
-        regionY,
-        regionWidth,
-        regionHeight,
-        scaledWidth,
-        scaledHeight,
-      );
+      const region = cropRgba(rgba, width, regionX, regionY, regionWidth, regionHeight);
+      // The native resize returns the exact size it chose; map back with that.
+      const scaled = await resizeRgba(region, regionWidth, regionHeight, {
+        maxEdge: Math.floor(settings.maxInputEdge),
+      });
+      const { width: scaledWidth, height: scaledHeight } = scaled;
+      const regionRgba = scaled.rgba;
       const found = await runYuNet(
         settings.modelPath,
         regionRgba,
@@ -237,17 +210,16 @@ export async function detectFaces(
       }
     }
   } else {
-    const scale = Math.min(1, settings.maxInputEdge / Math.max(width, height));
-    const resizedWidth = Math.max(1, Math.round(width * scale));
-    const resizedHeight = Math.max(1, Math.round(height * scale));
-    let source = rgba;
-    let sourceWidth = width;
-    let sourceHeight = height;
-    if (resizedWidth !== width || resizedHeight !== height) {
-      source = await resizeRgba(rgba, width, height, resizedWidth, resizedHeight);
-      sourceWidth = resizedWidth;
-      sourceHeight = resizedHeight;
-    }
+    const maxEdge = Math.floor(settings.maxInputEdge);
+    const resized =
+      Math.max(width, height) > maxEdge
+        ? await resizeRgba(rgba.subarray(0, width * height * 4), width, height, { maxEdge })
+        : { rgba, width, height };
+    const resizedWidth = resized.width;
+    const resizedHeight = resized.height;
+    const source = resized.rgba;
+    const sourceWidth = resizedWidth;
+    const sourceHeight = resizedHeight;
     const found = await runYuNet(
       settings.modelPath,
       source,

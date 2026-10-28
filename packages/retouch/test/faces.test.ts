@@ -1,4 +1,6 @@
 import { existsSync, readdirSync } from 'node:fs';
+import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { FaceDetection, Point, Rect } from '@ee/contracts';
@@ -58,6 +60,30 @@ function contains(box: Rect, point: Point): boolean {
     point.x >= box.x && point.x <= box.x + box.w && point.y >= box.y && point.y <= box.y + box.h
   );
 }
+
+describe('decodeImageFile', () => {
+  it('returns upright RGBA for an oriented JPEG and rejects other formats', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'ee-retouch-'));
+    try {
+      const raw = { raw: { width: 60, height: 40, channels: 3 as const } };
+      const pixels = Buffer.alloc(60 * 40 * 3, 128);
+      const jpeg = join(dir, 'rotated.jpg');
+      await writeFile(
+        jpeg,
+        await sharp(pixels, raw).withMetadata({ orientation: 6 }).jpeg().toBuffer(),
+      );
+      const image = await decodeImageFile(jpeg);
+      expect([image.width, image.height]).toEqual([40, 60]);
+      expect(image.rgba.length).toBe(40 * 60 * 4);
+
+      const tiff = join(dir, 'a.tif');
+      await writeFile(tiff, await sharp(pixels, raw).tiff().toBuffer());
+      await expect(decodeImageFile(tiff)).rejects.toThrow(/decoding failed/);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+});
 
 suite('YuNet face detection', () => {
   it('resolves the fetched model by default', () => {
@@ -203,22 +229,17 @@ nefSuite('local NEF samples', () => {
       .filter((name) => name.toLowerCase().endsWith('.nef'))
       .sort()[0];
     if (!sample) return;
-    const { extractPreview } = await import('@ee/core');
-    const sharp = (await import('sharp')).default;
+    const { decodeJpeg, extractPreview } = await import('@ee/core');
     const preview = await extractPreview(join(directory, sample));
-    const { data, info } = await sharp(preview.jpeg)
-      .rotate()
-      .ensureAlpha()
-      .raw()
-      .toBuffer({ resolveWithObject: true });
+    const image = await decodeJpeg(preview.jpeg);
     const faces: FaceDetection[] = await detectFaces(
-      new Uint8Array(data.buffer, data.byteOffset, data.byteLength),
-      info.width,
-      info.height,
+      image.rgba,
+      image.width,
+      image.height,
       undefined,
       { modelPath },
     );
-    console.log(`${sample} (${info.width}x${info.height}): ${faces.length} faces`);
+    console.log(`${sample} (${image.width}x${image.height}): ${faces.length} faces`);
     for (const face of faces) {
       expect(face.score).toBeGreaterThan(0.6);
       expect(face.box.x).toBeGreaterThanOrEqual(0);

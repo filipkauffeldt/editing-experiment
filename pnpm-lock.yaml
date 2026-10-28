@@ -360,16 +360,16 @@ importers:
       '@ee/contracts':
         specifier: workspace:*
         version: link:../contracts
-      onnxruntime-node:
-        specifier: 1.31.1
-        version: 1.31.1
-      sharp:
-        specifier: 0.35.5
-        version: 0.35.5(@types/node@24.19.2)
-    devDependencies:
       '@ee/core':
         specifier: workspace:*
         version: link:../../crates/core
+      onnxruntime-node:
+        specifier: 1.31.1
+        version: 1.31.1
+    devDependencies:
+      sharp:
+        specifier: 0.35.5
+        version: 0.35.5(@types/node@24.19.2)
 
 packages:
 

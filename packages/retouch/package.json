@@ -15,10 +15,10 @@
   },
   "dependencies": {
     "@ee/contracts": "workspace:*",
-    "onnxruntime-node": "1.31.1",
-    "sharp": "0.35.5"
+    "@ee/core": "workspace:*",
+    "onnxruntime-node": "1.31.1"
   },
   "devDependencies": {
-    "@ee/core": "workspace:*"
+    "sharp": "0.35.5"
   }
 }
