@@ -106,6 +106,15 @@ describe.skipIf(!nef || !haveDisplay)('real mode smoke test (Electron)', () => {
     });
     window = await app.firstWindow();
     await window.waitForFunction(() => 'eeTransport' in window);
+    // Collect pushed events so tests can look at what the renderer would have seen.
+    await window.evaluate(() => {
+      const w = window as unknown as {
+        __events: unknown[];
+        eeTransport: { subscribe(c: string, l: (p: unknown) => void): void };
+      };
+      w.__events = [];
+      w.eeTransport.subscribe('jobs:event', (event) => w.__events.push(event));
+    });
 
     const config: IngestConfig = {
       sources: [{ id: asSourceId('card'), name: 'card', kind: 'folder', path: card }],
@@ -207,6 +216,41 @@ describe.skipIf(!nef || !haveDisplay)('real mode smoke test (Electron)', () => {
       expect(existsSync(join(root, 'userdata', 'credentials.json'))).toBe(false);
     }
   });
+
+  it('restarts the jobs process after a crash and keeps serving', async () => {
+    const before = jobsPid;
+    process.kill(before, 'SIGKILL');
+    // A request already in flight when the process dies fails; later ones wait for the new process.
+    let ping: { jobsPid: number } | undefined;
+    for (let attempt = 0; attempt < 20 && !ping; attempt++) {
+      ping = await invoke<{ jobsPid: number }>('system:ping', { message: 'again' }).catch(
+        () => undefined,
+      );
+    }
+    if (!ping) throw new Error('the jobs process was not restarted');
+    expect(ping.jobsPid).not.toBe(before);
+    expect(alive(ping.jobsPid)).toBe(true);
+    jobsPid = ping.jobsPid;
+
+    // The index lives on disk, so the photo is still there and its thumbnail still served.
+    expect((await invoke<Photo[]>('photos:list')).map((p) => p.id)).toEqual([photo.id]);
+    const status = await window.evaluate(
+      async (url) => (await fetch(url)).status,
+      appUrl.thumb(photo.id),
+    );
+    expect(status).toBe(200);
+
+    const events = await window.evaluate(
+      () => (window as unknown as { __events: unknown[] }).__events,
+    );
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: 'job.error',
+        scope: 'jobs',
+        message: expect.stringMatching(/restarting/),
+      }),
+    );
+  }, 30_000);
 
   it('closes the jobs process cleanly when the app quits', async () => {
     expect(jobsPid).toBeGreaterThan(0);

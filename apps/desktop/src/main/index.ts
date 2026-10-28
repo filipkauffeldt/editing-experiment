@@ -31,21 +31,36 @@ function broadcast(channel: EventChannel, payload: unknown): void {
 
 void app.whenReady().then(() => {
   const userDataDir = app.getPath('userData');
-  const jobs = new JobsClient(broadcast, { mock, appVersion: app.getVersion(), userDataDir });
+  const startupWarnings: string[] = [];
 
   /** Handlers served in this process. Everything else is forwarded to the jobs process. */
   const mainHandlers: Partial<IpcHandlers> = { ...settingsHandlers, ...dialogHandlers };
+  let credentials: CredentialStore | undefined;
   if (mock) {
     Object.assign(mainHandlers, credentialsHandlers);
   } else {
     // Secrets live encrypted in main and reach the jobs process only through a
     // private port, on request; the renderer can set and remove but never read.
-    const credentials = new CredentialStore(join(userDataDir, 'credentials.json'), safeStorage);
+    credentials = new CredentialStore(join(userDataDir, 'credentials.json'), safeStorage, (m) => {
+      console.warn(m);
+      startupWarnings.push(m);
+    });
     Object.assign(mainHandlers, credentialHandlers(credentials));
-    const { port1, port2 } = new MessageChannelMain();
-    serveSecrets(electronSecretPort(port1), async (ref) => credentials.get(ref));
-    jobs.sendSecretPort(port2);
   }
+
+  const jobs = new JobsClient(broadcast, {
+    mock,
+    appVersion: app.getVersion(),
+    userDataDir,
+    // A restarted jobs process needs a fresh port: the old one died with it.
+    onStart: (client) => {
+      if (!credentials) return;
+      const store = credentials;
+      const { port1, port2 } = new MessageChannelMain();
+      serveSecrets(electronSecretPort(port1), async (ref) => store.get(ref));
+      client.sendSecretPort(port2);
+    },
+  });
 
   handleAppProtocol({
     mock,
@@ -79,7 +94,13 @@ void app.whenReady().then(() => {
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createMainWindow();
   });
-  createMainWindow();
+  const window = createMainWindow();
+  // Problems found before the renderer existed are shown once it has loaded.
+  window.webContents.once('did-finish-load', () => {
+    for (const message of startupWarnings.splice(0)) {
+      broadcast('jobs:event', { type: 'job.error', at: Date.now(), scope: 'startup', message });
+    }
+  });
 });
 
 app.on('window-all-closed', () => {
