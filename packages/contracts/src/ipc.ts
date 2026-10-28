@@ -121,6 +121,26 @@ export interface SetPhotoLabelsArgs {
   colorClass?: number;
 }
 
+/** Arguments of `photos:setEditedPreview`. */
+export interface SetEditedPreviewArgs {
+  photoId: PhotoId;
+  /**
+   * Orders renders of one photo: the backend ignores a render older than one it
+   * already stored. Must grow with every edit, also across app restarts.
+   */
+  revision: number;
+  /**
+   * The retouch ops baked into the pixels (the newest retouch version's). The
+   * backend refuses a render whose ops differ from the photo's current ones, so
+   * an old render can never put an unmosaicked face back.
+   */
+  retouchOps: RetouchOp[];
+  /** About 320 px on the long edge, upright and cropped. */
+  thumb: RenderedImage;
+  /** About 2560 px on the long edge, upright and cropped. */
+  preview: RenderedImage;
+}
+
 /** Arguments of `retouch:detectFaces`. */
 export interface DetectFacesArgs {
   photoId: PhotoId;
@@ -195,6 +215,12 @@ export interface IpcApi {
   'photos:deleteVersion': (args: DeleteVersionArgs) => Promise<Photo>;
   /** Persist tag and colour class in the index and in the sidecar (or embedded XMP). */
   'photos:setLabels': (args: SetPhotoLabelsArgs) => Promise<Photo[]>;
+  /**
+   * Store the edited thumbnail and preview rendered by the renderer. Resolves with
+   * the photo as it is now; `previewStale` is still set when the render was refused
+   * because the edits changed meanwhile.
+   */
+  'photos:setEditedPreview': (args: SetEditedPreviewArgs) => Promise<Photo>;
 
   // --- ingest ---
   /** Start ingesting every source in the config, in parallel. Returns one job per source. */
@@ -282,6 +308,7 @@ export const INVOKE_CHANNELS = [
   'photos:createVersion',
   'photos:deleteVersion',
   'photos:setLabels',
+  'photos:setEditedPreview',
   'ingest:start',
   'ingest:stop',
   'ingest:status',

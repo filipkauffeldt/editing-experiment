@@ -75,4 +75,15 @@ export interface Photo {
   /** Colour class, 0 = none, 1..8 (Photo Mechanic `ColorClass`, mirrored to `xmp:Label`). */
   colorClass: number;
   versions: PhotoVersion[];
+  /**
+   * Bumps whenever the cached thumbnail/preview bytes change (an edited
+   * render stored, or reverted to the camera's preview). Put it in the URL
+   * (`appUrl.thumb(id, revision)`) so an `<img>` refreshes.
+   */
+  previewRevision?: number;
+  /**
+   * The photo has edits that the cached thumbnail/preview do not show yet.
+   * The renderer re-renders them; absent means nothing is waiting.
+   */
+  previewStale?: boolean;
 }

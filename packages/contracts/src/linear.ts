@@ -60,12 +60,17 @@ export const LINEAR_IMAGE_HEADER = 'x-ee-linear-image';
 /** Scheme of the custom protocol that serves cached images to the renderer. */
 export const APP_PROTOCOL = 'app';
 
+const revisionQuery = (revision: number | undefined): string =>
+  revision === undefined || revision === 0 ? '' : `?v=${Math.round(revision)}`;
+
 /** Builders for the `app://` URLs; keeps the URL scheme in one place. */
 export const appUrl = {
-  /** Small cached JPEG for the film strip. */
-  thumb: (photoId: PhotoId): string => `${APP_PROTOCOL}://thumb/${encodeURIComponent(photoId)}`,
-  /** Larger cached JPEG preview (embedded or rendered). */
-  preview: (photoId: PhotoId): string => `${APP_PROTOCOL}://preview/${encodeURIComponent(photoId)}`,
+  /** Small cached JPEG for the film strip. `revision` is `Photo.previewRevision`; it busts the image cache. */
+  thumb: (photoId: PhotoId, revision?: number): string =>
+    `${APP_PROTOCOL}://thumb/${encodeURIComponent(photoId)}${revisionQuery(revision)}`,
+  /** Larger cached JPEG preview (embedded or rendered). `revision` is `Photo.previewRevision`. */
+  preview: (photoId: PhotoId, revision?: number): string =>
+    `${APP_PROTOCOL}://preview/${encodeURIComponent(photoId)}${revisionQuery(revision)}`,
   /** Decoded linear image, see {@link LinearImageHeader}. */
   linear: (photoId: PhotoId, maxEdge?: number): string =>
     `${APP_PROTOCOL}://linear/${encodeURIComponent(photoId)}${
