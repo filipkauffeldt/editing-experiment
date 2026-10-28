@@ -78,6 +78,19 @@ const LABELS: Record<SliderParam, string> = {
   GrainAmount: 'Amount',
   GrainSize: 'Size',
   GrainFrequency: 'Frequency',
+  Texture: 'Texture',
+  Clarity2012: 'Clarity',
+  Dehaze: 'Dehaze',
+  Sharpness: 'Amount',
+  SharpenRadius: 'Radius',
+  SharpenDetail: 'Detail',
+  SharpenEdgeMasking: 'Masking',
+  LuminanceSmoothing: 'Luminance',
+  LuminanceNoiseReductionDetail: 'Luminance detail',
+  LuminanceNoiseReductionContrast: 'Luminance contrast',
+  ColorNoiseReduction: 'Color',
+  ColorNoiseReductionDetail: 'Color detail',
+  ColorNoiseReductionSmoothness: 'Color smoothness',
 };
 
 const BANDS = ['Red', 'Orange', 'Yellow', 'Green', 'Aqua', 'Blue', 'Purple', 'Magenta'] as const;

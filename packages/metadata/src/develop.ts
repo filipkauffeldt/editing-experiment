@@ -92,6 +92,19 @@ const SCALAR_TAGS: Readonly<Record<ScalarKey, string>> = {
   GrainAmount: 'XMP-crs:GrainAmount',
   GrainSize: 'XMP-crs:GrainSize',
   GrainFrequency: 'XMP-crs:GrainFrequency',
+  Texture: 'XMP-crs:Texture',
+  Clarity2012: 'XMP-crs:Clarity2012',
+  Dehaze: 'XMP-crs:Dehaze',
+  Sharpness: 'XMP-crs:Sharpness',
+  SharpenRadius: 'XMP-crs:SharpenRadius',
+  SharpenDetail: 'XMP-crs:SharpenDetail',
+  SharpenEdgeMasking: 'XMP-crs:SharpenEdgeMasking',
+  LuminanceSmoothing: 'XMP-crs:LuminanceSmoothing',
+  LuminanceNoiseReductionDetail: 'XMP-crs:LuminanceNoiseReductionDetail',
+  LuminanceNoiseReductionContrast: 'XMP-crs:LuminanceNoiseReductionContrast',
+  ColorNoiseReduction: 'XMP-crs:ColorNoiseReduction',
+  ColorNoiseReductionDetail: 'XMP-crs:ColorNoiseReductionDetail',
+  ColorNoiseReductionSmoothness: 'XMP-crs:ColorNoiseReductionSmoothness',
 };
 
 type LegacySplitToningKey =

@@ -68,6 +68,32 @@ export interface EditParams {
   Vibrance?: number;
   /** -100..100. */
   Saturation?: number;
+  /** -100..100. Local contrast over fine to medium detail. */
+  Texture?: number;
+  /** -100..100. Local contrast over coarse detail. */
+  Clarity2012?: number;
+  /** -100..100. */
+  Dehaze?: number;
+  /** Sharpening amount, 0..150. */
+  Sharpness?: number;
+  /** Sharpening radius in pixels of the full-resolution image, 0.5..3. */
+  SharpenRadius?: number;
+  /** 0..100. */
+  SharpenDetail?: number;
+  /** 0..100. */
+  SharpenEdgeMasking?: number;
+  /** Luminance noise reduction amount, 0..100. */
+  LuminanceSmoothing?: number;
+  /** 0..100. */
+  LuminanceNoiseReductionDetail?: number;
+  /** 0..100. */
+  LuminanceNoiseReductionContrast?: number;
+  /** Colour noise reduction amount, 0..100. */
+  ColorNoiseReduction?: number;
+  /** 0..100. */
+  ColorNoiseReductionDetail?: number;
+  /** 0..100. */
+  ColorNoiseReductionSmoothness?: number;
   /** Master (RGB) tone curve. Absent or empty = linear. */
   ToneCurvePV2012?: ToneCurvePoint[];
   ToneCurvePV2012Red?: ToneCurvePoint[];
@@ -230,6 +256,19 @@ export const SLIDER_PARAMS = [
   'GrainAmount',
   'GrainSize',
   'GrainFrequency',
+  'Texture',
+  'Clarity2012',
+  'Dehaze',
+  'Sharpness',
+  'SharpenRadius',
+  'SharpenDetail',
+  'SharpenEdgeMasking',
+  'LuminanceSmoothing',
+  'LuminanceNoiseReductionDetail',
+  'LuminanceNoiseReductionContrast',
+  'ColorNoiseReduction',
+  'ColorNoiseReductionDetail',
+  'ColorNoiseReductionSmoothness',
 ] as const satisfies readonly (keyof EditParams)[];
 
 /** Name of a scalar slider parameter. */
@@ -316,6 +355,21 @@ export const SLIDER_SPECS: Readonly<Record<SliderParam, SliderSpec>> = {
   GrainAmount: { min: 0, max: 100, step: 1, neutral: 0 },
   GrainSize: { min: 0, max: 100, step: 1, neutral: 25 },
   GrainFrequency: { min: 0, max: 100, step: 1, neutral: 50 },
+  Texture: { min: -100, max: 100, step: 1, neutral: 0 },
+  Clarity2012: { min: -100, max: 100, step: 1, neutral: 0 },
+  Dehaze: { min: -100, max: 100, step: 1, neutral: 0 },
+  // Absent sharpening and noise reduction mean "off" (Lightroom's own raw defaults, Sharpness 40
+  // and colour noise reduction 25, are not applied); the detail sliders' neutrals are Lightroom's.
+  Sharpness: { min: 0, max: 150, step: 1, neutral: 0 },
+  SharpenRadius: { min: 0.5, max: 3, step: 0.1, neutral: 1 },
+  SharpenDetail: { min: 0, max: 100, step: 1, neutral: 25 },
+  SharpenEdgeMasking: { min: 0, max: 100, step: 1, neutral: 0 },
+  LuminanceSmoothing: { min: 0, max: 100, step: 1, neutral: 0 },
+  LuminanceNoiseReductionDetail: { min: 0, max: 100, step: 1, neutral: 50 },
+  LuminanceNoiseReductionContrast: { min: 0, max: 100, step: 1, neutral: 0 },
+  ColorNoiseReduction: { min: 0, max: 100, step: 1, neutral: 0 },
+  ColorNoiseReductionDetail: { min: 0, max: 100, step: 1, neutral: 50 },
+  ColorNoiseReductionSmoothness: { min: 0, max: 100, step: 1, neutral: 50 },
 };
 
 /** A develop preset imported from a Lightroom/Camera Raw `.xmp` file. */
