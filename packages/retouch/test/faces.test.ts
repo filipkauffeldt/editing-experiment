@@ -10,6 +10,7 @@ import {
   defaultModelPath,
   detectFacesInFile,
   intersectionOverUnion,
+  mergeOverlappingDetections,
   nonMaximumSuppression,
   YUNET_MODEL_FILE,
 } from '../src/faces/index';
@@ -96,6 +97,44 @@ suite('YuNet face detection', () => {
     );
     const complete = faces.find((face) => face.box.w > 0.35 && face.box.h > 0.45);
     expect(complete, 'expected a complete detection of the oversized face').toBeDefined();
+  });
+
+  it('unions a clipped tile detection with the complete face box', () => {
+    const partial = {
+      box: { x: 10, y: 10, w: 25, h: 80 },
+      score: 0.9,
+      landmarks: [],
+    };
+    const complete = {
+      box: { x: 10, y: 10, w: 100, h: 80 },
+      score: 0.8,
+      landmarks: [],
+    };
+    const merged = mergeOverlappingDetections([partial, complete], 0.3);
+    expect(merged).toHaveLength(1);
+    expect(merged[0]!.box).toEqual({ x: 10, y: 10, w: 100, h: 80 });
+    expect(merged[0]!.score).toBe(0.9);
+  });
+
+  it('covers a face that straddles a tile boundary', async () => {
+    const image = await upscaledApolloFace();
+    const region = { type: 'rect' as const, x: 0, y: 0, w: 1, h: 1 };
+    const full = await detectFaces(image.rgba, image.width, image.height, undefined, {
+      modelPath,
+      maxInputEdge: 640,
+    });
+    expect(full).toHaveLength(1);
+    const tiled = await detectFaces(image.rgba, image.width, image.height, region, {
+      modelPath,
+      maxInputEdge: 640,
+    });
+    expect(tiled).toHaveLength(1);
+    const expected = full[0]!.box;
+    const actual = tiled[0]!.box;
+    expect(actual.x).toBeLessThanOrEqual(expected.x + 0.02);
+    expect(actual.y).toBeLessThanOrEqual(expected.y + 0.02);
+    expect(actual.x + actual.w).toBeGreaterThanOrEqual(expected.x + expected.w - 0.02);
+    expect(actual.y + actual.h).toBeGreaterThanOrEqual(expected.y + expected.h - 0.02);
   });
 
   it('honours the score threshold', async () => {

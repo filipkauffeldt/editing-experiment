@@ -3,7 +3,7 @@ import sharp from 'sharp';
 import { clamp } from '../geometry';
 import type { PixelRect } from '../geometry';
 import { defaultModelPath } from './model';
-import { nonMaximumSuppression } from './nms';
+import { mergeOverlappingDetections } from './nms';
 import { runYuNet, type FaceCandidate } from './yunet';
 
 export interface DetectFacesOptions {
@@ -266,9 +266,12 @@ export async function detectFaces(
     }
   }
 
-  const kept = nonMaximumSuppression(candidates, settings.nmsThreshold, settings.topK);
+  const merged = mergeOverlappingDetections(candidates, settings.nmsThreshold).slice(
+    0,
+    settings.topK,
+  );
   const detections: FaceDetection[] = [];
-  for (const candidate of kept) {
+  for (const candidate of merged) {
     const detection = toDetection(candidate, width, height);
     if (detection) detections.push(detection);
   }
