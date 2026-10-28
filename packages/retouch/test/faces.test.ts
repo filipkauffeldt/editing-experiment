@@ -2,6 +2,7 @@ import { existsSync, readdirSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { FaceDetection, Point, Rect } from '@ee/contracts';
+import sharp from 'sharp';
 import { describe, expect, it } from 'vitest';
 import {
   decodeImageFile,
@@ -23,6 +24,30 @@ const suite = available ? describe : describe.skip;
 if (!available) console.warn('skipping face tests: run `pnpm fetch-retouch`');
 
 const photo = (name: string): string => join(photoDir, name);
+
+async function upscaledApolloFace(): Promise<{
+  rgba: Uint8Array;
+  width: number;
+  height: number;
+}> {
+  const image = await decodeImageFile(photo('apollo11_crew.jpg'));
+  const left = Math.round(0.15 * image.width);
+  const top = Math.round(0.25 * image.height);
+  const width = Math.round(0.21 * image.width);
+  const height = Math.round(0.3 * image.height);
+  const { data, info } = await sharp(Buffer.from(image.rgba), {
+    raw: { width: image.width, height: image.height, channels: 4 },
+  })
+    .extract({ left, top, width, height })
+    .resize(1800, 1800)
+    .raw()
+    .toBuffer({ resolveWithObject: true });
+  return {
+    rgba: new Uint8Array(data.buffer, data.byteOffset, data.byteLength),
+    width: info.width,
+    height: info.height,
+  };
+}
 
 function contains(box: Rect, point: Point): boolean {
   return (
@@ -58,6 +83,19 @@ suite('YuNet face detection', () => {
       expect(face.box.w).toBeGreaterThan(0);
       expect(face.box.h).toBeGreaterThan(0);
     }
+  });
+
+  it('keeps a face larger than a tile intact via the region-scale pass', async () => {
+    const image = await upscaledApolloFace();
+    const faces = await detectFaces(
+      image.rgba,
+      image.width,
+      image.height,
+      { type: 'rect', x: 0, y: 0, w: 1, h: 1 },
+      { modelPath, maxInputEdge: 640 },
+    );
+    const complete = faces.find((face) => face.box.w > 0.35 && face.box.h > 0.45);
+    expect(complete, 'expected a complete detection of the oversized face').toBeDefined();
   });
 
   it('honours the score threshold', async () => {

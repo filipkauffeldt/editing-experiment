@@ -67,6 +67,27 @@ async function resizeRgba(
   return new Uint8Array(buffer.buffer, buffer.byteOffset, buffer.byteLength);
 }
 
+async function cropAndResizeRgba(
+  rgba: Uint8Array,
+  width: number,
+  height: number,
+  regionX: number,
+  regionY: number,
+  regionWidth: number,
+  regionHeight: number,
+  targetWidth: number,
+  targetHeight: number,
+): Promise<Uint8Array> {
+  const buffer = await sharp(rgba, {
+    raw: { width, height, channels: 4 },
+  })
+    .extract({ left: regionX, top: regionY, width: regionWidth, height: regionHeight })
+    .resize(targetWidth, targetHeight, { fit: 'fill' })
+    .raw()
+    .toBuffer();
+  return new Uint8Array(buffer.buffer, buffer.byteOffset, buffer.byteLength);
+}
+
 interface MappedCandidate extends FaceCandidate {
   box: PixelRect;
 }
@@ -177,6 +198,42 @@ export async function detectFaces(
         for (const candidate of found) {
           candidates.push(mapCandidate(candidate, regionX + tileX, regionY + tileY, 1, 1));
         }
+      }
+    }
+
+    // A face wider than a tile is cut into fragments by the tiled pass. Run the
+    // whole region once at `maxInputEdge` so such faces stay intact.
+    const longestSide = Math.max(regionWidth, regionHeight);
+    if (longestSide > settings.maxInputEdge) {
+      const scale = settings.maxInputEdge / longestSide;
+      const scaledWidth = Math.max(1, Math.round(regionWidth * scale));
+      const scaledHeight = Math.max(1, Math.round(regionHeight * scale));
+      const regionRgba = await cropAndResizeRgba(
+        rgba,
+        width,
+        height,
+        regionX,
+        regionY,
+        regionWidth,
+        regionHeight,
+        scaledWidth,
+        scaledHeight,
+      );
+      const found = await runYuNet(
+        settings.modelPath,
+        regionRgba,
+        scaledWidth,
+        scaledHeight,
+        0,
+        0,
+        scaledWidth,
+        scaledHeight,
+        settings.scoreThreshold,
+      );
+      const scaleX = regionWidth / scaledWidth;
+      const scaleY = regionHeight / scaledHeight;
+      for (const candidate of found) {
+        candidates.push(mapCandidate(candidate, regionX, regionY, scaleX, scaleY));
       }
     }
   } else {
