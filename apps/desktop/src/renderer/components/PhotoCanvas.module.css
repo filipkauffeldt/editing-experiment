@@ -117,6 +117,17 @@
   color: var(--foreground);
   font-size: 11px;
   z-index: 2;
+  /* Let a drag that starts on the toolbar background reach the image; the
+     controls themselves stay clickable. On narrow windows the toolbar wraps
+     over more of the image and used to swallow the first drag. */
+  pointer-events: none;
+}
+
+.toolbar button,
+.toolbar input,
+.toolbar label,
+.toolbar select {
+  pointer-events: auto;
 }
 
 .tools,
