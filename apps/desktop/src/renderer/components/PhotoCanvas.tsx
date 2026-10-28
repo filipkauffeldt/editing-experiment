@@ -293,9 +293,26 @@ function CanvasForPhoto({ photo }: { photo: Photo }) {
     let cancelled = false;
     void (async () => {
       try {
-        const response = await fetch(appUrl.linear(photo.id, requestedEdge), {
-          signal: controller.signal,
-        });
+        // A restarted jobs process answers 503 for a moment; retry briefly.
+        let response: Response | undefined;
+        for (let attempt = 0; attempt < 4; attempt++) {
+          response = await fetch(appUrl.linear(photo.id, requestedEdge), {
+            signal: controller.signal,
+          });
+          if (response.status !== 503 || attempt === 3) break;
+          await new Promise<void>((resolve, reject) => {
+            const timer = setTimeout(resolve, 250 * 2 ** attempt);
+            controller.signal.addEventListener(
+              'abort',
+              () => {
+                clearTimeout(timer);
+                reject(new DOMException('aborted', 'AbortError'));
+              },
+              { once: true },
+            );
+          });
+        }
+        if (!response) throw new Error('no response');
         if (!response.ok) {
           // Mock mode and non-raw formats without a linear source still show the
           // cached JPEG; the develop controls just do not affect it.
