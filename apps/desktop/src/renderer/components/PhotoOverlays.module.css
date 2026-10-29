@@ -1,0 +1,50 @@
+/* Tag: an 11 px square, filled white when tagged. */
+.tag {
+  display: inline-block;
+  flex: none;
+  width: 11px;
+  height: 11px;
+  padding: 0;
+  border: 1px solid var(--text);
+  background: #0005;
+}
+
+.tag:hover {
+  border-color: var(--text);
+}
+
+.tagged {
+  border-color: var(--text);
+  background: var(--text);
+}
+
+.labels {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px;
+}
+
+/* Tiny text labels on a translucent black strip: sent, sending 64%, failed. */
+.label {
+  padding: 1px 4px;
+  background: var(--scrim);
+  color: var(--text);
+  font-family: var(--font-mono);
+  font-size: 9px;
+  line-height: 12px;
+  white-space: nowrap;
+}
+
+.labelFailed::before {
+  display: inline-block;
+  width: 5px;
+  height: 5px;
+  margin-right: 4px;
+  border-radius: 50%;
+  background: var(--error);
+  content: '';
+}
+
+.labelDim {
+  color: var(--muted);
+}

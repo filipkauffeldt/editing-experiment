@@ -3,7 +3,7 @@
   flex-direction: column;
   min-width: 0;
   min-height: 0;
-  background: radial-gradient(circle at 50% 42%, #1b1b1f 0%, #101012 70%);
+  background: var(--bg);
 }
 
 .canvasArea {
@@ -19,20 +19,20 @@
 .footer {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 16px;
   flex: none;
   height: 28px;
   padding: 0 12px;
-  border-top: 1px solid var(--border);
+  border-top: 1px solid var(--line);
   background: var(--panel);
-  color: var(--text-dim);
-  font-size: 10px;
+  color: var(--muted);
+  font-size: var(--fs-small);
 }
 
 .fileName {
-  font-family: var(--mono);
-  font-size: 11px;
   color: var(--text);
+  font-family: var(--font-mono);
+  font-size: var(--fs-mono);
 }
 
 .spacer {
@@ -40,38 +40,42 @@
 }
 
 .detail {
-  white-space: nowrap;
+  max-width: 240px;
   overflow: hidden;
   text-overflow: ellipsis;
-  max-width: 240px;
+  white-space: nowrap;
 }
 
 .zoom {
-  padding: 1px 6px;
-  border: 1px solid var(--border);
-  border-radius: 2px;
-  color: var(--text);
+  color: var(--dim);
+  font-size: var(--fs-label);
+  letter-spacing: var(--tracking-label);
+  text-transform: uppercase;
 }
 
+/* Text with a 1 px underline while the mode is on. */
 .retouch {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
-  border: 1px solid var(--border);
-  border-radius: 4px;
+  gap: 5px;
+  height: 100%;
+  padding: 0;
+  border: 0;
+  border-bottom: 1px solid transparent;
   background: transparent;
-  color: var(--foreground);
-  font: inherit;
-  font-size: 11px;
-  padding: 2px 7px;
-  cursor: pointer;
+  color: var(--muted);
+  font-size: var(--fs-small);
 }
 
-.retouch:hover {
-  background: var(--secondary);
+.retouch:hover:not(:disabled) {
+  color: var(--text);
+}
+
+.retouch:disabled {
+  color: var(--dim);
 }
 
 .retouchActive {
-  background: #2f6da8;
-  border-color: #4d8cc4;
+  border-bottom-color: var(--text);
+  color: var(--text);
 }

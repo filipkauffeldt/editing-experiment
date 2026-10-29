@@ -1,10 +1,14 @@
 import { SLIDER_SPECS, type SliderParam, type VignetteStyle } from '@ee/contracts';
-import { useState } from 'react';
-import { activePhoto, paramsForPhoto } from '../store';
+import { useState, type ReactNode } from 'react';
+import { activePhoto, paramsForPhoto, sectionEnabled } from '../store';
 import { asShotTrackPosition, temperatureToTrack, trackToTemperature } from '../temperature-scale';
 import { useAppState, useAppStore } from '../store-context';
 import { CloseIcon, PlusIcon } from './icons';
 import { Panel } from './Panel';
+import { Button } from './ui/Button';
+import { Select } from './ui/Field';
+import { PanelSection } from './ui/PanelSection';
+import { Slider as SliderControl } from './ui/Slider';
 import styles from './DevelopPanel.module.css';
 
 const LABELS: Record<SliderParam, string> = {
@@ -126,6 +130,9 @@ function Slider({ name }: { name: SliderParam }) {
   const params = paramsForPhoto(state, photo);
   const spec = SLIDER_SPECS[name];
   const raw = params[name];
+  // Raw files start at Lightroom's defaults (sharpening, colour noise reduction): that is the
+  // slider's "untouched" position, where the tick sits and the fill starts.
+  const start = (photo && state.editDefaults[photo.id]?.[name]) ?? spec.neutral ?? 0;
   const asShot = spec.neutral === null && raw === undefined;
   const isTemperature = name === 'Temperature';
   const position = isTemperature
@@ -135,95 +142,100 @@ function Slider({ name }: { name: SliderParam }) {
     : (raw ?? spec.neutral ?? 0);
 
   return (
-    <div
-      className={`${styles.slider} ${asShot ? styles.asShot : ''}`}
-      onDoubleClick={() => store.resetSlider(name)}
-      title="Double-click to reset"
+    <SliderControl
+      label={LABELS[name]}
+      value={position}
+      min={isTemperature ? 0 : spec.min}
+      max={isTemperature ? 1000 : spec.max}
+      step={isTemperature ? 1 : spec.step}
+      neutral={isTemperature ? asShotTrackPosition() : start}
+      display={asShot ? '' : (raw ?? spec.neutral ?? 0)}
+      placeholder={asShot ? 'As shot' : undefined}
+      numberMin={spec.min}
+      numberMax={spec.max}
+      numberStep={spec.step}
+      tone={isTemperature ? 'temperature' : name === 'Tint' ? 'tint' : undefined}
+      disabled={!photo}
+      onRange={(value) => store.setSlider(name, isTemperature ? trackToTemperature(value) : value)}
+      onNumber={(value) => store.setSlider(name, value)}
+      onReset={() => store.resetSlider(name)}
+    />
+  );
+}
+
+/** A develop section whose header switch parks and restores its sliders. */
+function Section({
+  title,
+  params,
+  children,
+}: {
+  title: string;
+  params: readonly SliderParam[];
+  children: ReactNode;
+}) {
+  const store = useAppStore();
+  const state = useAppState();
+  const photo = activePhoto(state);
+  return (
+    <PanelSection
+      title={title}
+      enabled={sectionEnabled(state, photo, title)}
+      onEnabledChange={(enabled) => store.setSectionEnabled(title, params, enabled)}
     >
-      <span className={styles.sliderLabel}>{LABELS[name]}</span>
-      <input
-        className={styles.number}
-        type="number"
-        aria-label={`${LABELS[name]} value`}
-        min={spec.min}
-        max={spec.max}
-        step={spec.step}
-        value={asShot ? '' : (raw ?? spec.neutral ?? 0)}
-        placeholder={asShot ? 'As shot' : undefined}
-        disabled={!photo}
-        onChange={(event) => {
-          const value = event.target.value;
-          if (value === '') {
-            store.setSlider(name, undefined);
-            return;
-          }
-          const parsed = Number(value);
-          if (Number.isFinite(parsed)) store.setSlider(name, parsed);
-        }}
-      />
-      <input
-        className={styles.range}
-        type="range"
-        aria-label={LABELS[name]}
-        min={isTemperature ? 0 : spec.min}
-        max={isTemperature ? 1000 : spec.max}
-        step={isTemperature ? 1 : spec.step}
-        value={position}
-        disabled={!photo}
-        onChange={(event) =>
-          store.setSlider(
-            name,
-            isTemperature
-              ? trackToTemperature(Number(event.target.value))
-              : Number(event.target.value),
-          )
-        }
-        onDoubleClick={() => store.resetSlider(name)}
-      />
-    </div>
+      {children}
+    </PanelSection>
   );
 }
 
 function Group({ title, params }: { title: string; params: SliderParam[] }) {
   return (
-    <section className={styles.group}>
-      <h3 className={styles.groupTitle}>{title}</h3>
+    <Section title={title} params={params}>
       {params.map((name) => (
         <Slider key={name} name={name} />
       ))}
-    </section>
+    </Section>
   );
 }
 
+const SHARPENING_PARAMS: SliderParam[] = [
+  'Sharpness',
+  'SharpenRadius',
+  'SharpenDetail',
+  'SharpenEdgeMasking',
+];
+const NOISE_PARAMS: SliderParam[] = [
+  'LuminanceSmoothing',
+  'LuminanceNoiseReductionDetail',
+  'LuminanceNoiseReductionContrast',
+  'ColorNoiseReduction',
+  'ColorNoiseReductionDetail',
+  'ColorNoiseReductionSmoothness',
+];
+
 function DetailSection() {
   return (
-    <section className={styles.group}>
-      <h3 className={styles.groupTitle}>Detail</h3>
+    <Section title="Detail" params={[...SHARPENING_PARAMS, ...NOISE_PARAMS]}>
       <div className={styles.subgroup}>
         <h4 className={styles.subgroupTitle}>Sharpening</h4>
-        <Slider name="Sharpness" />
-        <Slider name="SharpenRadius" />
-        <Slider name="SharpenDetail" />
-        <Slider name="SharpenEdgeMasking" />
+        {SHARPENING_PARAMS.map((name) => (
+          <Slider key={name} name={name} />
+        ))}
       </div>
       <div className={styles.subgroup}>
         <h4 className={styles.subgroupTitle}>Noise reduction</h4>
-        <Slider name="LuminanceSmoothing" />
-        <Slider name="LuminanceNoiseReductionDetail" />
-        <Slider name="LuminanceNoiseReductionContrast" />
-        <Slider name="ColorNoiseReduction" />
-        <Slider name="ColorNoiseReductionDetail" />
-        <Slider name="ColorNoiseReductionSmoothness" />
+        {NOISE_PARAMS.map((name) => (
+          <Slider key={name} name={name} />
+        ))}
       </div>
-    </section>
+    </Section>
   );
 }
 
 function ColorMixerSection() {
   const [tab, setTab] = useState<MixerTab>('Hue');
+  const all = Object.values(MIXER_PARAMS).flat();
   return (
-    <section className={styles.group}>
-      <h3 className={styles.groupTitle}>Color Mixer</h3>
+    <Section title="Color Mixer" params={all}>
       <div className={styles.tabs} role="tablist" aria-label="Color Mixer">
         {(['Hue', 'Saturation', 'Luminance'] as const).map((name) => (
           <button
@@ -241,22 +253,29 @@ function ColorMixerSection() {
       {MIXER_PARAMS[tab].map((name) => (
         <Slider key={name} name={name} />
       ))}
-    </section>
+    </Section>
   );
 }
 
+const GRADING_PREFIXES = [
+  ['Shadows', 'ColorGradeShadow'],
+  ['Midtones', 'ColorGradeMidtone'],
+  ['Highlights', 'ColorGradeHighlight'],
+  ['Global', 'ColorGradeGlobal'],
+] as const;
+
+const GRADING_PARAMS: SliderParam[] = [
+  ...GRADING_PREFIXES.flatMap(([, prefix]) =>
+    (['Hue', 'Sat', 'Lum'] as const).map((part) => `${prefix}${part}` as SliderParam),
+  ),
+  'ColorGradeBlending',
+  'ColorGradeBalance',
+];
+
 function ColorGradingSection() {
   return (
-    <section className={styles.group}>
-      <h3 className={styles.groupTitle}>Color Grading</h3>
-      {(
-        [
-          ['Shadows', 'ColorGradeShadow'],
-          ['Midtones', 'ColorGradeMidtone'],
-          ['Highlights', 'ColorGradeHighlight'],
-          ['Global', 'ColorGradeGlobal'],
-        ] as const
-      ).map(([label, prefix]) => (
+    <Section title="Color Grading" params={GRADING_PARAMS}>
+      {GRADING_PREFIXES.map(([label, prefix]) => (
         <div key={label} className={styles.subgroup}>
           <h4 className={styles.subgroupTitle}>{label}</h4>
           <Slider name={`${prefix}Hue` as SliderParam} />
@@ -266,11 +285,22 @@ function ColorGradingSection() {
       ))}
       <Slider name="ColorGradeBlending" />
       <Slider name="ColorGradeBalance" />
-    </section>
+    </Section>
   );
 }
 
 const VIGNETTE_STYLES: VignetteStyle[] = ['Highlight Priority', 'Color Priority', 'Paint Overlay'];
+
+const EFFECT_PARAMS: SliderParam[] = [
+  'PostCropVignetteAmount',
+  'PostCropVignetteMidpoint',
+  'PostCropVignetteRoundness',
+  'PostCropVignetteFeather',
+  'PostCropVignetteHighlights',
+  'GrainAmount',
+  'GrainSize',
+  'GrainFrequency',
+];
 
 function EffectsSection() {
   const store = useAppStore();
@@ -279,15 +309,13 @@ function EffectsSection() {
   const params = paramsForPhoto(state, photo);
   const style = params.PostCropVignetteStyle ?? 'Highlight Priority';
   return (
-    <section className={styles.group}>
-      <h3 className={styles.groupTitle}>Effects</h3>
+    <Section title="Effects" params={EFFECT_PARAMS}>
       <div className={styles.subgroup}>
         <h4 className={styles.subgroupTitle}>Post-crop vignette</h4>
         <Slider name="PostCropVignetteAmount" />
         <label className={styles.selectRow}>
-          <span className={styles.sliderLabel}>Style</span>
-          <select
-            className={styles.select}
+          <span className={styles.selectLabel}>Style</span>
+          <Select
             value={style}
             disabled={!photo}
             onChange={(event) => store.setVignetteStyle(event.target.value as VignetteStyle)}
@@ -297,7 +325,7 @@ function EffectsSection() {
                 {name}
               </option>
             ))}
-          </select>
+          </Select>
         </label>
         <Slider name="PostCropVignetteMidpoint" />
         <Slider name="PostCropVignetteRoundness" />
@@ -310,7 +338,7 @@ function EffectsSection() {
         <Slider name="GrainSize" />
         <Slider name="GrainFrequency" />
       </div>
-    </section>
+    </Section>
   );
 }
 
@@ -322,48 +350,52 @@ export function DevelopPanel({ className }: { className?: string }) {
 
   return (
     <Panel title="Develop" className={className}>
-      <div className={styles.sectionTitle}>
-        Presets
-        <button
-          type="button"
-          className={styles.iconButton}
-          title="Import a Lightroom/Camera Raw .xmp preset"
-          onClick={() => void store.importPreset()}
-        >
-          <PlusIcon size={11} /> Import
-        </button>
-      </div>
-
-      <div className={styles.presets} data-testid="presets">
-        {state.presets.length === 0 && <span className={styles.muted}>No presets imported</span>}
-        {state.presets.map((preset) => (
-          <button
-            key={preset.id}
-            type="button"
-            className={styles.preset}
-            title={preset.path}
-            disabled={!photo}
-            onClick={() => store.applyPreset(preset)}
+      <PanelSection
+        title="Presets"
+        flush
+        actions={
+          <Button
+            variant="ghost"
+            size="small"
+            title="Import a Lightroom/Camera Raw .xmp preset"
+            onClick={() => void store.importPreset()}
           >
-            <span className={styles.presetName}>{preset.name}</span>
-            <span className={styles.presetCount}>{Object.keys(preset.params).length} settings</span>
-          </button>
-        ))}
-      </div>
-
-      {state.presetNotice && (
-        <div className={styles.notice} role="status">
-          {state.presetNotice}
-          <button
-            type="button"
-            className={styles.noticeClose}
-            aria-label="Dismiss preset notice"
-            onClick={() => store.clearPresetNotice()}
-          >
-            <CloseIcon size={9} />
-          </button>
+            <PlusIcon size={10} /> Import
+          </Button>
+        }
+      >
+        <div className={styles.presets} data-testid="presets">
+          {state.presets.length === 0 && <span className={styles.muted}>No presets imported</span>}
+          {state.presets.map((preset) => (
+            <button
+              key={preset.id}
+              type="button"
+              className={styles.preset}
+              title={preset.path}
+              disabled={!photo}
+              onClick={() => store.applyPreset(preset)}
+            >
+              <span className={styles.presetName}>{preset.name}</span>
+              <span className={`${styles.presetCount} mono`}>
+                {Object.keys(preset.params).length}
+              </span>
+            </button>
+          ))}
         </div>
-      )}
+        {state.presetNotice && (
+          <div className={styles.notice} role="status">
+            {state.presetNotice}
+            <button
+              type="button"
+              className={styles.noticeClose}
+              aria-label="Dismiss preset notice"
+              onClick={() => store.clearPresetNotice()}
+            >
+              <CloseIcon size={9} />
+            </button>
+          </div>
+        )}
+      </PanelSection>
 
       <div data-testid="sliders">
         {BASIC_GROUPS.map((group) => (

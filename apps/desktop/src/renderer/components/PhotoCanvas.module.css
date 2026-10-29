@@ -3,8 +3,8 @@
   align-items: center;
   justify-content: center;
   height: 100%;
-  color: var(--muted);
-  font-size: 13px;
+  color: var(--dim);
+  font-size: var(--fs-base);
   text-align: center;
   padding: 24px;
 }
@@ -23,14 +23,12 @@
 .stage {
   position: relative;
   flex: none;
-  background: #0b0b0c;
-  box-shadow: 0 1px 12px rgb(0 0 0 / 45%);
+  background: var(--bg);
 }
 
 /* Crop mode draws the rotated image on the whole workspace. */
 .stage[data-mode='crop'] {
-  background: #1a1a1c;
-  box-shadow: none;
+  background: var(--panel);
 }
 
 .image,
@@ -62,9 +60,9 @@
 }
 
 .shape {
-  fill: rgb(90 155 224 / 18%);
-  stroke: #5a9be0;
-  stroke-width: 1.5;
+  fill: rgb(255 255 255 / 10%);
+  stroke: var(--text);
+  stroke-width: 1;
   vector-effect: non-scaling-stroke;
 }
 
@@ -75,14 +73,14 @@
 }
 
 .faceOn {
-  fill: rgb(224 90 88 / 16%);
-  stroke: #e05a58;
+  fill: rgb(255 255 255 / 12%);
+  stroke: var(--text);
   stroke-dasharray: 6 3;
 }
 
 .faceOff {
   fill: none;
-  stroke: rgb(224 90 88 / 45%);
+  stroke: rgb(255 255 255 / 45%);
   stroke-dasharray: 2 4;
 }
 
@@ -91,37 +89,35 @@
   left: 50%;
   bottom: 12px;
   transform: translateX(-50%);
-  padding: 5px 10px;
-  border-radius: 4px;
-  background: rgb(0 0 0 / 62%);
-  color: #ddd;
-  font-size: 11px;
+  padding: 3px 8px;
+  background: var(--scrim);
+  color: var(--text);
+  font-size: var(--fs-small);
   pointer-events: none;
   white-space: nowrap;
 }
 
 .error {
-  color: #ffb4b2;
   max-width: 80%;
   overflow: hidden;
+  color: var(--error);
   text-overflow: ellipsis;
 }
 
 .toolbar {
   position: absolute;
-  top: 10px;
-  left: 10px;
-  right: 10px;
+  top: 0;
+  left: 0;
+  right: 0;
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 6px 10px;
-  padding: 7px 9px;
-  border-radius: 6px;
-  background: rgb(18 19 22 / 88%);
-  border: 1px solid rgb(255 255 255 / 10%);
-  color: var(--foreground);
-  font-size: 11px;
+  gap: 6px 18px;
+  padding: 6px 12px;
+  background: var(--panel);
+  border-bottom: 1px solid var(--line);
+  color: var(--text);
+  font-size: var(--fs-small);
   z-index: 2;
   /* Let a drag that starts on the toolbar background reach the image; the
      controls themselves stay clickable. On narrow windows the toolbar wraps
@@ -139,57 +135,93 @@
 .tools,
 .actions {
   display: flex;
-  gap: 4px;
+  align-items: center;
+  gap: 14px;
 }
 
-.tool,
-.secondary,
-.commit {
-  border: 1px solid rgb(255 255 255 / 12%);
-  border-radius: 4px;
-  background: rgb(255 255 255 / 6%);
-  color: inherit;
+/* Tools and modes are text; the active one has a 1 px underline. */
+.tool {
+  padding: 2px 0;
+  border: 0;
+  border-bottom: 1px solid transparent;
+  background: transparent;
+  color: var(--muted);
   font: inherit;
-  padding: 3px 7px;
-  cursor: pointer;
 }
 
-.tool:hover,
-.secondary:hover:not(:disabled),
-.commit:hover:not(:disabled) {
-  background: rgb(255 255 255 / 12%);
+.tool:hover {
+  color: var(--text);
 }
 
 .toolActive {
-  background: #2f6da8;
-  border-color: #4d8cc4;
+  border-bottom-color: var(--text);
+  color: var(--text);
+}
+
+.secondary,
+.commit {
+  height: 22px;
+  padding: 0 9px;
+  border: 1px solid var(--line-strong);
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+}
+
+.secondary:hover:not(:disabled) {
+  background: var(--raised);
 }
 
 .secondary:disabled,
 .commit:disabled {
-  opacity: 0.5;
-  cursor: default;
+  color: var(--dim);
+  border-color: var(--line);
 }
 
+/* The one filled control in a toolbar. */
 .commit {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
-  background: #2f6da8;
-  border-color: #4d8cc4;
+  gap: 5px;
+  border-color: var(--text);
+  background: var(--text);
+  color: var(--on-text);
   font-weight: 600;
+}
+
+.commit:hover:not(:disabled) {
+  background: #fff;
 }
 
 .control {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
+  gap: 8px;
+  color: var(--muted);
   white-space: nowrap;
 }
 
+/* 1 px track, 2 x 11 px bar thumb. */
 .control input[type='range'] {
-  width: 86px;
-  accent-color: #5a9be0;
+  width: 96px;
+  height: 13px;
+  margin: 0;
+  background: transparent;
+  appearance: none;
+}
+
+.control input[type='range']::-webkit-slider-runnable-track {
+  height: 1px;
+  background: var(--line-strong);
+}
+
+.control input[type='range']::-webkit-slider-thumb {
+  width: 2px;
+  height: 11px;
+  margin-top: -5px;
+  border: 0;
+  background: var(--text);
+  appearance: none;
 }
 
 .faceHint,
@@ -208,13 +240,12 @@
   right: 10px;
   display: inline-flex;
   align-items: center;
-  gap: 4px;
-  padding: 3px 7px;
-  border-radius: 4px;
-  background: rgb(18 19 22 / 82%);
-  border: 1px solid rgb(255 255 255 / 12%);
-  color: var(--text-dim);
-  font-size: 10px;
+  gap: 5px;
+  padding: 1px 5px;
+  background: var(--scrim);
+  color: var(--text);
+  font-family: var(--font-mono);
+  font-size: 9px;
   z-index: 2;
   pointer-events: none;
 }
@@ -222,24 +253,23 @@
 .aspects {
   display: flex;
   flex-wrap: wrap;
-  gap: 4px;
+  gap: 6px 14px;
 }
 
 .cropToolbar {
   position: absolute;
-  top: 10px;
-  left: 10px;
-  right: 10px;
+  top: 0;
+  left: 0;
+  right: 0;
   display: flex;
   flex-direction: column;
   align-items: flex-start;
   gap: 6px;
-  padding: 7px 9px;
-  border-radius: 6px;
-  background: rgb(18 19 22 / 90%);
-  border: 1px solid rgb(255 255 255 / 10%);
-  color: var(--foreground);
-  font-size: 11px;
+  padding: 6px 12px;
+  background: var(--panel);
+  border-bottom: 1px solid var(--line);
+  color: var(--text);
+  font-size: var(--fs-small);
   z-index: 3;
 }
 
@@ -247,7 +277,7 @@
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 6px 10px;
+  gap: 6px 18px;
 }
 
 .cropHint {
@@ -259,8 +289,9 @@
   align-items: center;
   justify-content: center;
   gap: 5px;
-  color: var(--muted);
-  font-size: 11px;
+  color: var(--text);
+  font-size: var(--fs-small);
+  text-shadow: 0 0 3px #000;
   pointer-events: none;
   z-index: 3;
 }
@@ -290,8 +321,8 @@
 
 .cropBorder {
   fill: none;
-  stroke: #f2f2f2;
-  stroke-width: 1.5;
+  stroke: var(--text);
+  stroke-width: 1;
 }
 
 .cropThirds {
@@ -305,8 +336,8 @@
 }
 
 .straightenLine {
-  stroke: #ffd166;
-  stroke-width: 1.5;
+  stroke: var(--text);
+  stroke-width: 1;
   stroke-dasharray: 5 3;
 }
 
@@ -315,9 +346,7 @@
   width: 9px;
   height: 9px;
   transform: translate(-50%, -50%);
-  border: 1.5px solid #1b1b1f;
-  border-radius: 2px;
-  background: #fff;
-  box-shadow: 0 0 2px rgb(0 0 0 / 60%);
+  border: 1px solid var(--bg);
+  background: var(--text);
   pointer-events: none;
 }

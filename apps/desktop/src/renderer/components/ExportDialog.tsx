@@ -48,7 +48,7 @@ function PresetEditor({
 
   return (
     <div className={styles.editor}>
-      <div className={styles.grid}>
+      <div className={styles.nameRow}>
         <label className={styles.field}>
           <span className={styles.label}>Preset name</span>
           <input
@@ -58,166 +58,176 @@ function PresetEditor({
             onChange={(event) => patch({ name: event.target.value })}
           />
         </label>
-        <label className={styles.field}>
-          <span className={styles.label}>JPEG quality (1–100)</span>
-          <input
-            className={styles.input}
-            type="number"
-            min={1}
-            max={100}
-            value={draft.quality}
-            onChange={(event) => patch({ quality: Number(event.target.value) })}
-          />
-        </label>
-
-        <label className={`${styles.field} ${styles.wide}`}>
-          <span className={styles.label}>Folder template (relative to the export root)</span>
-          <input
-            className={styles.input}
-            value={draft.folderTemplate}
-            data-testid="folder-template"
-            onChange={(event) => patch({ folderTemplate: event.target.value })}
-          />
-        </label>
-        <label className={`${styles.field} ${styles.wide}`}>
-          <span className={styles.label}>File name template</span>
-          <input
-            className={styles.input}
-            value={draft.fileNameTemplate}
-            data-testid="filename-template"
-            onChange={(event) => patch({ fileNameTemplate: event.target.value })}
-          />
-        </label>
-
-        <label className={styles.field}>
-          <span className={styles.label}>If the file exists</span>
-          <select
-            className={styles.input}
-            value={draft.ifExists}
-            onChange={(event) =>
-              patch({ ifExists: event.target.value as ExportPreset['ifExists'] })
-            }
-          >
-            <option value="suffix">Add a suffix</option>
-            <option value="overwrite">Overwrite</option>
-            <option value="skip">Skip</option>
-          </select>
-        </label>
-        <label className={styles.field}>
-          <span className={styles.label}>Resize</span>
-          <div className={styles.row}>
-            <select
-              className={styles.input}
-              value={resizeMode}
-              onChange={(event) => setResizeMode(event.target.value as ExportResize['mode'])}
-            >
-              <option value="none">Full size</option>
-              <option value="longEdge">Long edge</option>
-              <option value="shortEdge">Short edge</option>
-              <option value="megapixels">Megapixels</option>
-            </select>
-            {resizeMode !== 'none' && (
-              <input
-                className={`${styles.input} ${styles.short}`}
-                type="number"
-                min={1}
-                step={resizeMode === 'megapixels' ? 0.1 : 1}
-                value={resizeValue}
-                aria-label="Resize amount"
-                onChange={(event) => {
-                  const value = Number(event.target.value);
-                  if (resizeMode === 'megapixels')
-                    patch({ resize: { mode: resizeMode, megapixels: value } });
-                  else patch({ resize: { mode: resizeMode, pixels: value } });
-                }}
-              />
-            )}
-          </div>
-        </label>
-
-        <label className={styles.field}>
-          <span className={styles.label}>Output sharpening</span>
-          <div className={styles.row}>
-            <select
-              className={styles.input}
-              value={draft.outputSharpening.target}
-              onChange={(event) =>
-                patch({
-                  outputSharpening: {
-                    ...draft.outputSharpening,
-                    target: event.target.value as ExportPreset['outputSharpening']['target'],
-                  },
-                })
-              }
-            >
-              <option value="none">None</option>
-              <option value="screen">Screen</option>
-              <option value="matte">Matte paper</option>
-              <option value="glossy">Glossy paper</option>
-            </select>
-            <select
-              className={styles.input}
-              value={draft.outputSharpening.amount}
-              aria-label="Sharpening amount"
-              disabled={draft.outputSharpening.target === 'none'}
-              onChange={(event) =>
-                patch({
-                  outputSharpening: {
-                    ...draft.outputSharpening,
-                    amount: event.target.value as ExportPreset['outputSharpening']['amount'],
-                  },
-                })
-              }
-            >
-              <option value="low">Low</option>
-              <option value="standard">Standard</option>
-              <option value="high">High</option>
-            </select>
-          </div>
-        </label>
-        <label className={styles.field}>
-          <span className={styles.label}>Metadata</span>
-          <select
-            className={styles.input}
-            value={draft.metadata}
-            onChange={(event) =>
-              patch({ metadata: event.target.value as ExportPreset['metadata'] })
-            }
-          >
-            <option value="all">All (EXIF + IPTC)</option>
-            <option value="iptc">IPTC only</option>
-            <option value="copyright">Copyright only</option>
-            <option value="none">None</option>
-          </select>
-        </label>
-        <label className={styles.field}>
-          <span className={styles.label}>Edit version</span>
-          <select
-            className={styles.input}
-            value={draft.version}
-            onChange={(event) => {
-              const version = event.target.value as ExportPreset['version'];
-              // Sending must never deliver a mosaic-less retouched photo.
-              patch(version === 'develop' ? { version, sendTo: [] } : { version });
-            }}
-          >
-            <option value="top">Top retouch version</option>
-            <option value="develop">Develop only (export only)</option>
-          </select>
-        </label>
-
-        <label className={styles.checkbox}>
-          <input
-            type="checkbox"
-            checked={draft.stripGps}
-            onChange={(event) => patch({ stripGps: event.target.checked })}
-          />
-          Remove GPS location
-        </label>
       </div>
-
-      <div className={styles.field}>
-        <span className={styles.label}>Send to</span>
+      <section className={styles.section}>
+        <h4 className={styles.sectionTitle}>Location</h4>
+        <div className={styles.grid}>
+          <label className={`${styles.field} ${styles.wide}`}>
+            <span className={styles.label}>Folder template (relative to the export root)</span>
+            <input
+              className={styles.input}
+              value={draft.folderTemplate}
+              data-testid="folder-template"
+              onChange={(event) => patch({ folderTemplate: event.target.value })}
+            />
+          </label>
+          <label className={`${styles.field} ${styles.wide}`}>
+            <span className={styles.label}>File name template</span>
+            <input
+              className={styles.input}
+              value={draft.fileNameTemplate}
+              data-testid="filename-template"
+              onChange={(event) => patch({ fileNameTemplate: event.target.value })}
+            />
+          </label>
+          <label className={styles.field}>
+            <span className={styles.label}>If the file exists</span>
+            <select
+              className={styles.input}
+              value={draft.ifExists}
+              onChange={(event) =>
+                patch({ ifExists: event.target.value as ExportPreset['ifExists'] })
+              }
+            >
+              <option value="suffix">Add a suffix</option>
+              <option value="overwrite">Overwrite</option>
+              <option value="skip">Skip</option>
+            </select>
+          </label>
+        </div>
+      </section>
+      <section className={styles.section}>
+        <h4 className={styles.sectionTitle}>File</h4>
+        <div className={styles.grid}>
+          <label className={styles.field}>
+            <span className={styles.label}>JPEG quality (1–100)</span>
+            <input
+              className={styles.input}
+              type="number"
+              min={1}
+              max={100}
+              value={draft.quality}
+              onChange={(event) => patch({ quality: Number(event.target.value) })}
+            />
+          </label>
+          <label className={styles.field}>
+            <span className={styles.label}>Resize</span>
+            <div className={styles.row}>
+              <select
+                className={styles.input}
+                value={resizeMode}
+                onChange={(event) => setResizeMode(event.target.value as ExportResize['mode'])}
+              >
+                <option value="none">Full size</option>
+                <option value="longEdge">Long edge</option>
+                <option value="shortEdge">Short edge</option>
+                <option value="megapixels">Megapixels</option>
+              </select>
+              {resizeMode !== 'none' && (
+                <input
+                  className={`${styles.input} ${styles.short}`}
+                  type="number"
+                  min={1}
+                  step={resizeMode === 'megapixels' ? 0.1 : 1}
+                  value={resizeValue}
+                  aria-label="Resize amount"
+                  onChange={(event) => {
+                    const value = Number(event.target.value);
+                    if (resizeMode === 'megapixels')
+                      patch({ resize: { mode: resizeMode, megapixels: value } });
+                    else patch({ resize: { mode: resizeMode, pixels: value } });
+                  }}
+                />
+              )}
+            </div>
+          </label>
+          <label className={styles.field}>
+            <span className={styles.label}>Output sharpening</span>
+            <div className={styles.row}>
+              <select
+                className={styles.input}
+                value={draft.outputSharpening.target}
+                onChange={(event) =>
+                  patch({
+                    outputSharpening: {
+                      ...draft.outputSharpening,
+                      target: event.target.value as ExportPreset['outputSharpening']['target'],
+                    },
+                  })
+                }
+              >
+                <option value="none">None</option>
+                <option value="screen">Screen</option>
+                <option value="matte">Matte paper</option>
+                <option value="glossy">Glossy paper</option>
+              </select>
+              <select
+                className={styles.input}
+                value={draft.outputSharpening.amount}
+                aria-label="Sharpening amount"
+                disabled={draft.outputSharpening.target === 'none'}
+                onChange={(event) =>
+                  patch({
+                    outputSharpening: {
+                      ...draft.outputSharpening,
+                      amount: event.target.value as ExportPreset['outputSharpening']['amount'],
+                    },
+                  })
+                }
+              >
+                <option value="low">Low</option>
+                <option value="standard">Standard</option>
+                <option value="high">High</option>
+              </select>
+            </div>
+          </label>
+        </div>
+      </section>
+      <section className={styles.section}>
+        <h4 className={styles.sectionTitle}>Content</h4>
+        <div className={styles.grid}>
+          <label className={styles.field}>
+            <span className={styles.label}>Metadata</span>
+            <select
+              className={styles.input}
+              value={draft.metadata}
+              onChange={(event) =>
+                patch({ metadata: event.target.value as ExportPreset['metadata'] })
+              }
+            >
+              <option value="all">All (EXIF + IPTC)</option>
+              <option value="iptc">IPTC only</option>
+              <option value="copyright">Copyright only</option>
+              <option value="none">None</option>
+            </select>
+          </label>
+          <label className={styles.field}>
+            <span className={styles.label}>Edit version</span>
+            <select
+              className={styles.input}
+              value={draft.version}
+              onChange={(event) => {
+                const version = event.target.value as ExportPreset['version'];
+                // Sending must never deliver a mosaic-less retouched photo.
+                patch(version === 'develop' ? { version, sendTo: [] } : { version });
+              }}
+            >
+              <option value="top">Top retouch version</option>
+              <option value="develop">Develop only (export only)</option>
+            </select>
+          </label>
+          <label className={styles.checkbox}>
+            <input
+              type="checkbox"
+              checked={draft.stripGps}
+              onChange={(event) => patch({ stripGps: event.target.checked })}
+            />
+            Remove GPS location
+          </label>
+        </div>
+      </section>
+      <section className={styles.section}>
+        <h4 className={styles.sectionTitle}>Then send</h4>
         <div className={styles.checkboxes}>
           {state.destinations.map((destination) => (
             <label key={destination.id} className={styles.checkbox}>
@@ -244,7 +254,7 @@ function PresetEditor({
             <span className={styles.hint}>No destinations configured yet.</span>
           )}
         </div>
-      </div>
+      </section>
     </div>
   );
 }

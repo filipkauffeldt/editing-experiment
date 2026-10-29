@@ -1,16 +1,7 @@
 import { appUrl, type Photo, type PhotoId } from '@ee/contracts';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useAppState, useAppStore } from '../store-context';
-import {
-  CheckIcon,
-  ClockIcon,
-  CrossIcon,
-  MetaDiffIcon,
-  PenIcon,
-  StackIcon,
-  TagIcon,
-  UploadIcon,
-} from './icons';
+import { ColorDot, StatusLabels, TagSquare, uploadPercent, uploadsByPhoto } from './PhotoOverlays';
 import styles from './FilmStrip.module.css';
 
 const ITEM_WIDTH = 112;
@@ -18,89 +9,15 @@ const ITEM_GAP = 6;
 const STEP = ITEM_WIDTH + ITEM_GAP;
 const OVERSCAN = 4;
 
-/** Colour classes shown as a slim stripe on each frame. Index 0 means none. */
-export const COLOR_CLASSES = [
-  '',
-  '#e05a58',
-  '#e08a3c',
-  '#d8c84a',
-  '#58b86a',
-  '#46b8b0',
-  '#5a9be0',
-  '#9a74d8',
-  '#d96ba8',
-] as const;
-
-function UploadBadge({ state }: { state: Photo['status']['upload'] }) {
-  if (state === 'none') return null;
-  if (state === 'done') {
-    return (
-      <span className={`${styles.badge} ${styles.badgeDone}`} title="Uploaded">
-        <CheckIcon />
-      </span>
-    );
-  }
-  if (state === 'failed') {
-    return (
-      <span className={`${styles.badge} ${styles.badgeFailed}`} title="Upload failed">
-        <CrossIcon />
-      </span>
-    );
-  }
-  if (state === 'uploading') {
-    return (
-      <span className={`${styles.badge} ${styles.badgeUploading}`} title="Uploading">
-        <UploadIcon />
-      </span>
-    );
-  }
-  return (
-    <span className={`${styles.badge} ${styles.badgeQueued}`} title="Queued for upload">
-      <ClockIcon />
-    </span>
-  );
-}
-
-function PhotoBadges({ photo }: { photo: Photo }) {
-  const retouch = photo.versions.some((version) => version.kind === 'retouch');
-  const color = COLOR_CLASSES[photo.colorClass] ?? '';
+function PhotoBadges({ photo, percent }: { photo: Photo; percent?: number }) {
   return (
     <>
-      {color && <span className={styles.colorClass} style={{ background: color }} />}
+      <span className={styles.topLeft}>{photo.tagged && <TagSquare tagged />}</span>
       <span className={styles.topRight}>
-        {photo.tagged && (
-          <span className={`${styles.badge} ${styles.badgeTagged}`} title="Tagged">
-            <TagIcon />
-          </span>
-        )}
+        <ColorDot colorClass={photo.colorClass} />
       </span>
       <span className={styles.bottomLeft}>
-        {retouch ? (
-          <span
-            className={`${styles.badge} ${styles.badgeEdit} ${styles.badgeStack}`}
-            title="Retouch version"
-          >
-            <StackIcon />
-            <PenIcon className={styles.stackPen} size={8} />
-          </span>
-        ) : (
-          photo.status.edited && (
-            <span className={`${styles.badge} ${styles.badgeEdit}`} title="Edited">
-              <PenIcon />
-            </span>
-          )
-        )}
-        {photo.status.metadataDiffersFromTemplate && (
-          <span
-            className={`${styles.badge} ${styles.badgeMeta}`}
-            title="Metadata differs from template"
-          >
-            <MetaDiffIcon />
-          </span>
-        )}
-      </span>
-      <span className={styles.bottomRight}>
-        <UploadBadge state={photo.status.upload} />
+        <StatusLabels photo={photo} percent={percent} />
       </span>
     </>
   );
@@ -116,6 +33,7 @@ export function FilmStrip({ photos }: { photos: Photo[] }) {
   const viewportRef = useRef<HTMLDivElement>(null);
   const [scrollLeft, setScrollLeft] = useState(0);
   const [viewportWidth, setViewportWidth] = useState(1200);
+  const uploads = useMemo(() => uploadsByPhoto(state.uploads), [state.uploads]);
 
   useEffect(() => {
     const viewport = viewportRef.current;
@@ -203,7 +121,7 @@ export function FilmStrip({ photos }: { photos: Photo[] }) {
                 alt={photo.fileName}
                 draggable={false}
               />
-              <PhotoBadges photo={photo} />
+              <PhotoBadges photo={photo} percent={uploadPercent(uploads.get(photo.id))} />
             </button>
           );
         })}

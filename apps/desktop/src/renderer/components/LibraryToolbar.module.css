@@ -1,0 +1,88 @@
+.bar {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 20px;
+  height: 36px;
+  padding: 0 16px;
+  border-bottom: 1px solid var(--line);
+  background: var(--panel);
+  color: var(--muted);
+  font-size: var(--fs-small);
+}
+
+.group {
+  display: flex;
+  align-items: stretch;
+  align-self: stretch;
+  gap: 14px;
+}
+
+.label {
+  align-self: center;
+  color: var(--dim);
+  font-size: var(--fs-label);
+  letter-spacing: var(--tracking-label);
+  text-transform: uppercase;
+}
+
+/* Text with a 1 px underline when active. */
+.tab {
+  position: relative;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  font-size: var(--fs-small);
+}
+
+.tab:hover {
+  color: var(--text);
+}
+
+.tabActive {
+  color: var(--text);
+}
+
+.tabActive::after {
+  position: absolute;
+  right: 0;
+  bottom: -1px;
+  left: 0;
+  height: 1px;
+  background: var(--text);
+  content: '';
+}
+
+.classButton {
+  display: grid;
+  place-items: center;
+  align-self: center;
+  width: 14px;
+  height: 14px;
+  padding: 0;
+  border: 1px solid transparent;
+  background: transparent;
+}
+
+.classActive {
+  border-color: var(--text);
+}
+
+.dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+}
+
+.spacer {
+  flex: 1;
+}
+
+.count {
+  color: var(--dim);
+}
+
+.size {
+  width: 170px;
+}

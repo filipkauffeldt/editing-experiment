@@ -1,0 +1,18 @@
+.dot {
+  display: inline-block;
+  flex: none;
+  border-radius: 50%;
+  background: var(--dim);
+}
+
+.ok {
+  background: var(--ok);
+}
+
+.error {
+  background: var(--error);
+}
+
+.idle {
+  background: var(--dim);
+}

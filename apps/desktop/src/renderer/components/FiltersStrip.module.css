@@ -1,15 +1,15 @@
 .strip {
   display: flex;
   align-items: center;
-  gap: 8px;
-  min-height: 30px;
-  padding: 0 2px;
+  gap: 18px;
   min-width: 0;
+  min-height: 26px;
 }
 
 .quick {
   display: flex;
-  gap: 4px;
+  align-self: stretch;
+  gap: 14px;
   min-width: 0;
   overflow-x: auto;
   scrollbar-width: none;
@@ -19,39 +19,44 @@
   display: none;
 }
 
+/* Text with a 1 px underline when active. */
 .filter {
+  position: relative;
   display: inline-flex;
-  align-items: center;
+  align-items: baseline;
   gap: 5px;
   flex: none;
-  padding: 3px 9px;
-  border: 1px solid var(--border);
-  border-radius: 11px;
+  padding: 0;
+  border: 0;
   background: transparent;
-  color: var(--text-dim);
-  font-size: 11px;
+  color: var(--muted);
+  font-size: var(--fs-small);
   white-space: nowrap;
 }
 
 .filter:hover {
-  border-color: var(--border-strong);
   color: var(--text);
 }
 
 .active {
-  border-color: var(--accent);
-  background: var(--accent-dim);
-  color: #eaf4ff;
+  color: var(--text);
+}
+
+.filter.active::after,
+.sortButton.active::after {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  height: 1px;
+  background: var(--text);
+  content: '';
 }
 
 .count {
-  color: var(--text-faint);
-  font-family: var(--mono);
-  font-size: 10px;
-}
-
-.active .count {
-  color: #bcd9f8;
+  color: var(--dim);
+  font-family: var(--font-mono);
+  font-size: var(--fs-label);
 }
 
 .spacer {
@@ -62,58 +67,48 @@
 .selectWrap {
   display: inline-flex;
   align-items: center;
-  gap: 5px;
+  gap: 6px;
   flex: none;
 }
 
 .selectLabel {
-  color: var(--text-faint);
-  font-size: 10px;
-  font-weight: 600;
-  letter-spacing: 0.05em;
+  color: var(--dim);
+  font-size: var(--fs-label);
+  letter-spacing: var(--tracking-label);
   text-transform: uppercase;
 }
 
 .select {
   max-width: 150px;
-  height: 23px;
-  padding: 0 4px;
-  border: 1px solid var(--border);
-  border-radius: 3px;
-  background: var(--panel-raised);
-  color: var(--text);
-  font-size: 11px;
+  padding-right: 14px;
+  font-size: var(--fs-small);
 }
 
 .sort {
   display: inline-flex;
   align-items: center;
-  gap: 3px;
+  align-self: stretch;
+  gap: 12px;
   flex: none;
 }
 
 .sortButton {
-  padding: 2px 7px;
-  border: 1px solid transparent;
-  border-radius: 3px;
+  position: relative;
+  padding: 0;
+  border: 0;
   background: transparent;
-  color: var(--text-dim);
-  font-size: 11px;
+  color: var(--muted);
+  font-size: var(--fs-small);
 }
 
-.sortButton:hover {
-  color: var(--text);
-}
-
+.sortButton:hover,
 .sortButton.active {
-  border-color: var(--border-strong);
-  background: var(--panel-raised);
   color: var(--text);
 }
 
 .visibleCount {
   flex: none;
-  color: var(--text-faint);
-  font-family: var(--mono);
-  font-size: 10px;
+  color: var(--dim);
+  font-family: var(--font-mono);
+  font-size: var(--fs-label);
 }

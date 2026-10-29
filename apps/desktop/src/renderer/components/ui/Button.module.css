@@ -1,0 +1,65 @@
+.button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  height: 24px;
+  padding: 0 10px;
+  border: 1px solid var(--line-strong);
+  background: transparent;
+  color: var(--text);
+  font-size: var(--fs-small);
+  white-space: nowrap;
+}
+
+.button:hover:not(:disabled) {
+  background: var(--raised);
+}
+
+.button:disabled {
+  color: var(--dim);
+  border-color: var(--line);
+}
+
+/* White on near-black: the one emphasised control. */
+.primary {
+  border-color: var(--text);
+  background: var(--text);
+  color: var(--on-text);
+  font-weight: 600;
+}
+
+.primary:hover:not(:disabled) {
+  background: #fff;
+}
+
+.primary:disabled {
+  border-color: var(--line-strong);
+  background: var(--line-strong);
+  color: var(--dim);
+}
+
+.ghost {
+  border-color: transparent;
+}
+
+.ghost:hover:not(:disabled) {
+  border-color: var(--line-strong);
+}
+
+.small {
+  height: 20px;
+  padding: 0 7px;
+  font-size: var(--fs-label);
+}
+
+.active {
+  border-color: var(--text);
+}
+
+.hint {
+  font-family: var(--font-mono);
+  font-size: var(--fs-label);
+  font-weight: 400;
+  opacity: 0.6;
+}

@@ -418,7 +418,7 @@ function SourcesSection() {
                 <input
                   className={styles.input}
                   value={form.host}
-                  placeholder="ftp.presspool.test"
+                  placeholder="ftp.sportfotografen.se"
                   onChange={(event) => patch({ host: event.target.value })}
                 />
               </label>
@@ -878,7 +878,7 @@ function DestinationsSection() {
   );
 }
 
-function IngestSection() {
+export function IngestSection() {
   const store = useAppStore();
   const state = useAppState();
   const [destination, setDestination] = useState('');

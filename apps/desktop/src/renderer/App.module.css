@@ -1,39 +1,10 @@
 .app {
   display: grid;
   height: 100%;
-  grid-template-columns: 320px minmax(0, 1fr) 300px;
-  grid-template-rows: 36px minmax(0, 1fr) auto;
-  grid-template-areas:
-    'status status status'
-    'meta photo develop'
-    'bottom bottom bottom';
+  grid-template-rows: var(--topbar-h) minmax(0, 1fr);
   background: var(--bg);
 }
 
-.status {
-  grid-area: status;
-  min-width: 0;
-  z-index: 20;
-}
-
-.meta {
-  grid-area: meta;
+.module {
   min-height: 0;
-  border-right: 1px solid var(--border);
-}
-
-.photo {
-  grid-area: photo;
-  min-width: 0;
-  min-height: 0;
-}
-
-.develop {
-  grid-area: develop;
-  min-height: 0;
-  border-left: 1px solid var(--border);
-}
-
-.bottom {
-  grid-area: bottom;
 }

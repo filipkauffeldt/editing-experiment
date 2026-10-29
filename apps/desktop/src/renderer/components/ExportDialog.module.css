@@ -1,7 +1,8 @@
+/* Presets on the left, then Location / File / Content / Then send. Boxed hairline fields. */
 .split {
   display: grid;
   grid-template-columns: 210px minmax(0, 1fr);
-  gap: 14px;
+  gap: 16px;
   min-height: 430px;
 }
 
@@ -9,15 +10,14 @@
   display: flex;
   flex-direction: column;
   min-height: 0;
-  border-right: 1px solid var(--border);
-  padding-right: 10px;
+  border-right: 1px solid var(--line);
+  padding-right: 12px;
 }
 
 .list {
   display: flex;
   flex: 1;
   flex-direction: column;
-  gap: 2px;
   min-height: 0;
   overflow: auto;
 }
@@ -25,23 +25,23 @@
 .listItem {
   display: flex;
   align-items: center;
-  gap: 7px;
-  padding: 7px 8px;
-  border: 1px solid transparent;
-  border-radius: 3px;
+  gap: 8px;
+  padding: 6px 8px;
+  border: 0;
   background: transparent;
-  color: var(--text-dim);
+  color: var(--muted);
   text-align: left;
 }
 
 .listItem:hover {
-  background: var(--panel-raised);
+  background: var(--raised);
   color: var(--text);
 }
 
 .listActive {
-  border-color: var(--accent-dim);
-  background: var(--selected);
+  background: var(--raised);
+  outline: 1px solid var(--line-strong);
+  outline-offset: -1px;
   color: var(--text);
 }
 
@@ -53,22 +53,24 @@
 }
 
 .activeBadge {
-  color: var(--text-faint);
-  font-family: var(--mono);
-  font-size: 9px;
+  color: var(--dim);
+  font-size: var(--fs-label);
+  letter-spacing: var(--tracking-label);
+  text-transform: uppercase;
 }
 
 .addButton {
-  margin-top: 8px;
-  padding: 6px 8px;
-  border: 1px dashed var(--border-strong);
-  border-radius: 3px;
+  height: 24px;
+  margin-top: 10px;
+  padding: 0 8px;
+  border: 1px solid var(--line-strong);
   background: transparent;
-  color: var(--text-dim);
-  font-size: 11px;
+  color: var(--muted);
+  font-size: var(--fs-small);
 }
 
 .addButton:hover {
+  background: var(--raised);
   color: var(--text);
 }
 
@@ -79,7 +81,28 @@
 .editor {
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 16px;
+}
+
+.nameRow {
+  display: grid;
+}
+
+.section {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding-top: 10px;
+  border-top: 1px solid var(--line);
+}
+
+.sectionTitle {
+  margin: 0;
+  color: var(--dim);
+  font-size: var(--fs-label);
+  font-weight: 500;
+  letter-spacing: var(--tracking-label);
+  text-transform: uppercase;
 }
 
 .grid {
@@ -91,7 +114,7 @@
 .field {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 3px;
   min-width: 0;
 }
 
@@ -100,20 +123,47 @@
 }
 
 .label {
-  color: var(--text-dim);
-  font-size: 10px;
-  letter-spacing: 0.03em;
-  text-transform: uppercase;
+  color: var(--muted);
+  font-size: var(--fs-label);
 }
 
 .input {
   width: 100%;
-  padding: 5px 7px;
-  border: 1px solid var(--border);
-  border-radius: 3px;
-  background: var(--panel-sunken);
+  height: 26px;
+  padding: 0 7px;
+  border: 1px solid var(--line-strong);
+  background: var(--bg);
   color: var(--text);
-  font-size: 11px;
+  font-size: var(--fs-small);
+}
+
+.input:hover {
+  border-color: var(--dim);
+}
+
+.input:focus {
+  border-color: var(--text);
+  outline: none;
+}
+
+select.input,
+select.input:hover {
+  appearance: none;
+  padding-right: 20px;
+  background-image:
+    linear-gradient(45deg, transparent 50%, var(--muted) 50%),
+    linear-gradient(135deg, var(--muted) 50%, transparent 50%);
+  background-position:
+    calc(100% - 10px) 55%,
+    calc(100% - 6px) 55%;
+  background-repeat: no-repeat;
+  background-size:
+    4px 4px,
+    4px 4px;
+}
+
+select.input option {
+  background: var(--panel);
 }
 
 .row {
@@ -123,42 +173,58 @@
 
 .short {
   max-width: 110px;
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
 }
 
 .checkboxes {
   display: flex;
   flex-wrap: wrap;
-  gap: 8px 16px;
-  padding-top: 2px;
+  gap: 8px 18px;
 }
 
 .checkbox {
   display: flex;
   align-items: center;
-  gap: 5px;
-  color: var(--text-dim);
-  font-size: 11px;
+  gap: 6px;
+  color: var(--muted);
+  font-size: var(--fs-small);
+}
+
+.checkbox input {
+  accent-color: var(--text);
 }
 
 .kind {
-  color: var(--text-faint);
-  font-family: var(--mono);
+  color: var(--dim);
   font-size: 9px;
+  letter-spacing: var(--tracking-label);
 }
 
 .hint {
-  color: var(--text-faint);
-  font-size: 10px;
+  color: var(--dim);
+  font-size: var(--fs-label);
 }
 
 .error {
-  color: var(--danger);
-  font-size: 11px;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin: 0;
+  font-size: var(--fs-small);
+}
+
+.error::before {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--error);
+  content: '';
 }
 
 .actions {
   display: flex;
-  gap: 6px;
+  gap: 8px;
   justify-content: flex-end;
   margin-top: 12px;
 }
@@ -169,31 +235,33 @@
 
 .button,
 .primary {
-  padding: 6px 12px;
-  border: 1px solid var(--border);
-  border-radius: 3px;
-  background: var(--panel-raised);
-  color: var(--text-dim);
-  font-size: 11px;
-}
-
-.button:hover {
-  border-color: var(--border-strong);
+  height: 24px;
+  padding: 0 12px;
+  border: 1px solid var(--line-strong);
+  background: transparent;
   color: var(--text);
+  font-size: var(--fs-small);
 }
 
+.button:hover:not(:disabled) {
+  background: var(--raised);
+}
+
+/* White on near-black: Export & send. */
 .primary {
-  border-color: var(--accent-dim);
-  background: var(--accent);
-  color: #081726;
-  font-weight: 700;
+  border-color: var(--text);
+  background: var(--text);
+  color: var(--on-text);
+  font-weight: 600;
 }
 
-.primary:hover {
-  background: #74b6ff;
+.primary:hover:not(:disabled) {
+  background: #fff;
 }
 
 .button:disabled,
 .primary:disabled {
-  opacity: 0.5;
+  border-color: var(--line);
+  background: transparent;
+  color: var(--dim);
 }

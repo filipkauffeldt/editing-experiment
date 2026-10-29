@@ -54,7 +54,7 @@ export function mockSources(): SourceConfig[] {
       id: SOURCE_B,
       kind: 'ftp',
       name: 'Pool FTP — Z 8',
-      host: 'ftp.presspool.test',
+      host: 'ftp.sportfotografen.se',
       port: 21,
       username: 'photographer',
       credentialRef: 'mock-credential-pool',
@@ -164,7 +164,8 @@ export function mockPhotos(): Photo[] {
     const sourceIndex = fromCard ? index : index - PHOTOS_PER_SOURCE;
     const seq = fromCard ? 8330 + sourceIndex : 9200 + sourceIndex;
     const fileName = `_DSC${seq}.NEF`;
-    const path = `${fromCard ? '/mock/cards/NIKON_Z9' : '/mock/pool'}/${fileName}`;
+    // Photos live in the ingest destination (copies); the card and the FTP drop are never opened.
+    const path = `/mock/ingested/2026-10-24/${fromCard ? 'Card A' : 'Pool FTP'}/${fileName}`;
     const hour = fromCard ? 14 : 15;
     const minute = fromCard ? 10 + sourceIndex : 5 + sourceIndex;
     const id = mockPhotoId(n);

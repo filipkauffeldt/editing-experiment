@@ -2,6 +2,7 @@ import { asSourceId, type Photo } from '@ee/contracts';
 import { useMemo } from 'react';
 import { QUICK_FILTERS, cameraKey, cameraOptions, photoFlags, type QuickFilter } from '../store';
 import { useAppState, useAppStore } from '../store-context';
+import { Select } from './ui/Field';
 import styles from './FiltersStrip.module.css';
 
 function matches(photo: Photo, quick: QuickFilter, flags: { tagged: boolean }): boolean {
@@ -59,7 +60,7 @@ export function FiltersStrip({ visibleCount }: { visibleCount: number }) {
 
       <label className={styles.selectWrap}>
         <span className={styles.selectLabel}>Camera</span>
-        <select
+        <Select
           className={styles.select}
           aria-label="Camera body"
           value={state.filter.camera ?? ''}
@@ -71,12 +72,12 @@ export function FiltersStrip({ visibleCount }: { visibleCount: number }) {
               {camera.label}
             </option>
           ))}
-        </select>
+        </Select>
       </label>
 
       <label className={styles.selectWrap}>
         <span className={styles.selectLabel}>Source</span>
-        <select
+        <Select
           className={styles.select}
           aria-label="Source"
           value={state.filter.sourceId ?? ''}
@@ -90,7 +91,7 @@ export function FiltersStrip({ visibleCount }: { visibleCount: number }) {
               {source.name}
             </option>
           ))}
-        </select>
+        </Select>
       </label>
 
       <div className={styles.sort} role="group" aria-label="Sort order">

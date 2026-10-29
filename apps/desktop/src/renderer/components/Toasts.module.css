@@ -1,7 +1,7 @@
 .stack {
   position: fixed;
   right: 14px;
-  bottom: 166px;
+  bottom: 56px;
   z-index: 50;
   display: flex;
   flex-direction: column;
@@ -13,25 +13,38 @@
 .toast {
   display: flex;
   align-items: flex-start;
-  gap: 7px;
-  padding: 8px 9px;
-  border: 1px solid var(--border-strong);
-  border-radius: 4px;
-  background: var(--panel-raised);
-  box-shadow: 0 8px 24px rgb(0 0 0 / 0.5);
+  gap: 8px;
+  padding: 8px 10px;
+  border: 1px solid var(--line-strong);
+  background: var(--raised);
   color: var(--text);
   pointer-events: auto;
 }
 
+/* Status is a 6 px dot, not a coloured box or icon. */
 .icon {
+  display: inline-flex;
   flex: none;
-  margin-top: 1px;
+  align-items: center;
+  height: 15px;
+}
+
+.icon svg {
+  display: none;
+}
+
+.icon::before {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--dim);
+  content: '';
 }
 
 .message {
   flex: 1;
-  font-size: 11px;
-  line-height: 1.35;
+  font-size: var(--fs-small);
+  line-height: 1.4;
   user-select: text;
 }
 
@@ -40,25 +53,17 @@
   padding: 0;
   border: 0;
   background: transparent;
-  color: var(--text-faint);
+  color: var(--dim);
 }
 
 .close:hover {
   color: var(--text);
 }
 
-.error {
-  border-color: rgb(150 54 49 / 0.6);
+.error .icon::before {
+  background: var(--error);
 }
 
-.error .icon {
-  color: var(--danger);
-}
-
-.success .icon {
-  color: var(--ok);
-}
-
-.info .icon {
-  color: var(--accent);
+.success .icon::before {
+  background: var(--ok);
 }

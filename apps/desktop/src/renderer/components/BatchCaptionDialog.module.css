@@ -1,0 +1,18 @@
+.rows {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.row {
+  display: grid;
+  grid-template-columns: 110px 90px minmax(0, 1fr);
+  gap: 8px;
+  align-items: start;
+}
+
+.label {
+  padding-top: 5px;
+  color: var(--muted);
+  font-size: var(--fs-small);
+}

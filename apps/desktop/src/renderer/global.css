@@ -1,32 +1,18 @@
+@import './fonts.css';
+@import './tokens.css';
+
 :root {
-  color-scheme: dark;
-  --bg: #121214;
-  --panel: #1a1a1d;
-  --panel-raised: #202024;
-  --panel-sunken: #141416;
-  --field: #121214;
-  --border: #2e2e34;
-  --border-strong: #3c3c44;
-  --text: #e2e2e7;
-  --text-dim: #92929e;
-  --text-faint: #6b6b76;
-  --accent: #5aa7ff;
-  --accent-dim: #294a6d;
-  --ok: #52c08b;
-  --warn: #e0a13c;
-  --danger: #e2635a;
-  --selected: #223349;
-  --mono: 'SFMono-Regular', 'Cascadia Code', 'Consolas', monospace;
-  font-family:
-    system-ui,
-    -apple-system,
-    'Segoe UI',
-    sans-serif;
-  font-size: 12px;
+  font-family: var(--font-sans);
+  font-size: var(--fs-base);
+  font-feature-settings:
+    'cv11' 1,
+    'ss03' 1;
+  -webkit-font-smoothing: antialiased;
 }
 
 * {
   box-sizing: border-box;
+  border-radius: 0;
 }
 
 html,
@@ -41,6 +27,7 @@ body {
   color: var(--text);
   overflow: hidden;
   user-select: none;
+  line-height: 1.35;
 }
 
 button,
@@ -55,9 +42,22 @@ button {
   cursor: default;
 }
 
+/* Numbers line up in columns. */
+input[type='number'],
+.mono {
+  font-family: var(--font-mono);
+  font-size: var(--fs-mono);
+  font-variant-numeric: tabular-nums;
+}
+
+::selection {
+  background: var(--text);
+  color: var(--on-text);
+}
+
 ::-webkit-scrollbar {
-  width: 9px;
-  height: 9px;
+  width: 8px;
+  height: 8px;
 }
 
 ::-webkit-scrollbar-track {
@@ -65,18 +65,15 @@ button {
 }
 
 ::-webkit-scrollbar-thumb {
-  border: 2px solid transparent;
-  border-radius: 6px;
-  background: #3a3a41;
-  background-clip: padding-box;
+  background: var(--line-strong);
+  border: 2px solid var(--bg);
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: #4a4a53;
-  background-clip: padding-box;
+  background: var(--dim);
 }
 
 :focus-visible {
-  outline: 1px solid var(--accent);
+  outline: 1px solid var(--text);
   outline-offset: 1px;
 }
