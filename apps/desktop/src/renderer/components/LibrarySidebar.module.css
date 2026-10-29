@@ -1,0 +1,76 @@
+.side {
+  min-height: 0;
+  overflow: auto;
+  padding-bottom: 12px;
+  background: var(--panel);
+}
+
+.title {
+  margin: 0;
+  padding: 12px 12px 6px;
+  color: var(--dim);
+  font-size: var(--fs-label);
+  font-weight: 500;
+  letter-spacing: var(--tracking-label);
+  text-transform: uppercase;
+}
+
+.list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  width: 100%;
+  padding: 4px 12px;
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  text-align: left;
+}
+
+.row:hover {
+  background: var(--raised);
+  color: var(--text);
+}
+
+.active {
+  background: var(--raised);
+  color: var(--text);
+}
+
+.name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.count {
+  flex: none;
+  color: var(--dim);
+}
+
+.progress {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 4px 8px;
+  padding: 4px 12px;
+  color: var(--muted);
+}
+
+.bar {
+  grid-column: 1 / -1;
+  height: 1px;
+  background: var(--line-strong);
+}
+
+.bar > span {
+  display: block;
+  height: 1px;
+  background: var(--text);
+}

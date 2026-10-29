@@ -44,7 +44,12 @@ export function useKeyboardShortcuts(store: AppStore): void {
           store.toggleShortcuts(false);
           return;
         }
-        if (state.dialog || state.exportOpen) return;
+        if (state.dialog || state.exportOpen || state.batchCaptionOpen) return;
+        if (state.module === 'library' && !typing && state.selection.length > 1) {
+          event.preventDefault();
+          store.clearLibrarySelection();
+          return;
+        }
         if (typing) {
           event.preventDefault();
           event.target.blur();
@@ -52,8 +57,9 @@ export function useKeyboardShortcuts(store: AppStore): void {
         return;
       }
 
-      if (state.dialog || state.shortcutsOpen || state.exportOpen) return;
+      if (state.dialog || state.shortcutsOpen || state.exportOpen || state.batchCaptionOpen) return;
 
+      const library = state.module === 'library';
       if (command && event.shiftKey && (event.key === 'e' || event.key === 'E')) {
         event.preventDefault();
         store.openExportDialog();
@@ -64,14 +70,21 @@ export function useKeyboardShortcuts(store: AppStore): void {
         void store.exportSelected(true);
         return;
       }
+      // Next & send belongs to Develop; the Library exports with Shift only.
       if (command && event.key === 'Enter') {
         event.preventDefault();
-        void store.nextAndSend();
+        if (!library) void store.nextAndSend();
         return;
       }
       if (command && (event.key === 'i' || event.key === 'I')) {
         event.preventDefault();
-        focusCaptionField();
+        if (library) store.toggleBatchCaption(true);
+        else if (state.module === 'develop') focusCaptionField();
+        return;
+      }
+      if (library && !typing && command && (event.key === 'a' || event.key === 'A')) {
+        event.preventDefault();
+        store.selectAllInLibrary();
         return;
       }
       if (command && (event.key === 'z' || event.key === 'Z') && state.retouch) {
@@ -98,14 +111,44 @@ export function useKeyboardShortcuts(store: AppStore): void {
       if (event.isComposing || event.keyCode === 229) return;
       if (event.repeat && (event.key === 't' || event.key === 'T')) return;
 
+      if (state.module === 'ingest') {
+        // Ingest has no photos to cull; only the module keys apply.
+        if (event.key === 'g' || event.key === 'G') store.openLibrary('grid');
+        else if (event.key === 'd' || event.key === 'D') store.setModule('develop');
+        return;
+      }
+
       switch (event.key) {
+        case 'g':
+        case 'G':
+          event.preventDefault();
+          store.openLibrary('grid');
+          break;
+        case 'd':
+        case 'D':
+          event.preventDefault();
+          store.setModule('develop');
+          break;
+        case 'e':
+        case 'E':
+          event.preventDefault();
+          store.openLibrary('loupe');
+          break;
         case 'ArrowLeft':
           event.preventDefault();
-          store.selectRelative(-1);
+          if (library) store.moveInLibrary(-1, event.shiftKey);
+          else store.selectRelative(-1);
           break;
         case 'ArrowRight':
           event.preventDefault();
-          store.selectRelative(1);
+          if (library) store.moveInLibrary(1, event.shiftKey);
+          else store.selectRelative(1);
+          break;
+        case 'ArrowUp':
+        case 'ArrowDown':
+          if (!library || state.library.view !== 'grid') break;
+          event.preventDefault();
+          store.moveRowInLibrary(event.key === 'ArrowUp' ? -1 : 1, event.shiftKey);
           break;
         case '?':
         case '/':

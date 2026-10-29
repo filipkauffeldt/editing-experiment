@@ -302,6 +302,8 @@ export interface AppState {
   presetNotice?: string;
   dialog?: DialogTab;
   shortcutsOpen: boolean;
+  /** The Library's batch caption dialog. */
+  batchCaptionOpen: boolean;
   loading: boolean;
   error?: string;
 }
@@ -560,6 +562,7 @@ const emptyState = (): AppState => ({
   sort: 'filename',
   toasts: [],
   shortcutsOpen: false,
+  batchCaptionOpen: false,
   loading: true,
 });
 
@@ -1096,6 +1099,17 @@ export class AppStore {
   private setLibrary(patch: Partial<LibraryState>): void {
     this.set({ library: { ...this.state.library, ...patch } });
   }
+
+  private libraryColumns = 1;
+
+  /** The grid reports its column count so Up and Down move by a row. */
+  readonly setLibraryColumns = (columns: number): void => {
+    this.libraryColumns = Math.max(1, columns);
+  };
+
+  /** Up/Down in the grid. */
+  readonly moveRowInLibrary = (rows: number, extend = false): void =>
+    this.moveInLibrary(rows * this.libraryColumns, extend);
 
   readonly getLibraryPhotos = (): Photo[] => selectLibraryPhotos(this.state);
 
@@ -2655,6 +2669,9 @@ export class AppStore {
   // ----------------------------------------------------------------------- ui
 
   readonly openDialog = (tab: DialogTab): void => this.set({ dialog: tab, shortcutsOpen: false });
+  readonly toggleBatchCaption = (open?: boolean): void => {
+    this.set({ batchCaptionOpen: open ?? !this.state.batchCaptionOpen, dialog: undefined });
+  };
   readonly closeDialog = (): void => this.set({ dialog: undefined });
   readonly toggleShortcuts = (open?: boolean): void => {
     this.set({ shortcutsOpen: open ?? !this.state.shortcutsOpen, dialog: undefined });

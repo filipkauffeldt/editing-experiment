@@ -878,7 +878,7 @@ function DestinationsSection() {
   );
 }
 
-function IngestSection() {
+export function IngestSection() {
   const store = useAppStore();
   const state = useAppState();
   const [destination, setDestination] = useState('');

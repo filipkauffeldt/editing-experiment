@@ -1,18 +1,18 @@
 import { useEffect, useState } from 'react';
 import styles from './App.module.css';
-import { BottomBar } from './components/BottomBar';
-import { DevelopPanel } from './components/DevelopPanel';
+import { BatchCaptionDialog } from './components/BatchCaptionDialog';
+import { DevelopView } from './components/DevelopView';
+import { IngestView } from './components/IngestView';
+import { LibraryView } from './components/LibraryView';
 import { ExportDialog } from './components/ExportDialog';
-import { MetadataPanel } from './components/MetadataPanel';
-import { PhotoView } from './components/PhotoView';
 import { SettingsDialog } from './components/SettingsDialog';
 import { ShortcutsOverlay } from './components/ShortcutsOverlay';
-import { StatusBar } from './components/StatusBar';
 import { Toasts } from './components/Toasts';
+import { TopBar } from './components/TopBar';
 import { ee } from './ee';
 import { renderEditedPreview } from './edited-preview-render';
 import { useKeyboardShortcuts } from './keyboard';
-import { activePhoto, createAppStore, type AppStore } from './store';
+import { createAppStore, type AppStore } from './store';
 import { AppStoreProvider, useAppState, useAppStore } from './store-context';
 
 function Shell() {
@@ -20,21 +20,19 @@ function Shell() {
   const state = useAppState();
   useKeyboardShortcuts(store);
 
-  // The store memoises the filtered/sorted ids, so upload and metadata events
-  // re-render the strip without sorting 2 000 photos again.
-  const photos = store.getVisiblePhotos();
-  const selected = activePhoto(state);
-
   return (
-    <div className={styles.app} data-store-ready={!state.loading}>
-      <StatusBar className={styles.status} photoCount={photos.length} loadError={state.error} />
-      <MetadataPanel className={styles.meta} />
-      <PhotoView className={styles.photo} photo={selected} />
-      <DevelopPanel className={styles.develop} />
-      <BottomBar className={styles.bottom} photos={photos} />
+    <div className={styles.app} data-store-ready={!state.loading} data-module={state.module}>
+      <TopBar loadError={state.error} />
+      <div className={styles.module}>
+        {state.module === 'develop' && <DevelopView />}
+        {state.module === 'library' && <LibraryView />}
+        {state.module === 'ingest' && <IngestView />}
+      </div>
       <Toasts />
       {state.shortcutsOpen && <ShortcutsOverlay />}
+      {state.batchCaptionOpen && <BatchCaptionDialog />}
       {state.dialog && <SettingsDialog />}
+      {state.exportOpen && <ExportDialog />}
       {state.exportOpen && <ExportDialog />}
     </div>
   );
