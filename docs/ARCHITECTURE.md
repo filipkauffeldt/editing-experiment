@@ -360,6 +360,42 @@ single develop pass exactly as before.
   about 100 bytes per pixel of float planes), and beyond that fails with a message
   saying which settings need GPU float support.
 
+## Lens corrections: research and decision
+
+Question: where do distortion, lateral CA and vignetting data for Nikon Z lenses come from, with
+GPL-3.0-compatible licensing and the best result?
+
+- **RAWmakase** (MIT) reads the correction the camera stores in every Nikon Z NEF and applies
+  it by default, and treats the Lensfun database as an optional download that is never applied
+  unasked. Its docs (`docs/lens-corrections.md`) compare the Nikon records with Adobe's own
+  DNG output on 101 samples: the geometry agrees within 0.4 px, so Adobe is not needed.
+- **Nikon embedded data.** Tag `0xC7D5` of the raw SubIFD (ExifTool's `NikonNEFInfo`, a small
+  TIFF after a `Nikon\0` header) holds, in its entries 5 to 8, the distortion polynomial, the
+  vignetting polynomial, red/blue lateral CA and the optical centre of the exact lens, focal
+  length and focus of the shot. ExifTool only exposes entries 7 to 9 as unknown binary tags and
+  never decodes the rest, so `@ee/metadata` reads the SubIFD itself. ExifTool's
+  `DistortionCorrection` (`On (Required)` / `On (Optional)` / `Off`) is the same mode byte.
+  Z bodies and the lenses Nikon corrects in software (e.g. 24-70mm f/4 S, 24-200mm, DX 16-50mm)
+  are marked *Required*: Camera Raw always applies the correction to those.
+- **Lensfun** (database CC BY-SA 3.0, library LGPL-3): the XML calibrations are community
+  measurements of lens models in focal length steps: poly3/poly5/ptlens distortion, TCA and
+  `pa` vignetting at focal length, aperture and distance. 36 Nikon Z lenses and about 230 Nikon
+  F lenses are in it, so it covers lenses and adapters (FTZ) with no embedded data and gives the
+  user a choice. It cannot be better than the camera's own per-shot data where that exists.
+- **Decision.** Two sources share one radial model, evaluated in the shader:
+  1. *Built-in* (Nikon NEF) is the automatic choice. It needs no database, it is exact for the
+     shot, and it follows the camera's Required/Optional flag (Required is on without the user
+     asking; Optional waits for *Enable Profile Corrections*).
+  2. *Lensfun* is the profile for everything else and the manual override in the profile select.
+     A pruned copy (Nikon Z mount with every maker, and Nikon's own F-mount lenses; 0.3 MB, 74 kB
+     gzipped) is vendored as `packages/develop-gl/data/lensfun.json` with the licence text and
+     regenerated with `pnpm update-lensfun`. Only the *model maths* is ported (written from the
+     documented formulas; no Lensfun code and no library). It is shipped as separate data under its
+     own licence, not linked or merged into GPL code; the README attributes it.
+  Adobe `.lcp` profiles are not read. `crs:LensProfileName` / `LensProfileFilename` are parsed
+  and preserved but never applied or written for our own choice (our choice is `ee:LensProfile`),
+  so Lightroom does not try to find an Adobe profile of a Lensfun name.
+
 ## Crop mode
 
 Crop mode works like Lightroom Classic's Crop Overlay. The crop frame is always an

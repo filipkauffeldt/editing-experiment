@@ -12,3 +12,4 @@ crates/core/index.d.cts
 crates/core/index.cjs
 AGENTS.md
 docs
+packages/develop-gl/data
