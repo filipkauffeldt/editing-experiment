@@ -9,7 +9,7 @@ interface BottomBarProps {
   photos: Photo[];
 }
 
-/** Filters above the film strip, with "Finish & next" on the right. */
+/** Filters above the film strip, with the export actions on the right. */
 export function BottomBar({ className, photos }: BottomBarProps) {
   const store = useAppStore();
   return (
@@ -19,10 +19,23 @@ export function BottomBar({ className, photos }: BottomBarProps) {
         <FilmStrip photos={photos} />
       </div>
       <div className={styles.finishWrap}>
-        <button className={styles.finish} type="button" onClick={() => void store.finishAndNext()}>
-          Finish &amp; next
+        <button
+          className={styles.secondary}
+          type="button"
+          onClick={() => store.openExportDialog()}
+          data-testid="open-export"
+        >
+          Export…
         </button>
-        <span className={styles.hint}>Ctrl/⌘ + Enter</span>
+        <button
+          className={styles.finish}
+          type="button"
+          onClick={() => void store.nextAndSend()}
+          data-testid="next-send"
+        >
+          Next &amp; send
+        </button>
+        <span className={styles.hint}>⇧⌘↵ send · ⌘↵ next</span>
       </div>
     </footer>
   );

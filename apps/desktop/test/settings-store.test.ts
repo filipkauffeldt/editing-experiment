@@ -1,5 +1,5 @@
 // @vitest-environment node
-import { asDestinationId, asSourceId, type FolderDestination } from '@ee/contracts';
+import { asDestinationId, asPresetId, asSourceId, type FolderDestination } from '@ee/contracts';
 import { mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -36,38 +36,122 @@ describe('SettingsStore', () => {
     store.set({ ingest: { ...defaults.ingest, renameTemplate: '{seq:5}' } });
     store.saveSource({ id: asSourceId('s1'), name: 'S1', kind: 'folder', path: '/cards/a' });
     store.saveDestination(desk);
-    store.set({
-      finishAction: { exportPreset: { quality: 70, metadata: 'iptc' }, destinations: [desk.id] },
-    });
+    const preset = {
+      ...defaults.exportPresets[0]!,
+      name: 'Sportfotografen FTP',
+      quality: 70,
+      sendTo: [desk.id],
+    };
+    store.saveExportPreset(preset);
+    store.set({ activePresetId: preset.id });
 
     const reopened = new SettingsStore(file, defaults);
     expect(reopened.get().ingest.renameTemplate).toBe('{seq:5}');
-    expect(reopened.get().finishAction.exportPreset.quality).toBe(70);
+    expect(reopened.get().activePresetId).toBe(preset.id);
+    expect(reopened.listExportPresets().find((item) => item.id === preset.id)).toMatchObject({
+      quality: 70,
+      sendTo: [desk.id],
+    });
     expect(reopened.listSources().map((s) => s.id)).toEqual(['s1']);
     expect(reopened.listDestinations()).toEqual([desk]);
   });
 
-  it('upserts by id and drops a removed destination from the finish action', async () => {
+  it('migrates a legacy finishAction into a default preset on first load', async () => {
+    const dir = await tempDir();
+    const file = join(dir, 'settings.json');
+    await writeFile(
+      file,
+      JSON.stringify({
+        version: 1,
+        ingest: {
+          destination: { path: '/ingest' },
+          renameTemplate: '{date}',
+          codeReplacementPaths: [],
+        },
+        finishAction: {
+          exportPreset: { maxEdge: 3000, quality: 76, metadata: 'iptc' },
+          destinations: ['desk'],
+        },
+        sources: [],
+        destinations: [],
+      }),
+    );
+
+    const store = new SettingsStore(file, defaults);
+    const migrated = store.listExportPresets();
+    expect(migrated).toHaveLength(1);
+    expect(migrated[0]).toMatchObject({
+      id: 'migrated-default',
+      name: 'Default',
+      quality: 76,
+      metadata: 'iptc',
+      resize: { mode: 'longEdge', pixels: 3000 },
+      sendTo: ['desk'],
+    });
+    expect(store.get().activePresetId).toBe(asPresetId('migrated-default'));
+
+    const saved = JSON.parse(await readFile(file, 'utf8'));
+    expect(saved.finishAction).toBeUndefined();
+    expect(saved.exportPresets[0].id).toBe('migrated-default');
+    expect(saved.activePresetId).toBe('migrated-default');
+  });
+
+  it('upserts by id and drops a removed destination from every preset', async () => {
     const store = new SettingsStore(undefined, defaults);
     store.saveDestination(desk);
     store.saveDestination({ ...desk, name: 'Renamed' });
     expect(store.listDestinations()).toHaveLength(1);
     expect(store.listDestinations()[0]?.name).toBe('Renamed');
-    store.set({
-      finishAction: { exportPreset: { quality: 90, metadata: 'all' }, destinations: [desk.id] },
-    });
+    store.saveExportPreset({ ...defaults.exportPresets[0]!, sendTo: [desk.id] });
     store.removeDestination(desk.id);
-    expect(store.get().finishAction.destinations).toEqual([]);
+    expect(store.listExportPresets().every((preset) => preset.sendTo.length === 0)).toBe(true);
+  });
+
+  it('refuses to remove the last preset and keeps the active preset valid', () => {
+    const store = new SettingsStore(undefined, defaults);
+    const second = {
+      ...defaults.exportPresets[0]!,
+      id: asPresetId('second'),
+      name: 'Second',
+    };
+    store.saveExportPreset(second);
+    store.set({ activePresetId: second.id });
+    store.removeExportPreset(second.id);
+    expect(store.listExportPresets().map((preset) => preset.id)).toEqual([
+      defaults.exportPresets[0]!.id,
+    ]);
+    expect(store.get().activePresetId).toBe(defaults.exportPresets[0]!.id);
+    expect(() => store.removeExportPreset(defaults.exportPresets[0]!.id)).toThrowError(
+      /at least one/,
+    );
   });
 
   it('shallow-merges settings:set and rejects malformed values', () => {
     const store = new SettingsStore(undefined, defaults);
     store.set({ ingest: { ...defaults.ingest, renameTemplate: 'x' } });
-    expect(store.get().finishAction).toEqual(defaults.finishAction);
+    expect(store.get().exportPresets).toEqual(defaults.exportPresets);
     expect(() => store.set({ ingest: { renameTemplate: 'x' } as never })).toThrowError(
       /destination/,
     );
-    expect(() => store.set({ finishAction: {} as never })).toThrowError(/exportPreset/);
+    expect(() => store.set({ exportPresets: [] })).toThrowError(/non-empty/);
+    expect(() =>
+      store.saveExportPreset({ ...defaults.exportPresets[0]!, quality: 500 }),
+    ).toThrowError(/quality|export presets/);
+    expect(() =>
+      store.saveExportPreset({ ...defaults.exportPresets[0]!, format: 'tiff' as never }),
+    ).toThrowError(/export presets/);
+  });
+
+  it('rejects a develop-only preset that has send targets', () => {
+    const store = new SettingsStore(undefined, defaults);
+    expect(() =>
+      store.saveExportPreset({
+        ...defaults.exportPresets[0]!,
+        id: asPresetId('develop-only'),
+        version: 'develop',
+        sendTo: [desk.id],
+      }),
+    ).toThrowError(/develop-only/);
   });
 
   it('sets a corrupt file aside, warns, and starts from defaults', async () => {
@@ -92,5 +176,6 @@ describe('routing', () => {
     expect(hostFor('credentials:set', { mock: false })).toBe('main');
     expect(hostFor('dialog:pick', { mock: false })).toBe('main');
     expect(hostFor('ingest:start', { mock: false })).toBe('jobs');
+    expect(hostFor('exportPresets:list', { mock: false })).toBe('jobs');
   });
 });

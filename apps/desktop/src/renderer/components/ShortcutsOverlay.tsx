@@ -7,9 +7,16 @@ const GROUPS: { title: string; rows: [string, string][] }[] = [
     title: 'Navigate',
     rows: [
       ['← / →', 'Previous / next photo'],
-      ['Ctrl/⌘ + Enter', 'Finish & next'],
       ['?', 'Show this shortcut list'],
       ['Esc', 'Leave the current field'],
+    ],
+  },
+  {
+    title: 'Export',
+    rows: [
+      ['Shift + Ctrl/⌘ + E', 'Export…'],
+      ['Shift + Ctrl/⌘ + Enter', 'Export & send'],
+      ['Ctrl/⌘ + Enter', 'Next & send'],
     ],
   },
   {

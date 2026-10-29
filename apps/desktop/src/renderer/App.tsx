@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import styles from './App.module.css';
 import { BottomBar } from './components/BottomBar';
 import { DevelopPanel } from './components/DevelopPanel';
+import { ExportDialog } from './components/ExportDialog';
 import { MetadataPanel } from './components/MetadataPanel';
 import { PhotoView } from './components/PhotoView';
 import { SettingsDialog } from './components/SettingsDialog';
@@ -34,6 +35,7 @@ function Shell() {
       <Toasts />
       {state.shortcutsOpen && <ShortcutsOverlay />}
       {state.dialog && <SettingsDialog />}
+      {state.exportOpen && <ExportDialog />}
     </div>
   );
 }

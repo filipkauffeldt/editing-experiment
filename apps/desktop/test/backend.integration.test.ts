@@ -2,6 +2,7 @@
 import {
   appUrl,
   asDestinationId,
+  asPresetId,
   asSourceId,
   type CredentialSecret,
   type FolderDestination,
@@ -9,6 +10,8 @@ import {
   type FtpSource,
   type IngestConfig,
   type IpcHandlers,
+  type ExportJob,
+  type ExportPreset,
   type Photo,
   type SourceConfig,
   type UploadItem,
@@ -78,6 +81,82 @@ async function waitFor<T>(
     });
   }
 }
+
+const sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
+
+/**
+ * Export jobs ask the renderer (here the test) for each render. Answer every
+ * request for the job and wait until the job reaches a terminal state.
+ */
+async function runExportJob(
+  handlerSet: IpcHandlers,
+  args: Parameters<IpcHandlers['export:start']>[0],
+  render: (
+    photoId: string,
+    expectedOpsKey: string,
+  ) => { width: number; height: number; rgba: Uint8Array },
+  opsKeyFor?: (photoId: string, expectedOpsKey: string) => string,
+): Promise<ExportJob> {
+  const jobId = await handlerSet['export:start'](args);
+  const handled = new Set<string>();
+  for (;;) {
+    const request = events.find((event) => {
+      const payload = event.payload as { type?: string; jobId?: string; requestId?: string };
+      return (
+        event.channel === 'jobs:event' &&
+        payload.type === 'export.render' &&
+        payload.jobId === jobId &&
+        payload.requestId !== undefined &&
+        !handled.has(payload.requestId)
+      );
+    });
+    if (request) {
+      const payload = request.payload as {
+        requestId: string;
+        photoId: string;
+        opsKey: string;
+      };
+      handled.add(payload.requestId);
+      await handlerSet['export:render']({
+        jobId,
+        requestId: payload.requestId,
+        rendered: render(payload.photoId, payload.opsKey),
+        opsKey: opsKeyFor?.(payload.photoId, payload.opsKey) ?? payload.opsKey,
+      });
+      continue;
+    }
+    const state = events.find((event) => {
+      const payload = event.payload as { type?: string; jobId?: string; state?: string };
+      return (
+        event.channel === 'jobs:event' &&
+        payload.type === 'export.state' &&
+        payload.jobId === jobId &&
+        payload.state !== undefined &&
+        ['done', 'failed', 'cancelled'].includes(payload.state)
+      );
+    });
+    if (state) return (state.payload as { job: ExportJob }).job;
+    await sleep(20);
+  }
+}
+
+const testPreset = (overrides: Partial<ExportPreset> = {}): ExportPreset => ({
+  id: asPresetId('test-preset'),
+  name: 'Test',
+  folderTemplate: 'Export/{preset}',
+  fileNameTemplate: '{filenamebase}',
+  ifExists: 'suffix',
+  format: 'jpeg',
+  quality: 88,
+  colorSpace: 'srgb',
+  resize: { mode: 'none' },
+  outputSharpening: { target: 'none', amount: 'standard' },
+  metadata: 'all',
+  stripGps: false,
+  version: 'top',
+  sendTo: [],
+  ...overrides,
+});
 
 const SECRETS: Record<string, CredentialSecret> = {
   'source-ftp': { password: 'src-secret' },
@@ -470,12 +549,12 @@ describe.skipIf(nefs.length === 0)(
       };
       await handlers['destinations:save']({ destination });
       expect(await handlers['destinations:test']({ destination })).toMatchObject({ ok: true });
-      await handlers['settings:set']({
-        finishAction: {
-          exportPreset: { quality: 88, metadata: 'all' },
-          destinations: [destination.id],
-        },
+      const preset = testPreset({
+        id: asPresetId('ftp-preset'),
+        folderTemplate: join(root, 'ftp-exports'),
+        sendTo: [destination.id],
       });
+      await handlers['exportPresets:save']({ preset });
 
       const photo = bySource(cardB)[0]!;
       const rgba = new Uint8Array(640 * 427 * 4);
@@ -485,20 +564,22 @@ describe.skipIf(nefs.length === 0)(
         rgba[i + 2] = 200;
         rgba[i + 3] = 255;
       }
-      const result = await handlers['export:photo']({
-        photoId: photo.id,
-        rendered: { width: 640, height: 427, rgba },
-      });
-      expect(result.path.endsWith('cardB_001.jpg')).toBe(true);
-      expect(result.fileName).toBe('cardB_001.jpg');
-      expect(result.uploads).toHaveLength(1);
+      const job = await runExportJob(
+        handlers,
+        { photoIds: [photo.id], presetId: preset.id },
+        () => ({ width: 640, height: 427, rgba }),
+      );
+      expect(job.state).toBe('done');
+      expect(job.photos[0]?.state).toBe('done');
+      const resultPath = job.photos[0]!.path!;
+      expect(resultPath.endsWith('cardB_001.jpg')).toBe(true);
 
-      await assertNoEmbeddedPreviews(result.path);
-      expect(await readIptc(result.path, exiftool)).toMatchObject({
+      await assertNoEmbeddedPreviews(resultPath);
+      expect(await readIptc(resultPath, exiftool)).toMatchObject({
         byline: 'Jane Doe',
         credit: 'Test Agency',
       });
-      expect(await readdir(join(result.path, '..'))).toEqual(['cardB_001.jpg']);
+      expect(await readdir(join(resultPath, '..'))).toEqual(['cardB_001.jpg']);
 
       const done = await waitFor('the upload to finish', async () => {
         const items: UploadItem[] = await handlers['upload:list']();
@@ -529,26 +610,68 @@ describe.skipIf(nefs.length === 0)(
       ).toBe(true);
     }, 120_000);
 
-    it('rejects a malformed rendered image and an unknown destination', async () => {
-      const photo = bySource(cardB)[0]!;
-      await expect(
-        handlers['export:photo']({
-          photoId: photo.id,
-          rendered: { width: 10, height: 10, rgba: new Uint8Array(4) },
-        }),
-      ).rejects.toMatchObject({ code: 'invalid_argument' });
-      await expect(
-        handlers['export:photo']({
-          photoId: photo.id,
-          rendered: { width: 1, height: 1, rgba: new Uint8Array(4) },
-          action: {
-            exportPreset: { quality: 80, metadata: 'iptc' },
-            destinations: [asDestinationId('ghost')],
+    it('refuses a render that does not carry the current retouch ops', async () => {
+      const photo = bySource(cardA)[0]!;
+      const version = await handlers['photos:createVersion']({
+        photoId: photo.id,
+        kind: 'retouch',
+      });
+      await handlers['retouch:set']({
+        photoId: photo.id,
+        versionId: version.id,
+        ops: [
+          {
+            type: 'mosaic',
+            shapes: [{ type: 'rect', x: 0.2, y: 0.2, w: 0.2, h: 0.2 }],
+            blockSizeRel: 0.01,
           },
-        }),
-      ).rejects.toMatchObject({ code: 'not_found' });
+        ],
+      });
+      const preset = testPreset({
+        id: asPresetId('ops-key-preset'),
+        folderTemplate: join(root, 'ops-key-exports'),
+        metadata: 'none',
+        version: 'top',
+        sendTo: [],
+      });
+      await handlers['exportPresets:save']({ preset });
+
+      const job = await runExportJob(
+        handlers,
+        { photoIds: [photo.id], presetId: preset.id },
+        () => ({ width: 16, height: 16, rgba: new Uint8Array(16 * 16 * 4).fill(180) }),
+        () => '',
+      );
+      expect(job.state).toBe('failed');
+      expect(job.photos[0]?.state).toBe('failed');
+      expect(job.photos[0]?.error).toMatch(/retouch version/);
     });
 
+    it('fails one photo without killing the batch and rejects an unknown preset', async () => {
+      const [photo, second] = bySource(cardA);
+      if (!photo || !second) throw new Error('expected two cardA photos');
+      const preset = testPreset({
+        id: asPresetId('batch-preset'),
+        folderTemplate: join(root, 'batch-exports'),
+        sendTo: [],
+      });
+      await handlers['exportPresets:save']({ preset });
+      const job = await runExportJob(
+        handlers,
+        { photoIds: [photo.id, second.id], presetId: preset.id },
+        (photoId) =>
+          photoId === photo.id
+            ? { width: 10, height: 10, rgba: new Uint8Array(4) }
+            : { width: 16, height: 16, rgba: new Uint8Array(16 * 16 * 4).fill(180) },
+      );
+      expect(job.state).toBe('failed');
+      expect(job.photos[0]?.state).toBe('failed');
+      expect(job.photos[1]?.state).toBe('done');
+
+      await expect(
+        handlers['export:start']({ photoIds: [photo.id], presetId: asPresetId('ghost') }),
+      ).rejects.toMatchObject({ code: 'not_found' });
+    });
     it('reports ingest status, tests sources, and a second run skips files already ingested', async () => {
       const status = await handlers['ingest:status']();
       expect(status.find((job) => job.sourceId === cardA)).toMatchObject({
@@ -623,15 +746,20 @@ describe.skipIf(nefs.length === 0)(
       const photo = bySource(cardA)[0]!;
       await handlers['metadata:write']({ photoId: photo.id, fields: { event: 'Derby' } });
       const rendered = { width: 32, height: 32, rgba: new Uint8Array(32 * 32 * 4).fill(200) };
-      const { uploads } = await handlers['export:photo']({
-        photoId: photo.id,
-        rendered,
-        action: {
-          exportPreset: { quality: 80, metadata: 'iptc' },
-          destinations: [folder.id, broken.id],
-        },
+      const preset = testPreset({
+        id: asPresetId('folder-preset'),
+        folderTemplate: join(root, 'folder-exports'),
+        quality: 80,
+        metadata: 'iptc',
+        sendTo: [folder.id, broken.id],
       });
-      expect(uploads).toHaveLength(2);
+      await handlers['exportPresets:save']({ preset });
+      const job = await runExportJob(
+        handlers,
+        { photoIds: [photo.id], presetId: preset.id },
+        () => rendered,
+      );
+      expect(job.photos[0]?.state).toBe('done');
 
       const settled = await waitFor('both uploads to settle', async () => {
         const items = await handlers['upload:list']();
@@ -680,7 +808,8 @@ describe.skipIf(nefs.length === 0)(
       const file = JSON.parse(await readFile(backend.layout.settingsFile, 'utf8'));
       expect(file.sources.map((s: SourceConfig) => s.id)).toContain('x');
       expect(file.destinations.map((d: FtpDestination) => d.id)).toContain('desk');
-      expect(file.finishAction.destinations).toEqual(['desk']);
+      expect(file.exportPresets.length).toBeGreaterThan(0);
+      expect(file.exportRoot).toBeTruthy();
       expect(JSON.stringify(file)).not.toContain('secret');
       await handlers['sources:remove']({ sourceId: saved.id });
       await expect(

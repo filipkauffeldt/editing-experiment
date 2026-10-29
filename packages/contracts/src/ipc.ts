@@ -1,12 +1,23 @@
 import type { EditParams, EditPreset } from './develop';
 import type {
   CredentialSecret,
+  DeliverExportRenderArgs,
   Destination,
-  FinishAction,
+  ExportJob,
+  ExportPreset,
   RenderedImage,
+  StartExportArgs,
   UploadItem,
 } from './export';
-import type { DestinationId, PhotoId, SourceId, UploadId, VersionId } from './ids';
+import type {
+  DestinationId,
+  ExportJobId,
+  PhotoId,
+  PresetId,
+  SourceId,
+  UploadId,
+  VersionId,
+} from './ids';
 import type { IptcFields } from './iptc';
 import type { JobEvent, IngestJobInfo } from './jobs';
 import type { Photo, PhotoVersion } from './photo';
@@ -154,31 +165,17 @@ export interface DetectFacesArgs {
   region?: Rect;
 }
 
-/** Arguments of `export:photo`. */
-export interface ExportPhotoArgs extends VersionRef {
-  /** Full-resolution render of the develop pipeline with retouch ops applied. */
-  rendered: RenderedImage;
-  /** Absent = use `AppSettings.finishAction`. */
-  action?: FinishAction;
-}
-
-/** Outcome of `export:photo`. */
-export interface ExportPhotoResult {
-  /** Absolute path of the exported JPEG. */
-  path: string;
-  /** Final file name only (no directory separators), for display without parsing `path`. */
-  fileName?: string;
-  /** Upload queue entries created, one per destination that needs an upload. */
-  uploads: UploadItem[];
-}
-
 /** Ingest options that are not tied to the set of sources. */
 export type IngestSettings = Omit<IngestConfig, 'sources'>;
 
 /** Persisted user settings. */
 export interface AppSettings {
   ingest: IngestSettings;
-  finishAction: FinishAction;
+  /** Local root for every export; relative preset folder templates live below it. */
+  exportRoot: string;
+  exportPresets: ExportPreset[];
+  /** Preset used by Next & send. */
+  activePresetId?: PresetId;
 }
 
 /** Arguments of `dialog:pick`. */
@@ -278,8 +275,20 @@ export interface IpcApi {
   'retouch:set': (args: VersionRef & { ops: RetouchOp[] }) => Promise<void>;
   'retouch:detectFaces': (args: DetectFacesArgs) => Promise<FaceDetection[]>;
 
-  // --- export ("Finish & next"; advancing to the next photo is the renderer's job) ---
-  'export:photo': (args: ExportPhotoArgs) => Promise<ExportPhotoResult>;
+  // --- export presets ---
+  'exportPresets:list': () => Promise<ExportPreset[]>;
+  /** Insert or update (matched by `id`); returns the stored preset. */
+  'exportPresets:save': (args: { preset: ExportPreset }) => Promise<ExportPreset>;
+  'exportPresets:remove': (args: { presetId: PresetId }) => Promise<void>;
+
+  // --- export jobs (renderer renders, jobs process encodes and sends) ---
+  'export:start': (args: StartExportArgs) => Promise<ExportJobId>;
+  'export:cancel': (args: { jobId: ExportJobId }) => Promise<void>;
+  'export:list': () => Promise<ExportJob[]>;
+  /** Renderer's reply to an `export.render` event. */
+  'export:render': (args: DeliverExportRenderArgs) => Promise<void>;
+  /** Tells the jobs process the renderer is listening again (after a reload or restart). */
+  'export:rendererReady': () => Promise<void>;
 
   // --- upload queue ---
   'upload:list': () => Promise<UploadItem[]>;
@@ -341,7 +350,14 @@ export const INVOKE_CHANNELS = [
   'retouch:get',
   'retouch:set',
   'retouch:detectFaces',
-  'export:photo',
+  'exportPresets:list',
+  'exportPresets:save',
+  'exportPresets:remove',
+  'export:start',
+  'export:cancel',
+  'export:list',
+  'export:render',
+  'export:rendererReady',
   'upload:list',
   'upload:retry',
   'upload:cancel',

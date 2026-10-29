@@ -12,7 +12,7 @@ import {
 import type { AppBackendResponse } from '../../shared/jobs-protocol';
 import { AppResources } from './app-resources';
 import { EditService } from './edit-service';
-import { EditedPreviews } from './edited-previews';
+import { EditedPreviews, retouchKey } from './edited-previews';
 import { LabelService } from './label-service';
 import { withIpcErrors } from './errors';
 import { FaceService, findYuNetModel } from './faces';
@@ -25,7 +25,9 @@ import { PhotoIndex } from './photo-index';
 import { PhotoLibrary, type Emit } from './photo-library';
 import { PresetStore } from './presets';
 import { PreviewCache } from './previews';
+import { ExportQueue } from './export-queue';
 import { ExportService } from './export-service';
+import { ExportedFileStore } from './exported-files';
 import { SettingsStore } from './settings-store';
 import { reconcileDestination } from './reconcile';
 import { runTeardown } from './teardown';
@@ -130,15 +132,29 @@ export async function createBackend(options: BackendOptions): Promise<Backend> {
     },
     ...options.uploadQueue,
   });
+  const exportedFiles = new ExportedFileStore(layout.exportedFilesFile, (message) =>
+    console.warn(message),
+  );
   const exporter = new ExportService({
     photos,
     settings,
     exiftool,
     queue,
-    exportsDir: layout.exportsDir,
+    exportedFiles,
     onEvent: emitJob,
   });
   late.exporter = exporter;
+  const exports = new ExportQueue({
+    file: layout.exportJobsFile,
+    getPreset: (presetId) => settings.getExportPreset(presetId),
+    getOpsKey: (photoId, version) =>
+      version === 'develop' ? '' : retouchKey(photos.get(photoId).versions),
+    exportPhoto: (args) => exporter.exportOne(args),
+    enqueue: ({ photoId, path, destinations }) => exporter.enqueue(photoId, path, destinations),
+    discard: (photoId) => exporter.discard(photoId),
+    emit: emitJob,
+    onWarning: (message) => console.warn(message),
+  });
   queue.start();
 
   // Pick up files that were copied but never indexed (crash or failed index write).
@@ -186,7 +202,7 @@ export async function createBackend(options: BackendOptions): Promise<Backend> {
       presets,
       ingest,
       queue,
-      exporter,
+      exports,
     }),
   );
 
@@ -203,6 +219,7 @@ export async function createBackend(options: BackendOptions): Promise<Backend> {
         { name: 'ingest', run: () => ingest.dispose() },
         { name: 'reconcile', run: () => (reconcileAbort.abort(), reconciled) },
         { name: 'face detection', run: () => faces.dispose() },
+        { name: 'export queue', run: async () => exports.close() },
         { name: 'upload queue', run: () => queue.close() },
         { name: 'exiftool', run: () => exiftool.close() },
         { name: 'seen files', run: () => seenStore.close() },

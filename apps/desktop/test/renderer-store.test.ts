@@ -1,7 +1,7 @@
 import {
   asPhotoId,
+  asPresetId,
   asSourceId,
-  type ExportPhotoResult,
   type IptcFields,
   type Photo,
   type SourceConfig,
@@ -38,12 +38,16 @@ async function setup(
     height: number;
     rgba: Uint8Array;
   }> = async () => ({ width: 1, height: 1, rgba: new Uint8Array(4) }),
+  confirm?: (message: string) => boolean,
 ): Promise<{
   store: AppStore;
   fake: FakeBridge;
 }> {
   const fake = createFakeBridge(options);
-  const store = createAppStore(fake.bridge, { renderForExport });
+  const store = createAppStore(fake.bridge, {
+    renderForExport,
+    ...(confirm === undefined ? {} : { confirm }),
+  });
   stores.push(store);
   await store.init();
   return { store, fake };
@@ -261,7 +265,7 @@ describe('develop', () => {
   });
 });
 
-describe('uploads and finish', () => {
+describe('uploads and export', () => {
   it('retries a failed upload', async () => {
     const { store } = await setup();
     const failed = store.getState().uploads.find((item) => item.state === 'failed');
@@ -273,10 +277,64 @@ describe('uploads and finish', () => {
   it('exports the current photo and advances to the next one', async () => {
     const { store, fake } = await setup();
     const first = activePhoto(store.getState());
-    await store.finishAndNext();
-    expect(fake.calls.some((call) => call.channel === 'export:photo')).toBe(true);
+    await store.nextAndSend();
+    expect(fake.calls.some((call) => call.channel === 'export:start')).toBe(true);
     expect(activePhoto(store.getState())?.id).not.toBe(first?.id);
     expect(activePhoto(store.getState())?.fileName).toBe('_DSC8331.NEF');
+  });
+
+  it('confirms before exporting a retouched photo without its mosaic', async () => {
+    const messages: string[] = [];
+    let answer = false;
+    const { store, fake } = await setup({}, undefined, (message) => {
+      messages.push(message);
+      answer = true;
+      return messages.length > 1;
+    });
+    const base = store.getState().exportPresets[0]!;
+    const develop = {
+      ...base,
+      id: asPresetId('develop-only'),
+      name: 'Develop only',
+      version: 'develop' as const,
+      sendTo: [],
+    };
+    await store.saveExportPreset(develop);
+    await store.setActivePreset(develop.id);
+    store.select(asPhotoId('mock-03'));
+
+    await store.exportSelected(false);
+    expect(messages[0]).toMatch(/photo has a retouch version; export without mosaic\?/);
+    expect(fake.calls.some((call) => call.channel === 'export:start')).toBe(false);
+
+    await store.exportSelected(false);
+    const call = fake.calls.find((candidate) => candidate.channel === 'export:start');
+    expect(call?.args[0]).toMatchObject({ send: [] });
+    expect(call?.args[0]).not.toHaveProperty('forceTop');
+    expect((call?.args[0] as { photoIds: string[] }).photoIds).toEqual(['mock-03']);
+    expect(answer).toBe(true);
+  });
+
+  it('forces the top version for Export & send even with a develop-only preset', async () => {
+    const { store, fake } = await setup({}, undefined, () => {
+      throw new Error('a send must not ask about dropping the mosaic');
+    });
+    const base = store.getState().exportPresets[0]!;
+    const develop = {
+      ...base,
+      id: asPresetId('develop-only'),
+      name: 'Develop only',
+      version: 'develop' as const,
+      sendTo: [],
+    };
+    await store.saveExportPreset(develop);
+    await store.setActivePreset(develop.id);
+    store.select(asPhotoId('mock-03'));
+
+    await store.exportSelected(true);
+    const call = fake.calls.find((candidate) => candidate.channel === 'export:start');
+    expect(call?.args[0]).toMatchObject({ forceTop: true });
+    expect(call?.args[0]).not.toHaveProperty('send');
   });
 
   it('saves remote credentials before the source', async () => {
@@ -414,7 +472,7 @@ describe('crop editing', () => {
     expect(portrait.image.height).toBeGreaterThan(portrait.image.width);
   });
 
-  it('applies the draft crop before Finish & next', async () => {
+  it('applies the draft crop before Next & send', async () => {
     const renders: FullResolutionRenderRequest[] = [];
     const { store, fake } = await setup({}, async (request) => {
       renders.push(request);
@@ -423,11 +481,11 @@ describe('crop editing', () => {
     store.toggleCrop();
     store.setCropAspect('1:1');
     store.setCropAngle(-4);
-    await store.finishAndNext();
+    await store.nextAndSend();
 
     expect(renders[0]?.params.crop?.angle).toBeCloseTo(-4, 9);
     const channels = fake.calls.map((call) => call.channel);
-    expect(channels.indexOf('develop:setParams')).toBeLessThan(channels.indexOf('export:photo'));
+    expect(channels.indexOf('develop:setParams')).toBeLessThan(channels.indexOf('export:start'));
   });
 });
 
@@ -478,12 +536,12 @@ describe('edit flushing', () => {
 
     store.updateMetadataField(photo.id, 'headline', 'Export headline');
     store.setSlider('Exposure2012', 0.75);
-    await store.finishAndNext();
+    await store.nextAndSend();
 
     const channels = fake.calls.map((call) => call.channel);
     const metadataWrite = channels.indexOf('metadata:write');
     const developWrite = channels.indexOf('develop:setParams');
-    const exportCall = channels.indexOf('export:photo');
+    const exportCall = channels.indexOf('export:start');
     expect(metadataWrite).toBeGreaterThanOrEqual(0);
     expect(metadataWrite).toBeLessThan(exportCall);
     expect(developWrite).toBeGreaterThanOrEqual(0);
@@ -496,19 +554,19 @@ describe('edit flushing', () => {
   });
 
   it('advances from the exported photo even if the selection changed meanwhile', async () => {
-    const exportResult = deferred<ExportPhotoResult>();
-    const { store, fake } = await setup({
-      handlers: { 'export:photo': async () => exportResult.promise },
+    const render = deferred<{ width: number; height: number; rgba: Uint8Array }>();
+    const started = deferred<void>();
+    const { store } = await setup({}, async () => {
+      started.resolve(undefined);
+      return render.promise;
     });
     const first = activePhoto(store.getState());
     if (!first) throw new Error('no selection');
 
-    const finished = store.finishAndNext();
-    await vi.waitFor(() =>
-      expect(fake.calls.some((call) => call.channel === 'export:photo')).toBe(true),
-    );
+    const finished = store.nextAndSend();
+    await started.promise;
     store.select(asPhotoId('mock-10'));
-    exportResult.resolve({ path: '/out/x.jpg', fileName: 'x.jpg', uploads: [] });
+    render.resolve({ width: 1, height: 1, rgba: new Uint8Array(4) });
     await finished;
 
     expect(activePhoto(store.getState())?.fileName).toBe('_DSC8331.NEF');
@@ -758,7 +816,7 @@ describe('credentials cleanup', () => {
 describe('retouch sessions', () => {
   const rect = { type: 'rect' as const, x: 0.2, y: 0.2, w: 0.2, h: 0.2 };
 
-  it('commits uncommitted shapes before Finish & next and exports them', async () => {
+  it('commits uncommitted shapes before Next & send and exports them', async () => {
     const renders: FullResolutionRenderRequest[] = [];
     const { store, fake } = await setup({}, async (request) => {
       renders.push(request);
@@ -769,13 +827,13 @@ describe('retouch sessions', () => {
 
     store.toggleRetouch();
     store.addRetouchShape(rect);
-    await store.finishAndNext();
+    await store.nextAndSend();
 
     const set = fake.calls.find((call) => call.channel === 'retouch:set');
     expect(set?.args[0]).toMatchObject({ photoId: photo.id, ops: [{ shapes: [rect] }] });
     expect(renders[0]?.ops).toMatchObject([{ type: 'mosaic', shapes: [rect] }]);
     const channels = fake.calls.map((call) => call.channel);
-    expect(channels.indexOf('retouch:set')).toBeLessThan(channels.indexOf('export:photo'));
+    expect(channels.indexOf('retouch:set')).toBeLessThan(channels.indexOf('export:start'));
   });
 
   it('waits for an in-flight commit and does not save twice', async () => {
@@ -796,14 +854,14 @@ describe('retouch sessions', () => {
 
     const commit = store.commitRetouch();
     await running;
-    const finish = store.finishAndNext();
+    const finish = store.nextAndSend();
     await vi.waitFor(() => expect(store.getState().retouch?.busy).toBe(true));
-    expect(fake.calls.some((call) => call.channel === 'export:photo')).toBe(false);
+    expect(fake.calls.some((call) => call.channel === 'export:start')).toBe(false);
 
     release();
     await Promise.all([commit, finish]);
     expect(fake.calls.filter((call) => call.channel === 'retouch:set')).toHaveLength(1);
-    expect(fake.calls.some((call) => call.channel === 'export:photo')).toBe(true);
+    expect(fake.calls.some((call) => call.channel === 'export:start')).toBe(true);
   });
 
   it('commits pending shapes before navigating to another photo', async () => {

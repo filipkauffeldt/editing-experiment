@@ -42,8 +42,13 @@
   box-shadow: 0 0 0 1px rgb(90 167 255 / 0.35);
 }
 
-.selected img {
+.selected img,
+.inSelection img {
   opacity: 1;
+}
+
+.inSelection {
+  border-color: var(--border-strong);
 }
 
 .badge {

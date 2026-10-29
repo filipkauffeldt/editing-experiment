@@ -15,6 +15,14 @@ export interface MosaicOp {
 /** A retouch operation. Only mosaic exists for now; the union is where new ops go. */
 export type RetouchOp = MosaicOp;
 
+/**
+ * Identity of the ops a render applied. Export asks for this key and refuses a
+ * render that echoes another one, so a stale mosaic-less render cannot be used.
+ */
+export function retouchOpsKey(ops: readonly RetouchOp[]): string {
+  return ops.length === 0 ? '' : JSON.stringify(ops);
+}
+
 /** One detected face. */
 export interface FaceDetection {
   /** Bounding box in normalized image coordinates. */

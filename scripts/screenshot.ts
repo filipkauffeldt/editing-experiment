@@ -131,6 +131,10 @@ async function runMock(outDir: string): Promise<void> {
     await shoot('05-source-settings.png');
 
     await window.getByRole('button', { name: 'Close', exact: true }).last().click();
+    await window.getByTestId('open-export').click();
+    await window.getByTestId('export-dialog').waitFor();
+    await shoot('05b-export-dialog.png');
+    await window.keyboard.press('Escape');
     await window.locator('[data-testid="photo-view"]').click({ position: { x: 10, y: 10 } });
     await window.keyboard.press('Shift+/');
     await window.getByTestId('shortcuts-overlay').waitFor();
@@ -198,10 +202,6 @@ async function runReal(outDir: string): Promise<void> {
     await invoke('develop:importPreset', {
       path: join(root, 'apps', 'desktop', 'test', 'fixtures', 'poc-preset.xmp'),
     });
-    await window.reload();
-    await window.waitForFunction(() => 'eeTransport' in window);
-    await window.waitForSelector('[data-store-ready="true"]');
-
     await invoke('sources:save', {
       source: { id: 'shots-card', kind: 'folder', name: 'shots', path: source },
     });
@@ -220,11 +220,30 @@ async function runReal(outDir: string): Promise<void> {
         renameTemplate: '{sourceName}_{seq:3}',
         codeReplacementPaths: [],
       },
-      finishAction: {
-        exportPreset: { quality: 90, metadata: 'all' },
-        destinations: ['shots-out'],
-      },
+      exportRoot: join(temp, 'exports'),
+      exportPresets: [
+        {
+          id: 'shots-preset',
+          name: 'Sportfotografen',
+          folderTemplate: '{folder}/Export/{preset}',
+          fileNameTemplate: '{filenamebase}',
+          ifExists: 'suffix',
+          format: 'jpeg',
+          quality: 90,
+          colorSpace: 'srgb',
+          resize: { mode: 'none' },
+          outputSharpening: { target: 'none', amount: 'standard' },
+          metadata: 'all',
+          stripGps: false,
+          version: 'top',
+          sendTo: ['shots-out'],
+        },
+      ],
+      activePresetId: 'shots-preset',
     });
+    await window.reload();
+    await window.waitForFunction(() => 'eeTransport' in window);
+    await window.waitForSelector('[data-store-ready="true"]');
     await invoke('ingest:start', {
       config: {
         sources: [{ id: 'shots-card', kind: 'folder', name: 'shots', path: source }],
@@ -383,8 +402,8 @@ async function runReal(outDir: string): Promise<void> {
     await shoot('14-real-committed-retouch.png');
     await shoot('15-real-film-strip-retouch.png', '[data-testid="film-strip"]');
 
-    // Finish and show the upload popover.
-    await window.getByRole('button', { name: /Finish & next/ }).click();
+    // Next & send, then show the upload popover.
+    await window.getByTestId('next-send').click();
     for (let i = 0; i < 400; i++) {
       const uploads = (await invoke('upload:list')) as { state: string }[];
       if (uploads.length > 0 && uploads.every((item) => item.state === 'done')) break;

@@ -2,9 +2,12 @@
 import {
   appUrl,
   asDestinationId,
+  asPresetId,
   asSourceId,
   type AppSettings,
   type CropParams,
+  type ExportJob,
+  type ExportPreset,
   type FtpDestination,
   type FtpSource,
   type IngestConfig,
@@ -23,7 +26,7 @@ import { spawn, spawnSync, type ChildProcess } from 'node:child_process';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { basename, dirname, join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import {
   copyInto,
@@ -91,6 +94,7 @@ describe.skipIf(nefs.length === 0 || !haveDisplay)(
     let display: Awaited<ReturnType<typeof ensureDisplay>>;
     let root: string;
     let outRoot: string;
+    let exportRoot: string;
     let sourceServer: TestFtpServer;
     let destServer: TestFtpServer;
     let photos: Photo[] = [];
@@ -171,13 +175,41 @@ describe.skipIf(nefs.length === 0 || !haveDisplay)(
     /** Optional: where to save screenshots of the film strip (for pull requests). */
     const screenshotDir = process.env.EE_SCREENSHOT_DIR;
 
+    const clickThumb = async (fileName: string, modifiers: ('Control' | 'Shift')[] = []) => {
+      await window.locator(`button[title^="${fileName}"]`).click({ modifiers });
+    };
+
+    const waitForExportJob = async (
+      photoIds: string[],
+      state: 'done' | 'failed' | 'cancelled' = 'done',
+    ): Promise<ExportJob> =>
+      waitFor('the export job', async () => {
+        const jobs = await invoke<ExportJob[]>('export:list');
+        return jobs.find(
+          (job) =>
+            state === job.state && photoIds.every((id) => job.photoIds.includes(id as never)),
+        );
+      });
+
+    const batchFile = (fileName: string): string =>
+      join(root, 'batch-exports', 'Batch', fileName.replace(/\.NEF$/i, '.jpg'));
+
+    const openExportDialog = async (): Promise<void> => {
+      await window.getByTestId('open-export').click();
+      await window.getByTestId('export-dialog').waitFor();
+    };
+
+    const choosePreset = async (name: string): Promise<void> => {
+      await window.getByRole('option', { name: new RegExp(name) }).click();
+    };
+
     /** Finish & next, then check the uploaded JPEG has exactly the crop's output size. */
     const finishAndCheckCropUpload = async (
       photo: Photo,
       expected: { width: number; height: number },
       uploadName: string,
     ): Promise<void> => {
-      await window.getByRole('button', { name: /Finish & next/ }).click();
+      await window.getByTestId('next-send').click();
       const upload = await waitFor('the cropped upload', async () => {
         const items = await invoke<UploadItem[]>('upload:list');
         return items.find((item) => item.photoId === photo.id && item.state === 'done');
@@ -401,18 +433,43 @@ describe.skipIf(nefs.length === 0 || !haveDisplay)(
       };
       await captureEvents();
 
-      // Import the Lightroom preset through the real backend, then reload so the
-      // renderer's store loads it with everything else.
+      // Import the Lightroom preset and persist the sources, destinations and export
+      // presets, then reload so the renderer store loads everything with the presets.
       await invoke('develop:importPreset', { path: presetPath });
-      await window.reload();
-      await window.waitForFunction(() => 'eeTransport' in window);
-      await window.waitForSelector('[data-store-ready="true"]');
-      await captureEvents();
-
       for (const source of [sourceA, sourceB, sourcePool]) {
         await invoke('sources:save', { source });
       }
       await invoke('destinations:save', { destination });
+      const mainPreset: ExportPreset = {
+        id: asPresetId('poc-main'),
+        name: 'Sportfotografen',
+        folderTemplate: '{folder}/Export/{preset}',
+        fileNameTemplate: '{filenamebase}',
+        ifExists: 'suffix',
+        format: 'jpeg',
+        quality: 90,
+        colorSpace: 'srgb',
+        resize: { mode: 'none' },
+        outputSharpening: { target: 'none', amount: 'standard' },
+        metadata: 'all',
+        stripGps: false,
+        version: 'top',
+        sendTo: [destination.id],
+      };
+      const batchPreset: ExportPreset = {
+        ...mainPreset,
+        id: asPresetId('poc-batch'),
+        name: 'Batch',
+        folderTemplate: join(root, 'batch-exports', '{preset}'),
+        metadata: 'none',
+      };
+      const sourceFolderPreset: ExportPreset = {
+        ...batchPreset,
+        id: asPresetId('poc-source-folder'),
+        name: 'Source folder',
+        folderTemplate: '{folderpath}',
+      };
+      exportRoot = join(root, 'exports');
       const settings: AppSettings = {
         ingest: {
           destination: { path: join(root, 'ingest') },
@@ -420,12 +477,15 @@ describe.skipIf(nefs.length === 0 || !haveDisplay)(
           metadataTemplatePath: templatePath,
           codeReplacementPaths: [codesPath],
         },
-        finishAction: {
-          exportPreset: { quality: 90, metadata: 'all' },
-          destinations: [destination.id],
-        },
+        exportRoot,
+        exportPresets: [mainPreset, batchPreset, sourceFolderPreset],
+        activePresetId: mainPreset.id,
       };
       await invoke('settings:set', settings);
+      await window.reload();
+      await window.waitForFunction(() => 'eeTransport' in window);
+      await window.waitForSelector('[data-store-ready="true"]');
+      await captureEvents();
 
       const config: IngestConfig = {
         ...settings.ingest,
@@ -774,7 +834,7 @@ describe.skipIf(nefs.length === 0 || !haveDisplay)(
       ).caption;
       expect(caption).toBe('Manchester City lift the cup at Wembley Stadium');
 
-      await window.getByRole('button', { name: /Finish & next/ }).click();
+      await window.getByTestId('next-send').click();
 
       const upload = await waitFor('the anonymous FTP upload', async () => {
         const items = await invoke<UploadItem[]>('upload:list');
@@ -884,6 +944,128 @@ describe.skipIf(nefs.length === 0 || !haveDisplay)(
       expect(result.status).toBe(200);
       expect(JSON.parse(result.header!)).toMatchObject({ sampleType: 'f32' });
     });
+
+    it('batch exports three selected photos to a local folder without uploading', async () => {
+      const chosen = ['cardA_001.NEF', 'cardA_002.NEF', 'cardB_002.NEF'].map((name) =>
+        photos.find((photo) => photo.fileName === name)!,
+      );
+      const before = new Set((await invoke<UploadItem[]>('upload:list')).map((item) => item.id));
+
+      await clickThumb('cardA_001.NEF');
+      await clickThumb('cardA_002.NEF', ['Control']);
+      await clickThumb('cardB_002.NEF', ['Control']);
+      await openExportDialog();
+      expect(await window.getByTestId('export-dialog').textContent()).toContain(
+        '3 photos selected',
+      );
+      await choosePreset('Batch');
+      await window.getByTestId('export-only').click();
+
+      const job = await waitForExportJob(chosen.map((photo) => photo.id));
+      expect(job.photos.map((photo) => photo.state)).toEqual(['done', 'done', 'done']);
+      for (const photo of chosen) {
+        const local = batchFile(photo.fileName);
+        await waitFor(`${local} to exist`, () => existsSync(local));
+        await assertNoEmbeddedPreviews(local);
+      }
+
+      const uploads = await invoke<UploadItem[]>('upload:list');
+      expect(uploads.filter((item) => !before.has(item.id))).toHaveLength(0);
+      expect(
+        uploads.filter((item) => chosen.some((photo) => photo.id === item.photoId)),
+      ).toHaveLength(
+        uploads.filter(
+          (item) => before.has(item.id) && chosen.some((photo) => photo.id === item.photoId),
+        ).length,
+      );
+    }, 180_000);
+
+    it('batch exports and sends two photos to anonymous FTP, byte-identical', async () => {
+      const chosen = ['cardB_002.NEF', 'pool_002.NEF'].map((name) =>
+        photos.find((photo) => photo.fileName === name)!,
+      );
+      await clickThumb('cardB_002.NEF');
+      await clickThumb('pool_002.NEF', ['Control']);
+      await openExportDialog();
+      await choosePreset('Batch');
+      await window.getByTestId('export-send').click();
+
+      const job = await waitForExportJob(chosen.map((photo) => photo.id));
+      const done = await waitFor('both uploads to finish', async () => {
+        const items = await invoke<UploadItem[]>('upload:list');
+        const mine = items.filter((item) => chosen.some((photo) => photo.id === item.photoId));
+        return mine.length >= 2 && mine.every((item) => item.state === 'done') ? mine : undefined;
+      });
+      expect(done).toHaveLength(2);
+
+      for (const progress of job.photos) {
+        const local = progress.path!;
+        const remote = join(outRoot, 'incoming', basename(local));
+        await waitFor(`${remote} to exist`, () => existsSync(remote));
+        expect(readFileSync(remote).equals(readFileSync(local))).toBe(true);
+      }
+    }, 180_000);
+
+    it('never overwrites an ingested original when exporting into its folder', async () => {
+      const photo = photos.find((candidate) => candidate.fileName === 'cardB_001.jpg')!;
+      const original = readFileSync(photo.path);
+      await clickThumb('cardB_001.jpg');
+      await openExportDialog();
+      await choosePreset('Source folder');
+      await window.getByTestId('export-only').click();
+      await waitForExportJob([photo.id]);
+
+      const exported = join(dirname(photo.path), 'cardB_001-1.jpg');
+      await waitFor(`${exported} to exist`, () => existsSync(exported));
+      expect(readFileSync(photo.path).equals(original)).toBe(true);
+      expect(existsSync(exported)).toBe(true);
+      await assertNoEmbeddedPreviews(exported);
+    }, 180_000);
+
+    it('batch exports a retouched photo with its mosaic applied', async () => {
+      const photo = photos.find((candidate) => candidate.fileName === 'cardB_001.jpg')!;
+      await clickThumb('cardB_001.jpg');
+      await openExportDialog();
+      await choosePreset('Batch');
+      await window.getByTestId('export-only').click();
+      await waitForExportJob([photo.id]);
+
+      const local = batchFile('cardB_001.jpg');
+      await waitFor(`${local} to exist`, () => existsSync(local));
+      const decoded = await decodeJpeg(readFileSync(local));
+      const current = await invoke<Photo>('photos:get', { photoId: photo.id });
+      const crop = (await invoke<{ crop?: CropParams }>('develop:getParams', { photoId: photo.id }))
+        .crop;
+      if (!crop) throw new Error('the retouched export has no crop');
+      const source = {
+        width: current.width ?? decoded.width,
+        height: current.height ?? decoded.height,
+      };
+      const mosaic = current.versions.filter((version) => version.kind === 'retouch').at(-1)
+        ?.ops[0];
+      if (!mosaic || mosaic.type !== 'mosaic') throw new Error('no mosaic shape');
+      const shape = mosaic.shapes[0];
+      if (!shape) throw new Error('no mosaic shape');
+      const block = blockSizeForShape(shape, mosaic.blockSizeRel, source.width, source.height);
+      const centreX = (shape.type === 'rect' ? shape.x + shape.w / 2 : 0.5) * source.width;
+      const centreY = (shape.type === 'rect' ? shape.y + shape.h / 2 : 0.5) * source.height;
+      const blockX = Math.floor(centreX / block) * block + block / 2;
+      const blockY = Math.floor(centreY / block) * block + block / 2;
+      const outputPoint = sourceToCroppedPixels(crop, source, { x: blockX, y: blockY });
+      const x0 = Math.max(0, Math.round(outputPoint.x) - 1);
+      const y0 = Math.max(0, Math.round(outputPoint.y) - 1);
+      const values: number[][] = [];
+      for (let y = y0; y < Math.min(decoded.height, y0 + 3); y++) {
+        for (let x = x0; x < Math.min(decoded.width, x0 + 3); x++) {
+          const index = (y * decoded.width + x) * 4;
+          values.push([decoded.rgba[index]!, decoded.rgba[index + 1]!, decoded.rgba[index + 2]!]);
+        }
+      }
+      for (let channel = 0; channel < 3; channel++) {
+        const channelValues = values.map((value) => value[channel]!);
+        expect(Math.max(...channelValues) - Math.min(...channelValues)).toBeLessThanOrEqual(8);
+      }
+    }, 180_000);
 
     describe('Lightroom-style crop overlay', () => {
       it('rotates the image by dragging outside a corner while the frame stays put', async () => {
