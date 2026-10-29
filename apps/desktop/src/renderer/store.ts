@@ -3,10 +3,19 @@ import {
   constrainCrop,
   cropFromGeometry,
   cropGeometry,
+  cropImageToView,
+  cropViewToImage,
+  drawCrop,
   isFullCrop,
   largestCropForAspect,
+  minCropSize,
+  panCrop,
+  pointerAngleDelta,
+  quantizeAngle,
   resizeCropFromHandle,
+  rotateCropInView,
   sanitizeCrop,
+  straightenAngleFromLine,
   type CropHandle,
 } from '@ee/develop-gl';
 import {
@@ -24,6 +33,7 @@ import {
   type JobEvent,
   type Photo,
   type PhotoId,
+  type Point,
   type MosaicOp,
   type Rect,
   type Shape,
@@ -126,7 +136,57 @@ export interface CropSession {
   aspect: CropAspectId;
   /** Swaps the aspect preset's orientation (X), e.g. 3:2 → 2:3. */
   flipped: boolean;
-  tool: 'crop' | 'straighten';
+  /**
+   * `crop`: drag a handle to resize, inside the frame to pan the image, outside
+   * it to rotate. `draw`: Lightroom's crop frame tool, drag out a new frame.
+   * `straighten`: draw a line along the horizon.
+   */
+  tool: 'crop' | 'draw' | 'straighten';
+  /** Composition guide drawn over the frame while interacting (O cycles). */
+  overlay: CropOverlayKind;
+  /**
+   * Where the frame centre is in view coordinates (source-pixel units; see
+   * `cropImageToView`). The frame is axis-aligned on screen and the image is
+   * rotated under it, so only this and the crop decide what is drawn where.
+   */
+  pivot: Point;
+  /** The gesture in progress, if any (drives the finer grid while rotating). */
+  gesture?: CropGestureRequest['kind'];
+  /**
+   * The frame size the user asked for. Rotating shrinks the frame to keep the
+   * image covering it; this lets it grow back when the angle returns.
+   */
+  desired?: { width: number; height: number };
+}
+
+export const CROP_OVERLAYS = ['thirds', 'grid', 'golden', 'none'] as const;
+export type CropOverlayKind = (typeof CROP_OVERLAYS)[number];
+
+export type CropGestureRequest =
+  { kind: 'pan' } | { kind: 'rotate' } | { kind: 'draw' } | { kind: 'resize'; handle: CropHandle };
+
+export interface CropModifiers {
+  /** Toggles the aspect lock for this drag; Shift also snaps a rotation to 1 degree. */
+  shift?: boolean;
+  /** Resizes or draws about the centre; Alt on Linux/Windows, Option on macOS. */
+  alt?: boolean;
+}
+
+interface CropGestureState {
+  request: CropGestureRequest;
+  start: Point;
+  /** How far from the exact handle position the press landed, so the edge does not jump. */
+  grab: Point;
+  last: Point;
+  /** Clockwise degrees the pointer has swept around the pivot so far. */
+  swept: number;
+  crop: CropParams;
+  pivot: Point;
+  aspect: number | undefined;
+  freeAspect: number | undefined;
+  desired: { width: number; height: number };
+  /** The session's `desired` before the gesture, restored if it is cancelled. */
+  startDesired: { width: number; height: number } | undefined;
 }
 
 /** Pixel aspect ratio of a crop session, or undefined for Free. */
@@ -138,6 +198,31 @@ export function cropAspectRatio(session: CropSession): number | undefined {
   }
   const base = CROP_ASPECT_RATIOS[session.aspect];
   return session.flipped ? 1 / base : base;
+}
+
+/** Offset of a handle press from the handle's exact position, on the axes the handle moves. */
+function grabOffset(
+  request: CropGestureRequest,
+  start: Point,
+  pivot: Point,
+  frame: { width: number; height: number },
+): Point {
+  if (request.kind !== 'resize') return { x: 0, y: 0 };
+  const { handle } = request;
+  const x = handle.includes('w')
+    ? -frame.width / 2
+    : handle.includes('e')
+      ? frame.width / 2
+      : undefined;
+  const y = handle.includes('n')
+    ? -frame.height / 2
+    : handle.includes('s')
+      ? frame.height / 2
+      : undefined;
+  return {
+    x: x === undefined ? 0 : start.x - (pivot.x + x),
+    y: y === undefined ? 0 : start.y - (pivot.y + y),
+  };
 }
 
 /** Progress of "Finish & next", shown in the status bar. */
@@ -992,6 +1077,8 @@ export class AppStore {
     const crop = existing
       ? constrainCrop(existing, image)
       : largestCropForAspect(image, 0, image.width / image.height);
+    const geometry = cropGeometry(crop, image);
+    this.cropGesture = undefined;
     this.set({
       crop: {
         photoId: photo.id,
@@ -1000,6 +1087,8 @@ export class AppStore {
         aspect: existing ? 'free' : 'original',
         flipped: false,
         tool: 'crop',
+        overlay: 'thirds',
+        pivot: { x: geometry.centerX, y: geometry.centerY },
       },
     });
   };
@@ -1013,43 +1102,185 @@ export class AppStore {
     this.updateCrop({ tool });
   };
 
-  /** Replace the draft crop (e.g. from a drag); constrained to the image. */
+  /** Switch a tool on, or back to the normal crop tool when it is already on. */
+  readonly toggleCropTool = (tool: Exclude<CropSession['tool'], 'crop'>): void => {
+    const session = this.state.crop;
+    if (!session) return;
+    this.updateCrop({ tool: session.tool === tool ? 'crop' : tool });
+  };
+
+  /** O: thirds, grid, golden ratio, none. */
+  readonly cycleCropOverlay = (): void => {
+    const session = this.state.crop;
+    if (!session) return;
+    const next = CROP_OVERLAYS[(CROP_OVERLAYS.indexOf(session.overlay) + 1) % CROP_OVERLAYS.length];
+    this.updateCrop({ overlay: next ?? 'thirds' });
+  };
+
+  // Gestures work from a snapshot taken when the pointer went down, so every
+  // update is a pure function of (snapshot, pointer, modifiers): Shift or Alt
+  // can change mid-drag, and the frame never drifts from rounding.
+  private cropGesture?: CropGestureState;
+
+  /**
+   * Starts a pan, rotate, resize or draw on the crop frame. `start` is the
+   * pointer in view coordinates (source-pixel units, see `cropImageToView`).
+   */
+  readonly beginCropGesture = (request: CropGestureRequest, start: Point): void => {
+    const session = this.state.crop;
+    if (!session) return;
+    const geometry = cropGeometry(session.crop, session.image);
+    this.cropGesture = {
+      request,
+      start,
+      last: start,
+      swept: 0,
+      crop: session.crop,
+      pivot: session.pivot,
+      grab: grabOffset(request, start, session.pivot, geometry),
+      aspect: cropAspectRatio(session),
+      freeAspect: geometry.height > 0 ? geometry.width / geometry.height : undefined,
+      desired: session.desired ?? { width: geometry.width, height: geometry.height },
+      startDesired: session.desired,
+    };
+    this.updateCrop({ gesture: request.kind });
+  };
+
+  readonly updateCropGesture = (point: Point, modifiers: CropModifiers = {}): void => {
+    const session = this.state.crop;
+    const gesture = this.cropGesture;
+    if (!session || !gesture) return;
+    const { image } = session;
+    const symmetric = modifiers.alt === true;
+    // Shift flips the preset lock: a locked preset goes free, Free locks to the
+    // frame the drag started from.
+    const aspect = modifiers.shift
+      ? gesture.aspect === undefined
+        ? gesture.freeAspect
+        : undefined
+      : gesture.aspect;
+    switch (gesture.request.kind) {
+      case 'pan': {
+        const delta = { x: point.x - gesture.start.x, y: point.y - gesture.start.y };
+        this.updateCrop({ crop: panCrop(gesture.crop, image, delta) });
+        break;
+      }
+      case 'rotate': {
+        gesture.swept += pointerAngleDelta(gesture.pivot, gesture.last, point);
+        gesture.last = point;
+        // The image turns with the pointer, i.e. against the crop angle.
+        const angle = quantizeAngle(gesture.crop.angle - gesture.swept, modifiers.shift === true);
+        this.updateCrop({
+          ...rotateCropInView(gesture.crop, image, gesture.pivot, angle, gesture.desired),
+          desired: gesture.desired,
+        });
+        break;
+      }
+      case 'resize': {
+        const start = cropGeometry(gesture.crop, image);
+        const target = cropViewToImage(start, gesture.pivot, {
+          x: point.x - gesture.grab.x,
+          y: point.y - gesture.grab.y,
+        });
+        const crop = resizeCropFromHandle(
+          gesture.crop,
+          image,
+          gesture.request.handle,
+          target,
+          aspect,
+          symmetric,
+        );
+        // The image stays where it is on screen, so the frame centre moves with the edges.
+        const next = cropGeometry(crop, image);
+        this.updateCrop({
+          crop,
+          pivot: cropImageToView(start, gesture.pivot, { x: next.centerX, y: next.centerY }),
+          desired: undefined,
+        });
+        break;
+      }
+      case 'draw': {
+        const moved = Math.hypot(point.x - gesture.start.x, point.y - gesture.start.y);
+        if (moved < minCropSize(image)) break;
+        const drawn = drawCrop(
+          gesture.crop,
+          image,
+          gesture.pivot,
+          gesture.start,
+          point,
+          aspect,
+          symmetric,
+        );
+        if (drawn) this.updateCrop({ ...drawn, desired: undefined });
+        break;
+      }
+    }
+  };
+
+  readonly endCropGesture = (): void => {
+    const gesture = this.cropGesture;
+    this.cropGesture = undefined;
+    const session = this.state.crop;
+    if (!gesture || !session) return;
+    // The frame tool draws one frame, then hands back to the normal crop tool.
+    this.updateCrop({
+      gesture: undefined,
+      tool: gesture.request.kind === 'draw' ? 'crop' : session.tool,
+    });
+  };
+
+  /**
+   * The pointer was cancelled or lost mid-drag: put the frame back as it was
+   * before the gesture. Unlike {@link endCropGesture} this keeps the tool, so a
+   * cancelled draw does not silently hand back to the crop tool.
+   */
+  readonly cancelCropGesture = (): void => {
+    const gesture = this.cropGesture;
+    this.cropGesture = undefined;
+    if (!gesture || !this.state.crop) return;
+    this.updateCrop({
+      crop: gesture.crop,
+      pivot: gesture.pivot,
+      desired: gesture.startDesired,
+      gesture: undefined,
+    });
+  };
+
+  /**
+   * Straighten tool: a line drawn along the horizon, in view coordinates.
+   * Ignores accidental short lines.
+   */
+  readonly straightenAlongLine = (from: Point, to: Point): void => {
+    const session = this.state.crop;
+    if (!session) return;
+    if (Math.hypot(to.x - from.x, to.y - from.y) >= minCropSize(session.image)) {
+      this.setCropAngle(straightenAngleFromLine(session.crop.angle, from, to));
+    }
+    this.updateCrop({ tool: 'crop' });
+  };
+
+  /** Slider and typed angle: the image turns about the frame centre. */
+  /** Replaces the draft crop (programmatic edits); constrained to the image, frame centred. */
   readonly setCropDraft = (crop: CropParams): void => {
     const session = this.state.crop;
     if (!session) return;
-    this.updateCrop({ crop: constrainCrop(sanitizeCrop(crop), session.image) });
-  };
-
-  readonly dragCropHandle = (handle: CropHandle, point: { x: number; y: number }): void => {
-    const session = this.state.crop;
-    if (!session) return;
-    const next = resizeCropFromHandle(
-      session.crop,
-      session.image,
-      handle,
-      { x: point.x * session.image.width, y: point.y * session.image.height },
-      cropAspectRatio(session),
-    );
-    this.updateCrop({ crop: next });
+    const next = constrainCrop(sanitizeCrop(crop), session.image);
+    const geometry = cropGeometry(next, session.image);
+    this.updateCrop({
+      crop: next,
+      pivot: { x: geometry.centerX, y: geometry.centerY },
+      desired: undefined,
+    });
   };
 
   readonly setCropAngle = (angle: number): void => {
     const session = this.state.crop;
     if (!session) return;
-    const clamped = Math.max(-45, Math.min(45, Number.isFinite(angle) ? angle : 0));
     const geometry = cropGeometry(session.crop, session.image);
+    const desired = session.desired ?? { width: geometry.width, height: geometry.height };
     this.updateCrop({
-      crop: constrainCrop(
-        cropFromGeometry(
-          geometry.centerX,
-          geometry.centerY,
-          geometry.width,
-          geometry.height,
-          clamped,
-          session.image,
-        ),
-        session.image,
-      ),
+      ...rotateCropInView(session.crop, session.image, session.pivot, angle, desired),
+      desired,
     });
   };
 
@@ -1068,6 +1299,7 @@ export class AppStore {
     const geometry = cropGeometry(session.crop, session.image);
     this.updateCrop({
       aspect,
+      desired: undefined,
       crop: largestCropForAspect(session.image, geometry.angle, ratio, {
         x: geometry.centerX,
         y: geometry.centerY,
@@ -1083,6 +1315,7 @@ export class AppStore {
     if (session.aspect === 'free') {
       const geometry = cropGeometry(session.crop, session.image);
       this.updateCrop({
+        desired: undefined,
         crop: constrainCrop(
           cropFromGeometry(
             geometry.centerX,
@@ -1106,6 +1339,7 @@ export class AppStore {
     const geometry = cropGeometry(session.crop, session.image);
     this.updateCrop({
       flipped,
+      desired: undefined,
       crop: largestCropForAspect(session.image, geometry.angle, ratio, {
         x: geometry.centerX,
         y: geometry.centerY,
@@ -1116,16 +1350,22 @@ export class AppStore {
   readonly resetCrop = (): void => {
     const session = this.state.crop;
     if (!session) return;
+    this.cropGesture = undefined;
     this.updateCrop({
       crop: { left: 0, top: 0, right: 1, bottom: 1, angle: 0 },
+      pivot: { x: session.image.width / 2, y: session.image.height / 2 },
       aspect: 'original',
       flipped: false,
+      tool: 'crop',
+      gesture: undefined,
+      desired: undefined,
     });
   };
 
   /** Leave crop mode without saving. */
   readonly cancelCrop = (): void => {
     if (!this.state.crop) return;
+    this.cropGesture = undefined;
     this.set({ crop: undefined });
   };
 
@@ -1140,6 +1380,7 @@ export class AppStore {
       else next.crop = crop;
       return next;
     });
+    this.cropGesture = undefined;
     this.set({ crop: undefined });
   };
 

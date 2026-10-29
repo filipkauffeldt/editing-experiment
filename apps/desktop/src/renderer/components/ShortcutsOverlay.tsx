@@ -16,8 +16,16 @@ const GROUPS: { title: string; rows: [string, string][] }[] = [
     title: 'Crop and straighten',
     rows: [
       ['C', 'Enter crop mode / apply the crop'],
+      ['Drag outside the frame', 'Rotate the photo (Shift snaps to 1°)'],
+      ['Drag inside the frame', 'Move the photo under the frame'],
+      ['Drag a handle', 'Resize (Shift toggles the aspect lock, Alt/⌥ from the centre)'],
+      ['R', 'Crop frame tool: drag out a new frame'],
+      ['A', 'Straighten tool: draw a line along the horizon'],
+      ['O', 'Cycle the overlay (thirds, grid, golden ratio, none)'],
       ['X', 'Swap portrait / landscape'],
-      ['Enter / Esc', 'Apply / cancel the crop'],
+      ['Enter / double-click', 'Apply the crop'],
+      ['Esc', 'Cancel the crop'],
+      ['Ctrl/⌘ + Alt/⌥ + R', 'Reset the crop'],
     ],
   },
   {

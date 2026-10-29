@@ -1,175 +1,237 @@
 import type { Point } from '@ee/contracts';
-import { cropCorners, cropGeometry, rotatePoint, type CropHandle } from '@ee/develop-gl';
+import { cropGeometry, type CropHandle } from '@ee/develop-gl';
 import { useRef, useState } from 'react';
+import {
+  cropLayout,
+  createDoubleClickGuard,
+  cursorFor,
+  frameRect,
+  guideSegments,
+  hitTestFrame,
+  screenToView,
+  viewToScreen,
+  type FrameHit,
+  type Size,
+} from '../crop-view';
 import { type CropSession } from '../store';
 import { useAppStore } from '../store-context';
 import styles from './PhotoCanvas.module.css';
 
+/** The draft crop as `left,top,right,bottom,angle`, for tests that read the DOM. */
+const cropAttribute = ({ crop }: CropSession): string =>
+  [crop.left, crop.top, crop.right, crop.bottom, crop.angle]
+    .map((value) => value.toFixed(9))
+    .join(',');
+
 const HANDLES: CropHandle[] = ['nw', 'n', 'ne', 'e', 'se', 's', 'sw', 'w'];
 
-const clamp01 = (value: number): number => Math.min(1, Math.max(0, value));
-
-const normalizedPoint = (event: React.PointerEvent, element: Element): Point => {
-  const rect = element.getBoundingClientRect();
-  return {
-    x: clamp01((event.clientX - rect.left) / Math.max(1, rect.width)),
-    y: clamp01((event.clientY - rect.top) / Math.max(1, rect.height)),
-  };
-};
-
-/** A point in the crop's local (leveled) frame, as normalized source coordinates. */
-function localPoint(session: CropSession, x: number, y: number): Point {
-  const geometry = cropGeometry(session.crop, session.image);
-  const rotated = rotatePoint(x, y, geometry.angle);
-  return {
-    x: (geometry.centerX + rotated.x) / session.image.width,
-    y: (geometry.centerY + rotated.y) / session.image.height,
-  };
-}
-
-function handlePoint(session: CropSession, handle: CropHandle): Point {
-  const geometry = cropGeometry(session.crop, session.image);
-  const u = geometry.width / 2;
-  const v = geometry.height / 2;
-  const x = handle.includes('w') ? -u : handle.includes('e') ? u : 0;
-  const y = handle.includes('n') ? -v : handle.includes('s') ? v : 0;
-  return localPoint(session, x, y);
-}
-
 /**
- * Crop overlay: dims outside the crop, shows the rule-of-thirds grid and the
- * eight drag handles. The crop rectangle is shown in uncropped image space, so
- * it appears rotated while straightening.
+ * Crop overlay, Lightroom style. The frame is axis-aligned on screen and the
+ * image turns underneath it (the canvas draws that); this layer draws the frame
+ * and guides and turns pointer input into store gestures:
+ *
+ * - a corner or edge resizes, with the opposite side anchored;
+ * - inside the frame pans the image;
+ * - outside the frame rotates it about the frame centre;
+ * - the crop frame tool (`draw`) drags out a new frame instead;
+ * - the straighten tool draws a line along the horizon.
+ *
+ * Pointer positions are CSS pixels in the stage; the store takes view
+ * coordinates, so everything goes through the layout.
  */
-export function CropOverlay({ session }: { session: CropSession }) {
+export function CropOverlay({ session, stage }: { session: CropSession; stage: Size }) {
   const store = useAppStore();
   const overlayRef = useRef<HTMLDivElement>(null);
-  const dragHandle = useRef<CropHandle | null>(null);
-  const lineStart = useRef<Point | null>(null);
+  const active = useRef<'gesture' | 'line' | null>(null);
+  const lineFrom = useRef<Point | null>(null);
+  const doubleClick = useRef(createDoubleClickGuard());
+  const [hover, setHover] = useState<FrameHit>();
+  // What the press that started the current drag landed on; keeps the cursor fixed while dragging.
+  const [grabbed, setGrabbed] = useState<FrameHit>();
   const [line, setLine] = useState<{ from: Point; to: Point } | null>(null);
 
-  const corners = cropCorners(session.crop, session.image).map((point) => ({
-    x: point.x / session.image.width,
-    y: point.y / session.image.height,
-  }));
-  const polygon = corners.map((point) => `${point.x},${point.y}`).join(' ');
+  const layout = cropLayout(stage, session.image);
   const geometry = cropGeometry(session.crop, session.image);
-  const u = geometry.width / 2;
-  const v = geometry.height / 2;
-  const thirds: [Point, Point][] = [
-    [localPoint(session, -u / 3, -v), localPoint(session, -u / 3, v)],
-    [localPoint(session, u / 3, -v), localPoint(session, u / 3, v)],
-    [localPoint(session, -u, -v / 3), localPoint(session, u, -v / 3)],
-    [localPoint(session, -u, v / 3), localPoint(session, u, v / 3)],
-  ];
+  const rect = frameRect(layout, session.pivot, geometry.width, geometry.height);
+
+  const localPoint = (event: React.PointerEvent | React.MouseEvent): Point => {
+    const box = overlayRef.current?.getBoundingClientRect();
+    return { x: event.clientX - (box?.left ?? 0), y: event.clientY - (box?.top ?? 0) };
+  };
 
   const onPointerDown = (event: React.PointerEvent<HTMLDivElement>): void => {
     if (event.button !== 0) return;
     const overlay = overlayRef.current;
     if (!overlay) return;
-    const target = event.target as HTMLElement;
-    const handle = target.closest<HTMLElement>('[data-crop-handle]')?.dataset.cropHandle as
-      CropHandle | undefined;
     event.preventDefault();
     overlay.setPointerCapture(event.pointerId);
+    const screen = localPoint(event);
+    doubleClick.current.press(screen);
+    const view = screenToView(layout, screen);
     if (session.tool === 'straighten') {
-      const point = normalizedPoint(event, overlay);
-      lineStart.current = point;
-      setLine({ from: point, to: point });
+      active.current = 'line';
+      lineFrom.current = view;
+      setLine({ from: view, to: view });
       return;
     }
-    if (handle) dragHandle.current = handle;
+    active.current = 'gesture';
+    if (session.tool === 'draw') {
+      store.beginCropGesture({ kind: 'draw' }, view);
+      return;
+    }
+    const hit = hitTestFrame(rect, screen);
+    setGrabbed(hit);
+    store.beginCropGesture(
+      hit === 'move'
+        ? { kind: 'pan' }
+        : hit === 'rotate'
+          ? { kind: 'rotate' }
+          : { kind: 'resize', handle: hit },
+      view,
+    );
   };
 
   const onPointerMove = (event: React.PointerEvent<HTMLDivElement>): void => {
-    const overlay = overlayRef.current;
-    if (!overlay) return;
-    const point = normalizedPoint(event, overlay);
-    if (dragHandle.current) {
-      store.dragCropHandle(dragHandle.current, point);
-      return;
+    const screen = localPoint(event);
+    doubleClick.current.move(screen);
+    if (active.current === 'gesture') {
+      store.updateCropGesture(screenToView(layout, screen), {
+        shift: event.shiftKey,
+        alt: event.altKey,
+      });
+    } else if (active.current === 'line') {
+      const from = lineFrom.current;
+      if (from) setLine({ from, to: screenToView(layout, screen) });
+    } else {
+      setHover(session.tool === 'crop' ? hitTestFrame(rect, screen) : undefined);
     }
-    if (lineStart.current) setLine({ from: lineStart.current, to: point });
   };
 
   const finish = (event: React.PointerEvent<HTMLDivElement>): void => {
     const overlay = overlayRef.current;
-    if (!overlay) return;
-    if (overlay.hasPointerCapture(event.pointerId)) {
-      overlay.releasePointerCapture(event.pointerId);
+    if (overlay?.hasPointerCapture(event.pointerId)) overlay.releasePointerCapture(event.pointerId);
+    const kind = active.current;
+    active.current = null;
+    setGrabbed(undefined);
+    if (kind === 'gesture') store.endCropGesture();
+    if (kind === 'line') {
+      const from = lineFrom.current;
+      lineFrom.current = null;
+      if (from) store.straightenAlongLine(from, screenToView(layout, localPoint(event)));
+      setLine(null);
     }
-    dragHandle.current = null;
-    const start = lineStart.current;
-    lineStart.current = null;
-    if (start && line) {
-      const end = normalizedPoint(event, overlay);
-      const dx = (end.x - start.x) * session.image.width;
-      const dy = (end.y - start.y) * session.image.height;
-      if (Math.hypot(dx, dy) > 8) {
-        let angle = (Math.atan2(dy, dx) * 180) / Math.PI;
-        while (angle > 90) angle -= 180;
-        while (angle < -90) angle += 180;
-        store.setCropAngle(angle);
-        store.setCropTool('crop');
-      }
-    }
-    setLine(null);
   };
+
+  // A cancelled pointer or lost capture abandons the drag instead of committing it.
+  const abandon = (event: React.PointerEvent<HTMLDivElement>): void => {
+    const overlay = overlayRef.current;
+    if (overlay?.hasPointerCapture(event.pointerId)) overlay.releasePointerCapture(event.pointerId);
+    const kind = active.current;
+    if (kind === null) return;
+    active.current = null;
+    setGrabbed(undefined);
+    if (kind === 'gesture') store.cancelCropGesture();
+    else {
+      lineFrom.current = null;
+      setLine(null);
+    }
+  };
+
+  const onDoubleClick = (event: React.MouseEvent<HTMLDivElement>): void => {
+    if (
+      session.tool === 'crop' &&
+      doubleClick.current.allowsCommit() &&
+      hitTestFrame(rect, localPoint(event)) === 'move'
+    ) {
+      store.applyCrop();
+    }
+  };
+
+  const hit = grabbed ?? hover ?? 'rotate';
+  const cursor = session.tool === 'crop' ? cursorFor(hit, session.gesture === 'pan') : 'crosshair';
+  const rotating = session.gesture === 'rotate';
+  // Lightroom's "auto" overlay: shown while interacting or hovering over the frame.
+  const showGuides = session.gesture !== undefined || (hover !== undefined && hover !== 'rotate');
+  const guides = showGuides ? guideSegments(session.overlay, rect, rotating) : [];
+
+  const handlePoint = (handle: CropHandle): Point => ({
+    x: handle.includes('w')
+      ? rect.left
+      : handle.includes('e')
+        ? rect.right
+        : (rect.left + rect.right) / 2,
+    y: handle.includes('n')
+      ? rect.top
+      : handle.includes('s')
+        ? rect.bottom
+        : (rect.top + rect.bottom) / 2,
+  });
+  const lineFromScreen = line ? viewToScreen(layout, line.from) : undefined;
+  const lineToScreen = line ? viewToScreen(layout, line.to) : undefined;
 
   return (
     <div
       ref={overlayRef}
-      className={`${styles.cropOverlay} ${session.tool === 'straighten' ? styles.straighten : ''}`}
+      className={`${styles.cropOverlay} ${cursor === 'rotate' ? styles.cursorRotate : ''}`}
+      style={cursor === 'rotate' ? undefined : { cursor }}
       data-testid="crop-overlay"
+      data-tool={session.tool}
+      data-gesture={session.gesture ?? ''}
+      data-guide={session.overlay}
+      data-guides={guides.length}
+      data-angle={session.crop.angle}
+      data-crop={cropAttribute(session)}
+      data-frame={`${rect.left},${rect.top},${rect.right - rect.left},${rect.bottom - rect.top}`}
       onPointerDown={onPointerDown}
       onPointerMove={onPointerMove}
       onPointerUp={finish}
-      onPointerCancel={finish}
+      onPointerCancel={abandon}
+      onLostPointerCapture={abandon}
+      onPointerLeave={() => setHover(undefined)}
+      onDoubleClick={onDoubleClick}
     >
-      <svg className={styles.cropSvg} viewBox="0 0 1 1" preserveAspectRatio="none" aria-hidden>
-        <defs>
-          <mask id="crop-dim-mask">
-            <rect x="0" y="0" width="1" height="1" fill="white" />
-            <polygon points={polygon} fill="black" />
-          </mask>
-        </defs>
+      <svg
+        className={styles.cropSvg}
+        width={stage.width}
+        height={stage.height}
+        viewBox={`0 0 ${stage.width} ${stage.height}`}
+        aria-hidden
+      >
         <rect
-          x="0"
-          y="0"
-          width="1"
-          height="1"
-          className={styles.cropDim}
-          mask="url(#crop-dim-mask)"
+          x={rect.left}
+          y={rect.top}
+          width={rect.right - rect.left}
+          height={rect.bottom - rect.top}
+          className={styles.cropBorder}
         />
-        <polygon points={polygon} className={styles.cropBorder} />
-        {thirds.map(([from, to], index) => (
+        {guides.map((segment, index) => (
           <line
             key={index}
-            x1={from.x}
-            y1={from.y}
-            x2={to.x}
-            y2={to.y}
-            className={styles.cropThirds}
+            x1={segment.x1}
+            y1={segment.y1}
+            x2={segment.x2}
+            y2={segment.y2}
+            className={rotating ? styles.cropFineGrid : styles.cropThirds}
           />
         ))}
-        {line && (
+        {lineFromScreen && lineToScreen && (
           <line
-            x1={line.from.x}
-            y1={line.from.y}
-            x2={line.to.x}
-            y2={line.to.y}
+            x1={lineFromScreen.x}
+            y1={lineFromScreen.y}
+            x2={lineToScreen.x}
+            y2={lineToScreen.y}
             className={styles.straightenLine}
           />
         )}
       </svg>
       {HANDLES.map((handle) => {
-        const point = handlePoint(session, handle);
+        const point = handlePoint(handle);
         return (
           <div
             key={handle}
-            className={`${styles.cropHandle} ${styles[`handle_${handle}`] ?? ''}`}
+            className={styles.cropHandle}
             data-crop-handle={handle}
-            style={{ left: `${point.x * 100}%`, top: `${point.y * 100}%` }}
+            style={{ left: `${point.x}px`, top: `${point.y}px` }}
           />
         );
       })}

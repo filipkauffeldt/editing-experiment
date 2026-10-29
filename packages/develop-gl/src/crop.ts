@@ -232,10 +232,56 @@ export function largestCropForAspect(
 /** A drag handle on the crop rectangle, named by its position. */
 export type CropHandle = 'nw' | 'n' | 'ne' | 'e' | 'se' | 's' | 'sw' | 'w';
 
+/** The smallest crop edge in pixels a resize or a drawn crop may produce. */
+export function minCropSize(image: Size): number {
+  return Math.max(2, Math.min(image.width, image.height) * 0.005);
+}
+
+const validAspect = (aspect: number | undefined): aspect is number =>
+  aspect !== undefined && Number.isFinite(aspect) && aspect > 0;
+
+/** True when all four corners of the (rotated) crop are inside the image. */
+export function cropFitsImage(crop: CropParams, image: Size): boolean {
+  const epsilon = 1e-6;
+  return cropCorners(crop, image).every(
+    (corner) =>
+      corner.x >= -epsilon &&
+      corner.x <= image.width + epsilon &&
+      corner.y >= -epsilon &&
+      corner.y <= image.height + epsilon,
+  );
+}
+
+/**
+ * Finds the candidate closest to `t = 1` that `fits`, by bisection on `t` in
+ * 0..1. `candidate(0)` is the starting position; when even that does not fit,
+ * returns `fallback`.
+ */
+function furthestFit<T>(candidate: (t: number) => T, fits: (value: T) => boolean, fallback: T): T {
+  const end = candidate(1);
+  if (fits(end)) return end;
+  let best = fallback;
+  let low = 0;
+  let high = 1;
+  for (let i = 0; i < 24; i++) {
+    const middle = (low + high) / 2;
+    const value = candidate(middle);
+    if (fits(value)) {
+      low = middle;
+      best = value;
+    } else {
+      high = middle;
+    }
+  }
+  return best;
+}
+
 /**
  * Resizes a crop from a handle dragged to `point` (source pixels). The
- * opposite corner/edge stays put. `aspect` (pixel width / height) locks the
- * ratio when present.
+ * opposite corner/edge stays put, or the centre when `symmetric` (Alt).
+ * `aspect` (pixel width / height) locks the ratio when present: an edge handle
+ * resizes the other dimension about the frame centre, a corner handle grows
+ * the frame until it reaches the pointer in both directions.
  *
  * When the dragged edge would leave the image, it is clamped *along that
  * edge* (binary search towards the old position); the crop is not scaled
@@ -247,6 +293,7 @@ export function resizeCropFromHandle(
   handle: CropHandle,
   point: Point,
   aspect?: number,
+  symmetric = false,
 ): CropParams {
   const geometry = cropGeometry(crop, image);
   const proposed = unrotatePoint(
@@ -254,90 +301,95 @@ export function resizeCropFromHandle(
     point.y - geometry.centerY,
     geometry.angle,
   );
-  const oldLeft = -geometry.width / 2;
-  const oldRight = geometry.width / 2;
-  const oldTop = -geometry.height / 2;
-  const oldBottom = geometry.height / 2;
-  const minSize = Math.max(2, Math.min(image.width, image.height) * 0.005);
-  const handleX = handle.includes('w') ? oldLeft : handle.includes('e') ? oldRight : 0;
-  const handleY = handle.includes('n') ? oldTop : handle.includes('s') ? oldBottom : 0;
+  const halfWidth = geometry.width / 2;
+  const halfHeight = geometry.height / 2;
+  const minSize = minCropSize(image);
+  const movesLeft = handle.includes('w');
+  const movesRight = handle.includes('e');
+  const movesTop = handle.includes('n');
+  const movesBottom = handle.includes('s');
+  const movesX = movesLeft || movesRight;
+  const movesY = movesTop || movesBottom;
+  const handleX = movesLeft ? -halfWidth : movesRight ? halfWidth : 0;
+  const handleY = movesTop ? -halfHeight : movesBottom ? halfHeight : 0;
 
+  // Edges in the crop's local (leveled) frame, relative to the crop centre.
   const build = (localX: number, localY: number): CropParams => {
-    let left = oldLeft;
-    let right = oldRight;
-    let top = oldTop;
-    let bottom = oldBottom;
-    if (handle.includes('w')) left = Math.min(localX, right - minSize);
-    if (handle.includes('e')) right = Math.max(localX, left + minSize);
-    if (handle.includes('n')) top = Math.min(localY, bottom - minSize);
-    if (handle.includes('s')) bottom = Math.max(localY, top + minSize);
+    let left = -halfWidth;
+    let right = halfWidth;
+    let top = -halfHeight;
+    let bottom = halfHeight;
+    if (symmetric) {
+      if (movesX) {
+        const half = Math.max(minSize / 2, movesRight ? localX : -localX);
+        left = -half;
+        right = half;
+      }
+      if (movesY) {
+        const half = Math.max(minSize / 2, movesBottom ? localY : -localY);
+        top = -half;
+        bottom = half;
+      }
+    } else {
+      if (movesLeft) left = Math.min(localX, right - minSize);
+      if (movesRight) right = Math.max(localX, left + minSize);
+      if (movesTop) top = Math.min(localY, bottom - minSize);
+      if (movesBottom) bottom = Math.max(localY, top + minSize);
+    }
 
-    let width = right - left;
-    let height = bottom - top;
-    if (aspect !== undefined && Number.isFinite(aspect) && aspect > 0) {
-      const horizontal = handle === 'e' || handle === 'w' || handle.length === 2;
-      if (horizontal && handle.length === 2) {
+    if (validAspect(aspect)) {
+      let width = right - left;
+      let height = bottom - top;
+      if (movesX && movesY) {
+        width = Math.max(width, height * aspect);
         height = width / aspect;
-        if (handle.includes('n')) top = bottom - height;
-        else bottom = top + height;
-      } else if (horizontal) {
+      } else if (movesX) {
         height = width / aspect;
-        const centerY = (top + bottom) / 2;
-        top = centerY - height / 2;
-        bottom = centerY + height / 2;
       } else {
         width = height * aspect;
-        const centerX = (left + right) / 2;
-        left = centerX - width / 2;
-        right = centerX + width / 2;
       }
-      width = right - left;
-      height = bottom - top;
+      if (symmetric) {
+        left = -width / 2;
+        right = width / 2;
+        top = -height / 2;
+        bottom = height / 2;
+      } else {
+        // The dragged side moves; the opposite side stays. An axis the handle
+        // does not touch is centred on the old centre.
+        if (movesLeft) left = right - width;
+        else if (movesRight) right = left + width;
+        else {
+          left = -width / 2;
+          right = width / 2;
+        }
+        if (movesTop) top = bottom - height;
+        else if (movesBottom) bottom = top + height;
+        else {
+          top = -height / 2;
+          bottom = height / 2;
+        }
+      }
     }
 
     const center = rotatePoint((left + right) / 2, (top + bottom) / 2, geometry.angle);
     return cropFromGeometry(
       geometry.centerX + center.x,
       geometry.centerY + center.y,
-      Math.max(minSize, width),
-      Math.max(minSize, height),
+      Math.max(minSize, right - left),
+      Math.max(minSize, bottom - top),
       geometry.angle,
       image,
     );
   };
 
-  const epsilon = 1e-6;
-  const fits = (candidate: CropParams): boolean =>
-    cropCorners(candidate, image).every(
-      (corner) =>
-        corner.x >= -epsilon &&
-        corner.x <= image.width + epsilon &&
-        corner.y >= -epsilon &&
-        corner.y <= image.height + epsilon,
-    );
-
-  const atEnd = build(proposed.x, proposed.y);
-  if (fits(atEnd)) return atEnd;
-  if (!fits(crop)) return constrainCrop(crop, image);
-
-  // Keep the old position as the anchor and move only the dragged edges.
-  let best = crop;
-  let low = 0;
-  let high = 1;
-  for (let i = 0; i < 24; i++) {
-    const middle = (low + high) / 2;
-    const candidate = build(
-      handleX + (proposed.x - handleX) * middle,
-      handleY + (proposed.y - handleY) * middle,
-    );
-    if (fits(candidate)) {
-      low = middle;
-      best = candidate;
-    } else {
-      high = middle;
-    }
-  }
-  return best;
+  if (!cropFitsImage(crop, image)) return constrainCrop(crop, image);
+  // Move the dragged edges from their old position towards the pointer; the
+  // opposite edges are the anchor.
+  return furthestFit(
+    (t) => build(handleX + (proposed.x - handleX) * t, handleY + (proposed.y - handleY) * t),
+    (candidate) => cropFitsImage(candidate, image),
+    crop,
+  );
 }
 
 /**
@@ -381,6 +433,240 @@ export function constrainCrop(crop: CropParams, image: Size): CropParams {
     Math.max(scaledExtentY, image.height - scaledExtentY),
   );
   return cropFromGeometry(fittedCenterX, fittedCenterY, fittedWidth, fittedHeight, angle, image);
+}
+
+/**
+ * Lightroom-style display model for crop mode.
+ *
+ * While cropping, the frame is axis-aligned on screen and the *image* is
+ * rotated underneath it by `-angle` (the stored crop is rotated by `+angle`;
+ * levelling it means turning the image the other way). "View" coordinates are
+ * screen coordinates in source-pixel units, with the frame centre at `pivot`:
+ *
+ *   view = pivot + R(-angle) * (image - crop centre)
+ *
+ * The pivot is session state: panning and rotating keep it (the frame does not
+ * move on screen), resizing moves it (the image does not move on screen).
+ */
+
+/** Source-image point -> view point. */
+export function cropImageToView(geometry: CropGeometry, pivot: Point, point: Point): Point {
+  const local = unrotatePoint(
+    point.x - geometry.centerX,
+    point.y - geometry.centerY,
+    geometry.angle,
+  );
+  return { x: pivot.x + local.x, y: pivot.y + local.y };
+}
+
+/** View point -> source-image point (inverse of {@link cropImageToView}). */
+export function cropViewToImage(geometry: CropGeometry, pivot: Point, point: Point): Point {
+  const rotated = rotatePoint(point.x - pivot.x, point.y - pivot.y, geometry.angle);
+  return { x: geometry.centerX + rotated.x, y: geometry.centerY + rotated.y };
+}
+
+/** Largest straighten angle in degrees, either way. */
+export const MAX_CROP_ANGLE = 45;
+
+/**
+ * Clockwise on-screen angle in degrees, in (-180, 180], that the pointer swept
+ * around `pivot` going from `from` to `to`.
+ */
+export function pointerAngleDelta(pivot: Point, from: Point, to: Point): number {
+  const before = Math.atan2(from.y - pivot.y, from.x - pivot.x);
+  const after = Math.atan2(to.y - pivot.y, to.x - pivot.x);
+  let delta = (after - before) / DEG;
+  while (delta > 180) delta -= 360;
+  while (delta <= -180) delta += 360;
+  return delta;
+}
+
+/** Rounds an angle to 0.1 degrees (1 degree when `snap`) and limits it to +-45. */
+export function quantizeAngle(angle: number, snap = false): number {
+  const finite = Number.isFinite(angle) ? angle : 0;
+  const rounded = snap ? Math.round(finite) : Math.round(finite * 10) / 10;
+  return clamp(rounded, -MAX_CROP_ANGLE, MAX_CROP_ANGLE) + 0;
+}
+
+/**
+ * The crop angle that levels a line drawn between two view points while the
+ * crop currently has `currentAngle`. The line is measured on screen, so it
+ * already includes the displayed rotation.
+ */
+export function straightenAngleFromLine(currentAngle: number, from: Point, to: Point): number {
+  let slope = Math.atan2(to.y - from.y, to.x - from.x) / DEG;
+  while (slope > 90) slope -= 180;
+  while (slope <= -90) slope += 180;
+  return quantizeAngle(currentAngle + slope);
+}
+
+/**
+ * True when the stored corners describe a crop at all: finite numbers and two
+ * distinct corners. The corners are opposite corners of the *rotated* rectangle,
+ * so near +-45 degrees they are legitimately "inverted" (right < left or
+ * bottom < top for a wide frame tilted one way); the angle disambiguates, so
+ * order is not a validity test.
+ */
+export function isUsableCrop(crop: CropParams): boolean {
+  return (
+    [crop.left, crop.top, crop.right, crop.bottom, crop.angle].every(Number.isFinite) &&
+    (crop.right !== crop.left || crop.bottom !== crop.top)
+  );
+}
+
+/**
+ * Pans the image under the fixed frame: the image moves by `delta` (view
+ * units) and the crop follows, clamped so the frame stays inside the image.
+ * Each axis is clamped on its own, so dragging along an edge still slides.
+ */
+export function panCrop(crop: CropParams, image: Size, delta: Point): CropParams {
+  const geometry = cropGeometry(crop, image);
+  const shift = rotatePoint(delta.x, delta.y, geometry.angle);
+  return constrainCrop(
+    cropFromGeometry(
+      geometry.centerX - shift.x,
+      geometry.centerY - shift.y,
+      geometry.width,
+      geometry.height,
+      geometry.angle,
+      image,
+    ),
+    image,
+  );
+}
+
+/**
+ * Scales the crop down about its own centre (aspect, angle and centre kept)
+ * until its rotated rectangle is inside the image. This is "constrain to
+ * image" while the frame stays where it is on screen. A crop that already fits
+ * is returned unchanged.
+ */
+export function shrinkCropToImage(crop: CropParams, image: Size): CropParams {
+  const geometry = cropGeometry(crop, image);
+  const centerX = clamp(geometry.centerX, 0, image.width);
+  const centerY = clamp(geometry.centerY, 0, image.height);
+  const { cos, sin } = cosSin(geometry.angle);
+  const a = Math.abs(cos);
+  const b = Math.abs(sin);
+  const extentX = (geometry.width / 2) * a + (geometry.height / 2) * b;
+  const extentY = (geometry.width / 2) * b + (geometry.height / 2) * a;
+  const scale = Math.min(
+    1,
+    extentX > 0 ? Math.min(centerX, image.width - centerX) / extentX : 1,
+    extentY > 0 ? Math.min(centerY, image.height - centerY) / extentY : 1,
+  );
+  if (scale >= 1 && centerX === geometry.centerX && centerY === geometry.centerY) return crop;
+  return cropFromGeometry(
+    centerX,
+    centerY,
+    Math.max(1, geometry.width * scale),
+    Math.max(1, geometry.height * scale),
+    geometry.angle,
+    image,
+  );
+}
+
+/**
+ * Straightens the crop to `angle` about the frame centre. The frame keeps its
+ * aspect ratio and shrinks just enough that the rotated image still covers it;
+ * this works all the way to +-45 degrees, never refusing. Pass the size the user asked for as `desired` so the frame grows back when
+ * the angle returns (otherwise a drag back and forth would ratchet it down).
+ */
+export function rotateCrop(
+  crop: CropParams,
+  image: Size,
+  angle: number,
+  desired?: Size,
+): CropParams {
+  const geometry = cropGeometry(crop, image);
+  const size = desired ?? { width: geometry.width, height: geometry.height };
+  return shrinkCropToImage(
+    cropFromGeometry(
+      geometry.centerX,
+      geometry.centerY,
+      size.width,
+      size.height,
+      quantizeAngle(angle),
+      image,
+    ),
+    image,
+  );
+}
+
+/**
+ * {@link rotateCrop} for the view model: the image turns about `pivot` (the
+ * frame centre on screen). Normally the crop centre does not change and neither
+ * does the pivot; if the centre had to be pulled back into the image, the frame
+ * follows it, so the image keeps turning about the old pivot instead of jumping.
+ */
+export function rotateCropInView(
+  crop: CropParams,
+  image: Size,
+  pivot: Point,
+  angle: number,
+  desired?: Size,
+): DrawnCrop {
+  const before = cropGeometry(crop, image);
+  const next = rotateCrop(crop, image, angle, desired);
+  const after = cropGeometry(next, image);
+  const dx = after.centerX - before.centerX;
+  const dy = after.centerY - before.centerY;
+  // Rounding in the corner round trip is not a move.
+  const shift = Math.hypot(dx, dy) > 1e-6 ? unrotatePoint(dx, dy, after.angle) : { x: 0, y: 0 };
+  return { crop: next, pivot: { x: pivot.x + shift.x, y: pivot.y + shift.y } };
+}
+
+/** A freshly drawn crop and the view position of its centre. */
+export interface DrawnCrop {
+  crop: CropParams;
+  pivot: Point;
+}
+
+/**
+ * Lightroom's crop-frame tool: the user drags a new axis-aligned frame over the
+ * displayed (rotated) image from `anchor` to `point` (view points). The angle is
+ * kept. `aspect` locks the ratio (the frame grows to reach the pointer on both
+ * axes), `symmetric` draws about the anchor instead of from it. The frame is
+ * limited to the image by pulling the pointer back towards the anchor.
+ * Returns undefined when the anchor is not on the image.
+ */
+export function drawCrop(
+  crop: CropParams,
+  image: Size,
+  pivot: Point,
+  anchor: Point,
+  point: Point,
+  aspect?: number,
+  symmetric = false,
+): DrawnCrop | undefined {
+  const geometry = cropGeometry(crop, image);
+  const minSize = minCropSize(image);
+  const signX = point.x < anchor.x ? -1 : 1;
+  const signY = point.y < anchor.y ? -1 : 1;
+  const build = (t: number): DrawnCrop => {
+    const reach = symmetric ? 2 : 1;
+    let width = Math.abs(point.x - anchor.x) * t * reach;
+    let height = Math.abs(point.y - anchor.y) * t * reach;
+    if (validAspect(aspect)) {
+      width = Math.max(width, height * aspect, minSize, minSize * aspect);
+      height = width / aspect;
+    } else {
+      width = Math.max(width, minSize);
+      height = Math.max(height, minSize);
+    }
+    const center = symmetric
+      ? anchor
+      : { x: anchor.x + (signX * width) / 2, y: anchor.y + (signY * height) / 2 };
+    const imageCenter = cropViewToImage(geometry, pivot, center);
+    return {
+      crop: cropFromGeometry(imageCenter.x, imageCenter.y, width, height, geometry.angle, image),
+      pivot: center,
+    };
+  };
+  const fits = (drawn: DrawnCrop): boolean => cropFitsImage(drawn.crop, image);
+  const start = build(0);
+  if (!fits(start)) return undefined;
+  return furthestFit(build, fits, start);
 }
 
 /** EXIF orientation, 1..8 (1 = stored pixels are already upright). */

@@ -7,39 +7,59 @@
 
 // WebGL2 renderer
 export { createDevelopRenderer, DevelopGlError } from './renderer';
-export type { DevelopRenderer, DevelopRendererOptions } from './renderer';
+export type { CropViewTransform, DevelopRenderer, DevelopRendererOptions } from './renderer';
 
 // Parameter model
 export { resolveUniforms, buildCurveLut } from './params';
 export type { DevelopCamera, DevelopUniforms } from './params';
 export { TUNING } from './tuning';
 export {
+  MAX_CROP_ANGLE,
   constrainCrop,
   cropAspect,
   cropCorners,
   cropDevelopedRgba,
+  cropFitsImage,
   cropFromGeometry,
   cropGeometry,
+  cropImageToView,
   cropOutputPixels,
   cropOutputSize,
   cropOrientedToStored,
   cropStoredToOriented,
+  cropViewToImage,
   croppedToSource,
   croppedToSourcePixels,
+  drawCrop,
   isFullCrop,
+  isUsableCrop,
   largestCropForAspect,
+  minCropSize,
   normalizeOrientation,
   orientedToStoredPoint,
+  panCrop,
+  pointerAngleDelta,
+  quantizeAngle,
   resizeCropFromHandle,
+  rotateCrop,
+  rotateCropInView,
   rotatePoint,
   sanitizeCrop,
+  shrinkCropToImage,
+  straightenAngleFromLine,
   sourceToCropped,
   storedSizeForOrientation,
   storedToOrientedPoint,
   sourceToCroppedPixels,
   unrotatePoint,
 } from './crop';
-export type { CropGeometry, CropHandle, Point as CropPoint, Size as CropSize } from './crop';
+export type {
+  CropGeometry,
+  CropHandle,
+  DrawnCrop,
+  Point as CropPoint,
+  Size as CropSize,
+} from './crop';
 
 // White balance
 export {

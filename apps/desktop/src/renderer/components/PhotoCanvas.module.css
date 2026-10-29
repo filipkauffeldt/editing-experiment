@@ -27,6 +27,12 @@
   box-shadow: 0 1px 12px rgb(0 0 0 / 45%);
 }
 
+/* Crop mode draws the rotated image on the whole workspace. */
+.stage[data-mode='crop'] {
+  background: #1a1a1c;
+  box-shadow: none;
+}
+
 .image,
 .canvas,
 .mosaic,
@@ -225,15 +231,37 @@
   left: 10px;
   right: 10px;
   display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 6px 10px;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
   padding: 7px 9px;
   border-radius: 6px;
   background: rgb(18 19 22 / 90%);
   border: 1px solid rgb(255 255 255 / 10%);
   color: var(--foreground);
   font-size: 11px;
+  z-index: 3;
+}
+
+.cropRow {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 10px;
+}
+
+.cropHint {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  color: var(--muted);
+  font-size: 11px;
+  pointer-events: none;
   z-index: 3;
 }
 
@@ -244,8 +272,12 @@
   z-index: 2;
 }
 
-.cropOverlay.straighten {
-  cursor: crosshair;
+/* A curved double arrow, hot spot in the middle. */
+.cursorRotate {
+  cursor:
+    url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24' fill='none' stroke-linecap='round' stroke-linejoin='round'><g stroke='black' stroke-width='4.2'><path d='M4.5 10a8 8 0 0 1 15 0'/><path d='M4.5 14a8 8 0 0 0 15 0'/><path d='M2.5 7.5l2 2.8 3-2.2'/><path d='M21.5 16.5l-2-2.8-3 2.2'/></g><g stroke='white' stroke-width='2'><path d='M4.5 10a8 8 0 0 1 15 0'/><path d='M4.5 14a8 8 0 0 0 15 0'/><path d='M2.5 7.5l2 2.8 3-2.2'/><path d='M21.5 16.5l-2-2.8-3 2.2'/></g></svg>")
+      12 12,
+    alias;
 }
 
 .cropSvg {
@@ -256,58 +288,36 @@
   pointer-events: none;
 }
 
-.cropDim {
-  fill: rgb(0 0 0 / 55%);
-}
-
 .cropBorder {
   fill: none;
   stroke: #f2f2f2;
   stroke-width: 1.5;
-  vector-effect: non-scaling-stroke;
 }
 
 .cropThirds {
-  stroke: rgb(255 255 255 / 45%);
+  stroke: rgb(255 255 255 / 55%);
   stroke-width: 1;
-  vector-effect: non-scaling-stroke;
+}
+
+.cropFineGrid {
+  stroke: rgb(255 255 255 / 38%);
+  stroke-width: 1;
 }
 
 .straightenLine {
   stroke: #ffd166;
   stroke-width: 1.5;
   stroke-dasharray: 5 3;
-  vector-effect: non-scaling-stroke;
 }
 
 .cropHandle {
   position: absolute;
-  width: 11px;
-  height: 11px;
+  width: 9px;
+  height: 9px;
   transform: translate(-50%, -50%);
-  border: 2px solid #1b1b1f;
+  border: 1.5px solid #1b1b1f;
   border-radius: 2px;
   background: #fff;
   box-shadow: 0 0 2px rgb(0 0 0 / 60%);
-  cursor: pointer;
-}
-
-.handle_nw,
-.handle_se {
-  cursor: nwse-resize;
-}
-
-.handle_ne,
-.handle_sw {
-  cursor: nesw-resize;
-}
-
-.handle_n,
-.handle_s {
-  cursor: ns-resize;
-}
-
-.handle_e,
-.handle_w {
-  cursor: ew-resize;
+  pointer-events: none;
 }

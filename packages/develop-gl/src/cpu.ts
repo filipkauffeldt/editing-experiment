@@ -1,5 +1,5 @@
 import type { EditParams, LinearImageHeader } from '@ee/contracts';
-import { cropGeometry, cropOutputSize } from './crop';
+import { cropGeometry, cropOutputSize, isUsableCrop } from './crop';
 import { toFloat32Samples, type LinearImageBuffer } from './image';
 import {
   clipHighlights,
@@ -124,9 +124,7 @@ export function renderCpuFloat(
   // crop centre, then bilinear sampling (pixel centres, edge clamp).
   const crop = params.crop;
   const geometry =
-    crop && crop.right > crop.left && crop.bottom > crop.top
-      ? cropGeometry(crop, { width: sw, height: sh })
-      : undefined;
+    crop && isUsableCrop(crop) ? cropGeometry(crop, { width: sw, height: sh }) : undefined;
   const radians = ((geometry?.angle ?? 0) * Math.PI) / 180;
   const cos = Math.cos(radians);
   const sin = Math.sin(radians);
