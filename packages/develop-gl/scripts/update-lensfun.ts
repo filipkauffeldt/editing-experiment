@@ -52,23 +52,33 @@ async function download(): Promise<{ dir: string; version: number }> {
 
 async function main(): Promise<void> {
   const from = process.argv.indexOf('--from');
-  const source =
-    from >= 0 ? { dir: process.argv[from + 1] ?? '', version: 0 } : await download();
+  const source = from >= 0 ? { dir: process.argv[from + 1] ?? '', version: 0 } : await download();
   const parser = new XMLParser({
     ignoreAttributes: false,
     attributeNamePrefix: '',
     isArray: (name) =>
-      ['lens', 'camera', 'mount', 'maker', 'model', 'compat', 'distortion', 'tca', 'vignetting'].includes(
-        name,
-      ),
+      [
+        'lens',
+        'camera',
+        'mount',
+        'maker',
+        'model',
+        'compat',
+        'distortion',
+        'tca',
+        'vignetting',
+      ].includes(name),
   });
 
   const mounts: Record<string, string[]> = {};
   const cameras: unknown[] = [];
   const lenses: unknown[] = [];
-  for (const file of readdirSync(source.dir).filter((name) => name.endsWith('.xml')).sort()) {
-    const db = (parser.parse(readFileSync(join(source.dir, file), 'utf8')) as { lensdatabase: Node })
-      .lensdatabase;
+  for (const file of readdirSync(source.dir)
+    .filter((name) => name.endsWith('.xml'))
+    .sort()) {
+    const db = (
+      parser.parse(readFileSync(join(source.dir, file), 'utf8')) as { lensdatabase: Node }
+    ).lensdatabase;
     for (const mount of list(db['mount'])) {
       const name = text(mount['name']);
       if (name === Z_MOUNT || (name && F_MOUNTS.has(name))) {

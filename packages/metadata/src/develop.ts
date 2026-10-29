@@ -112,7 +112,35 @@ const SCALAR_TAGS: Readonly<Record<ScalarKey, string>> = {
   ColorNoiseReduction: 'XMP-crs:ColorNoiseReduction',
   ColorNoiseReductionDetail: 'XMP-crs:ColorNoiseReductionDetail',
   ColorNoiseReductionSmoothness: 'XMP-crs:ColorNoiseReductionSmoothness',
+  LensProfileEnable: 'XMP-crs:LensProfileEnable',
+  LensProfileName: 'XMP-crs:LensProfileName',
+  LensProfileFilename: 'XMP-crs:LensProfileFilename',
+  LensProfileDistortionScale: 'XMP-crs:LensProfileDistortionScale',
+  LensProfileVignettingScale: 'XMP-crs:LensProfileVignettingScale',
+  AutoLateralCA: 'XMP-crs:AutoLateralCA',
+  LensManualDistortionAmount: 'XMP-crs:LensManualDistortionAmount',
+  VignetteAmount: 'XMP-crs:VignetteAmount',
+  VignetteMidpoint: 'XMP-crs:VignetteMidpoint',
+  DefringePurpleAmount: 'XMP-crs:DefringePurpleAmount',
+  DefringePurpleHueLo: 'XMP-crs:DefringePurpleHueLo',
+  DefringePurpleHueHi: 'XMP-crs:DefringePurpleHueHi',
+  DefringeGreenAmount: 'XMP-crs:DefringeGreenAmount',
+  DefringeGreenHueLo: 'XMP-crs:DefringeGreenHueLo',
+  DefringeGreenHueHi: 'XMP-crs:DefringeGreenHueHi',
+  LensProfileChoice: 'XMP-ee:LensProfile',
 };
+
+/** Settings Lightroom stores as 0/1. */
+const BOOLEAN_KEYS = ['LensProfileEnable', 'AutoLateralCA'] as const;
+type BooleanKey = (typeof BOOLEAN_KEYS)[number];
+const isBooleanKey = (key: ScalarKey): key is BooleanKey =>
+  (BOOLEAN_KEYS as readonly string[]).includes(key);
+
+/** Free text settings. */
+const TEXT_KEYS = ['LensProfileName', 'LensProfileFilename', 'LensProfileChoice'] as const;
+type TextKey = (typeof TEXT_KEYS)[number];
+const isTextKey = (key: ScalarKey): key is TextKey =>
+  (TEXT_KEYS as readonly string[]).includes(key);
 
 type LegacySplitToningKey =
   | 'SplitToningShadowHue'
@@ -250,6 +278,17 @@ export async function readEditParams(
       }
       continue;
     }
+    if (isBooleanKey(key)) {
+      const flag =
+        asNumber(raw) ?? (asBoolean(raw) === undefined ? undefined : Number(asBoolean(raw)));
+      if (flag !== undefined) params[key] = flag !== 0;
+      continue;
+    }
+    if (isTextKey(key)) {
+      const text = asString(raw)?.trim();
+      if (text !== undefined && text !== '') params[key] = text;
+      continue;
+    }
     const value = asNumber(raw);
     if (value !== undefined) {
       (params as Record<string, unknown>)[key] = value;
@@ -357,7 +396,7 @@ export async function writeEditParams(
       tags[tag] = null;
       continue;
     }
-    tags[tag] = value;
+    tags[tag] = typeof value === 'boolean' ? Number(value) : value;
     anySetting = true;
   }
 

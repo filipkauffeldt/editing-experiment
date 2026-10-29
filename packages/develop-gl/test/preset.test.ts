@@ -346,3 +346,50 @@ describe('neighbourhood settings in presets', () => {
     });
   });
 });
+
+describe('lens corrections in presets', () => {
+  const xmp = `<x:xmpmeta xmlns:x="adobe:ns:meta/">
+  <rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
+    <rdf:Description rdf:about=""
+      xmlns:crs="http://ns.adobe.com/camera-raw-settings/1.0/"
+      crs:PresetType="Normal"
+      crs:Name="Lens"
+      crs:LensProfileEnable="1"
+      crs:LensProfileName="Adobe (NIKKOR Z 24-70mm f/4 S)"
+      crs:LensProfileFilename="NIKON Z 6.lcp"
+      crs:LensProfileDistortionScale="80"
+      crs:LensProfileVignettingScale="250"
+      crs:AutoLateralCA="1"
+      crs:LensManualDistortionAmount="-15"
+      crs:VignetteAmount="+20"
+      crs:VignetteMidpoint="35"
+      crs:DefringePurpleAmount="4"
+      crs:DefringePurpleHueLo="25"
+      crs:DefringeGreenAmount="2" />
+  </rdf:RDF>
+</x:xmpmeta>`;
+
+  it('reads the switches and amounts, clamped, and ignores the Adobe profile identity', () => {
+    const { preset, unsupported } = parsePresetXmp(xmp);
+    expect(preset.params).toEqual({
+      LensProfileEnable: true,
+      LensProfileDistortionScale: 80,
+      LensProfileVignettingScale: 200,
+      AutoLateralCA: true,
+      LensManualDistortionAmount: -15,
+      VignetteAmount: 20,
+      VignetteMidpoint: 35,
+      DefringePurpleAmount: 4,
+      DefringePurpleHueLo: 25,
+      DefringeGreenAmount: 2,
+    });
+    expect(unsupported).toEqual([]);
+  });
+
+  it('keeps the photo’s own lens choice when a preset is applied', () => {
+    const { preset } = parsePresetXmp(xmp);
+    const next = applyPreset({ LensProfileChoice: 'builtin' }, preset);
+    expect(next.LensProfileChoice).toBe('builtin');
+    expect(next.LensProfileEnable).toBe(true);
+  });
+});

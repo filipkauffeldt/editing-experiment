@@ -95,6 +95,9 @@ const METADATA_KEYS = new Set([
   'Description',
   'RequiresRGBTables',
   'ToneCurveName2012',
+  // Adobe lens profile identity: read-only, a preset must not pin another photo to it.
+  'LensProfileName',
+  'LensProfileFilename',
   'id',
   'internalName',
   'title',
@@ -197,6 +200,14 @@ export function settingsToPreset(
         byCode ??
         VIGNETTE_STYLES.find((candidate) => candidate.toLowerCase() === text.toLowerCase());
       if (style) params.PostCropVignetteStyle = style;
+      else unsupported.push(key);
+    } else if (
+      (key === 'LensProfileEnable' || key === 'AutoLateralCA') &&
+      setting.kind === 'scalar'
+    ) {
+      const text = setting.value.trim().toLowerCase();
+      if (text === '1' || text === 'true') params[key] = true;
+      else if (text === '0' || text === 'false') params[key] = false;
       else unsupported.push(key);
     } else if (key === 'WhiteBalance' && setting.kind === 'scalar') {
       const mode = WHITE_BALANCE_MODES.find(

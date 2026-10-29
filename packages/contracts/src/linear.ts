@@ -52,6 +52,52 @@ export interface LinearImageHeader {
   /** As-shot colour temperature (Kelvin) and tint, when the decoder could derive them. */
   asShotTemperature?: number;
   asShotTint?: number;
+  /** What the lens correction needs to know about the shot. Absent for JPEGs and files without lens data. */
+  lens?: LensShotInfo;
+}
+
+/**
+ * Lens facts of one shot, read in the jobs process (ExifTool and the Nikon maker data) and carried
+ * in the linear image header, so every render path (canvas, edited previews, export workers) sees
+ * the same lens without further lookups.
+ */
+export interface LensShotInfo {
+  /** EXIF `Make` / `Model` of the body, as written by the camera. */
+  cameraMake?: string;
+  cameraModel?: string;
+  /** EXIF `LensModel`, e.g. `NIKKOR Z 24-70mm f/4 S`. */
+  lensModel?: string;
+  /** mm. */
+  focalLength?: number;
+  /** 35 mm equivalent focal length; with `focalLength` it gives the crop mode (DX on an FX body). */
+  focalLength35?: number;
+  fNumber?: number;
+  /** Metres; absent when unknown or at infinity. */
+  focusDistance?: number;
+  /** The camera's own correction. */
+  builtin?: BuiltinLensCorrection;
+}
+
+/**
+ * The correction a camera stores for its shot: radial polynomials of the normalised radius
+ * `q = r / unit`, `r` being the distance in pixels from the optical centre. Nikon Z: NEFInfo
+ * records 5 to 8 (see `docs/ARCHITECTURE.md`, "Lens corrections").
+ */
+export interface BuiltinLensCorrection {
+  source: 'Nikon built-in';
+  /** True when the camera says the lens needs the correction (Camera Raw applies it whatever the user chose). */
+  required: boolean;
+  /** Optical centre as a fraction of the image size from the image centre (x of the width, y of the height). */
+  centre: { x: number; y: number };
+  /** `q = 1` at this fraction of the image half diagonal. */
+  unit: number;
+  /** Green's recorded radius over the corrected radius, ascending powers of `q` from `q^0` (the framing scale included). */
+  distortion?: number[];
+  /** Vignetting gain, ascending powers of `q` from `q^0`. */
+  vignetting?: number[];
+  /** Red's and blue's radius over green's, ascending powers of `q` from `q^0`. */
+  red?: number[];
+  blue?: number[];
 }
 
 /** Name of the response header carrying the JSON-encoded {@link LinearImageHeader}. */

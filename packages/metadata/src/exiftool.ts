@@ -24,6 +24,7 @@ export const EE_CONFIG = String.raw`%Image::ExifTool::UserDefined = (
   NAMESPACE => { 'ee' => 'http://ns.editing-experiment/1.0/' },
   WRITE_PROC => \&Image::ExifTool::XMP::WriteXMP,
   RetouchVersions => { Writable => 'string' },
+  LensProfile => { Writable => 'string' },
 );
 1;
 `;

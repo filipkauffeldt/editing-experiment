@@ -181,6 +181,42 @@ export interface EditParams {
   GrainSize?: number;
   GrainFrequency?: number;
 
+  /**
+   * Lens Corrections. Absent means the camera's own default: on for lenses the camera marks as
+   * needing software correction (Nikon "Required"), otherwise off.
+   */
+  LensProfileEnable?: boolean;
+  /** Read only: the Adobe profile Lightroom picked. Kept for round trips, never applied or written for our choice. */
+  LensProfileName?: string;
+  /** Read only, as {@link EditParams.LensProfileName}. */
+  LensProfileFilename?: string;
+  /** Profile distortion correction amount, 0..200 (100 = the profile as measured). */
+  LensProfileDistortionScale?: number;
+  /** Profile vignetting correction amount, 0..200. */
+  LensProfileVignettingScale?: number;
+  /** Remove Chromatic Aberration: measured from the photo, needs no lens data. */
+  AutoLateralCA?: boolean;
+  /** Manual distortion, -100..100; positive corrects barrel distortion. */
+  LensManualDistortionAmount?: number;
+  /** Manual lens vignette (before the crop, unlike the post-crop vignette), -100..100; positive lightens the corners. */
+  VignetteAmount?: number;
+  /** 0..100. */
+  VignetteMidpoint?: number;
+  /** Defringe amounts 0..20 and hue ranges 0..100 (`crs:Defringe*`). */
+  DefringePurpleAmount?: number;
+  DefringePurpleHueLo?: number;
+  DefringePurpleHueHi?: number;
+  DefringeGreenAmount?: number;
+  DefringeGreenHueLo?: number;
+  DefringeGreenHueHi?: number;
+  /**
+   * Our own lens profile choice (`ee:LensProfile`): `'builtin'` for the camera's data in the file, or
+   * `'lensfun:<index key>'` for a Lensfun lens. Absent = automatic (built-in when the file has it,
+   * else the best Lensfun match). Not a `crs:` name, because Lightroom would look for an Adobe
+   * profile of that name.
+   */
+  LensProfileChoice?: string;
+
   crop?: CropParams;
 }
 
@@ -269,6 +305,17 @@ export const SLIDER_PARAMS = [
   'ColorNoiseReduction',
   'ColorNoiseReductionDetail',
   'ColorNoiseReductionSmoothness',
+  'LensProfileDistortionScale',
+  'LensProfileVignettingScale',
+  'LensManualDistortionAmount',
+  'VignetteAmount',
+  'VignetteMidpoint',
+  'DefringePurpleAmount',
+  'DefringePurpleHueLo',
+  'DefringePurpleHueHi',
+  'DefringeGreenAmount',
+  'DefringeGreenHueLo',
+  'DefringeGreenHueHi',
 ] as const satisfies readonly (keyof EditParams)[];
 
 /** Name of a scalar slider parameter. */
@@ -370,6 +417,17 @@ export const SLIDER_SPECS: Readonly<Record<SliderParam, SliderSpec>> = {
   ColorNoiseReduction: { min: 0, max: 100, step: 1, neutral: 0 },
   ColorNoiseReductionDetail: { min: 0, max: 100, step: 1, neutral: 50 },
   ColorNoiseReductionSmoothness: { min: 0, max: 100, step: 1, neutral: 50 },
+  LensProfileDistortionScale: { min: 0, max: 200, step: 1, neutral: 100 },
+  LensProfileVignettingScale: { min: 0, max: 200, step: 1, neutral: 100 },
+  LensManualDistortionAmount: { min: -100, max: 100, step: 1, neutral: 0 },
+  VignetteAmount: { min: -100, max: 100, step: 1, neutral: 0 },
+  VignetteMidpoint: { min: 0, max: 100, step: 1, neutral: 50 },
+  DefringePurpleAmount: { min: 0, max: 20, step: 1, neutral: 0 },
+  DefringePurpleHueLo: { min: 0, max: 100, step: 1, neutral: 30 },
+  DefringePurpleHueHi: { min: 0, max: 100, step: 1, neutral: 70 },
+  DefringeGreenAmount: { min: 0, max: 20, step: 1, neutral: 0 },
+  DefringeGreenHueLo: { min: 0, max: 100, step: 1, neutral: 40 },
+  DefringeGreenHueHi: { min: 0, max: 100, step: 1, neutral: 60 },
 };
 
 /**
