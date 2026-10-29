@@ -1229,6 +1229,17 @@ describe('crop gestures', () => {
     expect(session().tool).toBe('crop');
   });
 
+  it('replaces the draft crop programmatically, centring the frame on it', async () => {
+    const { store, session } = await croppingSetup({ width: 6000, height: 4000 });
+    store.setCropDraft({ left: 0.1, top: 0.2, right: 0.5, bottom: 0.6, angle: 0 });
+    expect(session().crop).toMatchObject({ left: 0.1, top: 0.2, right: 0.5, bottom: 0.6 });
+    expect(session().pivot.x).toBeCloseTo(0.3 * 6000, 6);
+    expect(session().pivot.y).toBeCloseTo(0.4 * 4000, 6);
+    // Out-of-image drafts are pulled back in.
+    store.setCropDraft({ left: -0.5, top: 0, right: 0.5, bottom: 1, angle: 0 });
+    expect(session().crop.left).toBeGreaterThanOrEqual(0);
+  });
+
   it('cycles the overlay and toggles tools', async () => {
     const { store, session } = await croppingSetup();
     const seen = [session().overlay];

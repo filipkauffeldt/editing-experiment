@@ -1260,6 +1260,19 @@ export class AppStore {
   };
 
   /** Slider and typed angle: the image turns about the frame centre. */
+  /** Replaces the draft crop (programmatic edits); constrained to the image, frame centred. */
+  readonly setCropDraft = (crop: CropParams): void => {
+    const session = this.state.crop;
+    if (!session) return;
+    const next = constrainCrop(sanitizeCrop(crop), session.image);
+    const geometry = cropGeometry(next, session.image);
+    this.updateCrop({
+      crop: next,
+      pivot: { x: geometry.centerX, y: geometry.centerY },
+      desired: undefined,
+    });
+  };
+
   readonly setCropAngle = (angle: number): void => {
     const session = this.state.crop;
     if (!session) return;

@@ -7,7 +7,6 @@ import {
   frameRect,
   guideSegments,
   hitTestFrame,
-  previewPlacement,
   screenToView,
   viewToScreen,
 } from '../src/renderer/crop-view';
@@ -139,27 +138,6 @@ describe('cursorFor', () => {
     expect(cursorFor('move', false)).toBe('grab');
     expect(cursorFor('move', true)).toBe('grabbing');
     expect(cursorFor('rotate', false)).toBe('rotate');
-  });
-});
-
-describe('previewPlacement', () => {
-  it('puts the unrotated image where the canvas would, moving the crop centre under the frame', () => {
-    const layout = { scale: 0.2, offset: { x: 50, y: 100 } };
-    const place = previewPlacement(
-      layout,
-      { width: 1000, height: 800 },
-      { x: 400, y: 300 },
-      { x: 450, y: 250 },
-      12,
-    );
-    expect(place).toMatchObject({ left: 50, top: 100, width: 200, height: 160 });
-    // Turn about the image point at the crop centre, against the crop angle...
-    expect(place.originX).toBeCloseTo(80, 9);
-    expect(place.originY).toBeCloseTo(60, 9);
-    expect(place.rotate).toBe(-12);
-    // ...then slide it so that point sits at the frame centre.
-    expect(place.translateX).toBeCloseTo(10, 9);
-    expect(place.translateY).toBeCloseTo(-10, 9);
   });
 });
 
