@@ -350,3 +350,84 @@
   background: var(--text);
   pointer-events: none;
 }
+
+/* White balance picker: crosshair over the image and a magnified patch. */
+.pickerLayer {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  cursor: crosshair;
+  touch-action: none;
+}
+
+.pickerHint {
+  position: absolute;
+  left: 50%;
+  bottom: 10px;
+  transform: translateX(-50%);
+  padding: 2px 7px;
+  background: var(--scrim);
+  color: var(--text);
+  font-size: var(--fs-small);
+  pointer-events: none;
+  white-space: nowrap;
+}
+
+.loupe {
+  position: absolute;
+  z-index: 3;
+  width: 108px;
+  height: 108px;
+  border: 1px solid var(--text);
+  background-color: var(--bg);
+  background-repeat: no-repeat;
+  box-shadow: 0 0 0 1px var(--bg);
+  pointer-events: none;
+}
+
+/* Before/after split: a 1 px white divider with the two side labels. */
+.splitDivider {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  z-index: 3;
+  width: 1px;
+  margin-left: -0.5px;
+  background: var(--text);
+  cursor: col-resize;
+  touch-action: none;
+}
+
+.splitDivider::before {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 7px;
+  height: 34px;
+  transform: translate(-50%, -50%);
+  border: 1px solid var(--text);
+  background: var(--bg);
+}
+
+.splitLabel {
+  position: absolute;
+  top: 8px;
+  z-index: 3;
+  padding: 1px 5px;
+  background: var(--scrim);
+  color: var(--text);
+  font-family: var(--font-mono);
+  font-size: 9px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  pointer-events: none;
+}
+
+.splitLabelLeft {
+  left: 8px;
+}
+
+.splitLabelRight {
+  right: auto;
+}

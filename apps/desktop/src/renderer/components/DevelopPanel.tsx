@@ -3,8 +3,16 @@ import { SLIDER_SPECS, type EditParams, type SliderParam, type VignetteStyle } f
 import { useState, type ReactNode } from 'react';
 import { activePhoto, paramsForPhoto, sectionEnabled } from '../store';
 import { asShotTrackPosition, temperatureToTrack, trackToTemperature } from '../temperature-scale';
+import {
+  requestDevelopAction,
+  setBeforeAfter,
+  toggleBefore,
+  toggleWbPicker,
+  useDevelopViewMode,
+} from '../develop-view';
 import { useAppState, useAppStore } from '../store-context';
 import { CloseIcon, PlusIcon } from './icons';
+import { Histogram } from './Histogram';
 import { Panel } from './Panel';
 import { ColorGradingWheels, GRADING_VIEWS, type GradingView } from './ColorGradingWheels';
 import { ToneCurveEditor } from './ToneCurveEditor';
@@ -567,9 +575,68 @@ export function DevelopPanel({ className }: { className?: string }) {
   const store = useAppStore();
   const state = useAppState();
   const photo = activePhoto(state);
+  const mode = useDevelopViewMode();
 
   return (
     <Panel title="Develop" className={className}>
+      <Histogram photo={photo} />
+      <div className={styles.tools}>
+        <Button
+          size="small"
+          disabled={!photo}
+          title="Set Exposure, Contrast, Highlights, Shadows, Whites, Blacks, Vibrance and Saturation from the photo"
+          data-testid="auto-tone"
+          onClick={() => requestDevelopAction('auto-tone')}
+        >
+          Auto tone
+        </Button>
+        <Button
+          size="small"
+          disabled={!photo}
+          title="Neutralise the photo's colour cast (grey world in camera space)"
+          data-testid="auto-wb"
+          onClick={() => requestDevelopAction('auto-wb')}
+        >
+          Auto WB
+        </Button>
+        <div className={styles.toolsGroup}>
+          <Button
+            size="small"
+            active={mode.wbPicker}
+            aria-pressed={mode.wbPicker}
+            disabled={!photo}
+            hint="W"
+            title="White balance picker: click a neutral area (Esc cancels)"
+            data-testid="wb-picker"
+            onClick={toggleWbPicker}
+          >
+            Picker
+          </Button>
+          <Button
+            size="small"
+            active={mode.beforeAfter === 'before'}
+            aria-pressed={mode.beforeAfter === 'before'}
+            disabled={!photo}
+            hint="Y"
+            title="Show the unedited photo"
+            data-testid="before-after"
+            onClick={toggleBefore}
+          >
+            Before
+          </Button>
+          <Button
+            size="small"
+            active={mode.beforeAfter === 'split'}
+            aria-pressed={mode.beforeAfter === 'split'}
+            disabled={!photo}
+            title="Split view: drag the divider"
+            data-testid="split-view"
+            onClick={() => setBeforeAfter(mode.beforeAfter === 'split' ? 'off' : 'split')}
+          >
+            Split
+          </Button>
+        </div>
+      </div>
       <PanelSection
         title="Presets"
         flush

@@ -33,6 +33,14 @@
   --class-7: #9a82cf;
   --class-8: #cf7fae;
 
+  /* Histogram: light grey luminance and thin desaturated channel lines */
+  --hist-luma: #b9b9bb;
+  --hist-red: #b08a8a;
+  --hist-green: #8fae8f;
+  --hist-blue: #8a96b8;
+  --clip-highlight: #d26a6a;
+  --clip-shadow: #6b95cf;
+
   /* Desaturated temperature and tint tracks */
   --track-temperature: linear-gradient(to right, #5b6f93, #555555, #93805b);
   --track-tint: linear-gradient(to right, #5f8a62, #555555, #8a5f88);

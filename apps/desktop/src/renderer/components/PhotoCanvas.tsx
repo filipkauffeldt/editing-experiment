@@ -8,11 +8,17 @@ import {
 } from '@ee/contracts';
 import {
   correctedShapes,
+  autoToneBasis,
+  autoWhiteBalance,
+  beforeParams,
   createDevelopRenderer,
   cropDevelopedRgba,
   cropGeometry,
+  croppedToSourcePixels,
   grainSeedFromId,
   cropOutputSize,
+  predictAutoTone,
+  whiteBalanceFromPatch,
   type CropViewTransform,
   type DevelopRenderer,
   withoutLensGeometry,
@@ -21,6 +27,13 @@ import { applyMosaic, magicWand, shapeBounds, simplifyPolygon } from '@ee/retouc
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { ee } from '../ee';
 import { paramsForPhoto, topRetouchVersion, type RetouchFace, type RetouchTool } from '../store';
+import {
+  clearDevelopAction,
+  setHistogram,
+  setSplit,
+  setWbPicker,
+  useDevelopViewMode,
+} from '../develop-view';
 import { cropFit, cropLayout, fitWithin } from '../crop-view';
 import { detectionRegion, faceStoredShape } from '../retouch-geometry';
 import { useAppState, useAppStore } from '../store-context';
@@ -198,6 +211,7 @@ function CanvasForPhoto({ photo }: { photo: Photo }) {
   const session = state.retouch?.photoId === photo.id ? state.retouch : undefined;
   const cropSession = state.crop?.photoId === photo.id ? state.crop : undefined;
   const image = state.photos.find((candidate) => candidate.id === photo.id) ?? photo;
+  const viewMode = useDevelopViewMode();
 
   const containerRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -222,6 +236,10 @@ function CanvasForPhoto({ photo }: { photo: Photo }) {
   const [draftPoints, setDraftPoints] = useState<{ x: number; y: number }[]>([]);
   const dragStart = useRef<{ x: number; y: number } | null>(null);
   const dragMoved = useRef(false);
+  const [pickerPoint, setPickerPoint] = useState<{ x: number; y: number } | null>(null);
+  const [splitting, setSplitting] = useState(false);
+  const lastHistogramAt = useRef(0);
+  const histogramKey = useRef('');
 
   useEffect(() => {
     const element = containerRef.current;
@@ -458,17 +476,130 @@ function CanvasForPhoto({ photo }: { photo: Photo }) {
     // view transform is a uniform change, not a CPU resample.
     const frame = requestAnimationFrame(() => {
       try {
-        if (cropView) renderer.renderView(renderParams, cropView);
-        else renderer.render(renderParams);
+        const options = {
+          clipping: { shadows: viewMode.clipShadows, highlights: viewMode.clipHighlights },
+        };
+        const clipping = viewMode.clipShadows || viewMode.clipHighlights;
+        const before = beforeParams(renderParams);
+        const draw = (drawOptions: typeof options | undefined): void => {
+          if (cropView) renderer.renderView(renderParams, cropView);
+          else if (viewMode.beforeAfter === 'split')
+            renderer.renderSplit(renderParams, before, viewMode.split, drawOptions);
+          else if (viewMode.beforeAfter === 'before') renderer.render(before, drawOptions);
+          else renderer.render(renderParams, drawOptions);
+        };
+        draw(options);
         setRenderVersion((version) => version + 1);
         setFirstFrame(true);
+        // The histogram is a small GPU downsample of this frame, throttled so
+        // the readback never becomes part of the slider loop. Crop mode draws
+        // overlays around the frame, so it keeps the committed crop's histogram.
+        if (!cropView) {
+          const now = typeof performance === 'undefined' ? Date.now() : performance.now();
+          const key = `${photo.id}|${viewMode.beforeAfter}`;
+          if (histogramKey.current !== key || now - lastHistogramAt.current >= 100) {
+            histogramKey.current = key;
+            lastHistogramAt.current = now;
+            // The clipping overlay is a view aid: measure the developed frame
+            // without it, then draw the overlay back on.
+            if (clipping) draw(undefined);
+            try {
+              setHistogram(photo.id, renderer.readHistogram());
+            } finally {
+              if (clipping) draw(options);
+            }
+          }
+        }
       } catch (cause) {
         setError(cause instanceof Error ? cause.message : String(cause));
       }
     });
     return () => cancelAnimationFrame(frame);
     // The buffer size is a dependency: resizing a canvas clears it.
-  }, [renderer, loaded, contextLost, renderParams, cropView, bufferWidth, bufferHeight]);
+  }, [
+    renderer,
+    loaded,
+    contextLost,
+    renderParams,
+    cropView,
+    bufferWidth,
+    bufferHeight,
+    photo.id,
+    viewMode.beforeAfter,
+    viewMode.split,
+    viewMode.clipShadows,
+    viewMode.clipHighlights,
+  ]);
+
+  // One-shot Auto commands from the panel: measure a small render (tone) or the
+  // camera pixels (white balance), then write the result as normal slider values.
+  useEffect(() => {
+    const request = viewMode.request;
+    if (!request || !renderer || !loaded || contextLost) return;
+    try {
+      if (request.action === 'auto-wb') {
+        const result = autoWhiteBalance(loaded.header, loaded.data, renderParams.crop);
+        store.setWhiteBalance(Math.round(result.temperature), Math.round(result.tint));
+      } else {
+        const source = { width: loaded.header.width, height: loaded.header.height };
+        const logical = renderParams.crop
+          ? cropOutputSize(renderParams.crop, source)
+          : { width: source.width, height: source.height };
+        const scale = Math.min(1, 1024 / Math.max(1, logical.width, logical.height));
+        const size = {
+          width: Math.max(1, Math.round(logical.width * scale)),
+          height: Math.max(1, Math.round(logical.height * scale)),
+        };
+        const rgba = renderer.renderToRGBA(autoToneBasis(renderParams), size);
+        store.applyAutoTone(predictAutoTone(rgba, size.width, size.height));
+      }
+    } catch (cause) {
+      store.notify(
+        'error',
+        `Auto failed: ${cause instanceof Error ? cause.message : String(cause)}`,
+      );
+    } finally {
+      clearDevelopAction(request.sequence);
+    }
+  }, [viewMode.request, renderer, loaded, contextLost, renderParams, store]);
+
+  const pickerFrom = (event: React.MouseEvent<HTMLDivElement>): { x: number; y: number } => {
+    const rect = event.currentTarget.getBoundingClientRect();
+    return {
+      x: clamp01((event.clientX - rect.left) / Math.max(1, rect.width)),
+      y: clamp01((event.clientY - rect.top) / Math.max(1, rect.height)),
+    };
+  };
+
+  const pickWhiteBalance = (event: React.MouseEvent<HTMLDivElement>): void => {
+    if (!loaded) return;
+    const point = pickerFrom(event);
+    const source = { width: loaded.header.width, height: loaded.header.height };
+    const crop = renderParams.crop;
+    const imagePoint = crop
+      ? (() => {
+          const output = cropOutputSize(crop, source);
+          return croppedToSourcePixels(crop, source, {
+            x: point.x * output.width,
+            y: point.y * output.height,
+          });
+        })()
+      : { x: point.x * source.width, y: point.y * source.height };
+    const rect = event.currentTarget.getBoundingClientRect();
+    // About five display pixels across, in source pixels.
+    const radius = Math.max(2, Math.round((source.width / Math.max(1, rect.width)) * 5));
+    try {
+      const result = whiteBalanceFromPatch(loaded.header, loaded.data, imagePoint, radius);
+      store.setWhiteBalance(Math.round(result.temperature), Math.round(result.tint));
+      setWbPicker(false);
+      setPickerPoint(null);
+    } catch (cause) {
+      store.notify(
+        'error',
+        `White balance picker: ${cause instanceof Error ? cause.message : String(cause)}`,
+      );
+    }
+  };
 
   // The committed retouch version is the default view; while editing, the
   // pending shapes and enabled faces replace it.
@@ -726,6 +857,67 @@ function CanvasForPhoto({ photo }: { photo: Photo }) {
           data-testid="mosaic-canvas"
           data-mosaic-version={mosaicVersion}
         />
+        {!editing && loaded && viewMode.wbPicker && (
+          <div
+            className={styles.pickerLayer}
+            data-testid="wb-picker-layer"
+            onPointerMove={(event) => setPickerPoint(pickerFrom(event))}
+            onPointerLeave={() => setPickerPoint(null)}
+            onClick={pickWhiteBalance}
+          >
+            <span className={styles.pickerHint}>Click a neutral area · Esc cancels</span>
+          </div>
+        )}
+        {!editing && viewMode.wbPicker && pickerPoint && (
+          <div
+            className={styles.loupe}
+            data-testid="wb-loupe"
+            style={{
+              left: `${Math.min(stage.width - 116, Math.max(8, pickerPoint.x * stage.width + 18))}px`,
+              top: `${Math.min(stage.height - 116, Math.max(8, pickerPoint.y * stage.height + 18))}px`,
+              backgroundImage: `url("${appUrl.preview(photo.id, image.previewRevision)}")`,
+              backgroundSize: `${stage.width * 4}px ${stage.height * 4}px`,
+              backgroundPosition: `${-(pickerPoint.x * stage.width * 4 - 54)}px ${-(pickerPoint.y * stage.height * 4 - 54)}px`,
+            }}
+          />
+        )}
+        {!editing && viewMode.beforeAfter === 'split' && (
+          <>
+            <span className={`${styles.splitLabel} ${styles.splitLabelLeft}`}>Before</span>
+            <span
+              className={`${styles.splitLabel} ${styles.splitLabelRight}`}
+              style={{ left: `calc(${viewMode.split * 100}% + 8px)` }}
+            >
+              After
+            </span>
+            <div
+              className={styles.splitDivider}
+              style={{ left: `${viewMode.split * 100}%` }}
+              data-testid="split-divider"
+              role="separator"
+              aria-orientation="vertical"
+              aria-valuenow={Math.round(viewMode.split * 100)}
+              onPointerDown={(event) => {
+                event.preventDefault();
+                event.currentTarget.setPointerCapture(event.pointerId);
+                setSplitting(true);
+              }}
+              onPointerMove={(event) => {
+                if (!splitting) return;
+                const stage = event.currentTarget.parentElement;
+                if (!stage) return;
+                const rect = stage.getBoundingClientRect();
+                setSplit((event.clientX - rect.left) / Math.max(1, rect.width));
+              }}
+              onPointerUp={(event) => {
+                setSplitting(false);
+                if (event.currentTarget.hasPointerCapture(event.pointerId))
+                  event.currentTarget.releasePointerCapture(event.pointerId);
+              }}
+              onPointerCancel={() => setSplitting(false)}
+            />
+          </>
+        )}
         {committedMosaic && !session && (
           <div className={styles.versionBadge} data-testid="retouch-version-indicator">
             <PenIcon size={10} /> Retouch version
