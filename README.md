@@ -40,9 +40,10 @@ It is a proof of concept, not production software. The PoC demo in
   and there are no Adobe DCP profiles, so develop results will not match
   Lightroom exactly.
 - Texture, Clarity, Dehaze, sharpening and noise reduction follow RAWmakase's
-  fits of Camera Raw, not Camera Raw itself, and a sidecar without them means
-  "off" (Lightroom applies Sharpness 40 and Color Noise Reduction 25 to raws by
-  default). Their preview speed has only been measured on software GL.
+  fits of Camera Raw, not Camera Raw itself. Raws start with Lightroom's
+  sharpening and colour noise reduction (or the camera's own `crd:` values), shown
+  on the sliders but never written to the sidecar. Their preview speed has only been
+  measured on software GL.
 - Nikon HE/HE* NEFs (TicoRAW) are not supported by the vendored LibRaw 0.22.3.
 - Crop and straighten round-trip through `crs:` sidecars but are not applied in
   the preview or export yet; that work is in progress.

@@ -337,11 +337,28 @@ single develop pass exactly as before.
   by half-float intermediates and 8-bit bilinear weights: at most 1 level of 255 on
   the test scenes (the test allows 3). The measurement copy is sampled with the same
   4x4 taps on both sides.
-- **Crop mode** (`renderView`) draws the single develop pass, so Texture, Clarity,
-  Dehaze, sharpening and noise reduction are not shown while the crop frame is being
-  edited; they show again after Apply (the normal render and the export use the pipeline).
-- Needs `EXT_color_buffer_float` (present in every Chromium WebGL2); without it the
-  neighbourhood controls throw a `DevelopGlError` and the rest still renders.
+- **Crop mode** (`renderView`) runs the same pipeline and cached stages as the normal
+  view; only the mapping (the image turned under the frame) and the last step (empty
+  canvas, dimmed outside the frame, vignette and grain relative to the frame) differ. The
+  cache only holds while the mapping does not move, so panning or rotating re-runs the
+  stages, as a crop change does in the normal view. Noise is measured on blocks that lie
+  on the photo, not on the empty canvas around it.
+- **Raw defaults.** Lightroom starts a raw with Sharpness 40 / Radius 1.0 / Detail 25 /
+  Masking 0 and Color Noise Reduction 25 / 50 / 50, and a Nikon NEF's own `crd:` block
+  (camera-raw-defaults) replaces them with the camera's values (`readRawDefaults` in
+  `@ee/metadata`, served by `develop:getDefaults`, never for JPEG/TIFF). They are not
+  edits: the store keeps them in `editDefaults`, the sliders show `withDefaults(params,
+  defaults)` and every render (canvas, edited previews, export) uses it, but a sidecar
+  write holds only what the user set. An explicit `0` is off (so it is written), and
+  putting a slider back on its default removes the key. The other `crd:` values (tone,
+  saturation of the picture control) are not applied yet.
+- **No `EXT_color_buffer_float`.** Every Chromium WebGL2 has it, but without it the
+  renderer reports `supportsNeighbourhood: false`, leaves the neighbourhood settings out,
+  renders the rest and calls `onNeighbourhoodUnavailable` once (the app shows one toast).
+  Exports do not lose them: `renderWithFallback` (`develop-render.ts`) renders those
+  settings with `renderCpu`, the same maths, up to `CPU_FALLBACK_MAX_PIXELS` (16 MP,
+  about 100 bytes per pixel of float planes), and beyond that fails with a message
+  saying which settings need GPU float support.
 
 ## Crop mode
 
