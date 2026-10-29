@@ -9,7 +9,7 @@ import {
   rotateCrop,
 } from '@ee/develop-gl/crop';
 import { ExifToolService } from '../src/exiftool';
-import { readEditParams, writeEditParams } from '../src/develop';
+import { readEditParams, readRawDefaults, writeEditParams } from '../src/develop';
 import { readIptc, writeIptc } from '../src/iptc';
 import { readRetouchVersions, writeRetouchVersions } from '../src/retouch';
 import { sidecarPathFor } from '../src/paths';
@@ -19,6 +19,7 @@ import {
   fixtureAvailable,
   makeJpeg,
   makeTempDir,
+  sampleNefPath,
   sha256File,
 } from './helpers';
 
@@ -384,5 +385,86 @@ describe('develop and retouch XMP', () => {
       expect(sidecarPathFor(nef)).not.toBe(nef);
       expect(await sha256File(nef)).toBe(before);
     });
+  });
+});
+
+describe('raw defaults (Lightroom starts a raw with sharpening and colour noise reduction)', () => {
+  let service: ExifToolService;
+
+  beforeAll(() => {
+    service = new ExifToolService();
+  });
+
+  afterAll(async () => {
+    await service.close();
+  });
+
+  afterEach(cleanupTempDirs);
+
+  it('uses Lightroom’s fixed defaults for a raw without camera defaults', async () => {
+    const dir = await makeTempDir();
+    const raw = join(dir, 'shot.NEF');
+    await makeJpeg(raw);
+    expect(await readRawDefaults(raw, service)).toEqual({
+      Sharpness: 40,
+      SharpenRadius: 1,
+      SharpenDetail: 25,
+      SharpenEdgeMasking: 0,
+      ColorNoiseReduction: 25,
+      ColorNoiseReductionDetail: 50,
+      ColorNoiseReductionSmoothness: 50,
+    });
+  });
+
+  it('has no defaults for JPEG and TIFF', async () => {
+    const dir = await makeTempDir();
+    const jpeg = join(dir, 'photo.jpg');
+    await makeJpeg(jpeg);
+    expect(await readRawDefaults(jpeg, service)).toEqual({});
+  });
+
+  it('takes the camera’s own crd: defaults from a Nikon NEF over the fixed ones', async () => {
+    if (!fixtureAvailable('z6ii_CZP_0299.NEF')) return;
+    const dir = await makeTempDir();
+    const nef = await copyFixture('z6ii_CZP_0299.NEF', dir);
+    const before = await sha256File(nef);
+    // The Z 6II's Vivid picture control, as embedded by the camera.
+    expect(await readRawDefaults(nef, service)).toMatchObject({
+      Sharpness: 136,
+      SharpenRadius: 2,
+      SharpenDetail: 15,
+      SharpenEdgeMasking: 0,
+      LuminanceSmoothing: 27,
+      LuminanceNoiseReductionDetail: 75,
+      ColorNoiseReduction: 10,
+      ColorNoiseReductionDetail: 50,
+      ColorNoiseReductionSmoothness: 50,
+    });
+    // Reading defaults neither writes the NEF nor creates a sidecar, and they are not edits.
+    expect(await sha256File(nef)).toBe(before);
+    expect(await exists(sidecarPathFor(nef))).toBe(false);
+    expect(await readEditParams(nef, service)).toEqual({});
+  });
+
+  it('reads the user’s own Nikon Z 6 NEF from EE_SAMPLE_NEF_DIR without touching it', async ({
+    skip,
+  }) => {
+    const sample = await sampleNefPath();
+    if (sample === undefined) {
+      skip();
+      return;
+    }
+    const before = await sha256File(sample);
+    const defaults = await readRawDefaults(sample, service);
+    // Every detail setting resolves to a number in range, camera value or Lightroom's.
+    for (const name of [
+      'Sharpness',
+      'SharpenRadius',
+      'SharpenDetail',
+      'ColorNoiseReduction',
+    ] as const) {
+      expect(typeof defaults[name]).toBe('number');
+    }
+    expect(await sha256File(sample)).toBe(before);
   });
 });

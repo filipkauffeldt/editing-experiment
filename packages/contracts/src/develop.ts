@@ -372,6 +372,49 @@ export const SLIDER_SPECS: Readonly<Record<SliderParam, SliderSpec>> = {
   ColorNoiseReductionSmoothness: { min: 0, max: 100, step: 1, neutral: 50 },
 };
 
+/**
+ * The sharpening and noise reduction settings Lightroom applies to **raw** files
+ * when the sidecar does not set them (Sharpness 40, colour noise reduction 25),
+ * each overridden by the camera's own `crd:` camera-raw-defaults when the file
+ * carries them. Absent means "the default"; an explicit `0` is off. Never applied
+ * to JPEG or TIFF, and never written to the sidecar.
+ */
+export const DETAIL_DEFAULT_PARAMS = [
+  'Sharpness',
+  'SharpenRadius',
+  'SharpenDetail',
+  'SharpenEdgeMasking',
+  'LuminanceSmoothing',
+  'LuminanceNoiseReductionDetail',
+  'LuminanceNoiseReductionContrast',
+  'ColorNoiseReduction',
+  'ColorNoiseReductionDetail',
+  'ColorNoiseReductionSmoothness',
+] as const satisfies readonly SliderParam[];
+
+export type DetailDefaultParam = (typeof DETAIL_DEFAULT_PARAMS)[number];
+
+/** Lightroom's raw defaults for the detail settings, before any `crd:` override. */
+export const RAW_DETAIL_DEFAULTS: Readonly<Partial<Record<DetailDefaultParam, number>>> = {
+  Sharpness: 40,
+  SharpenRadius: 1,
+  SharpenDetail: 25,
+  SharpenEdgeMasking: 0,
+  ColorNoiseReduction: 25,
+  ColorNoiseReductionDetail: 50,
+  ColorNoiseReductionSmoothness: 50,
+};
+
+/** `params` over `defaults`: the settings a renderer should use. Never written back. */
+export function withDefaults(params: EditParams, defaults: EditParams | undefined): EditParams {
+  if (!defaults || Object.keys(defaults).length === 0) return params;
+  const merged: Record<string, unknown> = { ...defaults };
+  for (const [key, value] of Object.entries(params)) {
+    if (value !== undefined) merged[key] = value;
+  }
+  return merged as EditParams;
+}
+
 /** A develop preset imported from a Lightroom/Camera Raw `.xmp` file. */
 export interface EditPreset {
   id: PresetId;
