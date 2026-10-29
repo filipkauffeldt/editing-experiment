@@ -1,7 +1,7 @@
 import type { IpcHandlers, JobEvent, JobId, TemplateApplyMode } from '@ee/contracts';
 import { SqliteSeenStore, type GetSecret } from '@ee/ingest';
 import { UploadQueue, type UploadQueueOptions } from '@ee/export';
-import { ExifToolService } from '@ee/metadata';
+import { ExifToolService, readLensShot } from '@ee/metadata';
 import { homedir } from 'node:os';
 import { mkdirSync } from 'node:fs';
 import {
@@ -92,7 +92,12 @@ export async function createBackend(options: BackendOptions): Promise<Backend> {
     photos,
     options.yunetModelPath ?? findYuNetModel(import.meta.dirname),
   );
-  const apps = new AppResources({ photos, previews, linearDir: layout.linearDir });
+  const apps = new AppResources({
+    photos,
+    previews,
+    linearDir: layout.linearDir,
+    lensShot: (path, frame) => readLensShot(path, frame, exiftool),
+  });
   await apps.init();
 
   const reportJobError = (event: { jobId?: JobId; scope: string; message: string }): void =>
