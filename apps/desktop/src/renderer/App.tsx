@@ -2,9 +2,9 @@ import { useEffect, useState } from 'react';
 import styles from './App.module.css';
 import { BatchCaptionDialog } from './components/BatchCaptionDialog';
 import { DevelopView } from './components/DevelopView';
+import { ExportDialog } from './components/ExportDialog';
 import { IngestView } from './components/IngestView';
 import { LibraryView } from './components/LibraryView';
-import { ExportDialog } from './components/ExportDialog';
 import { SettingsDialog } from './components/SettingsDialog';
 import { ShortcutsOverlay } from './components/ShortcutsOverlay';
 import { Toasts } from './components/Toasts';
@@ -32,7 +32,6 @@ function Shell() {
       {state.shortcutsOpen && <ShortcutsOverlay />}
       {state.batchCaptionOpen && <BatchCaptionDialog />}
       {state.dialog && <SettingsDialog />}
-      {state.exportOpen && <ExportDialog />}
       {state.exportOpen && <ExportDialog />}
     </div>
   );

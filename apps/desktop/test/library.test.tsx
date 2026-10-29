@@ -2,13 +2,7 @@ import { fireEvent, render, screen, waitFor, within } from '@testing-library/rea
 import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it } from 'vitest';
 import { App } from '../src/renderer/App';
-import {
-  baseName,
-  folderOf,
-  libraryFolders,
-  mergeFieldEdits,
-  rangeBetween,
-} from '../src/renderer/library';
+import { baseName, folderOf, libraryFolders, mergeFieldEdits } from '../src/renderer/library';
 import { createAppStore, type AppStore } from '../src/renderer/store';
 import { mockPhotos, mockSources } from '../src/shared/mock';
 import { createFakeBridge, type FakeBridge } from './fake-bridge';
@@ -145,7 +139,8 @@ describe('library folders', () => {
 describe('library multi-select', () => {
   it('selects with click, Shift range, Ctrl toggle and Ctrl+A', async () => {
     const { store } = await openLibrary();
-    expect(selectedNames()).toEqual([]);
+    // The open photo is the selection until something else is picked.
+    expect(selectedNames()).toEqual(['_DSC8330.NEF']);
 
     fireEvent.click(cell('_DSC8330.NEF'));
     expect(selectedNames()).toEqual(['_DSC8330.NEF']);
@@ -169,22 +164,27 @@ describe('library multi-select', () => {
     // A plain click replaces the whole selection and opens that photo.
     fireEvent.click(cell('_DSC8335.NEF'));
     expect(selectedNames()).toEqual(['_DSC8335.NEF']);
-    expect(store.getState().library.anchor).toBe(store.getState().selectedId);
+    expect(store.getState().selectionAnchor).toBe(store.getState().selectedId);
 
     fireEvent.keyDown(window, { key: 'a', ctrlKey: true });
-    expect(store.getState().library.selection).toHaveLength(40);
+    expect(store.getState().selection).toHaveLength(40);
     expect(countText()).toContain('40 selected');
   });
 
-  it('extends the range from the anchor, in either direction', () => {
-    const photos = mockPhotos();
-    const id = (index: number) => {
-      const photo = photos[index];
-      if (!photo) throw new Error(`no photo ${index}`);
-      return photo.id;
-    };
-    expect(rangeBetween(photos, id(5), id(2))).toEqual([id(2), id(3), id(4), id(5)]);
-    expect(rangeBetween(photos, undefined, id(1))).toEqual([id(1)]);
+  it('extends a Shift range from the anchor backwards too, in the grid order', async () => {
+    const { store } = await openLibrary();
+    fireEvent.click(cell('_DSC8335.NEF'));
+    fireEvent.click(cell('_DSC8332.NEF'), { shiftKey: true });
+    expect(selectedNames()).toEqual([
+      '_DSC8332.NEF',
+      '_DSC8333.NEF',
+      '_DSC8334.NEF',
+      '_DSC8335.NEF',
+    ]);
+    // The anchor stays where the range started.
+    fireEvent.click(cell('_DSC8337.NEF'), { shiftKey: true });
+    expect(selectedNames()).toEqual(['_DSC8335.NEF', '_DSC8336.NEF', '_DSC8337.NEF']);
+    expect(store.getState().selectedId).toBeDefined();
   });
 
   it('moves and extends the selection with the arrow keys', async () => {
@@ -195,7 +195,7 @@ describe('library multi-select', () => {
     expect(selectedNames()).toEqual(['_DSC8330.NEF', '_DSC8331.NEF', '_DSC8332.NEF']);
     fireEvent.keyDown(window, { key: 'ArrowRight' });
     expect(selectedNames()).toEqual(['_DSC8333.NEF']);
-    expect(store.getState().library.selection).toHaveLength(1);
+    expect(store.getState().selection).toHaveLength(1);
   });
 });
 
@@ -204,7 +204,7 @@ describe('library batch actions', () => {
     const { store, fake } = await openLibrary();
     fireEvent.click(cell('_DSC8335.NEF'));
     fireEvent.click(cell('_DSC8337.NEF'), { shiftKey: true });
-    const ids = store.getState().library.selection;
+    const ids = store.getState().selection;
     expect(ids).toHaveLength(3);
     const user = userEvent.setup();
 
@@ -235,7 +235,7 @@ describe('library batch actions', () => {
     const { store, fake } = await openLibrary();
     fireEvent.click(cell('_DSC8335.NEF'));
     fireEvent.click(cell('_DSC8336.NEF'), { shiftKey: true });
-    const ids = store.getState().library.selection;
+    const ids = store.getState().selection;
     const user = userEvent.setup();
 
     await user.click(screen.getByRole('button', { name: 'Set class 5' }));
@@ -264,7 +264,7 @@ describe('library batch actions', () => {
     const user = userEvent.setup();
     fireEvent.click(cell('_DSC8330.NEF'));
     fireEvent.click(cell('_DSC8331.NEF'), { shiftKey: true });
-    const [first, second] = store.getState().library.selection;
+    const [first, second] = store.getState().selection;
     if (!first || !second) throw new Error('selection missing');
     const before = await fake.bridge.invoke('metadata:read', { photoId: first });
 
@@ -307,15 +307,23 @@ describe('library batch actions', () => {
     ]);
   });
 
-  it('exports the selection through the finish action', async () => {
+  it('sends the selection with Export & send and opens the export dialog with Export…', async () => {
     const { store, fake } = await openLibrary();
+    const user = userEvent.setup();
     fireEvent.click(cell('_DSC8335.NEF'));
     fireEvent.click(cell('_DSC8336.NEF'), { shiftKey: true });
-    expect(store.getState().library.selection).toHaveLength(2);
+    expect(store.getState().selection).toHaveLength(2);
+
+    await user.click(screen.getByRole('button', { name: /^Export…/ }));
+    expect(await screen.findByTestId('export-dialog')).toBeTruthy();
+    fireEvent.keyDown(document, { key: 'Escape' });
+    await waitFor(() => expect(screen.queryByTestId('export-dialog')).toBeNull());
+
     fireEvent.keyDown(window, { key: 'Enter', ctrlKey: true, shiftKey: true });
-    await waitFor(() =>
-      expect(fake.calls.filter((call) => call.channel === 'export:photo')).toHaveLength(2),
-    );
+    await waitFor(() => {
+      const start = fake.calls.find((call) => call.channel === 'export:start');
+      expect((start?.args[0] as { photoIds: string[] }).photoIds).toHaveLength(2);
+    });
   });
 });
 

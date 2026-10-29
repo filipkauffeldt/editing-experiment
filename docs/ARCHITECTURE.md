@@ -425,10 +425,13 @@ modules (`keyboard.ts`); leaving Develop applies an open crop and saves a retouc
 Design tokens and component rules are in `docs/DESIGN.md`.
 
 - **Library state** (`AppState.library`, `renderer/library.ts`): folder or collection, quick and
-  colour-class filters, thumbnail size, and the multi-selection. `selectInLibrary` handles click,
-  Shift-range and Ctrl/Cmd-toggle; the clicked photo is also `selectedId`, the photo the
+  colour-class filters, thumbnail size. The multi-selection is the shared `AppState.selection`
+  (also used by the film strip and the export actions); a grid click is `select(id, mode)` with
+  `replace`, `toggle` (Ctrl/Cmd) or `range` (Shift), where a range follows the grid's order in the
+  Library and the film strip's elsewhere. The last clicked photo is `selectedId`, the one the
   inspector and Develop show. Tag (`T`) and class (`0`-`8`) act on the selection in the Library
-  and on the open photo elsewhere, in one `photos:setLabels` call.
+  and on the open photo elsewhere, in one `photos:setLabels` call. Export… and Export & send
+  use `openExportDialog` and `exportSelected(true)`.
 - **Folders** come from `libraryFolders(photos)`: the directory of each photo's `path`, which is
   always the ingest copy. Sources are not consulted.
 - **Batch caption** (`applyFieldEdits`) reads each photo's fields (`metadata:read`), merges the
