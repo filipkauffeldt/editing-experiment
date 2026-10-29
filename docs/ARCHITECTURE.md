@@ -227,7 +227,8 @@ Pipeline order: `camera RGB * multipliers → cameraToSrgb → develop ops → s
 
 ## Develop pipeline
 
-One WebGL2 fragment shader (`packages/develop-gl`), per pixel, in this order:
+One WebGL2 fragment shader (`packages/develop-gl`), per pixel, in this order (the
+neighbourhood ops, see below, run in passes around it):
 
 1. white balance multipliers in camera space, with raw highlight clipping (channels are
    clamped to the lowest white point and blown pixels fade to neutral, so clipped
