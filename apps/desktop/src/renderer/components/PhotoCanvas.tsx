@@ -7,6 +7,7 @@ import {
   type Shape,
 } from '@ee/contracts';
 import {
+  correctedShapes,
   createDevelopRenderer,
   cropDevelopedRgba,
   cropGeometry,
@@ -14,6 +15,7 @@ import {
   cropOutputSize,
   type CropViewTransform,
   type DevelopRenderer,
+  withoutLensGeometry,
 } from '@ee/develop-gl';
 import { applyMosaic, magicWand, simplifyPolygon } from '@ee/retouch';
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
@@ -248,12 +250,17 @@ function CanvasForPhoto({ photo }: { photo: Photo }) {
         ? cropOutput.width / cropOutput.height
         : sourceAspect;
   const editing = session !== undefined || cropSession !== undefined;
+  const retouching = session !== undefined;
   const renderParams = useMemo(() => {
-    if (!editing || params.crop === undefined) return params;
-    const next = { ...params };
-    delete next.crop;
-    return next;
-  }, [editing, params]);
+    let next = params;
+    if (editing && next.crop !== undefined) {
+      next = { ...next };
+      delete next.crop;
+    }
+    // Retouch shapes are drawn and stored on the recorded picture, so a retouch session shows
+    // it without the lens corrections that resample it; the finished picture maps them across.
+    return retouching ? withoutLensGeometry(next) : next;
+  }, [editing, retouching, params]);
   const cropping = cropSession !== undefined;
   const display = cropping
     ? cropFit(container, imageAspect).size
@@ -489,7 +496,12 @@ function CanvasForPhoto({ photo }: { photo: Photo }) {
       context.clearRect(0, 0, mosaic.width, mosaic.height);
       return;
     }
-    const op = { type: 'mosaic' as const, shapes: mosaicShapes, blockSizeRel };
+    // Shapes are stored on the recorded picture; a lens correction moves them with its pixels.
+    const op = {
+      type: 'mosaic' as const,
+      shapes: correctedShapes(mosaicShapes, loaded.header, renderParams),
+      blockSizeRel,
+    };
     const frame = requestAnimationFrame(() => {
       try {
         let rgba: Uint8Array;

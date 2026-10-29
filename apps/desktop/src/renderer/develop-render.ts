@@ -1,11 +1,12 @@
 import {
+  correctedShapes,
   createDevelopRenderer,
   cropDevelopedRgba,
   needsNeighbourhood,
   renderCpu,
 } from '@ee/develop-gl';
 import { applyMosaic } from '@ee/retouch';
-import type { EditParams, LinearImageHeader, RetouchOp } from '@ee/contracts';
+import type { EditParams, LinearImageHeader, RetouchOp, Shape } from '@ee/contracts';
 
 export interface RenderRequest {
   header: LinearImageHeader;
@@ -49,6 +50,11 @@ export interface ComposeRequest {
   height: number;
   /** Size of the rendered source buffer, in pixels. */
   source: { width: number; height: number };
+  /**
+   * Moves retouch shapes (stored in the recorded picture) into the picture `render` draws, when
+   * a lens correction resamples it. Identity when absent.
+   */
+  mapShapes?(shapes: readonly Shape[]): Shape[];
   /** Renders the develop pipeline at `size`; a WebGL call in production, a stub in tests. */
   render(params: EditParams, size: { width: number; height: number }): Uint8Array;
 }
@@ -59,6 +65,10 @@ export interface ComposeRequest {
  * Mosaics live in uncropped source coordinates. When a crop is present the
  * source is rendered and mosaicked first, then cropped/rotated, so resampling
  * can only blur mosaic blocks, never expose a face that the mosaic covered.
+ *
+ * A lens correction resamples the picture before the crop, so the stored shapes (in the recorded
+ * picture) are moved into the corrected one first (`mapShapes`, outlines padded by a pixel and a
+ * half): the mosaic is applied to the corrected pixels over the corrected outline.
  */
 export function composeDevelopedRgba({
   params,
@@ -66,9 +76,12 @@ export function composeDevelopedRgba({
   width,
   height,
   source,
+  mapShapes,
   render,
 }: ComposeRequest): Uint8Array {
-  const mosaic = ops.filter((op) => op.type === 'mosaic');
+  const mosaic = ops
+    .filter((op) => op.type === 'mosaic')
+    .map((op) => (mapShapes ? { ...op, shapes: mapShapes(op.shapes) } : op));
   if (params.crop !== undefined && mosaic.length > 0) {
     const uncropped: EditParams = { ...params };
     delete uncropped.crop;
@@ -130,6 +143,7 @@ export function renderDevelopRgba(request: RenderRequest): RenderResult {
       width,
       height,
       source: { width: header.width, height: header.height },
+      mapShapes: (shapes) => correctedShapes(shapes, header, params),
       render: (renderParams, size) =>
         renderWithFallback(renderer, header, data, renderParams, size, grainSeed),
     });

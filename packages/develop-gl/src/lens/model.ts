@@ -169,7 +169,10 @@ export function lensGain(u: LensUniforms, sx: number, sy: number): number {
  * The corrected-frame position whose green sample is recorded at `(sx, sy)`: the inverse of the
  * distortion maps, for moving things that live in recorded coordinates (retouch shapes) into the
  * corrected picture. The maps are radial and close to the identity, so the fixed point
- * iteration `p += s - F(p)` converges quickly.
+ * iteration `p += s - F(p)` converges quickly. A strong correction can leave some recorded
+ * points out of reach (the corrected frame shows less of the corners than was recorded); for
+ * those the nearest reachable point along the ray from the optical centre is returned, so the
+ * result is always finite.
  */
 export function lensCorrectedPosition(
   u: LensUniforms,
@@ -186,7 +189,46 @@ export function lensCorrectedPosition(
     const ey = sy - probe.y;
     px += ex;
     py += ey;
-    if (Math.abs(ex) < 1e-5 && Math.abs(ey) < 1e-5) break;
+    if (!Number.isFinite(px) || !Number.isFinite(py)) break;
+    if (Math.abs(ex) < 1e-5 && Math.abs(ey) < 1e-5) return { x: px, y: py };
   }
-  return { x: px, y: py };
+  return rayInverse(u, sx, sy);
+}
+
+/** Smallest corrected radius along the ray towards `(sx, sy)` that records at least that far out. */
+function rayInverse(u: LensUniforms, sx: number, sy: number): { x: number; y: number } {
+  const [cx, cy] = u.centre;
+  const target = Math.hypot(sx - cx, sy - cy);
+  if (target < 1e-9) return { x: cx, y: cy };
+  const ux = (sx - cx) / target;
+  const uy = (sy - cy) / target;
+  const probe = { x: 0, y: 0, qOut: 0 };
+  const reach = (t: number): number => {
+    greenPosition(u, cx + ux * t, cy + uy * t, probe);
+    return (probe.x - cx) * ux + (probe.y - cy) * uy;
+  };
+  const limit = 4 * u.frame.radius;
+  const steps = 256;
+  let best = 0;
+  let bestReach = -Infinity;
+  let lo = 0;
+  for (let i = 1; i <= steps; i++) {
+    const t = (limit * i) / steps;
+    const r = reach(t);
+    if (r > bestReach) {
+      bestReach = r;
+      best = t;
+    }
+    if (r >= target) {
+      let hi = t;
+      for (let k = 0; k < 40; k++) {
+        const mid = (lo + hi) / 2;
+        if (reach(mid) >= target) hi = mid;
+        else lo = mid;
+      }
+      return { x: cx + ux * hi, y: cy + uy * hi };
+    }
+    lo = t;
+  }
+  return { x: cx + ux * best, y: cy + uy * best };
 }
