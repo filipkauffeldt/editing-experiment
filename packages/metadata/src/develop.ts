@@ -332,8 +332,8 @@ export interface WriteEditParamsOptions {
 
 /**
  * Replace the modelled develop settings. Supported `crs:` properties that are
- * absent from `params` are removed; unmodelled Camera Raw properties (clarity,
- * noise reduction, history, ...) are left untouched.
+ * absent from `params` are removed; unmodelled Camera Raw properties (history,
+ * local adjustments, ...) are left untouched.
  */
 export async function writeEditParams(
   path: string,

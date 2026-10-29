@@ -35,6 +35,19 @@ const params: EditParams = {
   Blacks2012: -5,
   Vibrance: 12,
   Saturation: -8,
+  Texture: -20,
+  Clarity2012: 35,
+  Dehaze: 12,
+  Sharpness: 85,
+  SharpenRadius: 1.4,
+  SharpenDetail: 60,
+  SharpenEdgeMasking: 15,
+  LuminanceSmoothing: 30,
+  LuminanceNoiseReductionDetail: 45,
+  LuminanceNoiseReductionContrast: 10,
+  ColorNoiseReduction: 40,
+  ColorNoiseReductionDetail: 55,
+  ColorNoiseReductionSmoothness: 65,
   HueAdjustmentRed: -10,
   SaturationAdjustmentOrange: 14,
   LuminanceAdjustmentGreen: -20,
@@ -292,12 +305,12 @@ describe('develop and retouch XMP', () => {
     await writeEditParams(jpeg, params, { service });
 
     // A property we do not model, as written by Lightroom.
-    await service.write(jpeg, { 'XMP-crs:Clarity2012': 17 });
+    await service.write(jpeg, { 'XMP-crs:LensProfileEnable': 1 });
 
     await writeEditParams(jpeg, {}, { service });
     expect(await readEditParams(jpeg, service)).toEqual({});
     const tags = await service.read(jpeg);
-    expect(tags['XMP-crs:Clarity2012']).toBe(17);
+    expect(tags['XMP-crs:LensProfileEnable']).toBe(1);
     expect(tags['XMP-crs:HasSettings']).toBeUndefined();
   });
 
