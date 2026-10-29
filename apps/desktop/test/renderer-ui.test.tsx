@@ -528,6 +528,20 @@ describe('lens corrections in the develop panel', () => {
     );
   });
 
+  it('keeps the shortcuts working after a switch is clicked', async () => {
+    const { store } = await renderApp();
+    const photo = activePhoto(store.getState());
+    if (!photo) throw new Error('no selection');
+    act(() => store.setPhotoLens(photo.id, nikonZ6));
+    const panel = await screen.findByTestId('lens-corrections');
+    const removeCa = within(panel).getByLabelText<HTMLInputElement>('Remove chromatic aberration');
+    removeCa.focus();
+    fireEvent.click(removeCa);
+    const user = userEvent.setup();
+    await user.keyboard('t');
+    await waitFor(() => expect(photoFlags(store.getState(), photo.id).tagged).toBe(true));
+  });
+
   it('keeps a lens the camera requires on until the user turns it off', async () => {
     const { store } = await renderApp();
     const photo = activePhoto(store.getState());
