@@ -40,6 +40,8 @@ export interface PipelineHost {
   drawBase(runner: PassRunner, target: Image, region: Rect, options: BaseOptions): void;
   /** Sets the develop chain's uniforms (tone, curve, colour) on `program`. */
   applyDevelop(program: GlProgram, u: DevelopUniforms): void;
+  /** Sets the crop view's uniforms on `program` (view mode off when the frame is not a crop view). */
+  applyView(program: GlProgram): void;
   /** Sets the output -> source mapping uniforms on `program`. */
   applyMapping(program: GlProgram, out: Size): void;
 }
@@ -289,6 +291,7 @@ export function createNeighbourhoodPipeline(
       g.uniform2f(prog.loc('u_tileOrigin'), region.x, region.y);
       g.uniform2f(prog.loc('u_coreMin'), core.x, core.y);
       g.uniform2f(prog.loc('u_coreMax'), core.x + core.w, core.y + core.h);
+      host.applyMapping(prog, out);
     });
     const data = new Float32Array(grid.xs.length * grid.ys.length * 4);
     gl.readPixels(0, 0, grid.xs.length, grid.ys.length, gl.RGBA, gl.FLOAT, data);
@@ -544,6 +547,7 @@ export function createNeighbourhoodPipeline(
     const resolveUniforms = (g: WebGL2RenderingContext): void => {
       host.applyDevelop(resolve, u);
       host.applyMapping(resolve, input.out);
+      host.applyView(resolve);
       g.uniform1i(resolve.loc('u_lin2'), 0);
       g.uniform1f(resolve.loc('u_linGain'), exposed ? 1 : u.exposureGain);
       g.uniform1i(resolve.loc('u_effects'), sharpening ? 0 : 1);
@@ -577,6 +581,7 @@ export function createNeighbourhoodPipeline(
       // Sets the effects' uniforms; it also binds the tone curve to unit 1, so bind the inputs again.
       host.applyDevelop(sharpen, u);
       host.applyMapping(sharpen, input.out);
+      host.applyView(sharpen);
       runner.bindInputs([dev, horizontal]);
       g.uniform2f(sharpen.loc('u_tileOrigin'), prefix.region.x, prefix.region.y);
       g.uniform1i(sharpen.loc('u_dev'), 0);

@@ -1,5 +1,6 @@
 import type { EditParams } from '@ee/contracts';
 import { afterEach, describe, expect, it } from 'vitest';
+import { cropFromGeometry } from '../src/crop';
 import { renderCpu } from '../src/cpu';
 import { withoutNeighbourhood } from '../src/neighbourhood/params';
 import { createDevelopRenderer, type DevelopRenderer } from '../src/renderer';
@@ -241,6 +242,119 @@ describe('without float render targets', () => {
     expect(renderer.supportsNeighbourhood).toBe(true);
     renderer.renderToRGBA(EVERYTHING, size);
     expect(notices).toBe(0);
+  });
+});
+
+describe('crop view with the neighbourhood settings', () => {
+  const W = 192;
+  const H = 128;
+  const scene = makeScene(W, H, { noise: 0.05 });
+  const image = { width: W, height: H };
+  const OUTSIDE: [number, number, number] = [0.2, 0.4, 0.6];
+  const crop = cropFromGeometry(W / 2, H / 2, 140, 90, 20, image);
+  const frame = { x: 26, y: 19, w: 140, h: 90 };
+  const view = (dim: number) => ({
+    crop,
+    pivot: { x: W / 2, y: H / 2 },
+    scale: 1,
+    frame,
+    dim,
+    outside: OUTSIDE,
+  });
+  const detail: EditParams = {
+    Clarity2012: 60,
+    Texture: 40,
+    Sharpness: 80,
+    LuminanceSmoothing: 40,
+  };
+
+  const readCanvas = (canvas: HTMLCanvasElement): Uint8ClampedArray => {
+    const copy = document.createElement('canvas');
+    copy.width = canvas.width;
+    copy.height = canvas.height;
+    const ctx = copy.getContext('2d');
+    if (!ctx) throw new Error('no 2d context');
+    ctx.drawImage(canvas, 0, 0);
+    return ctx.getImageData(0, 0, canvas.width, canvas.height).data;
+  };
+  const pixel = (data: ArrayLike<number>, x: number, y: number): number[] => {
+    const o = (y * W + x) * 4;
+    return [data[o] ?? 0, data[o + 1] ?? 0, data[o + 2] ?? 0];
+  };
+
+  it('shows the settings inside the frame, like the committed crop', () => {
+    const canvas = canvasOf(W, H);
+    renderer = createDevelopRenderer(canvas);
+    renderer.setImage(scene.header, scene.data);
+    renderer.renderView(detail, view(0.5));
+    const shown = readCanvas(canvas);
+    renderer.renderView({}, view(0.5));
+    const plain = readCanvas(canvas);
+    const committed = renderer.renderToRGBA(
+      { ...detail, crop },
+      { width: frame.w, height: frame.h },
+    );
+
+    // Away from the frame's edge: the view blurs with the photo around the frame, the committed
+    // crop only with what is inside it (as the normal render always has), so the edges differ.
+    const inset = 30;
+    let against = 0;
+    let effect = 0;
+    for (let y = inset; y < frame.h - inset; y++) {
+      for (let x = inset; x < frame.w - inset; x++) {
+        for (let c = 0; c < 3; c++) {
+          const v = pixel(shown, frame.x + x, frame.y + y)[c] ?? 0;
+          against += Math.abs(v - (committed[(y * frame.w + x) * 4 + c] ?? 0));
+          effect += Math.abs(v - (pixel(plain, frame.x + x, frame.y + y)[c] ?? 0));
+        }
+      }
+    }
+    const n = (frame.w - 2 * inset) * (frame.h - 2 * inset) * 3;
+    // The pyramid grid starts at a different corner in the two renders, so they agree closely but not
+    // exactly; the settings themselves change the picture far more than that.
+    expect(against / n).toBeLessThan(4);
+    expect(effect / n).toBeGreaterThan((against / n) * 2);
+  });
+
+  it('still dims outside the frame and paints the empty canvas outside the image', () => {
+    const canvas = canvasOf(W, H);
+    renderer = createDevelopRenderer(canvas);
+    renderer.setImage(scene.header, scene.data);
+    renderer.renderView(detail, view(1));
+    const bright = readCanvas(canvas);
+    renderer.renderView(detail, view(0.5));
+    const dimmed = readCanvas(canvas);
+    // Inside the image, outside the frame: half as bright. Inside the frame: the same.
+    const outsideFrame = pixel(bright, 96, 8);
+    expect(Math.max(...outsideFrame)).toBeGreaterThan(40);
+    pixel(dimmed, 96, 8).forEach((value, i) =>
+      expect(Math.abs(value - (outsideFrame[i] ?? 0) * 0.5)).toBeLessThan(2.5),
+    );
+    expect(pixel(dimmed, 96, 64)).toEqual(pixel(bright, 96, 64));
+    // The corner of the rotated image is empty canvas, in the requested colour, not dimmed.
+    const corner = pixel(dimmed, 0, 0);
+    expect(Math.abs((corner[0] ?? 0) - OUTSIDE[0] * 255)).toBeLessThan(2);
+    expect(Math.abs((corner[2] ?? 0) - OUTSIDE[2] * 255)).toBeLessThan(2);
+  });
+
+  it('reuses the cached stages while the mapping does not move, with the same result as a fresh render', () => {
+    const cachedCanvas = canvasOf(W, H);
+    const freshCanvas = canvasOf(W, H);
+    const cached = createDevelopRenderer(cachedCanvas);
+    const fresh = createDevelopRenderer(freshCanvas);
+    cached.setImage(scene.header, scene.data);
+    fresh.setImage(scene.header, scene.data);
+    try {
+      cached.renderView(detail, view(0.5));
+      // Same mapping, other dim and exposure: the base, noise reduction and fields are reused.
+      const next = { ...detail, Exposure2012: 0.5, Contrast2012: 20 };
+      cached.renderView(next, view(0.3));
+      fresh.renderView(next, view(0.3));
+      expect(maxAbsDiff(readCanvas(cachedCanvas), readCanvas(freshCanvas))).toBe(0);
+    } finally {
+      cached.dispose();
+      fresh.dispose();
+    }
   });
 });
 

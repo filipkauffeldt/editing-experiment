@@ -79,15 +79,35 @@ ivec2 finalTexel() {
   float row = mix(f.y, u_viewHeight - 1.0 - f.y, u_flipY);
   return ivec2(f.x + u_coreOffset.x, row + u_coreOffset.y);
 }
-// Vignette and grain for the output pixel at texel t of the region that starts at u_tileOrigin.
-vec3 finalEffects(vec3 e, ivec2 t) {
-  vec2 pOut = (u_tileOrigin + vec2(t) + 0.5) * u_outScale;
-  vec2 d = pOut - u_outCenter;
-  vec2 src = clamp(u_srcCenter + vec2(
+// Where output pixel t of the region that starts at u_tileOrigin samples the source (unclamped), and its buffer position.
+vec2 finalSource(ivec2 t, out vec2 q) {
+  q = u_tileOrigin + vec2(t) + 0.5;
+  vec2 d = q * u_outScale - u_outCenter;
+  return u_srcCenter + vec2(
     u_srcRot.x * d.x - u_srcRot.y * d.y,
     u_srcRot.y * d.x + u_srcRot.x * d.y
-  ), vec2(0.0), u_srcSize);
-  return applyEffects(e, pOut / max(u_outCenter, vec2(1.0)) - 1.0, src, u_outScale.x);
+  );
+}
+// Vignette and grain for the output pixel at texel t; in the crop view they follow the crop frame.
+vec3 finalEffects(vec3 e, ivec2 t) {
+  vec2 q;
+  vec2 src = finalSource(t, q);
+  vec2 logN = q * u_outScale / max(u_outCenter, vec2(1.0)) - 1.0;
+  if (u_viewMode == 1) {
+    logN = (q - (u_frame.xy + u_frame.zw) * 0.5) / max((u_frame.zw - u_frame.xy) * 0.5, vec2(1.0));
+  }
+  return applyEffects(e, logN, clamp(src, vec2(0.0), u_srcSize), u_outScale.x);
+}
+// The crop-mode view's last step: empty canvas outside the image (anti-aliased edge), dimmed outside the frame.
+vec3 finalView(vec3 e, ivec2 t) {
+  if (u_viewMode != 1) return e;
+  vec2 q;
+  vec2 src = finalSource(t, q);
+  vec2 inside = min(src, u_srcSize - src);
+  float coverage = clamp(min(inside.x, inside.y) / u_outScale.x + 0.5, 0.0, 1.0);
+  bool inFrame = q.x >= u_frame.x && q.y >= u_frame.y && q.x <= u_frame.z && q.y <= u_frame.w;
+  if (!inFrame) e *= u_dim;
+  return mix(u_outside, e, coverage);
 }
 `;
 
@@ -98,12 +118,14 @@ export const RESOLVE_FRAGMENT =
   `
 uniform sampler2D u_lin2;
 uniform float u_linGain;  // exposure, when the neighbourhood passes have not applied it yet
-uniform int u_effects;    // 1: also draw vignette and grain (no sharpening follows)
+uniform int u_effects;    // 1: this is the last pass: also vignette, grain and the crop view (no sharpening follows)
 void main() {
   ivec2 t = finalTexel();
   vec3 e = developColor(texelFetch(u_lin2, t, 0).rgb * u_linGain);
   if (u_effects == 1) e = finalEffects(e, t);
-  outColor = vec4(clamp(e, 0.0, 1.0), 1.0);
+  e = clamp(e, 0.0, 1.0);
+  if (u_effects == 1) e = finalView(e, t);
+  outColor = vec4(e, 1.0);
 }
 `;
 
@@ -213,10 +235,27 @@ uniform ivec2 u_blocks;
 uniform vec2 u_tileOrigin;
 uniform vec2 u_coreMin;
 uniform vec2 u_coreMax;
+// Output -> source mapping, to leave out blocks that are not entirely on the photo (the crop
+// view shows empty canvas around it, which is smooth and would read as a noiseless image).
+uniform vec2 u_outScale;
+uniform vec2 u_outCenter;
+uniform vec2 u_srcCenter;
+uniform vec2 u_srcRot;
+uniform vec2 u_srcSize;
+bool onPhoto(vec2 pos) {
+  vec2 d = pos * u_outScale - u_outCenter;
+  vec2 src = u_srcCenter + vec2(u_srcRot.x * d.x - u_srcRot.y * d.y, u_srcRot.y * d.x + u_srcRot.x * d.y);
+  return src.x >= 0.0 && src.y >= 0.0 && src.x <= u_srcSize.x && src.y <= u_srcSize.y;
+}
 void main() {
   ivec2 id = ivec2(gl_FragCoord.xy);
   if (id.x >= u_blocks.x || id.y >= u_blocks.y) discard;
   vec2 corner = vec2(u_blockX[id.x], u_blockY[id.y]);
+  float side = ${f(DENOISE.block)};
+  if (!onPhoto(corner) || !onPhoto(corner + vec2(side, 0.0)) || !onPhoto(corner + vec2(0.0, side)) || !onPhoto(corner + vec2(side))) {
+    outColor = vec4(-1.0);
+    return;
+  }
   if (corner.x < u_coreMin.x || corner.y < u_coreMin.y || corner.x >= u_coreMax.x || corner.y >= u_coreMax.y) {
     outColor = vec4(-1.0);
     return;
@@ -455,6 +494,7 @@ void main() {
   float ad = abs(d) / u_halo;
   float shaped = d / (1.0 + ad * ad * ad);
   float delta = k * (shaped < 0.0 ? shaped * u_dark : shaped);
-  outColor = vec4(clamp(finalEffects(clamp(c + delta, 0.0, 1.0), p), 0.0, 1.0), 1.0);
+  vec3 e = clamp(finalEffects(clamp(c + delta, 0.0, 1.0), p), 0.0, 1.0);
+  outColor = vec4(finalView(e, p), 1.0);
 }
 `;

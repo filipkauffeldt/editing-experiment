@@ -74,7 +74,8 @@ export interface DevelopRenderer {
    * area outside the frame. It is the same mapping and shader as {@link render}
    * (only the transform differs), so the pixels inside the frame are the
    * committed crop's. `params.crop` is ignored. Texture, Clarity, Dehaze, sharpening
-   * and noise reduction are not drawn in this view (it uses the single develop pass).
+   * and noise reduction are drawn through the same pipeline (and cached stages) as
+   * {@link render}.
    */
   renderView(params: EditParams, view: CropViewTransform): void;
   /**
@@ -425,10 +426,10 @@ export function createDevelopRenderer(
     gl.uniform2f(loc('u_srcSize'), src.header.width, src.header.height);
   }
 
-  /** The crop view's uniforms on the develop pass; `undefined` switches the view mode off (the normal render). */
-  function setViewUniforms(view: CropViewTransform | undefined): void {
-    const loc = (name: string): WebGLUniformLocation | null => res.direct.loc(name);
-    gl.useProgram(res.direct.program);
+  /** The crop view's uniforms on `prog`; `undefined` switches the view mode off (the normal render). */
+  function setViewUniformsOn(prog: GlProgram, view: CropViewTransform | undefined): void {
+    const loc = (name: string): WebGLUniformLocation | null => prog.loc(name);
+    gl.useProgram(prog.program);
     gl.uniform1i(loc('u_viewMode'), view ? 1 : 0);
     gl.uniform4f(
       loc('u_frame'),
@@ -439,6 +440,11 @@ export function createDevelopRenderer(
     );
     gl.uniform1f(loc('u_dim'), view?.dim ?? 1);
     gl.uniform3f(loc('u_outside'), ...(view?.outside ?? [0, 0, 0]));
+  }
+
+  /** The same on the single develop pass. */
+  function setViewUniforms(view: CropViewTransform | undefined): void {
+    setViewUniformsOn(res.direct, view);
   }
 
   /**
@@ -490,7 +496,8 @@ export function createDevelopRenderer(
   }
 
   /** What the neighbourhood pipeline needs of the current frame. */
-  let frame: { src: Source; mapping: Mapping; u: DevelopUniforms } | undefined;
+  let frame:
+    { src: Source; mapping: Mapping; u: DevelopUniforms; view?: CropViewTransform } | undefined;
   let imageId = 0;
   let pipeline: NeighbourhoodPipeline | undefined;
 
@@ -533,6 +540,9 @@ export function createDevelopRenderer(
     applyDevelop(program, u) {
       setUniforms(program, u);
     },
+    applyView(program) {
+      setViewUniformsOn(program, frame?.view);
+    },
     applyMapping(program, out) {
       if (!frame) throw new DevelopGlError('No frame');
       setMapping(program, frame.src, out, frame.mapping);
@@ -554,7 +564,8 @@ export function createDevelopRenderer(
     cache: boolean,
   ): PipelineInput {
     const header = src.header;
-    const perHeader = out.width / mapping.logical.width;
+    // Output pixels per source pixel: the crop view (a different transform) has its own scale.
+    const perHeader = 1 / mapping.outScale.x;
     return {
       n: resolveNeighbourhood(params),
       u,
@@ -564,7 +575,13 @@ export function createDevelopRenderer(
         scale: perHeader * (header.width / (header.sourceWidth || header.width)),
         fullLongEdge: Math.max(header.width, header.height) * perHeader,
       },
-      baseKey: `${imageId}|${JSON.stringify([out, params.crop, u.multipliers, u.colorMatrix, u.calibration])}`,
+      baseKey: `${imageId}|${JSON.stringify([
+        out,
+        [mapping.center, mapping.cos, mapping.sin, mapping.outScale, mapping.outCenter],
+        u.multipliers,
+        u.colorMatrix,
+        u.calibration,
+      ])}`,
       cache,
     };
   }
@@ -638,10 +655,21 @@ export function createDevelopRenderer(
       const src = requireSource();
       const out = { width: canvas.width, height: canvas.height };
       const mapping = viewMapping(src.header, view, out);
-      setUniforms(
-        res.direct,
-        resolveUniforms(src.header, params, { grainSeed: options.grainSeed }),
-      );
+      const u = resolveUniforms(src.header, params, { grainSeed: options.grainSeed });
+      const input = pipelineInput(src, params, mapping, u, out, true);
+      if (usesNeighbourhood(input)) {
+        // The same pipeline and cached stages as the normal view; only the mapping and the
+        // last step (empty canvas, dimmed outside the frame) differ.
+        frame = { src, mapping, u, view };
+        const cores = planCores(out, maxOutputTile, effectiveHalo(input.n, input.geometry.scale));
+        getPipeline().run(input, cores, (core) => ({
+          framebuffer: null,
+          viewport: { x: core.x, y: out.height - core.y - core.h, w: core.w, h: core.h },
+          flipY: true,
+        }));
+        return;
+      }
+      setUniforms(res.direct, u);
       setViewUniforms(view);
       gl.bindFramebuffer(gl.FRAMEBUFFER, null);
       for (const entry of src.tiles) {
