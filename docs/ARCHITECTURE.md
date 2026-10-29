@@ -64,6 +64,7 @@ index.sqlite         photo index (cache; sidecars are the source of truth)
 seen.sqlite          files already ingested per source
 uploads.sqlite       upload queue
 export-jobs.json     resumable export batches (queued photos survive a restart)
+exported-files.json  paths the app exported; the only targets `overwrite` may replace
 presets/*.json       imported develop presets
 credentials.json     written by main only: ciphertext from safeStorage
 cache/{thumb,preview,linear}   disposable (see "Edited thumbnails and previews")
@@ -90,6 +91,11 @@ exports/             default exportRoot (presets choose folders below it)
   writes metadata, runs `assertNoEmbeddedPreviews`, publishes atomically and only then enqueues the
   exported file for upload. Jobs are persisted in `export-jobs.json`; after a restart the current
   photo is queued again once the renderer calls `export:rendererReady`.
+- Export safety: the target is checked against every indexed photo's `path` and `sidecarPath`
+  (case-folded on macOS/Windows) and an export never writes over them. `ifExists` defaults to
+  `suffix`; `overwrite` only replaces a path recorded in `exported-files.json`. The render request
+  carries the ops key (`retouchOpsKey`) the jobs process expects; the renderer echoes the key of the
+  ops it applied and the jobs process rejects a stale or mosaic-less render.
 - On quit, main asks the jobs process to shut down (stop ingest, close the upload queue, ExifTool and
   the databases) and kills it only after a timeout.
 
