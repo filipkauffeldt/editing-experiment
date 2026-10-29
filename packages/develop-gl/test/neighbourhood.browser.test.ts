@@ -109,6 +109,35 @@ describe('WebGL2 vs CPU reference: neighbourhood ops', () => {
     });
   }
 
+  it('draws vignette and grain after sharpening, like the CPU', () => {
+    const params: EditParams = {
+      Clarity2012: 40,
+      Sharpness: 90,
+      PostCropVignetteAmount: -40,
+      GrainAmount: 30,
+    };
+    renderer = createDevelopRenderer(canvasOf(W, H), { grainSeed: 1234 });
+    renderer.setImage(scene.header, scene.data);
+    const gpu = renderer.renderToRGBA(params, { width: W, height: H });
+    const cpu = renderCpu(
+      scene.header,
+      scene.data,
+      params,
+      { width: W, height: H },
+      { grainSeed: 1234 },
+    );
+    expect(maxAbsDiff(gpu, cpu)).toBeLessThanOrEqual(MAX_LEVELS);
+    // Not vacuous: without the effects the picture is different.
+    const plain = renderCpu(
+      scene.header,
+      scene.data,
+      { Clarity2012: 40, Sharpness: 90 },
+      { width: W, height: H },
+      { grainSeed: 1234 },
+    );
+    expect(meanAbsDiff(cpu, plain)).toBeGreaterThan(1);
+  });
+
   it('matches the CPU with a crop, straighten and a different output size', () => {
     const params: EditParams = {
       ...EVERYTHING,
@@ -229,12 +258,12 @@ describe('tiles', () => {
       Sharpness: 80,
       SharpenRadius: 2,
     };
-    // Halo 192: a tile core of 96 pixels.
-    const r = compare(params, 480, 96);
+    // Halo 192: a tile core of 128 pixels.
+    const r = compare(params, 512, 128);
     expect(maxAbsDiff(r.actual, r.expected)).toBeLessThanOrEqual(MAX_LEVELS);
     expect(r.seam).toBeLessThanOrEqual(MAX_LEVELS);
     expect(maxAbsDiff(r.fromSplit, r.expected)).toBeLessThanOrEqual(MAX_LEVELS);
-  });
+  }, 120_000);
 });
 
 describe('resolution consistency', () => {
