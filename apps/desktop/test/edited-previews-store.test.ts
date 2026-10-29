@@ -236,3 +236,27 @@ describe('edited thumbnails and previews in the store', () => {
     expect(store.getState().toasts.filter((t) => t.message.includes('no WebGL'))).toHaveLength(1);
   });
 });
+
+describe('edited previews of a raw with defaults', () => {
+  const defaults = { Sharpness: 40, ColorNoiseReduction: 25 };
+
+  it('does not draw an unedited raw just because it has defaults', async () => {
+    const { rendered, fake } = await setup({
+      handlers: { 'develop:getDefaults': async () => defaults },
+    });
+    await vi.advanceTimersByTimeAsync(5000);
+    expect(rendered).toHaveLength(0);
+    expect(stored(fake)).toHaveLength(0);
+  });
+
+  it('draws an edited raw with its defaults, and stores only its own settings', async () => {
+    const { store, fake, rendered } = await setup({
+      handlers: { 'develop:getDefaults': async () => defaults },
+    });
+    store.setSlider('Exposure2012', 0.4);
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(rendered[0]?.params).toMatchObject({ ...defaults, Exposure2012: 0.4 });
+    // The backend compares what was drawn with what it saved: the defaults are not in the save.
+    expect(stored(fake)[0]?.params).toEqual({ Exposure2012: 0.4 });
+  });
+});

@@ -564,7 +564,10 @@ export class AppStore {
     this.confirm = confirm ?? defaultConfirm;
     if (renderEditedPreview) {
       this.editedPreviews = new EditedPreviewScheduler({
-        render: renderEditedPreview,
+        // The scheduler works on the photo's own settings (what is saved, and whether it
+        // is edited at all); the picture is drawn with the raw defaults under them.
+        render: async (photo, params, ops) =>
+          renderEditedPreview(photo, withDefaults(params, await this.loadDefaults(photo.id)), ops),
         getPhoto: (photoId) => this.photoById.get(photoId),
         settle: (photoId) =>
           this.flushDevelopParams(photoId, activeDevelopVersion(this.photoById.get(photoId))?.id),
@@ -1827,15 +1830,13 @@ export class AppStore {
     this.editedPreviews?.schedule(photo.id);
   }
 
-  /** The develop params of any photo, including edits that have not reached the sidecar yet. */
+  /** The develop params of any photo as saved or edited (without raw defaults), including edits that have not reached the sidecar yet. */
   private async currentParams(photoId: PhotoId): Promise<EditParams> {
     const versionId = activeDevelopVersion(this.photoById.get(photoId))?.id;
-    const [params, defaults] = await Promise.all([
+    return (
       this.state.editParams[editParamsKey(photoId, versionId)] ??
-        this.bridge.invoke('develop:getParams', { photoId, versionId }),
-      this.loadDefaults(photoId),
-    ]);
-    return withDefaults(params, defaults);
+      this.bridge.invoke('develop:getParams', { photoId, versionId })
+    );
   }
 
   readonly setSlider = (name: keyof typeof SLIDER_SPECS, rawValue: number | undefined): void => {
