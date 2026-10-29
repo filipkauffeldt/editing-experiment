@@ -339,6 +339,7 @@ async function runReal(outDir: string): Promise<void> {
     // Lens Corrections: the camera's own profile, read from the NEF, with Remove CA on.
     const lens = window.locator('[data-testid="lens-corrections"]');
     await lens.scrollIntoViewIfNeeded();
+    await window.getByLabel('Enable profile corrections').check();
     await window.getByLabel('Remove chromatic aberration').check();
     await window.waitForTimeout(800);
     await shoot('24-real-lens-corrections.png', '[data-testid="lens-corrections"]');

@@ -503,11 +503,9 @@ describe('lens corrections in the develop panel', () => {
     const panel = await screen.findByTestId('lens-corrections');
     const select = within(panel).getByLabelText<HTMLSelectElement>('Lens profile');
     await waitFor(() => expect(select.disabled).toBe(false));
-    expect(select.selectedOptions[0]?.textContent).toBe(
-      'Automatic: Nikkor Z 24-70mm f/4 S (Lensfun)',
-    );
+    expect(select.selectedOptions[0]?.textContent).toBe('Automatic');
     expect(within(panel).getByTestId('lens-profile-note').textContent).toBe(
-      'Corrects distortion, vignetting, chromatic aberration.',
+      'Nikkor Z 24-70mm f/4 S (Lensfun): corrects distortion, vignetting, chromatic aberration.',
     );
     // Off until asked for: a lens the camera does not require.
     const enable = within(panel).getByLabelText<HTMLInputElement>('Enable profile corrections');

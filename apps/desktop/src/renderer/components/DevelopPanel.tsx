@@ -410,9 +410,7 @@ function LensSection() {
           >
             {panel.choices.map((choice) => (
               <option key={choice.value} value={choice.value}>
-                {choice.value === '' && panel.profileName
-                  ? `Automatic: ${panel.profileName}`
-                  : choice.label}
+                {choice.label}
               </option>
             ))}
           </Select>
@@ -423,8 +421,8 @@ function LensSection() {
             : !panel.profileName
               ? `No profile for ${lens.lensModel ?? 'this lens'}.`
               : panel.required
-                ? `The camera requires this correction: ${panel.corrects.join(', ')}.`
-                : `Corrects ${panel.corrects.join(', ') || 'nothing'}.`}
+                ? `${panel.profileName}: the camera requires this correction (${panel.corrects.join(', ')}).`
+                : `${panel.profileName}: corrects ${panel.corrects.join(', ') || 'nothing'}.`}
         </p>
         <Slider name="LensProfileDistortionScale" />
         <Slider name="LensProfileVignettingScale" />
