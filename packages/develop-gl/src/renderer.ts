@@ -5,7 +5,13 @@ import { FRAGMENT_SHADER } from './glsl';
 import { samplesView, type LinearImageBuffer } from './image';
 import { resolveUniforms, type DevelopUniforms } from './params';
 import { BASE_FRAGMENT } from './neighbourhood/glsl';
-import { hasDenoise, hasLocalContrast, resolveNeighbourhood } from './neighbourhood/params';
+import {
+  hasDenoise,
+  hasLocalContrast,
+  needsNeighbourhood,
+  resolveNeighbourhood,
+  withoutNeighbourhood,
+} from './neighbourhood/params';
 import { createProgram, type GlProgram } from './neighbourhood/passes';
 import {
   createNeighbourhoodPipeline,
@@ -29,6 +35,14 @@ export interface DevelopRendererOptions {
   maxTextureSize?: number;
   /** Largest tile rendered per pass by `renderToRGBA` (default 4096, bounded by GL limits). */
   maxOutputTileSize?: number;
+  /**
+   * Called once, the first time `render`/`renderView`/`renderToRGBA` is asked for Texture,
+   * Clarity, Dehaze, sharpening or noise reduction on a context that cannot run them
+   * (no `EXT_color_buffer_float`). They are then left out and everything else renders.
+   */
+  onNeighbourhoodUnavailable?: () => void;
+  /** Pretend the GPU has no float render targets (tests of the fallback). */
+  disableFloatRendering?: boolean;
   /** Stable per-photo grain seed; use {@link grainSeedFromId}. Preview and export must match. */
   grainSeed?: number;
 }
@@ -71,6 +85,12 @@ export interface DevelopRenderer {
   /** Resolves `params` against the current image, e.g. to show as-shot temperature/tint in the sliders. */
   resolve(params: EditParams): DevelopUniforms;
   readonly contextLost: boolean;
+  /**
+   * Whether Texture, Clarity, Dehaze, sharpening and noise reduction can be drawn here.
+   * When false they are skipped by this renderer; a caller that must produce them (an
+   * export) renders with the CPU reference instead (`renderCpu`).
+   */
+  readonly supportsNeighbourhood: boolean;
   dispose(): void;
 }
 
@@ -227,6 +247,20 @@ export function createDevelopRenderer(
   let res = createResources(gl);
   let source: Source | undefined;
   let lost = false;
+  // Rendering to float textures is what the neighbourhood passes need; Chromium has it everywhere,
+  // but a GPU or driver without it must still show the picture.
+  const neighbourhoodSupported =
+    options.disableFloatRendering !== true && gl.getExtension('EXT_color_buffer_float') !== null;
+  let warnedUnavailable = false;
+  /** `params`, minus the neighbourhood settings when they cannot be drawn (and a single notice). */
+  const drawable = (params: EditParams): EditParams => {
+    if (neighbourhoodSupported || !needsNeighbourhood(params)) return params;
+    if (!warnedUnavailable) {
+      warnedUnavailable = true;
+      options.onNeighbourhoodUnavailable?.();
+    }
+    return withoutNeighbourhood(params);
+  };
   let disposed = false;
 
   const maxTexture = Math.min(
@@ -543,6 +577,10 @@ export function createDevelopRenderer(
       return lost;
     },
 
+    get supportsNeighbourhood() {
+      return neighbourhoodSupported;
+    },
+
     setImage(header, data) {
       if (disposed) throw new DevelopGlError('Renderer is disposed');
       if (lost) throw new DevelopGlError('WebGL context lost');
@@ -561,7 +599,8 @@ export function createDevelopRenderer(
       return resolveUniforms(requireSource().header, params, { grainSeed: options.grainSeed });
     },
 
-    render(params) {
+    render(requested) {
+      const params = drawable(requested);
       const src = requireSource();
       const out = { width: canvas.width, height: canvas.height };
       const mapping = mappingFor(src.header, params, cropLogicalSize(src.header, params), out);
@@ -594,7 +633,8 @@ export function createDevelopRenderer(
       }
     },
 
-    renderView(params, view) {
+    renderView(requested, view) {
+      const params = drawable(requested);
       const src = requireSource();
       const out = { width: canvas.width, height: canvas.height };
       const mapping = viewMapping(src.header, view, out);
@@ -619,7 +659,8 @@ export function createDevelopRenderer(
       setViewUniforms(undefined);
     },
 
-    renderToRGBA(params, size) {
+    renderToRGBA(requested, size) {
+      const params = drawable(requested);
       const src = requireSource();
       const width = Math.round(size.width);
       const height = Math.round(size.height);

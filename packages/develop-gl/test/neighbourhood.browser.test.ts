@@ -1,6 +1,7 @@
 import type { EditParams } from '@ee/contracts';
 import { afterEach, describe, expect, it } from 'vitest';
 import { renderCpu } from '../src/cpu';
+import { withoutNeighbourhood } from '../src/neighbourhood/params';
 import { createDevelopRenderer, type DevelopRenderer } from '../src/renderer';
 import { hashNoise, makeImage, makeScene, maxAbsDiff } from './support';
 
@@ -49,6 +50,9 @@ const EVERYTHING: EditParams = {
   LuminanceSmoothing: 30,
   ColorNoiseReduction: 30,
 };
+
+/** `EVERYTHING` without the neighbourhood settings. */
+const EVERYTHING_TONE_ONLY = withoutNeighbourhood(EVERYTHING);
 
 let renderer: DevelopRenderer | undefined;
 afterEach(() => {
@@ -196,6 +200,47 @@ describe('WebGL2 vs CPU reference: neighbourhood ops', () => {
       const cached = renderer.renderToRGBA(next, size);
       expect(maxAbsDiff(cached, fresh(next))).toBe(0);
     }
+  });
+});
+
+describe('without float render targets', () => {
+  const W = 192;
+  const H = 128;
+  const scene = makeScene(W, H, { noise: 0.05 });
+  const size = { width: W, height: H };
+
+  it('skips the neighbourhood settings, renders the rest, and says so once', () => {
+    let notices = 0;
+    renderer = createDevelopRenderer(canvasOf(W, H), {
+      disableFloatRendering: true,
+      onNeighbourhoodUnavailable: () => notices++,
+    });
+    renderer.setImage(scene.header, scene.data);
+    expect(renderer.supportsNeighbourhood).toBe(false);
+    const tone: EditParams = { Exposure2012: 0.4, Contrast2012: 25, Vibrance: 20 };
+    const withDetail: EditParams = { ...tone, ...EVERYTHING };
+    // Nothing to say while only tone settings are asked for.
+    renderer.renderToRGBA(tone, size);
+    expect(notices).toBe(0);
+
+    const degraded = renderer.renderToRGBA(withDetail, size);
+    expect(
+      maxAbsDiff(degraded, renderCpu(scene.header, scene.data, EVERYTHING_TONE_ONLY)),
+    ).toBeLessThanOrEqual(MAX_LEVELS);
+    renderer.render(withDetail);
+    renderer.renderToRGBA(withDetail, size);
+    expect(notices).toBe(1);
+  });
+
+  it('a renderer with float targets says it supports them and says nothing', () => {
+    let notices = 0;
+    renderer = createDevelopRenderer(canvasOf(W, H), {
+      onNeighbourhoodUnavailable: () => notices++,
+    });
+    renderer.setImage(scene.header, scene.data);
+    expect(renderer.supportsNeighbourhood).toBe(true);
+    renderer.renderToRGBA(EVERYTHING, size);
+    expect(notices).toBe(0);
   });
 });
 

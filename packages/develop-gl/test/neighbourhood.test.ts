@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { renderCpuFloat } from '../src/cpu';
 import { srgbDecode } from '../src/ops';
+import { needsNeighbourhood, NEIGHBOURHOOD_PARAMS, withoutNeighbourhood } from '../src';
 import { makeImage, rng, stats } from './support';
 
 /**
@@ -276,5 +277,41 @@ describe('Noise reduction', () => {
     };
     const base = jump({});
     expect(jump({ LuminanceSmoothing: 80 })).toBeGreaterThan(base * 0.9);
+  });
+});
+
+describe('which settings need the neighbourhood pipeline', () => {
+  it('is nothing for neutral and tone-only params, and each control on its own', () => {
+    expect(needsNeighbourhood({})).toBe(false);
+    expect(needsNeighbourhood({ Exposure2012: 1, Contrast2012: 20, Vibrance: 10 })).toBe(false);
+    // Sharpness 0 and noise reduction at 0 are off even with their detail sliders set.
+    expect(needsNeighbourhood({ Sharpness: 0, SharpenDetail: 80, LuminanceSmoothing: 0 })).toBe(
+      false,
+    );
+    for (const params of [
+      { Texture: 5 },
+      { Clarity2012: -5 },
+      { Dehaze: 5 },
+      { Sharpness: 1 },
+      { LuminanceSmoothing: 1 },
+      { ColorNoiseReduction: 1 },
+    ]) {
+      expect(needsNeighbourhood(params)).toBe(true);
+    }
+  });
+
+  it('strips exactly the neighbourhood settings and nothing else', () => {
+    const params = {
+      Exposure2012: 0.5,
+      Vibrance: 12,
+      crop: { left: 0, top: 0, right: 1, bottom: 1, angle: 2 },
+      ...Object.fromEntries(NEIGHBOURHOOD_PARAMS.map((name) => [name, 10])),
+    };
+    expect(withoutNeighbourhood(params)).toEqual({
+      Exposure2012: 0.5,
+      Vibrance: 12,
+      crop: params.crop,
+    });
+    expect(needsNeighbourhood(withoutNeighbourhood(params))).toBe(false);
   });
 });

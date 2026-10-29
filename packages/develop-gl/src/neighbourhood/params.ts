@@ -173,3 +173,33 @@ export function resolveNeighbourhood(params: EditParams): NeighbourhoodParams {
 export const hasLocalContrast = (n: NeighbourhoodParams): boolean =>
   n.texture !== 0 || n.clarity !== null || n.dehaze !== 0;
 export const hasDenoise = (n: NeighbourhoodParams): boolean => n.luma !== null || n.chroma !== null;
+
+/** The `EditParams` keys that need the neighbourhood pipeline (the GPU float render targets). */
+export const NEIGHBOURHOOD_PARAMS = [
+  'Texture',
+  'Clarity2012',
+  'Dehaze',
+  'Sharpness',
+  'SharpenRadius',
+  'SharpenDetail',
+  'SharpenEdgeMasking',
+  'LuminanceSmoothing',
+  'LuminanceNoiseReductionDetail',
+  'LuminanceNoiseReductionContrast',
+  'ColorNoiseReduction',
+  'ColorNoiseReductionDetail',
+  'ColorNoiseReductionSmoothness',
+] as const satisfies readonly SliderParam[];
+
+/** True when `params` ask for anything the neighbourhood pipeline does (the others are neutral or off). */
+export function needsNeighbourhood(params: EditParams): boolean {
+  const n = resolveNeighbourhood(params);
+  return hasLocalContrast(n) || hasDenoise(n) || n.sharpen !== null;
+}
+
+/** `params` without the neighbourhood settings, for a renderer that cannot run them. */
+export function withoutNeighbourhood(params: EditParams): EditParams {
+  const rest: EditParams = { ...params };
+  for (const key of NEIGHBOURHOOD_PARAMS) delete rest[key];
+  return rest;
+}
