@@ -26,7 +26,7 @@ import { spawn, spawnSync, type ChildProcess } from 'node:child_process';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
-import { dirname, join } from 'node:path';
+import { basename, dirname, join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import {
   copyInto,
@@ -946,8 +946,8 @@ describe.skipIf(nefs.length === 0 || !haveDisplay)(
     });
 
     it('batch exports three selected photos to a local folder without uploading', async () => {
-      const chosen = ['cardA_001.NEF', 'cardA_002.NEF', 'cardB_002.NEF'].map(
-        (name) => photos.find((photo) => photo.fileName === name)!,
+      const chosen = ['cardA_001.NEF', 'cardA_002.NEF', 'cardB_002.NEF'].map((name) =>
+        photos.find((photo) => photo.fileName === name)!,
       );
       const before = new Set((await invoke<UploadItem[]>('upload:list')).map((item) => item.id));
 
@@ -955,7 +955,9 @@ describe.skipIf(nefs.length === 0 || !haveDisplay)(
       await clickThumb('cardA_002.NEF', ['Control']);
       await clickThumb('cardB_002.NEF', ['Control']);
       await openExportDialog();
-      expect(await window.getByTestId('export-dialog').textContent()).toContain('3 photos selected');
+      expect(await window.getByTestId('export-dialog').textContent()).toContain(
+        '3 photos selected',
+      );
       await choosePreset('Batch');
       await window.getByTestId('export-only').click();
 
@@ -979,16 +981,16 @@ describe.skipIf(nefs.length === 0 || !haveDisplay)(
     }, 180_000);
 
     it('batch exports and sends two photos to anonymous FTP, byte-identical', async () => {
-      const chosen = ['pool_001.NEF', 'pool_002.NEF'].map(
-        (name) => photos.find((photo) => photo.fileName === name)!,
+      const chosen = ['cardB_002.NEF', 'pool_002.NEF'].map((name) =>
+        photos.find((photo) => photo.fileName === name)!,
       );
-      await clickThumb('pool_001.NEF');
+      await clickThumb('cardB_002.NEF');
       await clickThumb('pool_002.NEF', ['Control']);
       await openExportDialog();
       await choosePreset('Batch');
       await window.getByTestId('export-send').click();
 
-      await waitForExportJob(chosen.map((photo) => photo.id));
+      const job = await waitForExportJob(chosen.map((photo) => photo.id));
       const done = await waitFor('both uploads to finish', async () => {
         const items = await invoke<UploadItem[]>('upload:list');
         const mine = items.filter((item) => chosen.some((photo) => photo.id === item.photoId));
@@ -996,9 +998,9 @@ describe.skipIf(nefs.length === 0 || !haveDisplay)(
       });
       expect(done).toHaveLength(2);
 
-      for (const photo of chosen) {
-        const local = batchFile(photo.fileName);
-        const remote = join(outRoot, 'incoming', local.split(/[\\/]/).pop()!);
+      for (const progress of job.photos) {
+        const local = progress.path!;
+        const remote = join(outRoot, 'incoming', basename(local));
         await waitFor(`${remote} to exist`, () => existsSync(remote));
         expect(readFileSync(remote).equals(readFileSync(local))).toBe(true);
       }
