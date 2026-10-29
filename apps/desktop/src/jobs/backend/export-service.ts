@@ -26,6 +26,8 @@ import {
 import { isAbsolute, parse, resolve, sep } from 'node:path';
 import path from 'node:path';
 import { rename } from 'node:fs/promises';
+import type { ExportedFileStore } from './exported-files';
+import { normalizeExportPath } from './exported-files';
 import type { PhotoLibrary } from './photo-library';
 import type { SettingsStore } from './settings-store';
 
@@ -83,6 +85,8 @@ export interface ExportServiceDeps {
   settings: SettingsStore;
   exiftool: ExifToolService;
   queue: UploadQueue;
+  /** Absolute paths the app exported; only these may be overwritten. */
+  exportedFiles: ExportedFileStore;
   /** Forward queue events (progress, state) to the renderer. */
   onEvent(event: JobEvent): void;
 }
@@ -139,6 +143,7 @@ export class ExportService {
     const context = contextFor(photo.path, photo.fileName, fields, photo.captureTime, photo.camera);
     const outputDir = resolveExportFolder(preset, context, settings.get().exportRoot);
     const fileName = resolveExportFileName(preset, context);
+    const originals = this.originalPaths();
 
     this.setStatus(photo.id, { export: 'encoding' });
     try {
@@ -149,10 +154,13 @@ export class ExportService {
         fileName,
         photoId: photo.id,
         ifExists: preset.ifExists,
+        canOverwrite: (target) => this.deps.exportedFiles.has(target),
+        checkTarget: (target) => this.assertNotOriginal(target, originals),
         hooks: {
           writeMetadata: (jpegPath) => this.writeMetadata(jpegPath, photo.path, preset, fields),
         },
       });
+      if (exported.skipped !== true) this.deps.exportedFiles.add(exported.path);
       this.setStatus(photo.id, { export: 'done' });
       // Only needed until the queue has expanded the remote paths in `enqueue`.
       this.exportFields.set(photo.id, fields);
@@ -192,6 +200,24 @@ export class ExportService {
   /** Forget the fields for an export that never reached the queue. */
   discard(photoId: PhotoId): void {
     this.exportFields.delete(photoId);
+  }
+
+  /** Every indexed original and sidecar, case-folded on case-insensitive file systems. */
+  private originalPaths(): Set<string> {
+    const paths = new Set<string>();
+    for (const photo of this.deps.photos.list()) {
+      paths.add(normalizeExportPath(photo.path));
+      paths.add(normalizeExportPath(photo.sidecarPath));
+    }
+    return paths;
+  }
+
+  private assertNotOriginal(target: string, originals: ReadonlySet<string>): void {
+    if (!originals.has(normalizeExportPath(target))) return;
+    throw new IpcError(
+      'invalid_argument',
+      `Refusing to export over the ingested photo or sidecar at ${target}`,
+    );
   }
 
   /**
@@ -339,7 +365,9 @@ export function resolveExportFolder(
 export function resolveExportFileName(preset: ExportPreset, context: CaptionContext): string {
   const expanded = expandTemplate(preset.fileNameTemplate, preset, context).trim();
   if (expanded === '') throw new IpcError('invalid_argument', 'the file name template is empty');
-  const fileName = /\.(jpe?g)$/i.test(expanded) ? expanded : `${expanded}.jpg`;
+  // A template without an extension gets the preset's JPEG extension; an explicit
+  // extension is kept so the target check can protect e.g. a sidecar name.
+  const fileName = parse(expanded).ext === '' ? `${expanded}.jpg` : expanded;
   assertSafeFileName(fileName);
   return fileName;
 }

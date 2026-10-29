@@ -138,8 +138,8 @@ describe('exportPhoto', () => {
     ).rejects.toMatchObject({ code: 'invalid_file_name' });
   });
 
-  it('replaces an existing export', async () => {
-    const outputDir = path.join(dir, 'replace');
+  it('suffixes by default instead of replacing an existing file', async () => {
+    const outputDir = path.join(dir, 'default-suffix');
     await import('node:fs/promises').then(({ mkdir }) => mkdir(outputDir, { recursive: true }));
     await writeFile(path.join(outputDir, 'same.jpg'), 'old');
 
@@ -150,7 +150,65 @@ describe('exportPhoto', () => {
       fileName: 'same.jpg',
       photoId,
     });
+    expect(path.basename(result.path)).toBe('same-1.jpg');
+    expect(await readFile(path.join(outputDir, 'same.jpg'), 'utf8')).toBe('old');
+  });
+
+  it('refuses to overwrite a file it did not export', async () => {
+    const outputDir = path.join(dir, 'foreign-overwrite');
+    await import('node:fs/promises').then(({ mkdir }) => mkdir(outputDir, { recursive: true }));
+    const existing = path.join(outputDir, 'same.jpg');
+    await writeFile(existing, 'old');
+
+    await expect(
+      exportPhoto({
+        image: testImage(30, 20),
+        preset,
+        outputDir,
+        fileName: 'same.jpg',
+        photoId,
+        ifExists: 'overwrite',
+      }),
+    ).rejects.toMatchObject({ code: 'target_exists' });
+    expect(await readFile(existing, 'utf8')).toBe('old');
+  });
+
+  it('overwrites a file the app says it exported', async () => {
+    const outputDir = path.join(dir, 'our-overwrite');
+    await import('node:fs/promises').then(({ mkdir }) => mkdir(outputDir, { recursive: true }));
+    const existing = path.join(outputDir, 'same.jpg');
+    await writeFile(existing, 'old');
+
+    const result = await exportPhoto({
+      image: testImage(30, 20),
+      preset,
+      outputDir,
+      fileName: 'same.jpg',
+      photoId,
+      ifExists: 'overwrite',
+      canOverwrite: () => true,
+    });
+    expect(result.path).toBe(existing);
     expect(result.bytes).toBeGreaterThan(3);
+  });
+
+  it('rejects a target that a host says is protected, even before writing', async () => {
+    const outputDir = path.join(dir, 'protected');
+    await import('node:fs/promises').then(({ mkdir }) => mkdir(outputDir, { recursive: true }));
+    await expect(
+      exportPhoto({
+        image: testImage(10, 10),
+        preset,
+        outputDir,
+        fileName: 'original.jpg',
+        photoId,
+        ifExists: 'suffix',
+        checkTarget: () => {
+          throw new Error('protected');
+        },
+      }),
+    ).rejects.toThrow('protected');
+    expect(await readdir(outputDir)).toEqual([]);
   });
 
   it('adds a suffix instead of overwriting when asked', async () => {

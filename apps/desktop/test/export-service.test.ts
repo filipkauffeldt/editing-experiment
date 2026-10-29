@@ -13,12 +13,13 @@ import {
 } from '@ee/contracts';
 import { JobEventEmitter, type UploadQueue } from '@ee/export';
 import { ExifToolService, readIptc } from '@ee/metadata';
-import { mkdtemp, readFile, rm } from 'node:fs/promises';
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { basename, dirname, join } from 'node:path';
 import sharp from 'sharp';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { ExportService } from '../src/jobs/backend/export-service';
+import { ExportedFileStore } from '../src/jobs/backend/exported-files';
 import { PhotoIndex } from '../src/jobs/backend/photo-index';
 import { PhotoLibrary } from '../src/jobs/backend/photo-library';
 import { SettingsStore } from '../src/jobs/backend/settings-store';
@@ -106,6 +107,7 @@ describe('ExportService', () => {
       settings,
       exiftool,
       queue: queue as unknown as UploadQueue,
+      exportedFiles: new ExportedFileStore(join(root, 'exported-files.json')),
       onEvent: () => {},
     });
   });
@@ -212,6 +214,104 @@ describe('ExportService', () => {
     const exported = await exporting;
     expect(exported.path.endsWith('locked.jpg')).toBe(true);
     expect(library.get(photo.id).status.export).toBe('done');
+  });
+
+  it('never writes over the ingested JPEG original, even with overwrite', async () => {
+    const photo = await addPhoto('original');
+    const before = await readFile(photo.path);
+
+    await expect(
+      service.exportOne({
+        photoId: photo.id,
+        preset: preset({
+          folderTemplate: dirname(photo.path),
+          fileNameTemplate: '{filenamebase}',
+          ifExists: 'overwrite',
+          metadata: 'none',
+          sendTo: [],
+        }),
+        rendered,
+      }),
+    ).rejects.toThrow(/ingested photo or sidecar/);
+    expect(await readFile(photo.path)).toEqual(before);
+
+    const suffixed = await service.exportOne({
+      photoId: photo.id,
+      preset: preset({
+        folderTemplate: dirname(photo.path),
+        fileNameTemplate: '{filenamebase}',
+        ifExists: 'suffix',
+        metadata: 'none',
+        sendTo: [],
+      }),
+      rendered,
+    });
+    expect(basename(suffixed.path)).toBe('original-1.jpg');
+    expect(await readFile(photo.path)).toEqual(before);
+  });
+
+  it('protects a raw sidecar as well as the raw file', async () => {
+    const rawPath = join(root, 'raw.NEF');
+    const sidecarPath = join(root, 'raw.xmp');
+    await writeFile(rawPath, 'raw bytes');
+    await writeFile(sidecarPath, 'sidecar bytes');
+    const photo: Photo = {
+      id: asPhotoId('raw'),
+      path: rawPath,
+      sidecarPath,
+      fileName: 'raw.NEF',
+      sourceId: asSourceId('s'),
+      tagged: false,
+      colorClass: 0,
+      status: {
+        ingest: 'done',
+        edited: false,
+        metadataDiffersFromTemplate: false,
+        export: 'none',
+        upload: 'none',
+      },
+      versions: [],
+    };
+    library.add(photo);
+
+    await expect(
+      service.exportOne({
+        photoId: photo.id,
+        preset: preset({
+          folderTemplate: dirname(rawPath),
+          fileNameTemplate: '{filenamebase}.xmp',
+          ifExists: 'overwrite',
+          metadata: 'none',
+          sendTo: [],
+        }),
+        rendered,
+      }),
+    ).rejects.toThrow(/ingested photo or sidecar/);
+    expect(await readFile(sidecarPath, 'utf8')).toBe('sidecar bytes');
+    expect(await readFile(rawPath, 'utf8')).toBe('raw bytes');
+  });
+
+  it('overwrites only a file this app exported earlier', async () => {
+    const photo = await addPhoto('own');
+    const presetWithOverwrite = preset({
+      folderTemplate: join(root, 'own-exports'),
+      fileNameTemplate: '{filenamebase}',
+      ifExists: 'overwrite',
+      metadata: 'none',
+      sendTo: [],
+    });
+    const first = await service.exportOne({
+      photoId: photo.id,
+      preset: presetWithOverwrite,
+      rendered,
+    });
+    const second = await service.exportOne({
+      photoId: photo.id,
+      preset: presetWithOverwrite,
+      rendered,
+    });
+    expect(second.path).toBe(first.path);
+    expect(second.path.endsWith('own.jpg')).toBe(true);
   });
 
   it('writes all, IPTC-only, copyright-only and no metadata, with GPS stripped on request', async () => {

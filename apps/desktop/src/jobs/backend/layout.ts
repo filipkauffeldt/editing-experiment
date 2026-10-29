@@ -13,6 +13,8 @@ export interface UserDataLayout {
   uploadsDb: string;
   /** Resumable export batches (JSON). */
   exportJobsFile: string;
+  /** Paths the app has exported; the only files `overwrite` may replace. */
+  exportedFilesFile: string;
   /** Imported develop presets (one JSON file each). */
   presetsDir: string;
   /** Everything below is disposable cache. */
@@ -33,6 +35,7 @@ export function userDataLayout(root: string): UserDataLayout {
     seenDb: join(root, 'seen.sqlite'),
     uploadsDb: join(root, 'uploads.sqlite'),
     exportJobsFile: join(root, 'export-jobs.json'),
+    exportedFilesFile: join(root, 'exported-files.json'),
     presetsDir: join(root, 'presets'),
     cacheDir,
     thumbDir: join(cacheDir, 'thumb'),

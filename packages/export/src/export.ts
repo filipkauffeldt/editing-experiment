@@ -3,6 +3,7 @@ import { access, mkdir, rm, stat, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import type { ExportIfExists, ExportPreset, PhotoId, RenderedImage } from '@ee/contracts';
 import { atomicReplace } from './atomic';
+import { ExportError } from './errors';
 import { assertSafeFileName } from './upload/paths';
 import { encodeJpeg } from './jpeg/encode';
 import { assertNoEmbeddedPreviews } from './jpeg/previews';
@@ -14,8 +15,12 @@ export interface ExportPhotoOptions {
   outputDir: string;
   fileName: string;
   photoId: PhotoId;
-  /** Default `overwrite`, matching the original single-photo finish action. */
+  /** Default `suffix`, so an export never replaces a file it did not create. */
   ifExists?: ExportIfExists;
+  /** Whether `overwrite` may replace an existing target. Default: never. */
+  canOverwrite?: (path: string) => boolean;
+  /** Called for the chosen target; throws (e.g. for an ingested original) before anything is written. */
+  checkTarget?: (path: string) => void;
   hooks?: ExportHooks;
 }
 
@@ -39,7 +44,7 @@ export async function exportPhoto(options: ExportPhotoOptions): Promise<Exported
   assertSafeFileName(fileName);
 
   await mkdir(outputDir, { recursive: true });
-  const target = await resolveTarget(outputDir, fileName, options.ifExists ?? 'overwrite');
+  const target = await resolveTarget(outputDir, fileName, options.ifExists ?? 'suffix', options);
   if (target.skip)
     return { path: target.path, bytes: (await stat(target.path)).size, skipped: true };
 
@@ -76,15 +81,35 @@ async function resolveTarget(
   outputDir: string,
   fileName: string,
   policy: ExportIfExists,
+  options: Pick<ExportPhotoOptions, 'canOverwrite' | 'checkTarget'>,
 ): Promise<{ path: string; skip?: boolean }> {
   const direct = path.join(outputDir, fileName);
-  if (policy === 'overwrite' || !(await exists(direct))) return { path: direct };
-  if (policy === 'skip') return { path: direct, skip: true };
+  if (policy === 'overwrite') {
+    options.checkTarget?.(direct);
+    if ((await exists(direct)) && !(options.canOverwrite?.(direct) ?? false)) {
+      throw new ExportError(
+        'target_exists',
+        `Refusing to overwrite ${direct}: it was not exported by this app`,
+      );
+    }
+    return { path: direct };
+  }
+  if (policy === 'skip') {
+    options.checkTarget?.(direct);
+    if (await exists(direct)) return { path: direct, skip: true };
+    return { path: direct };
+  }
+
+  if (!(await exists(direct))) {
+    options.checkTarget?.(direct);
+    return { path: direct };
+  }
 
   const extension = path.extname(fileName);
   const base = fileName.slice(0, fileName.length - extension.length);
   for (let index = 1; index < 10_000; index++) {
     const candidate = path.join(outputDir, `${base}-${index}${extension}`);
+    options.checkTarget?.(candidate);
     if (!(await exists(candidate))) return { path: candidate };
   }
   throw new Error(`could not find a free file name for ${fileName}`);

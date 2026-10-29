@@ -27,6 +27,7 @@ import { PresetStore } from './presets';
 import { PreviewCache } from './previews';
 import { ExportQueue } from './export-queue';
 import { ExportService } from './export-service';
+import { ExportedFileStore } from './exported-files';
 import { SettingsStore } from './settings-store';
 import { reconcileDestination } from './reconcile';
 import { runTeardown } from './teardown';
@@ -131,11 +132,15 @@ export async function createBackend(options: BackendOptions): Promise<Backend> {
     },
     ...options.uploadQueue,
   });
+  const exportedFiles = new ExportedFileStore(layout.exportedFilesFile, (message) =>
+    console.warn(message),
+  );
   const exporter = new ExportService({
     photos,
     settings,
     exiftool,
     queue,
+    exportedFiles,
     onEvent: emitJob,
   });
   late.exporter = exporter;

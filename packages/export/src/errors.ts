@@ -3,6 +3,7 @@ export type ExportErrorCode =
   | 'invalid_preset'
   | 'invalid_file_name'
   | 'invalid_path'
+  | 'target_exists'
   | 'embedded_preview'
   | 'missing_credentials'
   | 'unsupported_destination'
