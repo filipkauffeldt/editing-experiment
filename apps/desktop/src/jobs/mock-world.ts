@@ -396,8 +396,7 @@ export function createMockHandlers(world: MockWorld, emit: Emit): Partial<IpcHan
         photoIds: [...photoIds],
         send: send ?? preset.sendTo,
         state: 'queued',
-        version:
-          forceTop === true || (send ?? preset.sendTo).length > 0 ? 'top' : preset.version,
+        version: forceTop === true || (send ?? preset.sendTo).length > 0 ? 'top' : preset.version,
         photos: photoIds.map((photoId) => ({ photoId, state: 'queued' })),
         createdAt: Date.now(),
       };
