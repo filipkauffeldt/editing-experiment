@@ -5,6 +5,7 @@ import type {
   Destination,
   ExportJob,
   ExportPreset,
+  RenderedImage,
   StartExportArgs,
   UploadItem,
 } from './export';
