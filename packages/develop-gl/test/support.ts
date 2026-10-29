@@ -95,3 +95,108 @@ export function maxAbsDiff(a: ArrayLike<number>, b: ArrayLike<number>): number {
   for (let i = 0; i < a.length; i++) max = Math.max(max, Math.abs((a[i] ?? 0) - (b[i] ?? 0)));
   return max;
 }
+
+/** A camera that is already linear sRGB with unity white balance, so camera RGB passes straight through. */
+export function identityHeader(
+  width: number,
+  height: number,
+  sourceWidth = width,
+  sourceHeight = height,
+): LinearImageHeader {
+  return {
+    ...makeHeader(width, height, 'f32', { r: 1, g: 1, b: 1 }),
+    sourceWidth,
+    sourceHeight,
+    cameraToSrgb: [1, 0, 0, 0, 1, 0, 0, 0, 1],
+  };
+}
+
+/** Builds an f32 linear image from `fn(x, y)` returning linear RGB. */
+export function makeImage(
+  width: number,
+  height: number,
+  fn: (x: number, y: number) => [number, number, number],
+  sourceWidth = width,
+  sourceHeight = height,
+): { header: LinearImageHeader; data: Float32Array } {
+  const data = new Float32Array(width * height * 4);
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      const [r, g, b] = fn(x, y);
+      data.set([r, g, b, 1], (y * width + x) * 4);
+    }
+  }
+  return { header: identityHeader(width, height, sourceWidth, sourceHeight), data };
+}
+
+/** Mean and variance of channel `c` of a float RGBA render over a rectangle. */
+export function stats(
+  rgba: Float32Array,
+  width: number,
+  rect: { x: number; y: number; w: number; h: number },
+  c = 1,
+): { mean: number; variance: number } {
+  let sum = 0;
+  let sumSq = 0;
+  for (let y = rect.y; y < rect.y + rect.h; y++) {
+    for (let x = rect.x; x < rect.x + rect.w; x++) {
+      const v = rgba[(y * width + x) * 4 + c] ?? 0;
+      sum += v;
+      sumSq += v * v;
+    }
+  }
+  const n = rect.w * rect.h;
+  const mean = sum / n;
+  return { mean, variance: Math.max(0, sumSq / n - mean * mean) };
+}
+
+/** Deterministic hash noise in -0.5..0.5 for integer coordinates. */
+export function hashNoise(x: number, y: number, seed = 0): number {
+  let h = Math.imul(x + 0x9e3779b9, 0x85ebca6b) ^ Math.imul(y + seed, 0xc2b2ae35);
+  h = Math.imul(h ^ (h >>> 15), 0x2c1b3c6d);
+  h = Math.imul(h ^ (h >>> 12), 0x297a2d39);
+  return ((h ^ (h >>> 15)) >>> 0) / 0x100000000 - 0.5;
+}
+
+/**
+ * A scene as a function of the unit square, so it can be sampled at any resolution:
+ * large light/dark swells, medium and fine texture, a specular disc that sets
+ * Clarity's key level, a hazy band and some colour. `noise` adds per-pixel
+ * noise (which is not resolution independent).
+ */
+export function sceneAt(u: number, v: number): [number, number, number] {
+  const tau = Math.PI * 2;
+  let lum = 0.05 * 2 ** (1.5 * Math.sin(tau * (2 * u + 1.3 * v)));
+  lum *= 1 + 0.3 * Math.sin(tau * 40 * u) * Math.sin(tau * 30 * v);
+  lum *= 1 + 0.15 * Math.sin(tau * 9 * u + 2) * Math.sin(tau * 7 * v);
+  if (Math.hypot(u - 0.78, (v - 0.3) * 0.7) < 0.1) lum = 2.5;
+  if (v < 0.22) lum = lum * 0.4 + 0.55 * 0.6;
+  const tint = 0.3 * Math.sin(tau * (3 * u - 2 * v));
+  return [lum * (1 + tint), lum, lum * (1 - tint)];
+}
+
+/** `sceneAt` rendered at `width` x `height`; `sourceWidth` tells the header how big the full-resolution photo is. */
+export function makeScene(
+  width: number,
+  height: number,
+  options: {
+    noise?: number;
+    chromaNoise?: number;
+    sourceWidth?: number;
+    sourceHeight?: number;
+  } = {},
+): { header: LinearImageHeader; data: Float32Array } {
+  const noise = options.noise ?? 0;
+  return makeImage(
+    width,
+    height,
+    (x, y) => {
+      const [r, g, b] = sceneAt((x + 0.5) / width, (y + 0.5) / height);
+      const n = 1 + noise * hashNoise(x, y);
+      const c = 1 + (options.chromaNoise ?? noise * 0.5) * hashNoise(x, y, 7);
+      return [r * n * c, g * n, (b * n) / c];
+    },
+    options.sourceWidth ?? width,
+    options.sourceHeight ?? height,
+  );
+}
