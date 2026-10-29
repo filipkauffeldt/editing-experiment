@@ -7,6 +7,7 @@ export * from './values';
 export * from './iptc';
 export * from './labels';
 export * from './develop';
+export * from './lens';
 export * from './retouch';
 export * from './template';
 export * from './variables';
