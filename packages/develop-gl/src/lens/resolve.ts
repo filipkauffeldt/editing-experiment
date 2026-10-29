@@ -65,6 +65,35 @@ export function builtinProfile(
 }
 
 /**
+ * The geometry of the camera's own embedded preview JPEG: Nikon applies its distortion correction
+ * (the file's built-in profile, at 100 %) to the preview whenever the camera's distortion control
+ * was on, which is exactly when a built-in profile exists. Null for a picture without one, whose
+ * preview is as recorded.
+ */
+export function previewGeometry(image: LensImage): LensUniforms | null {
+  const builtin = image.lens?.builtin;
+  if (!builtin) return null;
+  const profile = builtinProfile(builtin, image.width, image.height);
+  if (!profile.distortion) return null;
+  const frame = {
+    x: image.width / 2,
+    y: image.height / 2,
+    radius: Math.hypot(image.width, image.height) / 2,
+  };
+  return {
+    ...NO_LENS,
+    active: true,
+    geometry: true,
+    centre: profile.centre,
+    frame,
+    distortion: {
+      coefficients: pad(profile.distortion.coefficients, DISTORTION_TERMS),
+      unit: profile.distortion.unit,
+    },
+  };
+}
+
+/**
  * The profile the settings pick: the stored choice, else the camera's own data, else the best
  * Lensfun match for the lens name. Null when nothing fits.
  */

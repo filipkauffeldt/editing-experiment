@@ -61,7 +61,7 @@ import {
   type LibraryQuick,
   type LibraryState,
 } from './library';
-import { padFaceBox } from './retouch-geometry';
+import { faceStoredShape, type PhotoLensContext } from './retouch-geometry';
 
 export type QuickFilter =
   'all' | 'untagged' | 'tagged' | 'edited' | 'not-uploaded' | 'failed-uploads' | 'metadata-differs';
@@ -282,7 +282,7 @@ export interface AppState {
   /** What a photo starts with when the sidecar does not say (Lightroom's raw sharpening and colour noise reduction, the camera's `crd:`). Not edits: never written. */
   editDefaults: Record<string, EditParams>;
   /** Lens facts of the photos opened in the develop view (from the linear image header). */
-  photoLens: Record<string, LensShotInfo>;
+  photoLens: Record<string, PhotoLensContext>;
   /**
    * Values of develop sections that are switched off, by `<photoId>:<section>`. Switching a section
    * off resets its sliders (so the render drops it) and parks the values here; switching it on
@@ -1331,7 +1331,9 @@ export class AppStore {
       ...session.shapes,
       ...session.faces
         .filter((face) => face.enabled)
-        .map((face) => padFaceBox(face.box, session.facePadding)),
+        .map((face) =>
+          faceStoredShape(face.box, session.facePadding, this.state.photoLens[session.photoId]),
+        ),
     ];
     if (shapes.length === 0) {
       this.toast('error', 'Draw a selection or detect a face first');
@@ -2111,13 +2113,15 @@ export class AppStore {
   };
 
   /** Remembers the lens facts of a photo for the Lens Corrections panel. */
-  readonly setPhotoLens = (photoId: PhotoId, lens: LensShotInfo | undefined): void => {
+  readonly setPhotoLens = (
+    photoId: PhotoId,
+    lens: LensShotInfo | undefined,
+    size: { width: number; height: number },
+  ): void => {
     const known = this.state.photoLens[photoId];
-    if (lens === known || JSON.stringify(lens) === JSON.stringify(known)) return;
-    const next = { ...this.state.photoLens };
-    if (lens === undefined) delete next[photoId];
-    else next[photoId] = lens;
-    this.set({ photoLens: next });
+    const context: PhotoLensContext = { lens, width: size.width, height: size.height };
+    if (JSON.stringify(context) === JSON.stringify(known)) return;
+    this.set({ photoLens: { ...this.state.photoLens, [photoId]: context } });
   };
 
   /** The Lens Corrections switches: stored explicitly, so a lens the camera requires can be turned off. */

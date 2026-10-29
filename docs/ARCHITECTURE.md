@@ -456,10 +456,29 @@ Code is in `packages/develop-gl/src/lens` (maths, matching, measurement), `src/g
   barrel correction moves it by 20 px, is fully covered, and shows that the unmapped shape would
   not be.
 
-Known limitations: face detection runs on the camera's embedded preview, which Nikon corrects
-in-camera for lenses that require it, so a detected box near a corner of such a photo is in the
-corrected frame while stored shapes are in the recorded one (the boxes are padded, but this is
-not corrected for); fisheye and other non-rectilinear Lensfun lenses are not offered; Adobe
+- **Detected faces.** Detection reads the camera's embedded preview, which Nikon corrects
+  in-camera whenever its distortion control was on, which is exactly when the file has a built-in
+  profile (`previewGeometry`). A box found there is in the *corrected* frame, so before it is stored
+  it is padded and taken, as a densified outline, through the lens map (corrected to recorded,
+  `previewShapesToRecorded`); the search region drawn on the recorded picture goes the other way
+  (`recordedRegionToPreview`). Both are applied where a face becomes a shape
+  (`faceStoredShape` / `detectionRegion` in `renderer/retouch-geometry.ts`), so the overlay, the live
+  preview and the commit agree. A pixel test with a strong barrel lens and a corner face covers the
+  chain box, stored shape and export, with a control showing that the unmapped box leaves the face
+  visible; `camera-preview-geometry.test.ts` checks on the Z 6II and Z 30 fixtures that the
+  preview really is the corrected picture (corner edge correlation rises by more than 0.05 with the
+  camera's correction on).
+
+**Verifying against Lightroom** (no Lightroom render is committed yet): shoot a straight-line
+architectural scene (a building front, a door frame, a tiled wall) with the NIKKOR Z 24-70mm f/4 S
+at 24 mm; export a full-size JPEG from Lightroom Classic with *Enable Profile Corrections* on (and
+*Remove Chromatic Aberration* if wanted), and one from this app with the same file (the camera's
+profile is automatic, and on for this lens). Overlay the two (difference blend) or compare the
+positions of a long straight edge near a corner; the Nikon records match Adobe's own conversion to
+within about 0.4 px at full size in RAWmakase's comparison. A crop fixture like the existing one can
+be added from that pair.
+
+Known limitations: fisheye and other non-rectilinear Lensfun lenses are not offered; Adobe
 `.lcp` profiles are not read; the focus distance for Lensfun vignetting is taken from the file
 or 1000 m; manual positive distortion repeats the picture's edge where it pulls in canvas
 instead of showing white; the Nikon records were checked on three CC0 NEFs (a lens the camera

@@ -388,7 +388,7 @@ function LensSection() {
   const state = useAppState();
   const photo = activePhoto(state);
   const params = paramsForPhoto(state, photo);
-  const lens = photo ? state.photoLens[photo.id] : undefined;
+  const lens = photo ? state.photoLens[photo.id]?.lens : undefined;
   const panel = describeLens({ width: 1, height: 1, lens }, params);
   return (
     <PanelSection title="Lens Corrections" testId="lens-corrections">

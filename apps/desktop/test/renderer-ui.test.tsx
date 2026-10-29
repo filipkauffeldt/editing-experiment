@@ -499,7 +499,7 @@ describe('lens corrections in the develop panel', () => {
     const { store } = await renderApp();
     const photo = activePhoto(store.getState());
     if (!photo) throw new Error('no selection');
-    act(() => store.setPhotoLens(photo.id, nikonZ6));
+    act(() => store.setPhotoLens(photo.id, nikonZ6, { width: 6048, height: 4032 }));
     const panel = await screen.findByTestId('lens-corrections');
     const select = within(panel).getByLabelText<HTMLSelectElement>('Lens profile');
     await waitFor(() => expect(select.disabled).toBe(false));
@@ -532,7 +532,7 @@ describe('lens corrections in the develop panel', () => {
     const { store } = await renderApp();
     const photo = activePhoto(store.getState());
     if (!photo) throw new Error('no selection');
-    act(() => store.setPhotoLens(photo.id, nikonZ6));
+    act(() => store.setPhotoLens(photo.id, nikonZ6, { width: 6048, height: 4032 }));
     const panel = await screen.findByTestId('lens-corrections');
     const removeCa = within(panel).getByLabelText<HTMLInputElement>('Remove chromatic aberration');
     removeCa.focus();
@@ -547,16 +547,20 @@ describe('lens corrections in the develop panel', () => {
     const photo = activePhoto(store.getState());
     if (!photo) throw new Error('no selection');
     act(() =>
-      store.setPhotoLens(photo.id, {
-        ...nikonZ6,
-        builtin: {
-          source: 'Nikon built-in',
-          required: true,
-          centre: { x: 0, y: 0 },
-          unit: 1,
-          distortion: [1],
+      store.setPhotoLens(
+        photo.id,
+        {
+          ...nikonZ6,
+          builtin: {
+            source: 'Nikon built-in',
+            required: true,
+            centre: { x: 0, y: 0 },
+            unit: 1,
+            distortion: [1],
+          },
         },
-      }),
+        { width: 6048, height: 4032 },
+      ),
     );
     const panel = await screen.findByTestId('lens-corrections');
     const enable = within(panel).getByLabelText<HTMLInputElement>('Enable profile corrections');

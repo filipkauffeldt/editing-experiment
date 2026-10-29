@@ -88,8 +88,14 @@ export type {
   LensResolution,
   MeasuredCa,
 } from './lens/resolve';
-export { correctedShapes, withoutLensGeometry } from './lens/shapes';
+export {
+  correctedShapes,
+  previewShapesToRecorded,
+  recordedRegionToPreview,
+  withoutLensGeometry,
+} from './lens/shapes';
 export { LENSFUN, lensfunKey } from './lens/lensfun';
+export { lensCorrectedPosition } from './lens/model';
 export type { LensUniforms } from './lens/model';
 
 // CPU reference (tests, export fallback)
