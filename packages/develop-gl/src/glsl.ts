@@ -189,7 +189,7 @@ vec3 developColor(vec3 lin) {
 
   // EE colour/effects insertion point: per-pixel colour.
   e = applyColorMixer(e);
-  return applyColorGrading(e);
+  return applyDefringe(applyColorGrading(e));
 }
 
 `;

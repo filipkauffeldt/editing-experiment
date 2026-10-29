@@ -42,6 +42,12 @@ const CASES: Record<string, EditParams> = {
     LensProfileEnable: true,
     LensProfileChoice: 'lensfun:Nikon|Nikkor Z 24-70mm f/4 S|1',
   },
+  'defringe purple and green': {
+    LensProfileEnable: false,
+    DefringePurpleAmount: 8,
+    DefringeGreenAmount: 12,
+    DefringeGreenHueLo: 20,
+  },
   'profile with a straightened crop': {
     crop: { left: 0.1, top: 0.12, right: 0.88, bottom: 0.9, angle: 3 },
   },

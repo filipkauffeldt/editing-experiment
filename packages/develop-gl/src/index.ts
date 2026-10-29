@@ -81,7 +81,13 @@ export type {
 
 // Lens corrections
 export { resolveLens, describeLens, profileEnabled } from './lens/resolve';
-export type { LensImage, LensPanelChoice, LensPanelState, LensResolution, MeasuredCa } from './lens/resolve';
+export type {
+  LensImage,
+  LensPanelChoice,
+  LensPanelState,
+  LensResolution,
+  MeasuredCa,
+} from './lens/resolve';
 export { correctedShapes, withoutLensGeometry } from './lens/shapes';
 export { LENSFUN, lensfunKey } from './lens/lensfun';
 export type { LensUniforms } from './lens/model';

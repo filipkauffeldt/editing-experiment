@@ -25,6 +25,7 @@ import {
 } from './neighbourhood/pipeline';
 import { LENS_TILE_BORDER, planSourceTiles, splitRect, type Rect, type SourceTile } from './tiling';
 import { TUNING } from './tuning';
+import { measuredLateralCa } from './lens/auto-ca';
 import {
   CA_TERMS,
   DISTORTION_TERMS,
@@ -70,7 +71,10 @@ export interface CropViewTransform {
 }
 
 export interface DevelopRenderer {
-  /** Uploads the image (once). `data` is the sample buffer described by `header`; it is not retained. */
+  /**
+   * Uploads the image (once). `data` is the sample buffer described by `header`; the renderer
+   * keeps a reference to it (no copy) for the Remove Chromatic Aberration measurement.
+   */
   setImage(header: LinearImageHeader, data: LinearImageBuffer): void;
   /** Draws the image scaled to the canvas drawing buffer. Cheap enough to call on every slider tick. */
   render(params: EditParams): void;
@@ -114,6 +118,8 @@ interface Resources {
 
 interface Source {
   header: LinearImageHeader;
+  /** The sample buffer, kept (not copied) for the lateral CA measurement. */
+  data: LinearImageBuffer;
   tiles: { tile: SourceTile; texture: WebGLTexture }[];
 }
 
@@ -405,6 +411,10 @@ export function createDevelopRenderer(
     gl.uniform1ui(loc('u_grainSeed'), (u.grain?.seed ?? 0) >>> 0);
 
     setLensUniforms(prog, u.lens);
+    const fringe = (range: NonNullable<DevelopUniforms['defringe']>['purple']): number[] =>
+      range ? [range.amount, range.low, range.high, range.centre] : [0, 0, 0, 0];
+    gl.uniform4fv(loc('u_defringePurple'), fringe(u.defringe?.purple ?? null));
+    gl.uniform4fv(loc('u_defringeGreen'), fringe(u.defringe?.green ?? null));
 
     gl.activeTexture(gl.TEXTURE1);
     gl.bindTexture(gl.TEXTURE_2D, res.curveTexture);
@@ -642,6 +652,14 @@ export function createDevelopRenderer(
     };
   }
 
+  /** Resolves `params` for `src`, measuring the lateral CA the first time it is asked for. */
+  function uniformsFor(src: Source, params: EditParams): DevelopUniforms {
+    return resolveUniforms(src.header, params, {
+      grainSeed: options.grainSeed,
+      measuredCa: params.AutoLateralCA === true ? measuredLateralCa(src.header, src.data) : null,
+    });
+  }
+
   const usesNeighbourhood = (input: PipelineInput): boolean =>
     hasDenoise(input.n) || hasLocalContrast(input.n) || input.n.sharpen !== null;
 
@@ -667,11 +685,11 @@ export function createDevelopRenderer(
           texture: uploadTile(header, view, tile),
         }),
       );
-      source = { header, tiles };
+      source = { header, data, tiles };
     },
 
     resolve(params) {
-      return resolveUniforms(requireSource().header, params, { grainSeed: options.grainSeed });
+      return uniformsFor(requireSource(), params);
     },
 
     render(requested) {
@@ -679,7 +697,7 @@ export function createDevelopRenderer(
       const src = requireSource();
       const out = { width: canvas.width, height: canvas.height };
       const mapping = mappingFor(src.header, params, cropLogicalSize(src.header, params), out);
-      const u = resolveUniforms(src.header, params, { grainSeed: options.grainSeed });
+      const u = uniformsFor(src, params);
       const input = pipelineInput(src, params, mapping, u, out, true);
       if (usesNeighbourhood(input)) {
         frame = { src, mapping, u };
@@ -713,7 +731,7 @@ export function createDevelopRenderer(
       const src = requireSource();
       const out = { width: canvas.width, height: canvas.height };
       const mapping = viewMapping(src.header, view, out);
-      const u = resolveUniforms(src.header, params, { grainSeed: options.grainSeed });
+      const u = uniformsFor(src, params);
       const input = pipelineInput(src, params, mapping, u, out, true);
       if (usesNeighbourhood(input)) {
         // The same pipeline and cached stages as the normal view; only the mapping and the
@@ -757,7 +775,7 @@ export function createDevelopRenderer(
       // `size` is the render-target buffer; the logical space is the crop (or
       // the full image), so other sizes resample it like the old pipeline did.
       const mapping = mappingFor(src.header, params, cropLogicalSize(src.header, params), out);
-      const u = resolveUniforms(src.header, params, { grainSeed: options.grainSeed });
+      const u = uniformsFor(src, params);
       const input = pipelineInput(src, params, mapping, u, out, false);
       const neighbourhood = usesNeighbourhood(input);
 

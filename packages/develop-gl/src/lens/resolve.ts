@@ -167,7 +167,8 @@ export function resolveLens(
       red: pad(measuredCa.red, CA_TERMS),
       blue: pad(measuredCa.blue, CA_TERMS),
       unit: frame.radius,
-      atSource: false,
+      // The measurement is of the recorded picture, so it is a function of the recorded radius.
+      atSource: true,
     };
   } else if (profile?.ca) {
     ca = {

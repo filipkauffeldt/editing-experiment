@@ -12,7 +12,8 @@ import {
   matchLensfun,
   nameScore,
 } from '../src/lens/lensfun';
-import { identityHeader, makeImage } from './support';
+import { measureLateralCa } from '../src/lens/auto-ca';
+import { hashNoise, identityHeader, makeImage } from './support';
 
 const W = 400;
 const H = 300;
@@ -357,5 +358,135 @@ describe('identity', () => {
       false,
     );
     expect(header.lens).toBeUndefined();
+  });
+});
+
+describe('Remove Chromatic Aberration', () => {
+  const AW = 1200;
+  const AH = 800;
+  const smooth = (t: number): number => t * t * (3 - 2 * t);
+  /** Value noise with 14 px cells: edges everywhere, in every direction. */
+  const scene = (x: number, y: number, seed: number): number => {
+    const gx = Math.floor(x / 14);
+    const gy = Math.floor(y / 14);
+    const fx = smooth(x / 14 - gx);
+    const fy = smooth(y / 14 - gy);
+    const h = (i: number, j: number): number => 0.05 + 0.5 * (hashNoise(i, j, seed) + 0.5);
+    return (
+      (h(gx, gy) * (1 - fx) + h(gx + 1, gy) * fx) * (1 - fy) +
+      (h(gx, gy + 1) * (1 - fx) + h(gx + 1, gy + 1) * fx) * fy
+    );
+  };
+
+  /** Red recorded `kr` times and blue `kb` times as far from the centre as green. */
+  const fringed = (kr: number, kb: number) => {
+    const scales = [kr, 1, kb];
+    return makeImage(AW, AH, (x, y) => {
+      const out: [number, number, number] = [0, 0, 0];
+      for (let c = 0; c < 3; c++) {
+        const k = scales[c]!;
+        // Same content in every channel (seed 3) so only the scale differs.
+        out[c] = scene(AW / 2 + (x + 0.5 - AW / 2) / k, AH / 2 + (y + 0.5 - AH / 2) / k, 3);
+      }
+      return out;
+    });
+  };
+
+  it('measures the scale of red and blue from the picture alone', () => {
+    const { header, data } = fringed(1.0018, 0.9988);
+    const measured = measureLateralCa(header, data);
+    expect(measured).not.toBeNull();
+    const at = (k: number[], q: number): number =>
+      k[0]! + k[1]! * q + k[2]! * q * q + k[3]! * q ** 3;
+    for (const q of [0.4, 0.7, 1]) {
+      expect(at(measured!.red, q)).toBeCloseTo(1.0018, 3);
+      expect(at(measured!.blue, q)).toBeCloseTo(0.9988, 3);
+    }
+  });
+
+  it('removes the fringe: the channels line up after the correction', () => {
+    const { header, data } = fringed(1.0018, 0.9988);
+    const channelShift = (rgba: Float32Array): number => {
+      // Cross-correlate each of red and blue with green along rows near the right edge.
+      let worst = 0;
+      for (const c of [0, 2]) {
+        let best = 0;
+        let bestScore = -Infinity;
+        for (let s = -4; s <= 4; s += 0.25) {
+          let score = 0;
+          for (let y = 300; y < 500; y += 7) {
+            for (let x = 1000; x < 1150; x++) {
+              const g = rgba[(y * AW + x) * 4 + 1] ?? 0;
+              const i = (y * AW + Math.floor(x + s)) * 4 + c;
+              const f = s - Math.floor(s);
+              const v = (rgba[i] ?? 0) * (1 - f) + (rgba[i + 4] ?? 0) * f;
+              score -= (g - v) ** 2;
+            }
+          }
+          if (score > bestScore) {
+            bestScore = score;
+            best = s;
+          }
+        }
+        worst = Math.max(worst, Math.abs(best));
+      }
+      return worst;
+    };
+    const before = renderCpuFloat(header, data, {});
+    const after = renderCpuFloat(header, data, { AutoLateralCA: true });
+    // 0.0018 at 500 px from the centre: nearly a pixel before, near nothing after.
+    expect(channelShift(before)).toBeGreaterThanOrEqual(0.75);
+    expect(channelShift(after)).toBeLessThanOrEqual(0.25);
+  });
+
+  it('measures nothing on a picture without fringes', () => {
+    const { header, data } = fringed(1, 1);
+    expect(measureLateralCa(header, data)).toBeNull();
+  });
+});
+
+describe('defringe', () => {
+  const chroma = (rgb: [number, number, number]): number => {
+    const mean = (rgb[0] + rgb[1] + rgb[2]) / 3;
+    return Math.max(...rgb.map((v) => Math.abs(v - mean)));
+  };
+  const render = (pixel: [number, number, number], params: Record<string, number>) => {
+    const { header, data } = makeImage(4, 4, () => pixel);
+    const out = renderCpuFloat(header, data, params);
+    return [out[0]!, out[1]!, out[2]!] as [number, number, number];
+  };
+  const purple: [number, number, number] = [0.35, 0.12, 0.45];
+  const green: [number, number, number] = [0.1, 0.4, 0.12];
+  const orange: [number, number, number] = [0.5, 0.25, 0.08];
+
+  it('takes chroma out of purple and green only, in proportion to the amount', () => {
+    const base = chroma(render(purple, {}));
+    const some = chroma(render(purple, { DefringePurpleAmount: 3 }));
+    const more = chroma(render(purple, { DefringePurpleAmount: 12 }));
+    expect(some).toBeLessThan(base * 0.95);
+    expect(more).toBeLessThan(some);
+    expect(chroma(render(purple, { DefringeGreenAmount: 12 }))).toBeCloseTo(base, 6);
+    expect(chroma(render(green, { DefringeGreenAmount: 12 }))).toBeLessThan(
+      chroma(render(green, {})) * 0.8,
+    );
+    // Orange is outside both windows.
+    expect(render(orange, { DefringePurpleAmount: 20, DefringeGreenAmount: 20 })).toEqual(
+      render(orange, {}),
+    );
+  });
+
+  it('follows the hue range sliders', () => {
+    const base = chroma(render(purple, {}));
+    // A window that has moved off the purple leaves it alone.
+    const off = chroma(
+      render(purple, { DefringePurpleAmount: 12, DefringePurpleHueLo: 0, DefringePurpleHueHi: 10 }),
+    );
+    expect(off).toBeCloseTo(base, 6);
+  });
+
+  it('leaves greys alone', () => {
+    expect(render([0.2, 0.2, 0.2], { DefringePurpleAmount: 20 })).toEqual(
+      render([0.2, 0.2, 0.2], {}),
+    );
   });
 });

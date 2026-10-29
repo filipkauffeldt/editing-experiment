@@ -9,6 +9,7 @@ import { resolveColorMixer, type ColorMixer } from './color/mixer';
 import { buildParametricLut } from './color/parametric';
 import { resolveGrain, resolveVignette, type GrainField, type Vignette } from './color/effects';
 import { clamp01 } from './color/common';
+import { resolveDefringe, type Defringe } from './color/defringe';
 import { TUNING } from './tuning';
 import { resolveLens, type LensImage, type MeasuredCa } from './lens/resolve';
 import type { LensUniforms } from './lens/model';
@@ -46,6 +47,8 @@ export interface DevelopUniforms {
   grading: ColorGrading;
   vignette: Vignette | null;
   grain: GrainField | null;
+  /** Defringe (purple and green chroma reduction), or null when both amounts are 0. */
+  defringe: Defringe | null;
   /** Lens corrections: where the corrected frame is recorded, lateral CA, vignetting gain. */
   lens: LensUniforms;
 }
@@ -159,6 +162,7 @@ export function resolveUniforms(
     grading: resolveColorGrading(params),
     vignette: resolveVignette(params, logical),
     grain: resolveGrain(params, Math.max(camera.width, camera.height), options.grainSeed ?? 0),
+    defringe: resolveDefringe(params),
     lens: resolveLens(camera as LensImage, params, options.measuredCa).uniforms,
     multipliers: [m.r, m.g, m.b],
     colorMatrix: camera.cameraToSrgb,

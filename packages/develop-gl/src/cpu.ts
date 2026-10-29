@@ -13,6 +13,7 @@ import { resolveUniforms, type DevelopUniforms, type ResolveOptions } from './pa
 import { applyCalibration } from './color/calibration';
 import { applyColorMixer } from './color/mixer';
 import { applyColorGrading } from './color/grading';
+import { applyDefringe } from './color/defringe';
 import { applyVignette, grainNoise } from './color/effects';
 import { copySize, densityAtUv, measureHaze } from './neighbourhood/haze';
 import { analysisValue, applyLocal } from './neighbourhood/local';
@@ -33,6 +34,7 @@ import {
 import { buildPyramid, downsample, makePlane, type Plane } from './neighbourhood/pyramid';
 import { sharpenPlane } from './neighbourhood/sharpen';
 import { MAX_LEVEL } from './neighbourhood/tuning';
+import { measuredLateralCa } from './lens/auto-ca';
 import { lensGain, lensSample, type LensSample, type LensUniforms } from './lens/model';
 
 /**
@@ -114,7 +116,8 @@ export function colorPixel(
     [er, eg, eb] = vibranceSaturation(er, eg, eb, u.vibrance, u.saturation);
   }
   [er, eg, eb] = applyColorMixer(er, eg, eb, u.mixer);
-  return applyColorGrading(er, eg, eb, u.grading);
+  [er, eg, eb] = applyColorGrading(er, eg, eb, u.grading);
+  return u.defringe ? applyDefringe(er, eg, eb, u.defringe) : [er, eg, eb];
 }
 
 /** Vignette and grain, the last stage (after sharpening). Not clamped. */
@@ -288,7 +291,12 @@ export function renderCpuFloat(
   options: ResolveOptions = {},
 ): Float32Array {
   const samples = toFloat32Samples(header, data);
-  const u = resolveUniforms(header, params, options);
+  const u = resolveUniforms(header, params, {
+    ...options,
+    measuredCa:
+      options.measuredCa ??
+      (params.AutoLateralCA === true ? measuredLateralCa(header, data) : null),
+  });
   const n = resolveNeighbourhood(params);
   const { width: sw, height: sh } = header;
   const out = new Float32Array(size.width * size.height * 4);

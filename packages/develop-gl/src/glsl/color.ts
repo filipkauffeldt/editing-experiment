@@ -1,4 +1,5 @@
 import { COLOR_TUNING as C } from '../color/tuning';
+import { DEFRINGE } from '../color/defringe';
 
 /**
  * GLSL ES 3.00 for the per-pixel colour and effects stages, mirroring
@@ -14,7 +15,9 @@ const f = (n: number): string => {
 
 const exp2 = (n: number): string => `pow(2.0, ${f(n)})`;
 
-export const COLOR_UNIFORMS = `uniform mat3 u_calibration;  // Camera Calibration (linear light)
+export const COLOR_UNIFORMS = `uniform vec4 u_defringePurple; // amount, low, high, centre (hue turns); amount 0 = off
+uniform vec4 u_defringeGreen;
+uniform mat3 u_calibration;  // Camera Calibration (linear light)
 uniform float u_shadowTint;
 uniform int u_mixerActive;
 uniform float u_hslHue[8];   // Color Mixer bands: Red..Magenta, -1..1
@@ -257,6 +260,53 @@ float grainNoiseG(vec2 pos, float scale, float l) {
   float fine = grainHashG(int(floor(pos.x)), int(floor(pos.y)), u_grainSeed ^ 0x21f09u) *
     min(scale, 1.0);
   return (coarse * u_grainCoarse + fine * u_grainFine) * u_grainAmount * grainStrength(l);
+}
+
+// Defringe: chroma reduction in Oklab hue windows (mirrors color/defringe.ts).
+vec3 defringeToOklab(vec3 c) {
+  float l = pow(max(0.4122214708 * c.r + 0.5363325363 * c.g + 0.0514459929 * c.b, 0.0), 1.0 / 3.0);
+  float m = pow(max(0.2119034982 * c.r + 0.6806995451 * c.g + 0.1073969566 * c.b, 0.0), 1.0 / 3.0);
+  float s = pow(max(0.0883024619 * c.r + 0.2817188376 * c.g + 0.6299787005 * c.b, 0.0), 1.0 / 3.0);
+  return vec3(
+    0.2104542553 * l + 0.793617785 * m - 0.0040720468 * s,
+    1.9779984951 * l - 2.428592205 * m + 0.4505937099 * s,
+    0.0259040371 * l + 0.7827717662 * m - 0.808675766 * s
+  );
+}
+
+vec3 defringeFromOklab(vec3 lab) {
+  float l = lab.x + 0.3963377774 * lab.y + 0.2158037573 * lab.z;
+  float m = lab.x - 0.1055613458 * lab.y - 0.0638541728 * lab.z;
+  float s = lab.x - 0.0894841775 * lab.y - 1.291485548 * lab.z;
+  l = l * l * l; m = m * m * m; s = s * s * s;
+  return vec3(
+    4.0767416621 * l - 3.3077115913 * m + 0.2309699292 * s,
+    -1.2684380046 * l + 2.6097574011 * m - 0.3413193965 * s,
+    -0.0041960863 * l - 0.7034186147 * m + 1.707614701 * s
+  );
+}
+
+float defringeShare(vec4 w, float hue, float chroma) {
+  if (w.x <= 0.0) return 0.0;
+  float d = hue - w.w;
+  d -= floor(d + 0.5);
+  float weight = smoothstep(w.y - ${f(DEFRINGE.soften)}, w.y + ${f(DEFRINGE.soften)}, d)
+    - smoothstep(w.z - ${f(DEFRINGE.soften)}, w.z + ${f(DEFRINGE.soften)}, d);
+  if (weight <= 0.0) return 0.0;
+  return weight * (1.0 - ${f(DEFRINGE.floor)} * exp(-chroma / ${f(DEFRINGE.chromaScale)}))
+    * (1.0 - exp(-w.x / ${f(DEFRINGE.amountScale)}));
+}
+
+vec3 applyDefringe(vec3 e) {
+  if (u_defringePurple.x <= 0.0 && u_defringeGreen.x <= 0.0) return e;
+  vec3 lab = defringeToOklab(vec3(srgbDecode(clamp(e.r, 0.0, 1.0)), srgbDecode(clamp(e.g, 0.0, 1.0)), srgbDecode(clamp(e.b, 0.0, 1.0))));
+  float chroma = length(lab.yz);
+  if (chroma < 1e-6) return e;
+  float hue = atan(lab.z, lab.y) / 6.283185307179586 + (lab.z < 0.0 ? 1.0 : 0.0);
+  float kept = (1.0 - defringeShare(u_defringePurple, hue, chroma)) * (1.0 - defringeShare(u_defringeGreen, hue, chroma));
+  if (kept >= 1.0) return e;
+  vec3 c = defringeFromOklab(vec3(lab.x, lab.yz * kept));
+  return vec3(srgbEncode(max(c.r, 0.0)), srgbEncode(max(c.g, 0.0)), srgbEncode(max(c.b, 0.0)));
 }
 
 vec3 applyEffects(vec3 encoded, vec2 logN, vec2 srcPos, float scale) {
