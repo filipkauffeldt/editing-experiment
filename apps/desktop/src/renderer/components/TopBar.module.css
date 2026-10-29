@@ -78,7 +78,7 @@
 
 .error {
   overflow: hidden;
-  color: var(--error);
+  color: var(--text);
   text-overflow: ellipsis;
   white-space: nowrap;
 }

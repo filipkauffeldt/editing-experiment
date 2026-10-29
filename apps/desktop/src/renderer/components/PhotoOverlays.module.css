@@ -35,8 +35,14 @@
   white-space: nowrap;
 }
 
-.labelFailed {
-  color: var(--error);
+.labelFailed::before {
+  display: inline-block;
+  width: 5px;
+  height: 5px;
+  margin-right: 4px;
+  border-radius: 50%;
+  background: var(--error);
+  content: '';
 }
 
 .labelDim {

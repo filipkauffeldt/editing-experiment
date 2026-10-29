@@ -8,21 +8,6 @@
     'cv11' 1,
     'ss03' 1;
   -webkit-font-smoothing: antialiased;
-
-  /* Transitional aliases for the pre-design-system names; removed once every module uses tokens. */
-  --panel-raised: var(--raised);
-  --panel-sunken: var(--bg);
-  --field: var(--bg);
-  --border: var(--line);
-  --border-strong: var(--line-strong);
-  --text-dim: var(--muted);
-  --text-faint: var(--dim);
-  --accent: var(--text);
-  --accent-dim: var(--line-strong);
-  --warn: var(--muted);
-  --danger: var(--error);
-  --selected: var(--raised);
-  --mono: var(--font-mono);
 }
 
 * {

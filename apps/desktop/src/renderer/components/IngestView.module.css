@@ -93,6 +93,6 @@
 
 .error {
   grid-column: 1 / -1;
-  color: var(--error);
+  color: var(--muted);
   font-size: var(--fs-small);
 }
