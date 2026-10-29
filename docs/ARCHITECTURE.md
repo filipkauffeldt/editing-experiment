@@ -496,7 +496,9 @@ requires, one it makes optional, a DX zoom) for plausibility, not against Adobe'
 The histogram at the top of Develop is measured from the frame just drawn into the canvas:
 `readHistogram` blits the drawing buffer into a small RGBA8 target (`blitFramebuffer`, long
 edge 256) and reads that back, so it never re-renders the pipeline. The renderer throttles the
-readback to 10 Hz; it is skipped in crop mode, where the canvas has the crop-view overlays.
+readback to 5 Hz; it is skipped in crop mode, where the canvas has the crop-view overlays,
+and on software rasterisers (SwiftShader/llvmpipe), where the readback blocks the frame. The
+screenshot tour sets `EE_SCREENSHOTS=1` so it is still captured there.
 The clipping overlay (`J`, or the corner triangles) is a view-only shader stage after the
 colour and effects: red for clipped highlights, blue for crushed shadows. `renderToRGBA`
 never enables it, so exports cannot contain it. Before/after (`Y`, or `\` as an optional
