@@ -14,7 +14,8 @@
   "scripts": {
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "test:browser": "vitest run --config vitest.browser.config.ts"
+    "test:browser": "vitest run --config vitest.browser.config.ts",
+    "bench": "vitest run --config vitest.bench.config.ts"
   },
   "dependencies": {
     "@ee/contracts": "workspace:*",

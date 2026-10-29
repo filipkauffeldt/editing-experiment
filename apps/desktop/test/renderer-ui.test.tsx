@@ -9,8 +9,10 @@ import { createFakeBridge, type FakeBridge } from './fake-bridge';
 
 const stores: AppStore[] = [];
 
-async function renderApp(): Promise<{ store: AppStore; fake: FakeBridge }> {
-  const fake = createFakeBridge();
+async function renderApp(
+  options: Parameters<typeof createFakeBridge>[0] = {},
+): Promise<{ store: AppStore; fake: FakeBridge }> {
+  const fake = createFakeBridge(options);
   window.eeTransport = fake.transport;
   const store = createAppStore(fake.bridge, {
     renderForExport: async () => ({ width: 1, height: 1, rgba: new Uint8Array(4) }),
@@ -438,5 +440,33 @@ describe('develop panel', () => {
     const track = screen.getByLabelText('Temperature') as HTMLInputElement;
     expect(Number(track.value)).toBeGreaterThan(500);
     expect(Number(track.value)).toBeLessThan(750);
+  });
+});
+
+describe('raw defaults in the develop panel', () => {
+  it('shows Lightroom’s raw sharpening as 40, and 0 once the user turns it off', async () => {
+    await renderApp({
+      handlers: {
+        'develop:getDefaults': async () => ({ Sharpness: 40, ColorNoiseReduction: 25 }),
+      },
+    });
+    // "Amount" also labels the vignette and grain sliders, so look inside the Sharpening group.
+    const group = (title: string): HTMLElement => {
+      const section = screen.getByRole('heading', { name: title }).parentElement;
+      if (!section) throw new Error(`no ${title} group`);
+      return section;
+    };
+    const amount = (): HTMLInputElement =>
+      within(group('Sharpening')).getByLabelText<HTMLInputElement>('Amount value');
+    await waitFor(() => expect(amount().value).toBe('40'));
+    expect(
+      within(group('Noise reduction')).getByLabelText<HTMLInputElement>('Color value').value,
+    ).toBe('25');
+
+    fireEvent.change(amount(), { target: { value: '0' } });
+    await waitFor(() => expect(amount().value).toBe('0'));
+    // Double-click on the slider goes back to the default, not to 0.
+    fireEvent.doubleClick(within(group('Sharpening')).getByLabelText('Amount'));
+    await waitFor(() => expect(amount().value).toBe('40'));
   });
 });

@@ -68,6 +68,32 @@ export interface EditParams {
   Vibrance?: number;
   /** -100..100. */
   Saturation?: number;
+  /** -100..100. Local contrast over fine to medium detail. */
+  Texture?: number;
+  /** -100..100. Local contrast over coarse detail. */
+  Clarity2012?: number;
+  /** -100..100. */
+  Dehaze?: number;
+  /** Sharpening amount, 0..150. */
+  Sharpness?: number;
+  /** Sharpening radius in pixels of the full-resolution image, 0.5..3. */
+  SharpenRadius?: number;
+  /** 0..100. */
+  SharpenDetail?: number;
+  /** 0..100. */
+  SharpenEdgeMasking?: number;
+  /** Luminance noise reduction amount, 0..100. */
+  LuminanceSmoothing?: number;
+  /** 0..100. */
+  LuminanceNoiseReductionDetail?: number;
+  /** 0..100. */
+  LuminanceNoiseReductionContrast?: number;
+  /** Colour noise reduction amount, 0..100. */
+  ColorNoiseReduction?: number;
+  /** 0..100. */
+  ColorNoiseReductionDetail?: number;
+  /** 0..100. */
+  ColorNoiseReductionSmoothness?: number;
   /** Master (RGB) tone curve. Absent or empty = linear. */
   ToneCurvePV2012?: ToneCurvePoint[];
   ToneCurvePV2012Red?: ToneCurvePoint[];
@@ -230,6 +256,19 @@ export const SLIDER_PARAMS = [
   'GrainAmount',
   'GrainSize',
   'GrainFrequency',
+  'Texture',
+  'Clarity2012',
+  'Dehaze',
+  'Sharpness',
+  'SharpenRadius',
+  'SharpenDetail',
+  'SharpenEdgeMasking',
+  'LuminanceSmoothing',
+  'LuminanceNoiseReductionDetail',
+  'LuminanceNoiseReductionContrast',
+  'ColorNoiseReduction',
+  'ColorNoiseReductionDetail',
+  'ColorNoiseReductionSmoothness',
 ] as const satisfies readonly (keyof EditParams)[];
 
 /** Name of a scalar slider parameter. */
@@ -316,7 +355,65 @@ export const SLIDER_SPECS: Readonly<Record<SliderParam, SliderSpec>> = {
   GrainAmount: { min: 0, max: 100, step: 1, neutral: 0 },
   GrainSize: { min: 0, max: 100, step: 1, neutral: 25 },
   GrainFrequency: { min: 0, max: 100, step: 1, neutral: 50 },
+  Texture: { min: -100, max: 100, step: 1, neutral: 0 },
+  Clarity2012: { min: -100, max: 100, step: 1, neutral: 0 },
+  Dehaze: { min: -100, max: 100, step: 1, neutral: 0 },
+  // Absent sharpening and noise reduction mean "off" (Lightroom's own raw defaults, Sharpness 40
+  // and colour noise reduction 25, are not applied); the detail sliders' neutrals are Lightroom's.
+  Sharpness: { min: 0, max: 150, step: 1, neutral: 0 },
+  SharpenRadius: { min: 0.5, max: 3, step: 0.1, neutral: 1 },
+  SharpenDetail: { min: 0, max: 100, step: 1, neutral: 25 },
+  SharpenEdgeMasking: { min: 0, max: 100, step: 1, neutral: 0 },
+  LuminanceSmoothing: { min: 0, max: 100, step: 1, neutral: 0 },
+  LuminanceNoiseReductionDetail: { min: 0, max: 100, step: 1, neutral: 50 },
+  LuminanceNoiseReductionContrast: { min: 0, max: 100, step: 1, neutral: 0 },
+  ColorNoiseReduction: { min: 0, max: 100, step: 1, neutral: 0 },
+  ColorNoiseReductionDetail: { min: 0, max: 100, step: 1, neutral: 50 },
+  ColorNoiseReductionSmoothness: { min: 0, max: 100, step: 1, neutral: 50 },
 };
+
+/**
+ * The sharpening and noise reduction settings Lightroom applies to **raw** files
+ * when the sidecar does not set them (Sharpness 40, colour noise reduction 25),
+ * each overridden by the camera's own `crd:` camera-raw-defaults when the file
+ * carries them. Absent means "the default"; an explicit `0` is off. Never applied
+ * to JPEG or TIFF, and never written to the sidecar.
+ */
+export const DETAIL_DEFAULT_PARAMS = [
+  'Sharpness',
+  'SharpenRadius',
+  'SharpenDetail',
+  'SharpenEdgeMasking',
+  'LuminanceSmoothing',
+  'LuminanceNoiseReductionDetail',
+  'LuminanceNoiseReductionContrast',
+  'ColorNoiseReduction',
+  'ColorNoiseReductionDetail',
+  'ColorNoiseReductionSmoothness',
+] as const satisfies readonly SliderParam[];
+
+export type DetailDefaultParam = (typeof DETAIL_DEFAULT_PARAMS)[number];
+
+/** Lightroom's raw defaults for the detail settings, before any `crd:` override. */
+export const RAW_DETAIL_DEFAULTS: Readonly<Partial<Record<DetailDefaultParam, number>>> = {
+  Sharpness: 40,
+  SharpenRadius: 1,
+  SharpenDetail: 25,
+  SharpenEdgeMasking: 0,
+  ColorNoiseReduction: 25,
+  ColorNoiseReductionDetail: 50,
+  ColorNoiseReductionSmoothness: 50,
+};
+
+/** `params` over `defaults`: the settings a renderer should use. Never written back. */
+export function withDefaults(params: EditParams, defaults: EditParams | undefined): EditParams {
+  if (!defaults || Object.keys(defaults).length === 0) return params;
+  const merged: Record<string, unknown> = { ...defaults };
+  for (const [key, value] of Object.entries(params)) {
+    if (value !== undefined) merged[key] = value;
+  }
+  return merged as EditParams;
+}
 
 /** A develop preset imported from a Lightroom/Camera Raw `.xmp` file. */
 export interface EditPreset {

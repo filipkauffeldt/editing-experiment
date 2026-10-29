@@ -78,6 +78,7 @@ export function createBackendHandlers(deps: HandlerDeps): IpcHandlers {
     'metadata:expandCaption': (args) => metadata.expandCaption(args),
 
     'develop:getParams': (ref) => edits.getParams(ref),
+    'develop:getDefaults': ({ photoId }) => edits.getDefaults(photoId),
     'develop:setParams': (args) => edits.setParams(args),
     'develop:listPresets': () => presets.list(),
     'develop:importPreset': ({ path }) => presets.import(path),

@@ -83,6 +83,11 @@ export type {
 export { developPixel, renderCpu, renderCpuFloat } from './cpu';
 export type { RenderSize } from './cpu';
 export * as ops from './ops';
+export {
+  NEIGHBOURHOOD_PARAMS,
+  needsNeighbourhood,
+  withoutNeighbourhood,
+} from './neighbourhood/params';
 export { grainSeedFromId } from './color/effects';
 export { createMonotoneSpline, isIdentityCurve } from './spline';
 export type { Spline } from './spline';

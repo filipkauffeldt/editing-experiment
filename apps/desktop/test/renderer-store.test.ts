@@ -489,6 +489,77 @@ describe('crop editing', () => {
   });
 });
 
+describe('raw defaults', () => {
+  const RAW_DEFAULTS = { Sharpness: 40, SharpenRadius: 1, ColorNoiseReduction: 25 };
+
+  async function withDefaults() {
+    const ctx = await setup({
+      handlers: { 'develop:getDefaults': async () => ({ ...RAW_DEFAULTS }) },
+    });
+    const photo = activePhoto(ctx.store.getState());
+    if (!photo) throw new Error('no selection');
+    await vi.waitFor(() =>
+      expect(ctx.store.getState().editDefaults[photo.id]).toEqual(RAW_DEFAULTS),
+    );
+    return { ...ctx, photo };
+  }
+
+  const lastWrite = (fake: FakeBridge): Record<string, unknown> | undefined => {
+    const writes = fake.calls.filter((call) => call.channel === 'develop:setParams');
+    return (writes.at(-1)?.args[0] as { params: Record<string, unknown> } | undefined)?.params;
+  };
+
+  it('shows the defaults on the sliders, but they are not edits', async () => {
+    const { store, photo } = await withDefaults();
+    expect(paramsForPhoto(store.getState(), photo)).toMatchObject(RAW_DEFAULTS);
+    expect(
+      store.getState().editParams[editParamsKey(photo.id, activeDevelopVersion(photo)?.id)],
+    ).toEqual({});
+  });
+
+  it('writes only what the user changed, and an explicit 0 turns a default off', async () => {
+    const { store, fake, photo } = await withDefaults();
+    store.setSlider('Contrast2012', 10);
+    await vi.waitFor(() => expect(lastWrite(fake)).toEqual({ Contrast2012: 10 }));
+
+    store.setSlider('Sharpness', 0);
+    expect(paramsForPhoto(store.getState(), photo).Sharpness).toBe(0);
+    await vi.waitFor(() => expect(lastWrite(fake)).toEqual({ Contrast2012: 10, Sharpness: 0 }));
+
+    // Back on the default: the key goes, the photo is at its default again.
+    store.setSlider('Sharpness', 40);
+    expect(paramsForPhoto(store.getState(), photo).Sharpness).toBe(40);
+    await vi.waitFor(() => expect(lastWrite(fake)).toEqual({ Contrast2012: 10 }));
+
+    store.setSlider('Sharpness', 70);
+    store.resetSlider('Sharpness');
+    expect(paramsForPhoto(store.getState(), photo).Sharpness).toBe(40);
+    await vi.waitFor(() => expect(lastWrite(fake)).toEqual({ Contrast2012: 10 }));
+  });
+
+  it('exports with the defaults applied and without saving them', async () => {
+    const renders: FullResolutionRenderRequest[] = [];
+    const { store, fake } = await setup(
+      { handlers: { 'develop:getDefaults': async () => ({ ...RAW_DEFAULTS }) } },
+      async (request) => {
+        renders.push(request);
+        return { width: 1, height: 1, rgba: new Uint8Array(4) };
+      },
+    );
+    store.setSlider('Exposure2012', 0.5);
+    await store.nextAndSend();
+    expect(renders[0]?.params).toMatchObject({ ...RAW_DEFAULTS, Exposure2012: 0.5 });
+    expect(lastWrite(fake)).toEqual({ Exposure2012: 0.5 });
+  });
+
+  it('leaves JPEGs without defaults', async () => {
+    const { store } = await setup();
+    const photo = activePhoto(store.getState());
+    await vi.waitFor(() => expect(store.getState().editDefaults[photo?.id ?? '']).toEqual({}));
+    expect(paramsForPhoto(store.getState(), photo).Sharpness).toBeUndefined();
+  });
+});
+
 describe('edit flushing', () => {
   it('writes the last slider value after a trailing throttle', async () => {
     const { store, fake } = await setup();

@@ -241,6 +241,7 @@ export function createFakeBridge(
       const { photoId, versionId } = args[0] as { photoId: PhotoId; versionId?: VersionId };
       return params.get(versionKey(photoId, versionId)) ?? {};
     },
+    'develop:getDefaults': async () => ({}),
     'develop:setParams': async (...args) => {
       const {
         photoId,

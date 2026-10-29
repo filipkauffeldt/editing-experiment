@@ -1,4 +1,11 @@
-import type { CropParams, EditParams, ToneCurvePoint } from '@ee/contracts';
+import {
+  DETAIL_DEFAULT_PARAMS,
+  RAW_DETAIL_DEFAULTS,
+  SLIDER_SPECS,
+  type CropParams,
+  type EditParams,
+  type ToneCurvePoint,
+} from '@ee/contracts';
 import { cropOrientedToStored, cropStoredToOriented, isUsableCrop } from '@ee/develop-gl/crop';
 import { MetadataError } from './errors';
 import { getExifToolService, type ExifToolService, type ExifToolTagValue } from './exiftool';
@@ -92,6 +99,19 @@ const SCALAR_TAGS: Readonly<Record<ScalarKey, string>> = {
   GrainAmount: 'XMP-crs:GrainAmount',
   GrainSize: 'XMP-crs:GrainSize',
   GrainFrequency: 'XMP-crs:GrainFrequency',
+  Texture: 'XMP-crs:Texture',
+  Clarity2012: 'XMP-crs:Clarity2012',
+  Dehaze: 'XMP-crs:Dehaze',
+  Sharpness: 'XMP-crs:Sharpness',
+  SharpenRadius: 'XMP-crs:SharpenRadius',
+  SharpenDetail: 'XMP-crs:SharpenDetail',
+  SharpenEdgeMasking: 'XMP-crs:SharpenEdgeMasking',
+  LuminanceSmoothing: 'XMP-crs:LuminanceSmoothing',
+  LuminanceNoiseReductionDetail: 'XMP-crs:LuminanceNoiseReductionDetail',
+  LuminanceNoiseReductionContrast: 'XMP-crs:LuminanceNoiseReductionContrast',
+  ColorNoiseReduction: 'XMP-crs:ColorNoiseReduction',
+  ColorNoiseReductionDetail: 'XMP-crs:ColorNoiseReductionDetail',
+  ColorNoiseReductionSmoothness: 'XMP-crs:ColorNoiseReductionSmoothness',
 };
 
 type LegacySplitToningKey =
@@ -319,8 +339,8 @@ export interface WriteEditParamsOptions {
 
 /**
  * Replace the modelled develop settings. Supported `crs:` properties that are
- * absent from `params` are removed; unmodelled Camera Raw properties (clarity,
- * noise reduction, history, ...) are left untouched.
+ * absent from `params` are removed; unmodelled Camera Raw properties (history,
+ * local adjustments, ...) are left untouched.
  */
 export async function writeEditParams(
   path: string,
@@ -385,4 +405,26 @@ function writeCrop(tags: Record<string, ExifToolTagValue>, crop: CropParams): vo
   tags[CROP_TAGS.bottom] = crop.bottom;
   tags[CROP_TAGS.angle] = crop.angle;
   tags['XMP-crs:HasCrop'] = true;
+}
+
+/**
+ * The detail settings Lightroom starts a raw file with: its fixed defaults, each
+ * replaced by the camera's `crd:` (camera-raw-defaults) value when the file
+ * carries one (Nikon NEFs embed them). Empty for anything that is not a raw.
+ * Read-only: the raw file is never written, and these values are not edits.
+ */
+export async function readRawDefaults(
+  path: string,
+  service: ExifToolService = getExifToolService(),
+): Promise<EditParams> {
+  if (!isRawPath(path)) return {};
+  const defaults: Record<string, number> = { ...RAW_DETAIL_DEFAULTS };
+  const tags = await service.read(path);
+  for (const name of DETAIL_DEFAULT_PARAMS) {
+    const value = asNumber(tags[`XMP-crd:${name}`]);
+    if (value === undefined) continue;
+    const spec = SLIDER_SPECS[name];
+    defaults[name] = Math.min(spec.max, Math.max(spec.min, value));
+  }
+  return defaults as EditParams;
 }

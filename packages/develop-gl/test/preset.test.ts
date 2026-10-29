@@ -38,6 +38,11 @@ describe('Lightroom .xmp preset', () => {
       Blacks2012: -14,
       Vibrance: 22,
       Saturation: -4,
+      Texture: 10,
+      Clarity2012: 18,
+      Dehaze: 5,
+      Sharpness: 40,
+      ColorNoiseReduction: 25,
     });
   });
 
@@ -56,13 +61,7 @@ describe('Lightroom .xmp preset', () => {
   });
 
   it('reports unsupported settings but not bookkeeping or zero defaults', () => {
-    expect(unsupported).toEqual([
-      'Texture',
-      'Clarity2012',
-      'Dehaze',
-      'Sharpness',
-      'ColorNoiseReduction',
-    ]);
+    expect(unsupported).toEqual([]);
   });
 });
 
@@ -175,13 +174,14 @@ describe('.lrtemplate preset', () => {
       Whites2012: 0,
       Vibrance: 15,
       Saturation: -5,
+      Clarity2012: 10,
       ToneCurvePV2012: [
         [0, 10],
         [128, 140],
         [255, 250],
       ],
     });
-    expect(unsupported).toEqual(['Clarity2012']);
+    expect(unsupported).toEqual([]);
   });
 
   it('rejects text that is not a preset', () => {
@@ -288,5 +288,61 @@ describe('per-pixel colour preset groups', () => {
     </x:xmpmeta>`);
     expect(both.preset.params.ColorGradeShadowHue).toBe(120);
     expect(both.preset.params.ColorGradeBlending).toBeUndefined();
+  });
+});
+
+describe('neighbourhood settings in presets', () => {
+  const NEW_SETTINGS: Record<string, number> = {
+    Texture: -20,
+    Clarity2012: 35,
+    Dehaze: 12,
+    Sharpness: 85,
+    SharpenRadius: 1.4,
+    SharpenDetail: 60,
+    SharpenEdgeMasking: 15,
+    LuminanceSmoothing: 30,
+    LuminanceNoiseReductionDetail: 45,
+    LuminanceNoiseReductionContrast: 10,
+    ColorNoiseReduction: 40,
+    ColorNoiseReductionDetail: 55,
+    ColorNoiseReductionSmoothness: 65,
+  };
+  const attributes = (values: Record<string, number>): string =>
+    Object.entries(values)
+      .map(([key, value]) => `crs:${key}="${value > 0 ? '+' : ''}${value}"`)
+      .join('\n      ');
+  const xmp = (
+    values: Record<string, number>,
+  ): string => `<?xpacket begin="" id="W5M0MpCehiHzreSzNTczkc9d"?>
+<x:xmpmeta xmlns:x="adobe:ns:meta/">
+  <rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
+    <rdf:Description rdf:about=""
+      xmlns:crs="http://ns.adobe.com/camera-raw-settings/1.0/"
+      crs:PresetType="Normal"
+      crs:Name="Detail"
+      ${attributes(values)} />
+  </rdf:RDF>
+</x:xmpmeta>`;
+
+  it('reads every texture, clarity, dehaze, sharpening and noise reduction setting', () => {
+    const { preset, unsupported } = parsePresetXmp(xmp(NEW_SETTINGS));
+    expect(preset.params).toEqual(NEW_SETTINGS);
+    expect(unsupported).toEqual([]);
+  });
+
+  it('applies on top of existing parameters and clamps to the slider ranges', () => {
+    const { preset } = parsePresetXmp(
+      xmp({ Texture: 400, Sharpness: 999, SharpenRadius: 9, LuminanceSmoothing: -5 }),
+    );
+    expect(preset.params).toEqual({
+      Texture: SLIDER_SPECS.Texture.max,
+      Sharpness: SLIDER_SPECS.Sharpness.max,
+      SharpenRadius: SLIDER_SPECS.SharpenRadius.max,
+      LuminanceSmoothing: SLIDER_SPECS.LuminanceSmoothing.min,
+    });
+    expect(applyPreset({ Texture: 5, Contrast2012: 7 }, preset)).toMatchObject({
+      Texture: 100,
+      Contrast2012: 7,
+    });
   });
 });
