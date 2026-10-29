@@ -230,6 +230,10 @@ Pipeline order: `camera RGB * multipliers → cameraToSrgb → develop ops → s
 One WebGL2 fragment shader (`packages/develop-gl`), per pixel, in this order (the
 neighbourhood ops, see below, run in passes around it):
 
+0. lens corrections, in the source fetch (see "Lens corrections: implementation"): the
+   corrected-frame position the crop/straighten map produces is moved to where the lens
+   recorded it, red and blue are fetched at their own (lateral CA) positions, and the
+   vignetting gain multiplies the camera RGB;
 1. white balance multipliers in camera space, with raw highlight clipping (channels are
    clamped to the lowest white point and blown pixels fade to neutral, so clipped
    areas go white, not pink), then `cameraToSrgb` to linear Rec.709;
@@ -249,7 +253,8 @@ neighbourhood ops, see below, run in passes around it):
    hue weights; neutrals are gated out) and Color Grading (Shadows/Midtones/
    Highlights/Global hue, saturation and luminance, shaped by Blending and Balance;
    a legacy `SplitToning*` record renders as Blending 100), all in encoded space so
-   the controls stay perceptual;
+   the controls stay perceptual; Defringe (chroma reduction in the purple and green Oklab
+   hue windows) follows the Color Grading;
 8. post-crop vignette, relative to the crop's output rectangle rather than the
    uncropped source, then deterministic grain. Grain is seeded per photo and sampled
    in full-resolution source pixels with the preview/export scale, so a preview and
@@ -395,6 +400,70 @@ GPL-3.0-compatible licensing and the best result?
   Adobe `.lcp` profiles are not read. `crs:LensProfileName` / `LensProfileFilename` are parsed
   and preserved but never applied or written for our own choice (our choice is `ee:LensProfile`),
   so Lightroom does not try to find an Adobe profile of a Lensfun name.
+
+### Lens corrections: implementation
+
+Code is in `packages/develop-gl/src/lens` (maths, matching, measurement), `src/glsl/lens.ts`
+(shader mirror) and `packages/metadata/src/lens.ts` (the lens facts and the Nikon records).
+
+- **Where in the order.** Geometry is a resampling step, so it is the first thing the pipeline
+  does and everything after it works in the corrected frame: the crop, straighten and
+  `renderView` mappings produce a corrected-frame position, the lens map takes it to the recorded
+  position, and that is what the base pass (and the single develop pass) fetches. Noise
+  reduction, Texture, Clarity, Dehaze (including its 512 px measurement copy, rendered through the
+  same fetch), sharpening, the post-crop vignette and grain all see the corrected picture, so
+  none of them needs to know about the lens. A lens correction keeps the picture's size and
+  coordinate frame, which is why the stored crop (`crs:Crop*`) stays valid: it is a rectangle in
+  the corrected frame, as in Lightroom. The out-of-frame rule is unchanged (the edge repeats), and
+  profile corrections zoom in just enough (`fitScale`) never to pull in empty canvas.
+- **One radial model.** Everything is reduced to polynomials about an optical centre
+  (`lens/model.ts`): green's recorded radius over the corrected radius, red's and blue's radius
+  over green's, and a vignetting gain `numerator(v) / denominator(v)`. Nikon's records and
+  Lensfun's poly3, poly5, ptlens, TCA and `pa` models all convert to it (Lensfun with the
+  documented normalisation to half the short edge of the calibrated frame, scaled by the crop
+  factor; the focal length interpolation is Lensfun's cubic Hermite step, vignetting its
+  inverse-distance weighting over focal length, 4/f-number and 1/distance). The manual Distortion
+  (about the image centre, `r (1 + k (1 - r^2))`, k = 0.4/0.5 x amount) and the manual lens
+  vignette (`ln gain = amount c r^p / (1 + k r^p)`, Midpoint moving c, p and k) are RAWmakase's
+  fits of Camera Raw 18.7 and apply before and after the profile respectively. The profile
+  Distortion amount blends `1 + A (g - 1)`, the Vignetting amount is an exponent on the gain.
+- **Profile choice.** `LensProfileEnable` absent means on only for a lens whose NEF says the
+  correction is required (Camera Raw applies those whatever the user chose); `false` turns it off.
+  `LensProfileChoice` (`ee:LensProfile`) is empty for automatic (built-in data, else the best
+  Lensfun match for `LensModel` on the camera's mount and format), `builtin`, or
+  `lensfun:<maker>|<model>|<crop>`. `crs:LensProfileName`/`Filename` are read and kept but never
+  applied.
+- **Lens facts travel in the linear image header** (`LinearImageHeader.lens`, filled by
+  `AppResources` with `readLensShot`), so the canvas, the edited previews and the export workers
+  resolve the same lens with no further lookups. `resolveUniforms` resolves it with the settings.
+- **Tiles.** Source textures get an 8 px border (`LENS_TILE_BORDER`) so a displaced red or blue
+  sample stays inside its tile; a tile draws the fragments whose green recorded position it owns.
+- **Remove Chromatic Aberration** (`lens/auto-ca.ts`) measures the photo, replaces the profile's
+  CA, and is cached per buffer. About 800 edge tiles of 1/90 of the long edge, radial shift search
+  and Gauss-Newton on z-scored samples, a Tukey-weighted fit of `1 + a + b q + c q^2`; nothing is
+  applied below 0.08 px at the corner (on 6000 px). The renderer keeps a reference to the sample
+  buffer for it.
+- **Defringe** is the RAWmakase fit of Camera Raw: Oklab chroma reduction in the purple (0.875)
+  and green (0.46) hue windows; the spatial part (more next to edges) is not reproduced.
+- **Retouch.** Mosaic shapes are stored in the recorded (uncorrected) picture. The mosaic is
+  applied to the corrected pixels, after the geometry, with the shapes moved into the corrected
+  frame by `correctedShapes` (each outline cut into <= 8 px pieces, mapped through the exact
+  inverse of the lens map, pushed out 1.5 px; points the corrected frame no longer shows are
+  clamped along their ray). `composeDevelopedRgba` does this for the export, the edited previews
+  and the canvas preview alike, before the crop. While a retouch session is open the canvas shows
+  the picture without the lens geometry (`withoutLensGeometry`), so a drawn selection is already
+  in the stored frame. A test on pixels proves a 3 px checker "face" in a corner, where a strong
+  barrel correction moves it by 20 px, is fully covered, and shows that the unmapped shape would
+  not be.
+
+Known limitations: face detection runs on the camera's embedded preview, which Nikon corrects
+in-camera for lenses that require it, so a detected box near a corner of such a photo is in the
+corrected frame while stored shapes are in the recorded one (the boxes are padded, but this is
+not corrected for); fisheye and other non-rectilinear Lensfun lenses are not offered; Adobe
+`.lcp` profiles are not read; the focus distance for Lensfun vignetting is taken from the file
+or 1000 m; manual positive distortion repeats the picture's edge where it pulls in canvas
+instead of showing white; the Nikon records were checked on three CC0 NEFs (a lens the camera
+requires, one it makes optional, a DX zoom) for plausibility, not against Adobe's output.
 
 ## Crop mode
 
