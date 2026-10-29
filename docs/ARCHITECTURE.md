@@ -417,8 +417,29 @@ copy camera EXIF and GPS from the original, or only copyright; `stripGps` drops 
 location tags. Output sharpening is a simple luminance unsharp mask applied after
 the resize, in the jobs process, before encoding.
 
+## Renderer shell
+
+`App.tsx` renders the top bar and one module view (`AppState.module`: `ingest`, `library`,
+`develop`; Retouch is the Develop view with `AppState.retouch` set). `D`, `G` and `E` switch
+modules (`keyboard.ts`); leaving Develop applies an open crop and saves a retouch session first.
+Design tokens and component rules are in `docs/DESIGN.md`.
+
+- **Library state** (`AppState.library`, `renderer/library.ts`): folder or collection, quick and
+  colour-class filters, thumbnail size, and the multi-selection. `selectInLibrary` handles click,
+  Shift-range and Ctrl/Cmd-toggle; the clicked photo is also `selectedId`, the photo the
+  inspector and Develop show. Tag (`T`) and class (`0`-`8`) act on the selection in the Library
+  and on the open photo elsewhere, in one `photos:setLabels` call.
+- **Folders** come from `libraryFolders(photos)`: the directory of each photo's `path`, which is
+  always the ingest copy. Sources are not consulted.
+- **Batch caption** (`applyFieldEdits`) reads each photo's fields (`metadata:read`), merges the
+  edits (replace, or append: text after a space, keywords as a union; `mergeFieldEdits`) and
+  writes with `metadata:write`. Caption codes and `{variables}` are expanded per photo.
+- The grid virtualises by rows from the scroll offset and reports its visible photos to the
+  edited-preview scheduler like the film strip does.
+
 ## Screenshots
 
 `pnpm screenshot [--out <dir>]` launches the built Electron app via Playwright
-with mock data (`EE_MOCK=1`) and writes PNGs of the main views. Agents attach
+with mock data (`EE_MOCK=1`) and writes PNGs of the main views (Develop, crop, retouch, Library grid with
+a multi-selection, loupe, Ingest, settings), then a real-mode run over the fixtures. Agents attach
 them to PRs (see `AGENTS.md`).
