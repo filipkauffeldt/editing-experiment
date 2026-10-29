@@ -33,6 +33,7 @@ import {
 import { buildPyramid, downsample, makePlane, type Plane } from './neighbourhood/pyramid';
 import { sharpenPlane } from './neighbourhood/sharpen';
 import { MAX_LEVEL } from './neighbourhood/tuning';
+import { lensGain, lensSample, type LensSample, type LensUniforms } from './lens/model';
 
 /**
  * CPU reference of the develop pipeline: the exact maths of the shaders, on
@@ -64,6 +65,7 @@ export function basePixel(
   g: number,
   b: number,
   u: DevelopUniforms,
+  gain = 1,
 ): [number, number, number] {
   const m = u.colorMatrix as [
     number,
@@ -77,7 +79,11 @@ export function basePixel(
     number,
   ];
   const k = u.exposureGain;
-  const [wr, wg, wb] = clipHighlights([r, g, b], u.multipliers);
+  const clipped = clipHighlights([r, g, b], u.multipliers);
+  // The lens vignetting gain applies to the clipped, neutralised light, so blown corners brighten too.
+  const wr = clipped[0] * gain;
+  const wg = clipped[1] * gain;
+  const wb = clipped[2] * gain;
   let lr = m[0] * wr + m[1] * wg + m[2] * wb;
   let lg = m[3] * wr + m[4] * wg + m[5] * wb;
   let lb = m[6] * wr + m[7] * wg + m[8] * wb;
@@ -143,8 +149,9 @@ export function developPixel(
   b: number,
   u: DevelopUniforms,
   position?: PixelPosition,
+  gain = 1,
 ): [number, number, number] {
-  const [lr, lg, lb] = basePixel(r, g, b, u);
+  const [lr, lg, lb] = basePixel(r, g, b, u, gain);
   const [cr, cg, cb] = colorPixel(lr, lg, lb, u);
   const [er, eg, eb] = effectsPixel(cr, cg, cb, u, position);
   return [clamp01(er), clamp01(eg), clamp01(eb)];
@@ -185,6 +192,40 @@ function sampleSource(
   }
 }
 
+const lensScratch: LensSample = { gx: 0, gy: 0, rx: 0, ry: 0, bx: 0, by: 0 };
+const channelScratch = [0, 0, 0];
+
+/**
+ * Camera RGB for the corrected-frame position `(sx, sy)` through the lens correction: green at the
+ * recorded position, red and blue displaced by the lateral CA. Returns the vignetting gain.
+ */
+export function sampleLensed(
+  samples: Float32Array,
+  sw: number,
+  sh: number,
+  lens: LensUniforms,
+  sx: number,
+  sy: number,
+  px: number[],
+): number {
+  if (!lens.active) {
+    sampleSource(samples, sw, sh, sx, sy, px);
+    return 1;
+  }
+  // The corrected frame repeats its edge outside the picture, as the shader clamps.
+  lensSample(lens, Math.min(sw, Math.max(0, sx)), Math.min(sh, Math.max(0, sy)), lensScratch);
+  sampleSource(samples, sw, sh, lensScratch.gx, lensScratch.gy, px);
+  if (lens.ca) {
+    sampleSource(samples, sw, sh, lensScratch.rx, lensScratch.ry, channelScratch);
+    px[0] = channelScratch[0] ?? 0;
+    sampleSource(samples, sw, sh, lensScratch.bx, lensScratch.by, channelScratch);
+    px[2] = channelScratch[2] ?? 0;
+  }
+  const sourceX = Math.min(sw, Math.max(0, lensScratch.gx));
+  const sourceY = Math.min(sh, Math.max(0, lensScratch.gy));
+  return lensGain(lens, sourceX, sourceY);
+}
+
 /** Taps per axis of the measurement copy when it is smaller than the photo (the GPU uses the same). */
 export const MEASURE_TAPS = 4;
 
@@ -209,15 +250,16 @@ export function measureCopy(
       const sum = [0, 0, 0];
       for (let b = 0; b < taps; b++) {
         for (let a = 0; a < taps; a++) {
-          sampleSource(
+          const gain = sampleLensed(
             samples,
             sw,
             sh,
+            u.lens,
             ((x + (a + 0.5) / taps) * sw) / size.width,
             ((y + (b + 0.5) / taps) * sh) / size.height,
             px,
           );
-          const lin = basePixel(px[0] ?? 0, px[1] ?? 0, px[2] ?? 0, unit);
+          const lin = basePixel(px[0] ?? 0, px[1] ?? 0, px[2] ?? 0, unit, gain);
           for (let c = 0; c < 3; c++) sum[c] = (sum[c] ?? 0) + (lin[c] ?? 0);
         }
       }
@@ -276,8 +318,12 @@ export function renderCpuFloat(
     return [centerX + cos * dx - sin * dy, centerY + sin * dx + cos * dy];
   };
   const px = [0, 0, 0];
+  let gain = 1;
   const fetch = (x: number, y: number): void => {
-    if (same) {
+    if (u.lens.active) {
+      const [srcX, srcY] = sourceOf(x, y);
+      gain = sampleLensed(samples, sw, sh, u.lens, srcX, srcY, px);
+    } else if (same) {
       const i = (y * sw + x) * 4;
       px[0] = samples[i] ?? 0;
       px[1] = samples[i + 1] ?? 0;
@@ -305,7 +351,14 @@ export function renderCpuFloat(
     for (let y = 0; y < size.height; y++) {
       for (let x = 0; x < size.width; x++) {
         fetch(x, y);
-        const [r, g, b] = developPixel(px[0] ?? 0, px[1] ?? 0, px[2] ?? 0, u, positionOf(x, y));
+        const [r, g, b] = developPixel(
+          px[0] ?? 0,
+          px[1] ?? 0,
+          px[2] ?? 0,
+          u,
+          positionOf(x, y),
+          gain,
+        );
         const o = (y * size.width + x) * 4;
         out[o] = r;
         out[o + 1] = g;
@@ -331,7 +384,7 @@ export function renderCpuFloat(
   for (let y = 0; y < size.height; y++) {
     for (let x = 0; x < size.width; x++) {
       fetch(x, y);
-      const rgb = basePixel(px[0] ?? 0, px[1] ?? 0, px[2] ?? 0, unit);
+      const rgb = basePixel(px[0] ?? 0, px[1] ?? 0, px[2] ?? 0, unit, gain);
       lin.data.set(rgb, (y * size.width + x) * 3);
     }
   }

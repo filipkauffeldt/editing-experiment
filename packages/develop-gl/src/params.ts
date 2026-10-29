@@ -10,10 +10,13 @@ import { buildParametricLut } from './color/parametric';
 import { resolveGrain, resolveVignette, type GrainField, type Vignette } from './color/effects';
 import { clamp01 } from './color/common';
 import { TUNING } from './tuning';
+import { resolveLens, type LensImage, type MeasuredCa } from './lens/resolve';
+import type { LensUniforms } from './lens/model';
 import { resolveWhiteBalance, type ResolvedWhiteBalance, type WhiteBalanceCamera } from './wb';
 
 /** The header fields the develop pipeline reads. */
 export type DevelopCamera = Pick<LinearImageHeader, 'cameraToSrgb' | 'width' | 'height'> &
+  Partial<Pick<LinearImageHeader, 'lens'>> &
   WhiteBalanceCamera;
 
 /** Everything the shader / CPU reference needs for one render; no further lookups into `EditParams`. */
@@ -43,6 +46,8 @@ export interface DevelopUniforms {
   grading: ColorGrading;
   vignette: Vignette | null;
   grain: GrainField | null;
+  /** Lens corrections: where the corrected frame is recorded, lateral CA, vignetting gain. */
+  lens: LensUniforms;
 }
 
 const sliderValue = (params: EditParams, name: SliderParam): number => {
@@ -110,6 +115,8 @@ export function computeCurveLut(params: EditParams, size: number): Float32Array 
 export interface ResolveOptions {
   /** Stable per-photo grain seed. Preview and export must use the same value. */
   grainSeed?: number;
+  /** The measured lateral CA, when `AutoLateralCA` is on (see `lens/auto-ca.ts`). */
+  measuredCa?: MeasuredCa | null;
 }
 
 /** The crop's full-resolution output size, which the vignette is relative to. */
@@ -152,6 +159,7 @@ export function resolveUniforms(
     grading: resolveColorGrading(params),
     vignette: resolveVignette(params, logical),
     grain: resolveGrain(params, Math.max(camera.width, camera.height), options.grainSeed ?? 0),
+    lens: resolveLens(camera as LensImage, params, options.measuredCa).uniforms,
     multipliers: [m.r, m.g, m.b],
     colorMatrix: camera.cameraToSrgb,
     exposureGain: exposureGain(sliderValue(params, 'Exposure2012')),
