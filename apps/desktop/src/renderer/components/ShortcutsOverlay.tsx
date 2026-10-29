@@ -7,7 +7,7 @@ const GROUPS: { title: string; rows: [string, string][] }[] = [
     title: 'Navigate',
     rows: [
       ['← / →', 'Previous / next photo'],
-      ['?', 'Show this shortcut list'],
+      ['? / F1 / Ctrl/⌘ + /', 'Show this shortcut list'],
       ['Esc', 'Leave the current field'],
     ],
   },
@@ -41,6 +41,15 @@ const GROUPS: { title: string; rows: [string, string][] }[] = [
       ['Enter / double-click', 'Apply the crop'],
       ['Esc', 'Cancel the crop'],
       ['Ctrl/⌘ + Alt/⌥ + R', 'Reset the crop'],
+    ],
+  },
+  {
+    title: 'Develop',
+    rows: [
+      ['Y', 'Before / after'],
+      ['J', 'Show clipping (red highlights, blue shadows)'],
+      ['W', 'White balance picker (Esc cancels)'],
+      ['Split', 'Before/after split view (button in Develop)'],
     ],
   },
   {
