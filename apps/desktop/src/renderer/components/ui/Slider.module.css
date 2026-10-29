@@ -58,8 +58,15 @@
   right: 0;
   left: 0;
   height: 1px;
-  background: var(--line-strong);
+  background: var(--dim);
   pointer-events: none;
+}
+
+/* The one place a slider track carries colour, desaturated, and thick enough to read. */
+.temperature .rail,
+.tint .rail {
+  top: 5px;
+  height: 3px;
 }
 
 .temperature .rail {
@@ -75,7 +82,7 @@
   top: 3px;
   width: 1px;
   height: 7px;
-  background: var(--dim);
+  background: var(--muted);
   pointer-events: none;
 }
 

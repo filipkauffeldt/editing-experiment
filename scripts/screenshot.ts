@@ -2,10 +2,12 @@
 // Usage: pnpm screenshot [--out <dir>]
 //
 // 01-09 are the mock-data UI tour (no camera, no disk), including crop mode
-// and a cropped result. 10-18 are a real-mode run over the fetched CC0 NEF and
+// and a cropped result; 19-22 add the Library grid with a multi-selection, the
+// loupe, retouch mode and the Ingest module. 10-18 and 23 are a real-mode run over the fetched CC0 NEF and
 // face fixtures: developed raw, slider change, retouch face detection, mosaic
 // preview and the upload popover after export, plus (17, 18) crop mode
-// mid-rotation with the fine grid and the committed crop.
+// mid-rotation with the fine grid and the committed crop, and (23) the Library
+// over the ingested files.
 import { _electron as electron, type ElectronApplication, type Page } from '@playwright/test';
 import { spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, copyFileSync } from 'node:fs';
@@ -85,7 +87,9 @@ async function runMock(outDir: string): Promise<void> {
     );
     await window.getByText('MOCK', { exact: true }).waitFor();
     // Let the mock ingest/upload simulation produce a little progress.
-    await window.waitForFunction(() => /[1-9]\d*\/20/.test(document.body.textContent ?? ''));
+    await window.waitForFunction(() =>
+      /ingesting [1-9]\d*\/\d+/.test(document.body.textContent ?? ''),
+    );
     await shoot('01-main-1440.png');
 
     // A retouched photo shows the stacked-frame badge and an active upload.
@@ -146,6 +150,38 @@ async function runMock(outDir: string): Promise<void> {
     });
     await window.waitForFunction(() => document.documentElement.clientWidth >= 1900);
     await shoot('07-main-1920.png');
+
+    // Library: click, Shift-range and Ctrl-toggle build a multi-selection.
+    await window.keyboard.press('g');
+    await window.locator('[data-testid="library-grid"]').waitFor();
+    await window.waitForFunction(() => {
+      const images = [...document.querySelectorAll('[data-testid="library-cell"] img')];
+      return images.length > 0 && images.every((img) => (img as HTMLImageElement).complete);
+    });
+    const cells = window.locator('[data-testid="library-cell"]');
+    await cells.nth(0).click();
+    await cells.nth(5).click({ modifiers: ['Shift'] });
+    await cells.nth(9).click({ modifiers: ['ControlOrMeta'] });
+    await shoot('19-library-grid-selection.png');
+
+    await window.keyboard.press('e');
+    await window.locator('[data-testid="library-loupe"] img').first().waitFor();
+    await shoot('20-library-loupe.png');
+    await window.keyboard.press('g');
+
+    // Retouch module: the retouch session on the Develop layout.
+    await window.keyboard.press('d');
+    await window.locator('[data-testid="film-strip"]').waitFor();
+    await window.keyboard.press('r');
+    await window.locator('[data-testid="retouch-toolbar"]').waitFor();
+    await window.waitForTimeout(800);
+    await shoot('21-retouch-mode.png');
+    await window.keyboard.press('Escape');
+    await window.locator('[data-testid="retouch-toolbar"]').waitFor({ state: 'detached' });
+
+    await window.getByRole('tab', { name: 'Ingest' }).click();
+    await window.locator('[data-testid="ingest-view"]').waitFor();
+    await shoot('22-ingest.png');
 
     if (problems.length > 0) throw new Error(`renderer reported errors:\n${problems.join('\n')}`);
   } finally {
@@ -412,6 +448,22 @@ async function runReal(outDir: string): Promise<void> {
     await window.locator('[data-testid="upload-summary"]').click();
     await window.getByRole('dialog', { name: 'Upload queue' }).waitFor();
     await shoot('16-real-upload-popover.png');
+
+    // Library over the ingested files, everything selected.
+    // Close the upload popover by clicking outside it.
+    await window.locator('[data-testid="status-bar"]').click({ position: { x: 700, y: 10 } });
+    await window.keyboard.press('g');
+    await window.locator('[data-testid="library-grid"]').waitFor();
+    await window.waitForFunction(() => {
+      const images = [
+        ...document.querySelectorAll<HTMLImageElement>('[data-testid="library-cell"] img'),
+      ];
+      return (
+        images.length >= 3 && images.every((image) => image.complete && image.naturalWidth > 0)
+      );
+    });
+    await window.keyboard.press('ControlOrMeta+a');
+    await shoot('23-real-library-grid.png');
 
     if (problems.length > 0) throw new Error(`renderer reported errors:\n${problems.join('\n')}`);
   } finally {

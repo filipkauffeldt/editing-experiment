@@ -6,7 +6,7 @@
   height: 11px;
   padding: 0;
   border: 1px solid var(--muted);
-  background: transparent;
+  background: var(--scrim);
 }
 
 .tag:hover {
