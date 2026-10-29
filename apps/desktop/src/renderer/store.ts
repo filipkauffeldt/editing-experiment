@@ -2076,10 +2076,16 @@ export class AppStore {
       const parked = stash[key];
       delete stash[key];
       this.set({ sectionStash: stash });
-      if (parked) this.patchParams((current) => ({ ...current, ...parked }));
+      this.patchParams((current) => {
+        const next = { ...current };
+        for (const name of params) delete next[name];
+        return { ...next, ...parked };
+      });
       return;
     }
-    const current = paramsForPhoto(this.state, photo);
+    // Park only what the user set; raw defaults come back by themselves when the key is gone.
+    const current = editedParamsForPhoto(this.state, photo);
+    const defaults = this.state.editDefaults[photo.id] ?? {};
     const parked: EditParams = {};
     for (const name of params) {
       const value = current[name];
@@ -2089,7 +2095,13 @@ export class AppStore {
     this.set({ sectionStash: stash });
     this.patchParams((existing) => {
       const next = { ...existing };
-      for (const name of params) delete next[name];
+      for (const name of params) {
+        delete next[name];
+        // A raw default (say, sharpening 40) would come back, so "off" writes the neutral value.
+        const neutral = SLIDER_SPECS[name].neutral;
+        if (defaults[name] !== undefined && neutral !== null)
+          Object.assign(next, { [name]: neutral });
+      }
       return next;
     });
   };

@@ -130,6 +130,9 @@ function Slider({ name }: { name: SliderParam }) {
   const params = paramsForPhoto(state, photo);
   const spec = SLIDER_SPECS[name];
   const raw = params[name];
+  // Raw files start at Lightroom's defaults (sharpening, colour noise reduction): that is the
+  // slider's "untouched" position, where the tick sits and the fill starts.
+  const start = (photo && state.editDefaults[photo.id]?.[name]) ?? spec.neutral ?? 0;
   const asShot = spec.neutral === null && raw === undefined;
   const isTemperature = name === 'Temperature';
   const position = isTemperature
@@ -145,7 +148,7 @@ function Slider({ name }: { name: SliderParam }) {
       min={isTemperature ? 0 : spec.min}
       max={isTemperature ? 1000 : spec.max}
       step={isTemperature ? 1 : spec.step}
-      neutral={isTemperature ? asShotTrackPosition() : (spec.neutral ?? 0)}
+      neutral={isTemperature ? asShotTrackPosition() : start}
       display={asShot ? '' : (raw ?? spec.neutral ?? 0)}
       placeholder={asShot ? 'As shot' : undefined}
       numberMin={spec.min}
@@ -194,27 +197,37 @@ function Group({ title, params }: { title: string; params: SliderParam[] }) {
   );
 }
 
+const SHARPENING_PARAMS: SliderParam[] = [
+  'Sharpness',
+  'SharpenRadius',
+  'SharpenDetail',
+  'SharpenEdgeMasking',
+];
+const NOISE_PARAMS: SliderParam[] = [
+  'LuminanceSmoothing',
+  'LuminanceNoiseReductionDetail',
+  'LuminanceNoiseReductionContrast',
+  'ColorNoiseReduction',
+  'ColorNoiseReductionDetail',
+  'ColorNoiseReductionSmoothness',
+];
+
 function DetailSection() {
   return (
-    <section className={styles.group}>
-      <h3 className={styles.groupTitle}>Detail</h3>
+    <Section title="Detail" params={[...SHARPENING_PARAMS, ...NOISE_PARAMS]}>
       <div className={styles.subgroup}>
         <h4 className={styles.subgroupTitle}>Sharpening</h4>
-        <Slider name="Sharpness" />
-        <Slider name="SharpenRadius" />
-        <Slider name="SharpenDetail" />
-        <Slider name="SharpenEdgeMasking" />
+        {SHARPENING_PARAMS.map((name) => (
+          <Slider key={name} name={name} />
+        ))}
       </div>
       <div className={styles.subgroup}>
         <h4 className={styles.subgroupTitle}>Noise reduction</h4>
-        <Slider name="LuminanceSmoothing" />
-        <Slider name="LuminanceNoiseReductionDetail" />
-        <Slider name="LuminanceNoiseReductionContrast" />
-        <Slider name="ColorNoiseReduction" />
-        <Slider name="ColorNoiseReductionDetail" />
-        <Slider name="ColorNoiseReductionSmoothness" />
+        {NOISE_PARAMS.map((name) => (
+          <Slider key={name} name={name} />
+        ))}
       </div>
-    </section>
+    </Section>
   );
 }
 
