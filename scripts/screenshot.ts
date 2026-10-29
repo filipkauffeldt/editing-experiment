@@ -146,7 +146,7 @@ async function runMock(outDir: string): Promise<void> {
     await shoot('05b-export-dialog.png');
     await window.keyboard.press('Escape');
     await window.locator('[data-testid="photo-view"]').click({ position: { x: 10, y: 10 } });
-    await window.keyboard.press('Shift+/');
+    await window.keyboard.press('F1');
     await window.getByTestId('shortcuts-overlay').waitFor();
     await shoot('06-shortcuts.png');
 
@@ -212,6 +212,47 @@ async function runMock(outDir: string): Promise<void> {
     await shoot('21-retouch-mode.png');
     await window.keyboard.press('Escape');
     await window.locator('[data-testid="retouch-toolbar"]').waitFor({ state: 'detached' });
+
+    // Develop tools: histogram, clipping overlay, before/after split and the
+    // white balance picker loupe.
+    await window.locator('[title^="_DSC8334.NEF"]').click();
+    await window.waitForSelector('[data-testid="histogram"][data-has-data="true"]');
+    await window.keyboard.press('j');
+    const exposure = window.locator('input[aria-label="Exposure value"]');
+    await exposure.fill('2.5');
+    await exposure.blur();
+    const blacks = window.locator('input[aria-label="Blacks value"]');
+    await blacks.fill('-100');
+    await blacks.blur();
+    await window.waitForTimeout(300);
+    await shoot('24-clipping-overlay.png');
+    await window.keyboard.press('j');
+
+    await window.locator('[title^="_DSC8336.NEF"]').click();
+    await window.waitForTimeout(200);
+    const splitExposure = window.locator('input[aria-label="Exposure value"]');
+    await splitExposure.fill('1');
+    await splitExposure.blur();
+    await window.getByTestId('split-view').click();
+    await window.locator('[data-testid="split-divider"]').waitFor();
+    await window.waitForTimeout(300);
+    await shoot('25-before-after-split.png');
+    await window.getByTestId('split-view').click();
+
+    await window.locator('[title^="_DSC8337.NEF"]').click();
+    await window.waitForTimeout(200);
+    await window.getByTestId('wb-picker').click();
+    const canvasBox = await window.locator('[data-testid="photo-canvas"]').boundingBox();
+    if (canvasBox) {
+      await window.mouse.move(
+        canvasBox.x + canvasBox.width * 0.42,
+        canvasBox.y + canvasBox.height * 0.46,
+      );
+    }
+    await window.locator('[data-testid="wb-loupe"]').waitFor();
+    await window.waitForTimeout(200);
+    await shoot('26-wb-picker-loupe.png');
+    await window.keyboard.press('Escape');
 
     await window.getByRole('tab', { name: 'Ingest' }).click();
     await window.locator('[data-testid="ingest-view"]').waitFor();

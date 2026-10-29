@@ -491,6 +491,29 @@ or 1000 m; manual positive distortion repeats the picture's edge where it pulls 
 instead of showing white; the Nikon records were checked on three CC0 NEFs (a lens the camera
 requires, one it makes optional, a DX zoom) for plausibility, not against Adobe's output.
 
+### Histogram, clipping and one-click tools
+
+The histogram at the top of Develop is measured from the frame just drawn into the canvas:
+`readHistogram` blits the drawing buffer into a small RGBA8 target (`blitFramebuffer`, long
+edge 256) and reads that back, so it never re-renders the pipeline. The renderer throttles the
+readback to 10 Hz; it is skipped in crop mode, where the canvas has the crop-view overlays.
+The clipping overlay (`J`, or the corner triangles) is a view-only shader stage after the
+colour and effects: red for clipped highlights, blue for crushed shadows. `renderToRGBA`
+never enables it, so exports cannot contain it. Before/after (`Y`, or `\` as an optional
+physical-key alias) draws `beforeParams` — the committed crop only — on the left via
+`renderSplit`; it never writes parameters. The white balance picker (`W`) averages a small
+patch of the unity-white-balance camera RGB and converts the neutralising gains with the
+DNG-SDK temperature code, then writes Temperature/Tint through the normal parameter path.
+Auto tone and Auto WB are ported from RAWmakase (MIT): gray-world in camera space with
+clipping/noise rejection for white balance, and its linear fits to Lightroom Auto for the
+six tone sliders plus Vibrance/Saturation. Auto tone measures a 1024 px render of the photo
+with its tone, curves, presence, detail and effects removed.
+
+Keyboard shortcuts match `event.key` letters and digits, not US key positions. Symbol keys
+have letter/F-key primaries (`Y` before/after, `F1` or Ctrl/Cmd+`/` for shortcuts), and
+AltGr is treated as character input so Swedish `@`, `$`, `{`… and dead keys never fire a
+command.
+
 ## Crop mode
 
 Crop mode works like Lightroom Classic's Crop Overlay. The crop frame is always an

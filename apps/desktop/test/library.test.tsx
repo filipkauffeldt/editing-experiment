@@ -100,7 +100,7 @@ describe('library folders', () => {
 
     const list = within(screen.getByTestId('library-folders'));
     const names = list.getAllByRole('button').map((button) => button.textContent);
-    expect(names).toEqual(['All photos40', '10-03 IFK–AIK20', '10-03 AIK–IFK20']);
+    expect(names).toEqual(['All photos40', '10-03 AIK–IFK20', '10-03 IFK–AIK20']);
     // The Ingesting section names sources on purpose; the Folders list must not.
     const text = screen.getByTestId('library-folders').textContent ?? '';
     for (const source of sources) {
@@ -114,8 +114,8 @@ describe('library folders', () => {
     const photos = mockPhotos();
     const folders = libraryFolders(photos);
     expect(folders.map((folder) => folder.path)).toEqual([
-      '/home/alex/Pictures/2026/10-03 IFK–AIK',
       '/home/alex/Pictures/2026/10-03 AIK–IFK',
+      '/home/alex/Pictures/2026/10-03 IFK–AIK',
     ]);
     for (const source of mockSources()) {
       if (source.kind === 'folder') {
