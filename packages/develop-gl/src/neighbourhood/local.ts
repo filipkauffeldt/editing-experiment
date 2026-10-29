@@ -5,7 +5,7 @@ import { makePlane, sampleBlur, type Plane } from './pyramid';
 import { CLARITY, DEHAZE, MAX_LEVEL, TEXTURE } from './tuning';
 
 /**
- * Texture, Clarity and Dehaze, as pure functions over an analysis pyramid
+ * Texture, Clarity and Dehaze (ported from RAWmakase, MIT, see `tuning.ts`), as pure functions over an analysis pyramid
  * (the log2 luminance of the image, see `pyramid.ts`). `glsl.ts` mirrors them.
  * Positions `(px, py)` are output pixels with the centre of pixel `x` at `x + 0.5`.
  */
@@ -142,13 +142,13 @@ export function dehazePixel(
 }
 
 export interface LocalInputs {
-  /** Linear RGB (exposure applied) in `.rgb`, and the analysis value in `.a`: 4 channels. */
+  /** Linear RGB at Exposure 0 in `.rgb`, and the analysis value in `.a`: 4 channels. */
   image: Plane;
   /** Pyramid of the analysis plane, levels `0..MAX_LEVEL`. */
   levels: readonly Plane[];
   geometry: LocalGeometry;
   exposureGain: number;
-  /** Clarity key level in log2 luminance with exposure applied. */
+  /** Clarity key level in log2 luminance, at Exposure 0 like the image. */
   key: number;
   airlight: readonly [number, number, number];
   /** Haze density at an output pixel (0 outside Dehaze). */
@@ -171,20 +171,15 @@ export function applyLocal(n: NeighbourhoodParams, input: LocalInputs): Plane {
         gain += clarityGain(levels, px, py, a, n.clarity, input.key, geometry);
       }
       gain = Math.min(CLARITY.maxGain, Math.max(-CLARITY.maxGain, gain));
-      const k = 2 ** gain;
+      // The image is at Exposure 0; the exposure is applied here, with the local gain.
+      const k = 2 ** gain * input.exposureGain;
       let rgb: [number, number, number] = [
         (image.data[i] as number) * k,
         (image.data[i + 1] as number) * k,
         (image.data[i + 2] as number) * k,
       ];
       if (n.dehaze !== 0) {
-        rgb = dehazePixel(
-          rgb,
-          input.exposureGain * k,
-          input.airlight,
-          input.densityAt(px, py),
-          n.dehaze,
-        );
+        rgb = dehazePixel(rgb, k, input.airlight, input.densityAt(px, py), n.dehaze);
       }
       out.data[(y * image.w + x) * 3] = rgb[0];
       out.data[(y * image.w + x) * 3 + 1] = rgb[1];

@@ -22,7 +22,8 @@ void main() {
 }
 `;
 
-export const FRAGMENT_SHADER = `#version 300 es
+/** Everything of the develop fragment shader before `main`: uniforms, helpers and the per-pixel colour chain. */
+export const FRAGMENT_COMMON = `#version 300 es
 precision highp float;
 precision highp int;
 precision highp sampler2D;
@@ -169,7 +170,28 @@ vec3 vibranceSaturation(vec3 c, float vibrance, float saturation) {
   return l + (c - l) * factor;
 }
 
-void main() {
+/** Linear light after white balance, calibration and exposure to the sRGB-encoded colour: tone, curves, colour. Not clamped. */
+vec3 developColor(vec3 lin) {
+  if (u_toneActive == 1) lin = toneRgb(lin);
+
+  vec3 e = vec3(srgbEncode(shoulder(lin.r)), srgbEncode(shoulder(lin.g)), srgbEncode(shoulder(lin.b)));
+
+  if (u_hasCurve == 1) {
+    e = vec3(lookupCurve(e.r, 0), lookupCurve(e.g, 1), lookupCurve(e.b, 2));
+  }
+  if (u_vibrance != 0.0 || u_saturation != 0.0) e = vibranceSaturation(e, u_vibrance, u_saturation);
+
+  // EE colour/effects insertion point: per-pixel colour.
+  e = applyColorMixer(e);
+  return applyColorGrading(e);
+}
+
+`;
+
+/** The develop pass: source fetch and the whole per-pixel chain in one shader (no neighbourhood ops). */
+export const FRAGMENT_SHADER =
+  FRAGMENT_COMMON +
+  `void main() {
   float row = gl_FragCoord.y - 0.5;
   vec2 pix = vec2(gl_FragCoord.x - 0.5, mix(row, u_outSize.y - 1.0 - row, u_flipY)) + u_tileOrigin;
   vec2 pOut = (pix + 0.5) * u_outScale;
@@ -206,18 +228,9 @@ void main() {
 
   // EE colour/effects insertion point: calibration sits next to the camera matrix.
   vec3 lin = applyCalibration(u_color * clipHighlights(cam, u_wb)) * u_exposure;
-  if (u_toneActive == 1) lin = toneRgb(lin);
+  vec3 e = developColor(lin);
 
-  vec3 e = vec3(srgbEncode(shoulder(lin.r)), srgbEncode(shoulder(lin.g)), srgbEncode(shoulder(lin.b)));
-
-  if (u_hasCurve == 1) {
-    e = vec3(lookupCurve(e.r, 0), lookupCurve(e.g, 1), lookupCurve(e.b, 2));
-  }
-  if (u_vibrance != 0.0 || u_saturation != 0.0) e = vibranceSaturation(e, u_vibrance, u_saturation);
-
-  // EE colour/effects insertion point: per-pixel colour, then spatial effects.
-  e = applyColorMixer(e);
-  e = applyColorGrading(e);
+  // Spatial effects come last.
   vec2 logN = pOut / max(u_outCenter, vec2(1.0)) - 1.0;
   vec2 q = pix + 0.5;
   if (u_viewMode == 1) {

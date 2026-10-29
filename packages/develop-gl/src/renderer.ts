@@ -1,15 +1,26 @@
 import type { EditParams, LinearImageHeader } from '@ee/contracts';
 import { cropGeometry, cropOutputSize, isUsableCrop, type Size } from './crop';
-import { FRAGMENT_SHADER, VERTEX_SHADER } from './glsl';
+import { DevelopGlError } from './errors';
+import { FRAGMENT_SHADER } from './glsl';
 import { samplesView, type LinearImageBuffer } from './image';
 import { resolveUniforms, type DevelopUniforms } from './params';
+import { BASE_FRAGMENT } from './neighbourhood/glsl';
+import { hasDenoise, hasLocalContrast, resolveNeighbourhood } from './neighbourhood/params';
+import { createProgram, type GlProgram } from './neighbourhood/passes';
+import {
+  createNeighbourhoodPipeline,
+  effectiveHalo,
+  planCores,
+  type BaseOptions,
+  type FinalTarget,
+  type NeighbourhoodPipeline,
+  type PipelineHost,
+  type PipelineInput,
+} from './neighbourhood/pipeline';
 import { planSourceTiles, splitRect, type Rect, type SourceTile } from './tiling';
 import { TUNING } from './tuning';
 
-/** Thrown when WebGL2 is unavailable or a GL resource cannot be created. */
-export class DevelopGlError extends Error {
-  override readonly name = 'DevelopGlError';
-}
+export { DevelopGlError };
 
 export interface DevelopRendererOptions {
   /** Called when the GL context is lost; the image must be set again after it is restored. */
@@ -48,7 +59,8 @@ export interface DevelopRenderer {
    * about the frame centre, with empty canvas outside the image and a dimmed
    * area outside the frame. It is the same mapping and shader as {@link render}
    * (only the transform differs), so the pixels inside the frame are the
-   * committed crop's. `params.crop` is ignored.
+   * committed crop's. `params.crop` is ignored. Texture, Clarity, Dehaze, sharpening
+   * and noise reduction are not drawn in this view (it uses the single develop pass).
    */
   renderView(params: EditParams, view: CropViewTransform): void;
   /**
@@ -64,69 +76,11 @@ export interface DevelopRenderer {
 
 type Canvas = HTMLCanvasElement | OffscreenCanvas;
 
-const UNIFORMS = [
-  'u_image',
-  'u_curve',
-  'u_wb',
-  'u_color',
-  'u_exposure',
-  'u_toneActive',
-  'u_contrastGamma',
-  'u_highlights',
-  'u_shadows',
-  'u_whites',
-  'u_blacks',
-  'u_hasCurve',
-  'u_vibrance',
-  'u_saturation',
-  'u_calibration',
-  'u_shadowTint',
-  'u_mixerActive',
-  'u_hslHue',
-  'u_hslSat',
-  'u_hslLum',
-  'u_gradingActive',
-  'u_gradeShadow',
-  'u_gradeMidtone',
-  'u_gradeHighlight',
-  'u_gradeGlobal',
-  'u_gradeBlending',
-  'u_gradeBalance',
-  'u_vignetteAmount',
-  'u_vignetteStyle',
-  'u_vignetteHighlights',
-  'u_vignetteScale',
-  'u_vignettePower',
-  'u_vignetteMidpoint',
-  'u_vignetteFeather',
-  'u_grainAmount',
-  'u_grainCell',
-  'u_grainCoarse',
-  'u_grainFine',
-  'u_grainSeed',
-  'u_outSize',
-  'u_outScale',
-  'u_outCenter',
-  'u_tileOrigin',
-  'u_srcCenter',
-  'u_srcRot',
-  'u_srcOrigin',
-  'u_srcTexSize',
-  'u_srcSize',
-  'u_coreMin',
-  'u_coreMax',
-  'u_flipY',
-  'u_nearest',
-  'u_viewMode',
-  'u_frame',
-  'u_dim',
-  'u_outside',
-] as const;
-type UniformName = (typeof UNIFORMS)[number];
-
 interface Resources {
-  program: WebGLProgram;
-  uniforms: Record<UniformName, WebGLUniformLocation | null>;
+  /** Source fetch and the whole per-pixel chain in one pass (no neighbourhood ops). */
+  direct: GlProgram;
+  /** Source fetch, white balance and exposure only; the neighbourhood pipeline runs the rest. */
+  base: GlProgram;
   curveTexture: WebGLTexture;
   uploadedCurve: Float32Array | null | undefined;
 }
@@ -214,37 +168,9 @@ function cropLogicalSize(header: LinearImageHeader, params: EditParams): Size {
   return image;
 }
 
-function compile(gl: WebGL2RenderingContext, type: number, source: string): WebGLShader {
-  const shader = gl.createShader(type);
-  if (!shader) throw new DevelopGlError('Could not create shader');
-  gl.shaderSource(shader, source);
-  gl.compileShader(shader);
-  if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) {
-    const log = gl.getShaderInfoLog(shader);
-    gl.deleteShader(shader);
-    throw new DevelopGlError(`Shader compile failed: ${log}`);
-  }
-  return shader;
-}
-
 function createResources(gl: WebGL2RenderingContext): Resources {
-  const program = gl.createProgram();
-  if (!program) throw new DevelopGlError('Could not create program');
-  const vs = compile(gl, gl.VERTEX_SHADER, VERTEX_SHADER);
-  const fs = compile(gl, gl.FRAGMENT_SHADER, FRAGMENT_SHADER);
-  gl.attachShader(program, vs);
-  gl.attachShader(program, fs);
-  gl.linkProgram(program);
-  gl.deleteShader(vs);
-  gl.deleteShader(fs);
-  if (!gl.getProgramParameter(program, gl.LINK_STATUS)) {
-    const log = gl.getProgramInfoLog(program);
-    gl.deleteProgram(program);
-    throw new DevelopGlError(`Program link failed: ${log}`);
-  }
-  const uniforms = Object.fromEntries(
-    UNIFORMS.map((name) => [name, gl.getUniformLocation(program, name)]),
-  ) as Resources['uniforms'];
+  const direct = createProgram(gl, FRAGMENT_SHADER);
+  const base = createProgram(gl, BASE_FRAGMENT);
 
   const curveTexture = gl.createTexture();
   if (!curveTexture) throw new DevelopGlError('Could not create texture');
@@ -265,7 +191,7 @@ function createResources(gl: WebGL2RenderingContext): Resources {
     gl.FLOAT,
     new Float32Array(TUNING.curveLutSize * 4),
   );
-  return { program, uniforms, curveTexture, uploadedCurve: null };
+  return { direct, base, curveTexture, uploadedCurve: null };
 }
 
 /** Row-major 3x3 to the column-major order `uniformMatrix3fv` expects, so `u_color * v` is `M v`. */
@@ -323,6 +249,7 @@ export function createDevelopRenderer(
     options.onContextLost?.();
   };
   const onRestored = (): void => {
+    pipeline = undefined;
     res = createResources(gl);
     lost = false;
   };
@@ -371,68 +298,68 @@ export function createDevelopRenderer(
     return texture;
   }
 
-  function setUniforms(u: DevelopUniforms): void {
-    const l = res.uniforms;
-    gl.useProgram(res.program);
-    gl.uniform1i(l.u_image, 0);
-    gl.uniform1i(l.u_curve, 1);
-    gl.uniform3fv(l.u_wb, u.multipliers);
-    gl.uniformMatrix3fv(l.u_color, false, toColumnMajor(u.colorMatrix));
-    gl.uniform1f(l.u_exposure, u.exposureGain);
-    gl.uniform1i(l.u_toneActive, u.toneActive ? 1 : 0);
-    gl.uniform1f(l.u_contrastGamma, u.tone.contrastGamma);
-    gl.uniform1f(l.u_highlights, u.tone.highlights);
-    gl.uniform1f(l.u_shadows, u.tone.shadows);
-    gl.uniform1f(l.u_whites, u.tone.whites);
-    gl.uniform1f(l.u_blacks, u.tone.blacks);
-    gl.uniform1i(l.u_hasCurve, u.curveLut ? 1 : 0);
-    gl.uniform1f(l.u_vibrance, u.vibrance);
-    gl.uniform1f(l.u_saturation, u.saturation);
+  function setUniforms(prog: GlProgram, u: DevelopUniforms): void {
+    const loc = (name: string): WebGLUniformLocation | null => prog.loc(name);
+    gl.useProgram(prog.program);
+    gl.uniform1i(loc('u_image'), 0);
+    gl.uniform1i(loc('u_curve'), 1);
+    gl.uniform3fv(loc('u_wb'), u.multipliers);
+    gl.uniformMatrix3fv(loc('u_color'), false, toColumnMajor(u.colorMatrix));
+    gl.uniform1f(loc('u_exposure'), u.exposureGain);
+    gl.uniform1i(loc('u_toneActive'), u.toneActive ? 1 : 0);
+    gl.uniform1f(loc('u_contrastGamma'), u.tone.contrastGamma);
+    gl.uniform1f(loc('u_highlights'), u.tone.highlights);
+    gl.uniform1f(loc('u_shadows'), u.tone.shadows);
+    gl.uniform1f(loc('u_whites'), u.tone.whites);
+    gl.uniform1f(loc('u_blacks'), u.tone.blacks);
+    gl.uniform1i(loc('u_hasCurve'), u.curveLut ? 1 : 0);
+    gl.uniform1f(loc('u_vibrance'), u.vibrance);
+    gl.uniform1f(loc('u_saturation'), u.saturation);
 
-    gl.uniformMatrix3fv(l.u_calibration, false, toColumnMajor(u.calibration.matrix));
-    gl.uniform1f(l.u_shadowTint, u.calibration.shadow);
-    gl.uniform1i(l.u_mixerActive, u.mixer.active ? 1 : 0);
+    gl.uniformMatrix3fv(loc('u_calibration'), false, toColumnMajor(u.calibration.matrix));
+    gl.uniform1f(loc('u_shadowTint'), u.calibration.shadow);
+    gl.uniform1i(loc('u_mixerActive'), u.mixer.active ? 1 : 0);
     gl.uniform1fv(
-      l.u_hslHue,
+      loc('u_hslHue'),
       u.mixer.bands.map((band) => band.hue),
     );
     gl.uniform1fv(
-      l.u_hslSat,
+      loc('u_hslSat'),
       u.mixer.bands.map((band) => band.sat),
     );
     gl.uniform1fv(
-      l.u_hslLum,
+      loc('u_hslLum'),
       u.mixer.bands.map((band) => band.lum),
     );
-    gl.uniform1i(l.u_gradingActive, u.grading.active ? 1 : 0);
+    gl.uniform1i(loc('u_gradingActive'), u.grading.active ? 1 : 0);
     const grade = (region: { hue: number; sat: number; lum: number }): number[] => [
       region.hue,
       region.sat,
       region.lum,
       0,
     ];
-    gl.uniform4fv(l.u_gradeShadow, grade(u.grading.shadows));
-    gl.uniform4fv(l.u_gradeMidtone, grade(u.grading.midtones));
-    gl.uniform4fv(l.u_gradeHighlight, grade(u.grading.highlights));
-    gl.uniform4fv(l.u_gradeGlobal, grade(u.grading.global));
-    gl.uniform1f(l.u_gradeBlending, u.grading.blending);
-    gl.uniform1f(l.u_gradeBalance, u.grading.balance);
+    gl.uniform4fv(loc('u_gradeShadow'), grade(u.grading.shadows));
+    gl.uniform4fv(loc('u_gradeMidtone'), grade(u.grading.midtones));
+    gl.uniform4fv(loc('u_gradeHighlight'), grade(u.grading.highlights));
+    gl.uniform4fv(loc('u_gradeGlobal'), grade(u.grading.global));
+    gl.uniform1f(loc('u_gradeBlending'), u.grading.blending);
+    gl.uniform1f(loc('u_gradeBalance'), u.grading.balance);
     const vignette = u.vignette;
-    gl.uniform1f(l.u_vignetteAmount, vignette?.amount ?? 0);
+    gl.uniform1f(loc('u_vignetteAmount'), vignette?.amount ?? 0);
     gl.uniform1i(
-      l.u_vignetteStyle,
+      loc('u_vignetteStyle'),
       vignette?.style === 'Color Priority' ? 2 : vignette?.style === 'Paint Overlay' ? 3 : 0,
     );
-    gl.uniform1f(l.u_vignetteHighlights, vignette?.highlights ?? 0);
-    gl.uniform2f(l.u_vignetteScale, vignette?.scaleX ?? 1, vignette?.scaleY ?? 1);
-    gl.uniform1f(l.u_vignettePower, vignette?.power ?? 2);
-    gl.uniform1f(l.u_vignetteMidpoint, vignette?.midpoint ?? 0);
-    gl.uniform1f(l.u_vignetteFeather, vignette?.feather ?? 0.5);
-    gl.uniform1f(l.u_grainAmount, u.grain?.amount ?? 0);
-    gl.uniform1f(l.u_grainCell, u.grain?.cell ?? 1);
-    gl.uniform1f(l.u_grainCoarse, u.grain?.coarse ?? 0);
-    gl.uniform1f(l.u_grainFine, u.grain?.fine ?? 0);
-    gl.uniform1ui(l.u_grainSeed, (u.grain?.seed ?? 0) >>> 0);
+    gl.uniform1f(loc('u_vignetteHighlights'), vignette?.highlights ?? 0);
+    gl.uniform2f(loc('u_vignetteScale'), vignette?.scaleX ?? 1, vignette?.scaleY ?? 1);
+    gl.uniform1f(loc('u_vignettePower'), vignette?.power ?? 2);
+    gl.uniform1f(loc('u_vignetteMidpoint'), vignette?.midpoint ?? 0);
+    gl.uniform1f(loc('u_vignetteFeather'), vignette?.feather ?? 0.5);
+    gl.uniform1f(loc('u_grainAmount'), u.grain?.amount ?? 0);
+    gl.uniform1f(loc('u_grainCell'), u.grain?.cell ?? 1);
+    gl.uniform1f(loc('u_grainCoarse'), u.grain?.coarse ?? 0);
+    gl.uniform1f(loc('u_grainFine'), u.grain?.fine ?? 0);
+    gl.uniform1ui(loc('u_grainSeed'), (u.grain?.seed ?? 0) >>> 0);
 
     gl.activeTexture(gl.TEXTURE1);
     gl.bindTexture(gl.TEXTURE_2D, res.curveTexture);
@@ -453,20 +380,31 @@ export function createDevelopRenderer(
     gl.activeTexture(gl.TEXTURE0);
   }
 
-  /** The crop view's uniforms; `undefined` switches the view mode off (the normal render). */
+  /** Sets the output -> source mapping uniforms (everything but the tile's own source texture). */
+  function setMapping(prog: GlProgram, src: Source, buffer: Size, mapping: Mapping): void {
+    const loc = (name: string): WebGLUniformLocation | null => prog.loc(name);
+    gl.uniform2f(loc('u_outSize'), buffer.width, buffer.height);
+    gl.uniform2f(loc('u_outScale'), mapping.outScale.x, mapping.outScale.y);
+    gl.uniform2f(loc('u_outCenter'), mapping.outCenter.x, mapping.outCenter.y);
+    gl.uniform2f(loc('u_srcCenter'), mapping.center.x, mapping.center.y);
+    gl.uniform2f(loc('u_srcRot'), mapping.cos, mapping.sin);
+    gl.uniform2f(loc('u_srcSize'), src.header.width, src.header.height);
+  }
+
+  /** The crop view's uniforms on the develop pass; `undefined` switches the view mode off (the normal render). */
   function setViewUniforms(view: CropViewTransform | undefined): void {
-    const l = res.uniforms;
-    gl.useProgram(res.program);
-    gl.uniform1i(l.u_viewMode, view ? 1 : 0);
+    const loc = (name: string): WebGLUniformLocation | null => res.direct.loc(name);
+    gl.useProgram(res.direct.program);
+    gl.uniform1i(loc('u_viewMode'), view ? 1 : 0);
     gl.uniform4f(
-      l.u_frame,
+      loc('u_frame'),
       view?.frame.x ?? 0,
       view?.frame.y ?? 0,
       (view?.frame.x ?? 0) + (view?.frame.w ?? 0),
       (view?.frame.y ?? 0) + (view?.frame.h ?? 0),
     );
-    gl.uniform1f(l.u_dim, view?.dim ?? 1);
-    gl.uniform3f(l.u_outside, ...(view?.outside ?? [0, 0, 0]));
+    gl.uniform1f(loc('u_dim'), view?.dim ?? 1);
+    gl.uniform3f(loc('u_outside'), ...(view?.outside ?? [0, 0, 0]));
   }
 
   /**
@@ -475,6 +413,7 @@ export function createDevelopRenderer(
    * even when rotation makes their output regions non-rectangular (and overlap).
    */
   function drawTile(
+    prog: GlProgram,
     src: Source,
     entry: Source['tiles'][number],
     buffer: Size,
@@ -482,26 +421,23 @@ export function createDevelopRenderer(
     viewport: Rect,
     tileOrigin: { x: number; y: number },
     flipY: boolean,
+    allowNearest = true,
   ): void {
-    const l = res.uniforms;
+    const loc = (name: string): WebGLUniformLocation | null => prog.loc(name);
     const t = entry.tile.texture;
     const core = entry.tile.core;
     gl.bindTexture(gl.TEXTURE_2D, entry.texture);
-    gl.uniform2f(l.u_outSize, buffer.width, buffer.height);
-    gl.uniform2f(l.u_outScale, mapping.outScale.x, mapping.outScale.y);
-    gl.uniform2f(l.u_outCenter, mapping.outCenter.x, mapping.outCenter.y);
-    gl.uniform2f(l.u_tileOrigin, tileOrigin.x, tileOrigin.y);
-    gl.uniform2f(l.u_srcCenter, mapping.center.x, mapping.center.y);
-    gl.uniform2f(l.u_srcRot, mapping.cos, mapping.sin);
-    gl.uniform2f(l.u_srcOrigin, t.x, t.y);
-    gl.uniform2f(l.u_srcTexSize, t.w, t.h);
-    gl.uniform2f(l.u_srcSize, src.header.width, src.header.height);
-    gl.uniform2f(l.u_coreMin, core.x, core.y);
-    gl.uniform2f(l.u_coreMax, core.x + core.w, core.y + core.h);
-    gl.uniform1f(l.u_flipY, flipY ? 1 : 0);
+    setMapping(prog, src, buffer, mapping);
+    gl.uniform2f(loc('u_tileOrigin'), tileOrigin.x, tileOrigin.y);
+    gl.uniform2f(loc('u_srcOrigin'), t.x, t.y);
+    gl.uniform2f(loc('u_srcTexSize'), t.w, t.h);
+    gl.uniform2f(loc('u_coreMin'), core.x, core.y);
+    gl.uniform2f(loc('u_coreMax'), core.x + core.w, core.y + core.h);
+    gl.uniform1f(loc('u_flipY'), flipY ? 1 : 0);
     gl.uniform1i(
-      l.u_nearest,
-      mapping.identity &&
+      loc('u_nearest'),
+      allowNearest &&
+        mapping.identity &&
         mapping.logical.width === buffer.width &&
         mapping.logical.height === buffer.height
         ? 1
@@ -519,6 +455,89 @@ export function createDevelopRenderer(
     return source;
   }
 
+  /** What the neighbourhood pipeline needs of the current frame. */
+  let frame: { src: Source; mapping: Mapping; u: DevelopUniforms } | undefined;
+  let imageId = 0;
+  let pipeline: NeighbourhoodPipeline | undefined;
+
+  const identityMapping = (header: LinearImageHeader, buffer: Size): Mapping => ({
+    center: { x: header.width / 2, y: header.height / 2 },
+    cos: 1,
+    sin: 0,
+    logical: { width: header.width, height: header.height },
+    outScale: { x: header.width / buffer.width, y: header.height / buffer.height },
+    outCenter: { x: header.width / 2, y: header.height / 2 },
+    identity: true,
+  });
+
+  const host: PipelineHost = {
+    drawBase(runner, target, region, o: BaseOptions) {
+      if (!frame) throw new DevelopGlError('No frame');
+      const { src, mapping, u } = frame;
+      const prog = res.base;
+      // The pipeline works at Exposure 0 and applies the exposure after its cached stages.
+      setUniforms(prog, { ...u, exposureGain: 1 });
+      gl.uniform1i(prog.loc('u_taps'), o.taps);
+      gl.uniform1f(prog.loc('u_posScale'), o.posScale);
+      gl.uniform2f(prog.loc('u_posMax'), o.posMax[0], o.posMax[1]);
+      runner.bindTarget(target);
+      const used = o.measure ? identityMapping(src.header, o.buffer) : mapping;
+      for (const entry of src.tiles) {
+        drawTile(
+          prog,
+          src,
+          entry,
+          o.buffer,
+          used,
+          { x: 0, y: 0, w: region.w, h: region.h },
+          { x: region.x, y: region.y },
+          false,
+          o.taps === 1,
+        );
+      }
+    },
+    applyDevelop(program, u) {
+      setUniforms(program, u);
+    },
+    applyMapping(program, out) {
+      if (!frame) throw new DevelopGlError('No frame');
+      setMapping(program, frame.src, out, frame.mapping);
+    },
+  };
+
+  function getPipeline(): NeighbourhoodPipeline {
+    pipeline ??= createNeighbourhoodPipeline(gl, host);
+    return pipeline;
+  }
+
+  /** Everything the pipeline needs to know about this render. */
+  function pipelineInput(
+    src: Source,
+    params: EditParams,
+    mapping: Mapping,
+    u: DevelopUniforms,
+    out: Size,
+    cache: boolean,
+  ): PipelineInput {
+    const header = src.header;
+    const perHeader = out.width / mapping.logical.width;
+    return {
+      n: resolveNeighbourhood(params),
+      u,
+      out,
+      sourceSize: { width: header.width, height: header.height },
+      geometry: {
+        scale: perHeader * (header.width / (header.sourceWidth || header.width)),
+        fullLongEdge: Math.max(header.width, header.height) * perHeader,
+      },
+      baseKey: `${imageId}|${JSON.stringify([out, params.crop, u.multipliers, u.colorMatrix, u.calibration])}`,
+      cache,
+    };
+  }
+
+  const usesNeighbourhood = (input: PipelineInput): boolean =>
+    hasDenoise(input.n) || hasLocalContrast(input.n) || input.n.sharpen !== null;
+
   return {
     get contextLost() {
       return lost;
@@ -529,6 +548,8 @@ export function createDevelopRenderer(
       if (lost) throw new DevelopGlError('WebGL context lost');
       const view = samplesView(header, data);
       freeSource();
+      pipeline?.invalidate();
+      imageId++;
       const tiles = planSourceTiles(header.width, header.height, maxTexture).map((tile) => ({
         tile,
         texture: uploadTile(header, view, tile),
@@ -544,11 +565,24 @@ export function createDevelopRenderer(
       const src = requireSource();
       const out = { width: canvas.width, height: canvas.height };
       const mapping = mappingFor(src.header, params, cropLogicalSize(src.header, params), out);
+      const u = resolveUniforms(src.header, params, { grainSeed: options.grainSeed });
+      const input = pipelineInput(src, params, mapping, u, out, true);
+      if (usesNeighbourhood(input)) {
+        frame = { src, mapping, u };
+        const cores = planCores(out, maxOutputTile, effectiveHalo(input.n, input.geometry.scale));
+        getPipeline().run(input, cores, (core) => ({
+          framebuffer: null,
+          viewport: { x: core.x, y: out.height - core.y - core.h, w: core.w, h: core.h },
+          flipY: true,
+        }));
+        return;
+      }
+      setUniforms(res.direct, u);
       setViewUniforms(undefined);
-      setUniforms(resolveUniforms(src.header, params, { grainSeed: options.grainSeed }));
       gl.bindFramebuffer(gl.FRAMEBUFFER, null);
       for (const entry of src.tiles) {
         drawTile(
+          res.direct,
           src,
           entry,
           out,
@@ -564,11 +598,15 @@ export function createDevelopRenderer(
       const src = requireSource();
       const out = { width: canvas.width, height: canvas.height };
       const mapping = viewMapping(src.header, view, out);
-      setUniforms(resolveUniforms(src.header, params, { grainSeed: options.grainSeed }));
+      setUniforms(
+        res.direct,
+        resolveUniforms(src.header, params, { grainSeed: options.grainSeed }),
+      );
       setViewUniforms(view);
       gl.bindFramebuffer(gl.FRAMEBUFFER, null);
       for (const entry of src.tiles) {
         drawTile(
+          res.direct,
           src,
           entry,
           out,
@@ -592,12 +630,15 @@ export function createDevelopRenderer(
       // `size` is the render-target buffer; the logical space is the crop (or
       // the full image), so other sizes resample it like the old pipeline did.
       const mapping = mappingFor(src.header, params, cropLogicalSize(src.header, params), out);
+      const u = resolveUniforms(src.header, params, { grainSeed: options.grainSeed });
+      const input = pipelineInput(src, params, mapping, u, out, false);
+      const neighbourhood = usesNeighbourhood(input);
 
-      setViewUniforms(undefined);
-      setUniforms(resolveUniforms(src.header, params, { grainSeed: options.grainSeed }));
-
-      const tileW = Math.min(width, maxOutputTile);
-      const tileH = Math.min(height, maxOutputTile);
+      const cores = neighbourhood
+        ? planCores(out, maxOutputTile, effectiveHalo(input.n, input.geometry.scale))
+        : splitRect({ x: 0, y: 0, w: width, h: height }, maxOutputTile);
+      const tileW = Math.min(width, Math.max(...cores.map((c) => c.w)));
+      const tileH = Math.min(height, Math.max(...cores.map((c) => c.h)));
       const framebuffer = gl.createFramebuffer();
       const renderbuffer = gl.createRenderbuffer();
       if (!framebuffer || !renderbuffer) throw new DevelopGlError('Could not create framebuffer');
@@ -615,18 +656,8 @@ export function createDevelopRenderer(
           throw new DevelopGlError(`Offscreen framebuffer of ${tileW}x${tileH} is incomplete`);
         }
         const scratch = new Uint8Array(tileW * tileH * 4);
-        for (const rect of splitRect({ x: 0, y: 0, w: width, h: height }, maxOutputTile)) {
-          for (const entry of src.tiles) {
-            drawTile(
-              src,
-              entry,
-              out,
-              mapping,
-              { x: 0, y: 0, w: rect.w, h: rect.h },
-              { x: rect.x, y: rect.y },
-              false,
-            );
-          }
+        const store = (rect: Rect): void => {
+          gl.bindFramebuffer(gl.FRAMEBUFFER, framebuffer);
           // Rows come back bottom-up from the framebuffer, which the shader already compensates for.
           gl.readPixels(0, 0, rect.w, rect.h, gl.RGBA, gl.UNSIGNED_BYTE, scratch);
           for (let row = 0; row < rect.h; row++) {
@@ -635,6 +666,34 @@ export function createDevelopRenderer(
               scratch.subarray(from, from + rect.w * 4),
               ((rect.y + row) * width + rect.x) * 4,
             );
+          }
+        };
+        if (neighbourhood) {
+          frame = { src, mapping, u };
+          const target = (core: Rect): FinalTarget => ({
+            framebuffer,
+            viewport: { x: 0, y: 0, w: core.w, h: core.h },
+            flipY: false,
+          });
+          getPipeline().run(input, cores, target, store);
+        } else {
+          setUniforms(res.direct, u);
+          setViewUniforms(undefined);
+          for (const rect of cores) {
+            gl.bindFramebuffer(gl.FRAMEBUFFER, framebuffer);
+            for (const entry of src.tiles) {
+              drawTile(
+                res.direct,
+                src,
+                entry,
+                out,
+                mapping,
+                { x: 0, y: 0, w: rect.w, h: rect.h },
+                { x: rect.x, y: rect.y },
+                false,
+              );
+            }
+            store(rect);
           }
         }
       } finally {
@@ -655,8 +714,10 @@ export function createDevelopRenderer(
       canvas.removeEventListener('webglcontextrestored', onRestored);
       if (!lost) {
         freeSource();
+        pipeline?.dispose();
         gl.deleteTexture(res.curveTexture);
-        gl.deleteProgram(res.program);
+        gl.deleteProgram(res.direct.program);
+        gl.deleteProgram(res.base.program);
       }
     },
   };
