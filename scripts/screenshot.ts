@@ -72,7 +72,7 @@ const shooter = (window: Page, outDir: string) => async (name: string, selector?
 };
 
 async function runMock(outDir: string): Promise<void> {
-  const app = await launch({ EE_MOCK: '1', EE_SOFTWARE_GL: '1' });
+  const app = await launch({ EE_MOCK: '1', EE_SOFTWARE_GL: '1', EE_SCREENSHOTS: '1' });
   const shoot = shooter(await app.firstWindow(), outDir);
   try {
     const window = await app.firstWindow();
@@ -287,7 +287,12 @@ async function runReal(outDir: string): Promise<void> {
   copyFileSync(face, join(source, 'B1.jpg'));
   copyFileSync(join(rawDir, nefs[1] ?? nefs[0]!), join(source, 'C1.NEF'));
 
-  const app = await launch({ EE_MOCK: '', EE_SOFTWARE_GL: '1', EE_USER_DATA_DIR: userData });
+  const app = await launch({
+    EE_MOCK: '',
+    EE_SOFTWARE_GL: '1',
+    EE_SCREENSHOTS: '1',
+    EE_USER_DATA_DIR: userData,
+  });
   try {
     const window = await app.firstWindow();
     const problems = watchErrors(window);

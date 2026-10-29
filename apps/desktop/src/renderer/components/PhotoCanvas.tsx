@@ -212,6 +212,10 @@ function CanvasForPhoto({ photo }: { photo: Photo }) {
   const cropSession = state.crop?.photoId === photo.id ? state.crop : undefined;
   const image = state.photos.find((candidate) => candidate.id === photo.id) ?? photo;
   const viewMode = useDevelopViewMode();
+  // A software rasteriser makes the histogram readback disproportionately slow
+  // (and CI runs on SwiftShader); screenshots opt back in.
+  const histogramReadback =
+    typeof window === 'undefined' || window.eeEnvironment?.screenshots === true;
 
   const containerRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -494,10 +498,10 @@ function CanvasForPhoto({ photo }: { photo: Photo }) {
         // The histogram is a small GPU downsample of this frame, throttled so
         // the readback never becomes part of the slider loop. Crop mode draws
         // overlays around the frame, so it keeps the committed crop's histogram.
-        if (!cropView) {
+        if (!cropView && (!renderer.softwareRendering || histogramReadback)) {
           const now = typeof performance === 'undefined' ? Date.now() : performance.now();
           const key = `${photo.id}|${viewMode.beforeAfter}`;
-          if (histogramKey.current !== key || now - lastHistogramAt.current >= 100) {
+          if (histogramKey.current !== key || now - lastHistogramAt.current >= 200) {
             histogramKey.current = key;
             lastHistogramAt.current = now;
             // The clipping overlay is a view aid: measure the developed frame
@@ -529,6 +533,7 @@ function CanvasForPhoto({ photo }: { photo: Photo }) {
     viewMode.split,
     viewMode.clipShadows,
     viewMode.clipHighlights,
+    histogramReadback,
   ]);
 
   // One-shot Auto commands from the panel: measure a small render (tone) or the

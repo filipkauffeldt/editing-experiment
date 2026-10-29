@@ -126,6 +126,8 @@ export interface DevelopRenderer {
    * export) renders with the CPU reference instead (`renderCpu`).
    */
   readonly supportsNeighbourhood: boolean;
+  /** True on SwiftShader/llvmpipe; the app skips GPU readbacks (the histogram) there unless capturing screenshots. */
+  readonly softwareRendering: boolean;
   dispose(): void;
 }
 
@@ -283,6 +285,10 @@ export function createDevelopRenderer(
   }) as WebGL2RenderingContext | null;
   if (!context) throw new DevelopGlError('WebGL2 is not available');
   const gl: WebGL2RenderingContext = context;
+  const debugInfo = gl.getExtension('WEBGL_debug_renderer_info');
+  const rendererName =
+    debugInfo === null ? '' : String(gl.getParameter(debugInfo.UNMASKED_RENDERER_WEBGL));
+  const softwareRendering = /swiftshader|llvmpipe|software/i.test(rendererName);
 
   let res = createResources(gl);
   let source: Source | undefined;
@@ -853,6 +859,10 @@ export function createDevelopRenderer(
 
     get supportsNeighbourhood() {
       return neighbourhoodSupported;
+    },
+
+    get softwareRendering() {
+      return softwareRendering;
     },
 
     setImage(header, data) {

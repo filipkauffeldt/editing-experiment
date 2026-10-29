@@ -15,6 +15,8 @@ export function createMainWindow(): BrowserWindow {
       contextIsolation: true,
       sandbox: true,
       nodeIntegration: false,
+      // Screenshots need the histogram even though CI has only a software rasteriser.
+      additionalArguments: process.env.EE_SCREENSHOTS === '1' ? ['--ee-screenshots'] : [],
     },
   });
 

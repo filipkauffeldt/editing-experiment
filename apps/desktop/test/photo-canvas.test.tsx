@@ -22,6 +22,7 @@ const renderer = vi.hoisted(() => ({
   resolve: vi.fn(),
   contextLost: false,
   supportsNeighbourhood: true,
+  softwareRendering: false,
   dispose: vi.fn(),
   /** The options the component created the renderer with. */
   options: undefined as { onNeighbourhoodUnavailable?: () => void } | undefined,
