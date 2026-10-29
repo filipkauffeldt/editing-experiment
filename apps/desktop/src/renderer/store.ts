@@ -51,6 +51,15 @@ import {
 } from '@ee/contracts';
 import { EditedPreviewScheduler, type EditedPreviewRenderer } from './edited-preview-scheduler';
 import { renderFullResolution } from './export-render';
+import {
+  initialLibrary,
+  matchesLibrary,
+  mergeFieldEdits,
+  type Collection,
+  type FieldEdit,
+  type LibraryQuick,
+  type LibraryState,
+} from './library';
 import { padFaceBox } from './retouch-geometry';
 
 export type QuickFilter =
@@ -68,6 +77,8 @@ export const QUICK_FILTERS: readonly { id: QuickFilter; label: string }[] = [
 
 export type SortMode = 'filename' | 'capture-time';
 export type SelectionMode = 'replace' | 'toggle' | 'range';
+/** The four modules of the top bar; Retouch is `AppState.retouch` on the Develop view. */
+export type AppModule = 'ingest' | 'library' | 'develop';
 export type DialogTab = 'sources' | 'destinations' | 'ingest';
 
 export interface FilterState {
@@ -253,6 +264,8 @@ export interface IngestRun {
 }
 
 export interface AppState {
+  module: AppModule;
+  library: LibraryState;
   photos: Photo[];
   sources: SourceConfig[];
   destinations: Destination[];
@@ -433,21 +446,35 @@ const captureTime = (photo: Photo): number => {
   return Number.isNaN(value) ? Number.POSITIVE_INFINITY : value;
 };
 
-/** Photos after the quick/camera/source filters, in the chosen order. */
-export function selectVisiblePhotos(state: AppState): Photo[] {
-  const filtered = state.photos.filter((photo) => {
-    if (!matchesQuickFilter(state, photo, state.filter.quick)) return false;
-    if (state.filter.camera && cameraKey(photo) !== state.filter.camera) return false;
-    if (state.filter.sourceId && photo.sourceId !== state.filter.sourceId) return false;
-    return true;
-  });
-  return filtered.sort((left, right) => {
-    if (state.sort === 'capture-time') {
+function sortPhotos(photos: Photo[], sort: SortMode): Photo[] {
+  return photos.sort((left, right) => {
+    if (sort === 'capture-time') {
       const byTime = captureTime(left) - captureTime(right);
       if (byTime !== 0) return byTime;
     }
     return naturalName(left, right);
   });
+}
+
+/** Photos after the quick/camera/source filters, in the chosen order. */
+export function selectVisiblePhotos(state: AppState): Photo[] {
+  return sortPhotos(
+    state.photos.filter((photo) => {
+      if (!matchesQuickFilter(state, photo, state.filter.quick)) return false;
+      if (state.filter.camera && cameraKey(photo) !== state.filter.camera) return false;
+      if (state.filter.sourceId && photo.sourceId !== state.filter.sourceId) return false;
+      return true;
+    }),
+    state.sort,
+  );
+}
+
+/** The photos of the Library grid: folder, collection and quick/class filters, in the chosen order. */
+export function selectLibraryPhotos(state: AppState): Photo[] {
+  return sortPhotos(
+    state.photos.filter((photo) => matchesLibrary(photo, state.library)),
+    state.sort,
+  );
 }
 
 export interface UploadSummary {
@@ -512,6 +539,8 @@ interface DevelopThrottle {
 }
 
 const emptyState = (): AppState => ({
+  module: 'develop',
+  library: initialLibrary(),
   photos: [],
   sources: [],
   destinations: [],
@@ -857,6 +886,11 @@ export class AppStore {
     this.set({ photos });
   }
 
+  /** The order Shift-click ranges follow: the grid's in the Library, the film strip's elsewhere. */
+  private selectionOrder(): Photo[] {
+    return this.state.module === 'library' ? this.getLibraryPhotos() : this.getVisiblePhotos();
+  }
+
   private applySelection(photoId: PhotoId | undefined, mode: SelectionMode = 'replace'): void {
     if (
       photoId === this.state.selectedId &&
@@ -881,7 +915,7 @@ export class AppStore {
         : [...this.state.selection, photoId];
       if (selection.length === 0) anchor = photoId;
     } else if (mode === 'range') {
-      const order = this.getVisiblePhotos().map((photo) => photo.id);
+      const order = this.selectionOrder().map((photo) => photo.id);
       const from = order.indexOf(anchor);
       const to = order.indexOf(photoId);
       selection =
@@ -987,44 +1021,169 @@ export class AppStore {
   }
 
   private persistLabels(photoIds: PhotoId[], patch: Partial<PhotoFlags>): void {
-    for (const photoId of photoIds) {
-      const previous = this.labelWrites.get(photoId) ?? Promise.resolve();
-      const write = previous
-        .then(() =>
-          this.bridge.invoke('photos:setLabels', {
-            photoIds: [photoId],
-            ...patch,
-          }),
-        )
-        .then((photos) => {
-          for (const photo of photos) this.upsertPhoto(photo);
-        })
-        .catch((cause: unknown) => {
-          this.toast('error', `Could not save labels: ${messageOf(cause)}`);
-        })
-        .finally(() => {
-          if (this.labelWrites.get(photoId) === write) this.labelWrites.delete(photoId);
-        });
-      this.labelWrites.set(photoId, write);
-    }
+    const previous = Promise.all(
+      photoIds.map((id) => this.labelWrites.get(id) ?? Promise.resolve()),
+    );
+    // One IPC call for the whole batch, queued behind any earlier write to the same photos.
+    const write: Promise<void> = previous
+      .then(() => this.bridge.invoke('photos:setLabels', { photoIds, ...patch }))
+      .then((photos) => {
+        for (const photo of photos) this.upsertPhoto(photo);
+      })
+      .catch((cause: unknown) => {
+        this.toast('error', `Could not save labels: ${messageOf(cause)}`);
+      })
+      .finally(() => {
+        for (const id of photoIds)
+          if (this.labelWrites.get(id) === write) this.labelWrites.delete(id);
+      });
+    for (const id of photoIds) this.labelWrites.set(id, write);
   }
 
+  /** Photos a label shortcut applies to: the Library selection there, otherwise the open photo. */
+  private labelTargets(photoId?: PhotoId): PhotoId[] {
+    if (photoId) return [photoId];
+    const { module, selection, selectedId } = this.state;
+    if (module === 'library' && selection.length > 0) return [...selection];
+    return selectedId ? [selectedId] : [];
+  }
+
+  /** Tags every target; if all are tagged already, untags them (Photo Mechanic's behaviour). */
   readonly toggleTag = (photoId?: PhotoId): void => {
-    const id = photoId ?? this.state.selectedId;
-    if (!id) return;
-    const photo = this.photoById.get(id);
-    if (!photo) return;
-    const tagged = !photo.tagged;
-    this.applyLabelPatch([id], { tagged });
-    this.persistLabels([id], { tagged });
-    this.ensureSelectionVisible();
+    const ids = this.labelTargets(photoId).filter((id) => this.photoById.has(id));
+    if (ids.length === 0) return;
+    const tagged = !ids.every((id) => this.photoById.get(id)?.tagged);
+    this.applyLabelPatch(ids, { tagged });
+    this.persistLabels(ids, { tagged });
+    if (this.state.module !== 'library') this.ensureSelectionVisible();
   };
 
   readonly setColorClass = (colorClass: number, photoId?: PhotoId): void => {
-    const id = photoId ?? this.state.selectedId;
-    if (!id || !Number.isInteger(colorClass) || colorClass < 0 || colorClass > 8) return;
-    this.applyLabelPatch([id], { colorClass });
-    this.persistLabels([id], { colorClass });
+    if (!Number.isInteger(colorClass) || colorClass < 0 || colorClass > 8) return;
+    const ids = this.labelTargets(photoId).filter((id) => this.photoById.has(id));
+    if (ids.length === 0) return;
+    this.applyLabelPatch(ids, { colorClass });
+    this.persistLabels(ids, { colorClass });
+  };
+
+  // ------------------------------------------------------------------ modules
+
+  /**
+   * Switch module. Leaving Develop settles the open crop and retouch session first, as
+   * selecting another photo does.
+   */
+  readonly setModule = (module: AppModule): void => {
+    if (module === this.state.module) return;
+    if (this.state.module === 'develop') {
+      if (this.state.crop) this.applyCrop();
+      if (this.state.retouch) void this.requestExitRetouch();
+    }
+    this.set({ module });
+    if (module === 'develop' && !this.state.selectedId) {
+      const first = this.getVisiblePhotos()[0];
+      if (first) this.select(first.id);
+    }
+  };
+
+  /** Retouch module: Develop with the retouch session open on the selected photo. */
+  readonly openRetouchModule = (): void => {
+    this.setModule('develop');
+    if (!this.state.retouch) this.toggleRetouch();
+  };
+
+  // ------------------------------------------------------------------ library
+
+  private setLibrary(patch: Partial<LibraryState>): void {
+    this.set({ library: { ...this.state.library, ...patch } });
+  }
+
+  readonly getLibraryPhotos = (): Photo[] => selectLibraryPhotos(this.state);
+
+  readonly setLibraryFolder = (folder: string | undefined): void => {
+    this.setLibrary({ folder, collection: undefined });
+  };
+
+  readonly setLibraryCollection = (collection: Collection | undefined): void => {
+    this.setLibrary({ collection, folder: undefined });
+  };
+
+  readonly setLibraryQuick = (quick: LibraryQuick): void => this.setLibrary({ quick });
+
+  readonly setLibraryColorFilter = (colorClass: number | undefined): void =>
+    this.setLibrary({ colorClass });
+
+  readonly setThumbSize = (thumbSize: number): void => this.setLibrary({ thumbSize });
+
+  /** G (grid) and E (loupe) both live in the Library module. */
+  readonly openLibrary = (view: LibraryState['view'] = 'grid'): void => {
+    if (view === 'loupe' && !this.state.selectedId) return;
+    this.setModule('library');
+    this.setLibrary({ view });
+  };
+
+  /** Every photo in the grid becomes selected (Ctrl/Cmd+A); the open photo stays open. */
+  readonly selectAllInLibrary = (): void => {
+    const ids = this.getLibraryPhotos().map((photo) => photo.id);
+    this.set({ selection: ids, selectionAnchor: this.state.selectionAnchor ?? ids[0] });
+  };
+
+  /** Esc: back to just the open photo. */
+  readonly clearLibrarySelection = (): void => {
+    const { selectedId } = this.state;
+    this.set({ selection: selectedId ? [selectedId] : [], selectionAnchor: selectedId });
+  };
+
+  /** Arrow keys in the grid; `extend` grows the selection like Shift-click. */
+  readonly moveInLibrary = (delta: number, extend = false): void => {
+    const photos = this.getLibraryPhotos();
+    if (photos.length === 0) return;
+    const index = photos.findIndex((photo) => photo.id === this.state.selectedId);
+    const next = photos[Math.max(0, Math.min(photos.length - 1, (index < 0 ? 0 : index) + delta))];
+    if (next) this.select(next.id, extend ? 'range' : 'replace');
+  };
+
+  /**
+   * Write caption/IPTC edits to every photo in `photoIds`. Append needs each photo's current
+   * value, so the fields are read fresh from the sidecar; pending typing is saved first.
+   * Resolves with the number of photos written.
+   */
+  readonly applyFieldEdits = async (
+    photoIds: readonly PhotoId[],
+    edits: readonly FieldEdit[],
+  ): Promise<number> => {
+    if (photoIds.length === 0 || edits.length === 0) return 0;
+    let written = 0;
+    const failed: string[] = [];
+    for (const photoId of photoIds) {
+      try {
+        await this.saveMetadata(photoId);
+        const current = await this.bridge.invoke('metadata:read', { photoId });
+        // Expand `=codes=` and `{variables}` of the caption per photo, as typing it would.
+        const resolved = await Promise.all(
+          edits.map(async (edit) => {
+            if (edit.field !== 'caption' || typeof edit.value !== 'string') return edit;
+            if (!/[={]/.test(edit.value)) return edit;
+            const expanded = await this.bridge.invoke('metadata:expandCaption', {
+              photoId,
+              text: edit.value,
+            });
+            return { ...edit, value: expanded.text };
+          }),
+        );
+        const fields = mergeFieldEdits(current, resolved);
+        const photo = await this.bridge.invoke('metadata:write', { photoId, fields });
+        this.upsertPhoto(photo);
+        this.set({ metadata: { ...this.state.metadata, [photoId]: { ...current, ...fields } } });
+        written += 1;
+      } catch (cause) {
+        failed.push(`${this.photoById.get(photoId)?.fileName ?? photoId}: ${messageOf(cause)}`);
+      }
+    }
+    if (failed.length > 0) {
+      this.toast('error', `Could not caption ${failed.length} photo(s): ${failed[0]}`);
+    }
+    if (written > 0) this.toast('success', `Captioned ${written} photo${written === 1 ? '' : 's'}`);
+    return written;
   };
 
   // ------------------------------------------------------------------ retouch

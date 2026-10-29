@@ -418,7 +418,7 @@ function SourcesSection() {
                 <input
                   className={styles.input}
                   value={form.host}
-                  placeholder="ftp.presspool.test"
+                  placeholder="ftp.sportfotografen.se"
                   onChange={(event) => patch({ host: event.target.value })}
                 />
               </label>
