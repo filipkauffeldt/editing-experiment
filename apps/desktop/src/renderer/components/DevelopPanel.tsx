@@ -1,3 +1,4 @@
+import { describeLens } from '@ee/develop-gl';
 import { SLIDER_SPECS, type SliderParam, type VignetteStyle } from '@ee/contracts';
 import { useState, type ReactNode } from 'react';
 import { activePhoto, paramsForPhoto, sectionEnabled } from '../store';
@@ -95,6 +96,17 @@ const LABELS: Record<SliderParam, string> = {
   ColorNoiseReduction: 'Color',
   ColorNoiseReductionDetail: 'Color detail',
   ColorNoiseReductionSmoothness: 'Color smoothness',
+  LensProfileDistortionScale: 'Distortion amount',
+  LensProfileVignettingScale: 'Vignetting amount',
+  LensManualDistortionAmount: 'Distortion',
+  VignetteAmount: 'Vignette amount',
+  VignetteMidpoint: 'Vignette midpoint',
+  DefringePurpleAmount: 'Purple amount',
+  DefringePurpleHueLo: 'Purple hue low',
+  DefringePurpleHueHi: 'Purple hue high',
+  DefringeGreenAmount: 'Green amount',
+  DefringeGreenHueLo: 'Green hue low',
+  DefringeGreenHueHi: 'Green hue high',
 };
 
 const BANDS = ['Red', 'Orange', 'Yellow', 'Green', 'Aqua', 'Blue', 'Purple', 'Magenta'] as const;
@@ -342,6 +354,106 @@ function EffectsSection() {
   );
 }
 
+function Check({
+  label,
+  checked,
+  disabled,
+  onChange,
+}: {
+  label: string;
+  checked: boolean;
+  disabled?: boolean;
+  onChange(checked: boolean): void;
+}) {
+  return (
+    <label className={styles.checkRow}>
+      <input
+        type="checkbox"
+        checked={checked}
+        disabled={disabled}
+        onChange={(event) => onChange(event.target.checked)}
+      />
+      <span className={styles.selectLabel}>{label}</span>
+    </label>
+  );
+}
+
+/**
+ * Lens Corrections: the profile (the camera's own data or a Lensfun lens, matched from the file's
+ * lens name, with a select to override it), Remove Chromatic Aberration, the manual distortion and
+ * lens vignette, and Defringe.
+ */
+function LensSection() {
+  const store = useAppStore();
+  const state = useAppState();
+  const photo = activePhoto(state);
+  const params = paramsForPhoto(state, photo);
+  const lens = photo ? state.photoLens[photo.id] : undefined;
+  const panel = describeLens({ width: 1, height: 1, lens }, params);
+  return (
+    <PanelSection title="Lens Corrections" testId="lens-corrections">
+      <div className={styles.subgroup}>
+        <h4 className={styles.subgroupTitle}>Profile</h4>
+        <Check
+          label="Enable profile corrections"
+          checked={panel.enabled}
+          disabled={!photo || !panel.available}
+          onChange={(value) => store.setLensFlag('LensProfileEnable', value)}
+        />
+        <label className={styles.selectRow}>
+          <span className={styles.selectLabel}>Profile</span>
+          <Select
+            aria-label="Lens profile"
+            value={params.LensProfileChoice ?? ''}
+            disabled={!photo || !panel.available}
+            onChange={(event) => store.setLensProfileChoice(event.target.value)}
+          >
+            {panel.choices.map((choice) => (
+              <option key={choice.value} value={choice.value}>
+                {choice.value === '' && panel.profileName
+                  ? `Automatic: ${panel.profileName}`
+                  : choice.label}
+              </option>
+            ))}
+          </Select>
+        </label>
+        <p className={styles.muted} data-testid="lens-profile-note">
+          {!lens
+            ? 'No lens data for this photo.'
+            : !panel.profileName
+              ? `No profile for ${lens.lensModel ?? 'this lens'}.`
+              : panel.required
+                ? `The camera requires this correction: ${panel.corrects.join(', ')}.`
+                : `Corrects ${panel.corrects.join(', ') || 'nothing'}.`}
+        </p>
+        <Slider name="LensProfileDistortionScale" />
+        <Slider name="LensProfileVignettingScale" />
+        <Check
+          label="Remove chromatic aberration"
+          checked={params.AutoLateralCA === true}
+          disabled={!photo}
+          onChange={(value) => store.setLensFlag('AutoLateralCA', value)}
+        />
+      </div>
+      <div className={styles.subgroup}>
+        <h4 className={styles.subgroupTitle}>Manual</h4>
+        <Slider name="LensManualDistortionAmount" />
+        <Slider name="VignetteAmount" />
+        <Slider name="VignetteMidpoint" />
+      </div>
+      <div className={styles.subgroup}>
+        <h4 className={styles.subgroupTitle}>Defringe</h4>
+        <Slider name="DefringePurpleAmount" />
+        <Slider name="DefringePurpleHueLo" />
+        <Slider name="DefringePurpleHueHi" />
+        <Slider name="DefringeGreenAmount" />
+        <Slider name="DefringeGreenHueLo" />
+        <Slider name="DefringeGreenHueHi" />
+      </div>
+    </PanelSection>
+  );
+}
+
 /** Right panel: presets, then the Camera Raw compatible develop sliders. */
 export function DevelopPanel({ className }: { className?: string }) {
   const store = useAppStore();
@@ -428,6 +540,7 @@ export function DevelopPanel({ className }: { className?: string }) {
             'ParametricHighlightSplit',
           ]}
         />
+        <LensSection />
         <EffectsSection />
       </div>
     </Panel>

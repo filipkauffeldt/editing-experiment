@@ -418,6 +418,8 @@ function CanvasForPhoto({ photo }: { photo: Photo }) {
         const data = await response.arrayBuffer();
         if (!cancelled) {
           setLoaded({ header, data });
+          // The Lens Corrections panel reads the lens facts of the image on screen.
+          store.setPhotoLens(photo.id, header.lens);
           setLinearUnavailable(false);
           setError(undefined);
         }
@@ -430,7 +432,7 @@ function CanvasForPhoto({ photo }: { photo: Photo }) {
       cancelled = true;
       controller.abort();
     };
-  }, [photo.id, requestedEdge, container.width]);
+  }, [photo.id, requestedEdge, container.width, store]);
 
   // Upload the image after it arrives, after a context restore, and when the
   // photo changes. Rendering is separate so slider changes only draw.
