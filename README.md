@@ -23,7 +23,8 @@ It is a proof of concept, not production software. The PoC demo in
   Tagged/colour class is mirrored to `xmp:Label`.
 - WebGL2 develop preview and full-resolution rendering with Lightroom-compatible
   `crs:` parameters (exposure, temperature/tint, contrast, highlights, shadows,
-  whites, blacks, tone curves, vibrance, saturation) and imported `.xmp`
+  whites, blacks, tone curves, vibrance, saturation, texture, clarity,
+  dehaze, sharpening, luminance and colour noise reduction) and imported `.xmp`
   presets. Legacy `.lrtemplate` presets are parsed too.
 - Retouch mosaic, with YuNet face detection inside a dragged region.
 - **Export presets**: full-resolution JPEG into a local folder with the
@@ -38,6 +39,10 @@ It is a proof of concept, not production software. The PoC demo in
 - Colour is not calibrated against Lightroom: camera matrices come from LibRaw
   and there are no Adobe DCP profiles, so develop results will not match
   Lightroom exactly.
+- Texture, Clarity, Dehaze, sharpening and noise reduction follow RAWmakase's
+  fits of Camera Raw, not Camera Raw itself, and a sidecar without them means
+  "off" (Lightroom applies Sharpness 40 and Color Noise Reduction 25 to raws by
+  default). Their preview speed has only been measured on software GL.
 - Nikon HE/HE* NEFs (TicoRAW) are not supported by the vendored LibRaw 0.22.3.
 - Crop and straighten round-trip through `crs:` sidecars but are not applied in
   the preview or export yet; that work is in progress.
@@ -144,7 +149,12 @@ GPL-3.0-or-later; see `LICENSE`.
   `packages/retouch/third_party/yunet/LICENSE`.
 - The embedded sRGB ICC profile is CC0 — see
   `crates/core/assets/sRGB-v2-magic.LICENSE.txt`.
-- Colour and effects maths in `packages/develop-gl/src/color` is ported from
-  RAWmakase (MIT) — see `packages/develop-gl/third_party/rawmakase/LICENSE`.
+- Colour and effects maths in `packages/develop-gl/src/color`, and the Texture,
+  Clarity, Dehaze, sharpening and noise reduction maths (with its Camera Raw fit
+  tables) in `packages/develop-gl/src/neighbourhood`, are ported from RAWmakase
+  (https://github.com/pch/rawmakase, MIT, © 2026 RAWmakase contributors) — see
+  `packages/develop-gl/third_party/rawmakase/LICENSE`.
+- NOTICE: RAWmakase is the reference implementation of those controls; its
+  licence text is kept unchanged next to this repository's code.
 
 See `docs/ARCHITECTURE.md` for the design.
