@@ -263,6 +263,13 @@ export interface IpcApi {
 
   // --- develop ---
   'develop:getParams': (args: VersionRef) => Promise<EditParams>;
+  /**
+   * What a photo starts with when the sidecar does not set it: Lightroom's raw
+   * sharpening and colour noise reduction, or the camera's own `crd:` values
+   * (see `RAW_DETAIL_DEFAULTS`). Empty for JPEG and TIFF. These are not edits and
+   * are never written; a renderer shows and renders `withDefaults(params, defaults)`.
+   */
+  'develop:getDefaults': (args: { photoId: PhotoId }) => Promise<EditParams>;
   /** Replaces the whole parameter set of the version. */
   'develop:setParams': (args: VersionRef & { params: EditParams }) => Promise<void>;
   'develop:listPresets': () => Promise<EditPreset[]>;
@@ -344,6 +351,7 @@ export const INVOKE_CHANNELS = [
   'metadata:applyTemplate',
   'metadata:expandCaption',
   'develop:getParams',
+  'develop:getDefaults',
   'develop:setParams',
   'develop:listPresets',
   'develop:importPreset',

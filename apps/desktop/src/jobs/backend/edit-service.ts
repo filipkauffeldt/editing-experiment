@@ -14,6 +14,7 @@ import {
 } from '@ee/contracts';
 import {
   readEditParams,
+  readRawDefaults,
   readRetouchVersions,
   writeEditParams,
   writeRetouchVersions,
@@ -69,6 +70,21 @@ export class EditService {
       readRetouchVersions(photoPath, this.exiftool),
     ]);
     return [{ id: developVersionId(photoId), kind: 'develop', ops: params }, ...retouch];
+  }
+
+  /** Camera and Lightroom raw defaults, read once per photo (the raw file does not change). */
+  private readonly defaults = new Map<PhotoId, Promise<EditParams>>();
+
+  async getDefaults(photoId: PhotoId): Promise<EditParams> {
+    const photo = this.photos.get(photoId);
+    let known = this.defaults.get(photoId);
+    if (!known) {
+      known = readRawDefaults(photo.path, this.exiftool);
+      this.defaults.set(photoId, known);
+      // A failed read must not stick.
+      known.catch(() => this.defaults.delete(photoId));
+    }
+    return { ...(await known) };
   }
 
   async getParams(ref: VersionRef): Promise<EditParams> {

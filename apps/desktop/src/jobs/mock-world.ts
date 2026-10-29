@@ -342,6 +342,10 @@ export function createMockHandlers(world: MockWorld, emit: Emit): Partial<IpcHan
       const develop = photo.versions.find((version) => version.kind === 'develop');
       return world.params.get(versionKey(photoId, versionId ?? develop?.id)) ?? {};
     },
+    'develop:getDefaults': async ({ photoId }) => {
+      findPhoto(photoId);
+      return {};
+    },
     'develop:setParams': async ({ photoId, versionId, params }) => {
       findPhoto(photoId);
       world.params.set(versionKey(photoId, versionId), { ...params });
