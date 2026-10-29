@@ -8,6 +8,8 @@ export function focusCaptionField(): void {
 
 function isTypingTarget(target: EventTarget | null): target is HTMLElement {
   if (!(target instanceof HTMLElement)) return false;
+  // A checkbox takes no text, so the shortcuts keep working after it is clicked.
+  if (target instanceof HTMLInputElement && target.type === 'checkbox') return false;
   return (
     target.tagName === 'INPUT' ||
     target.tagName === 'TEXTAREA' ||

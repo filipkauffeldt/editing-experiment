@@ -19,7 +19,8 @@
     "dev": "pnpm build:native && pnpm --filter @ee/desktop run dev",
     "screenshot": "pnpm build && node scripts/screenshot.ts",
     "fetch-fixtures": "node scripts/fetch-fixtures.ts",
-    "fetch-retouch": "node scripts/fetch-retouch.ts"
+    "fetch-retouch": "node scripts/fetch-retouch.ts",
+    "update-lensfun": "pnpm --filter @ee/develop-gl run update-lensfun"
   },
   "devDependencies": {
     "@eslint/js": "10.0.1",

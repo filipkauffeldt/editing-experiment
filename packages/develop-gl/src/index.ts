@@ -79,6 +79,25 @@ export type {
   XY,
 } from './wb';
 
+// Lens corrections
+export { resolveLens, describeLens, profileEnabled } from './lens/resolve';
+export type {
+  LensImage,
+  LensPanelChoice,
+  LensPanelState,
+  LensResolution,
+  MeasuredCa,
+} from './lens/resolve';
+export {
+  correctedShapes,
+  previewShapesToRecorded,
+  recordedRegionToPreview,
+  withoutLensGeometry,
+} from './lens/shapes';
+export { LENSFUN, lensfunKey } from './lens/lensfun';
+export { lensCorrectedPosition } from './lens/model';
+export type { LensUniforms } from './lens/model';
+
 // CPU reference (tests, export fallback)
 export { developPixel, renderCpu, renderCpuFloat } from './cpu';
 export type { RenderSize } from './cpu';

@@ -46,7 +46,10 @@ vec2 mapSource(vec2 pos) {
 
 void main() {
   vec2 pixel = gl_FragCoord.xy - 0.5 + u_tileOrigin;
-  vec2 centre = clamp(mapSource(min((pixel + 0.5) * u_posScale, u_posMax)), vec2(0.0), u_srcSize);
+  float lensQ;
+  vec2 centre = clamp(
+    lensRecorded(clamp(mapSource(min((pixel + 0.5) * u_posScale, u_posMax)), vec2(0.0), u_srcSize), lensQ),
+    vec2(0.0), u_srcSize);
   if (centre.x < u_coreMin.x || centre.y < u_coreMin.y || centre.x > u_coreMax.x || centre.y > u_coreMax.y)
     discard;
   vec4 sum = vec4(0.0);
@@ -54,10 +57,10 @@ void main() {
     for (int a = 0; a < u_taps; a++) {
       vec2 pos = min((pixel + (vec2(float(a), float(b)) + 0.5) / float(u_taps)) * u_posScale, u_posMax);
       vec2 src = clamp(mapSource(pos), vec2(0.0), u_srcSize);
-      vec3 cam;
-      if (u_nearest == 1) cam = texelFetch(u_image, ivec2(src - u_srcOrigin), 0).rgb;
-      else cam = texture(u_image, (src - u_srcOrigin) / u_srcTexSize).rgb;
-      vec3 lin = applyCalibration(u_color * clipHighlights(cam, u_wb)) * u_exposure;
+      float tapQ;
+      float gain;
+      vec3 cam = lensCam(lensRecorded(src, tapQ), tapQ, gain);
+      vec3 lin = applyCalibration(u_color * (clipHighlights(cam, u_wb) * gain)) * u_exposure;
       sum += vec4(lin, log2(max(dot(LUMA, lin), LUMINANCE_FLOOR)));
     }
   }

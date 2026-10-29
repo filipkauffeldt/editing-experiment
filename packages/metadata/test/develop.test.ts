@@ -299,6 +299,46 @@ describe('develop and retouch XMP', () => {
     });
   });
 
+  it('round-trips the lens corrections through the sidecar properties', async () => {
+    const dir = await makeTempDir();
+    const jpeg = join(dir, 'photo.jpg');
+    await makeJpeg(jpeg);
+    const lens: EditParams = {
+      ProcessVersion: '11.0',
+      LensProfileEnable: true,
+      LensProfileName: 'Adobe (NIKKOR Z 24-70mm f/4 S)',
+      LensProfileFilename: 'NIKON Z 6 (NIKKOR Z 24-70mm f4 S) - RAW.lcp',
+      LensProfileDistortionScale: 80,
+      LensProfileVignettingScale: 120,
+      AutoLateralCA: true,
+      LensManualDistortionAmount: -12,
+      VignetteAmount: 30,
+      VignetteMidpoint: 40,
+      DefringePurpleAmount: 5,
+      DefringePurpleHueLo: 20,
+      DefringePurpleHueHi: 80,
+      DefringeGreenAmount: 3,
+      DefringeGreenHueLo: 35,
+      DefringeGreenHueHi: 65,
+      LensProfileChoice: 'lensfun:Nikon|Nikkor Z 24-70mm f/4 S',
+    };
+    await writeEditParams(jpeg, lens, { service });
+    expect(await readEditParams(jpeg, service)).toEqual(lens);
+    const tags = await service.read(jpeg);
+    // Lightroom stores both switches as integers.
+    expect(tags['XMP-crs:LensProfileEnable']).toBe(1);
+    expect(tags['XMP-crs:AutoLateralCA']).toBe(1);
+
+    await writeEditParams(
+      jpeg,
+      { ...lens, LensProfileEnable: false, AutoLateralCA: false },
+      { service },
+    );
+    const off = await readEditParams(jpeg, service);
+    expect(off.LensProfileEnable).toBe(false);
+    expect(off.AutoLateralCA).toBe(false);
+  });
+
   it('clears modelled settings but leaves unrelated crs: properties', async () => {
     const dir = await makeTempDir();
     const jpeg = join(dir, 'photo.jpg');
@@ -306,12 +346,12 @@ describe('develop and retouch XMP', () => {
     await writeEditParams(jpeg, params, { service });
 
     // A property we do not model, as written by Lightroom.
-    await service.write(jpeg, { 'XMP-crs:LensProfileEnable': 1 });
+    await service.write(jpeg, { 'XMP-crs:LensProfileSetup': 'Auto' });
 
     await writeEditParams(jpeg, {}, { service });
     expect(await readEditParams(jpeg, service)).toEqual({});
     const tags = await service.read(jpeg);
-    expect(tags['XMP-crs:LensProfileEnable']).toBe(1);
+    expect(tags['XMP-crs:LensProfileSetup']).toBe('Auto');
     expect(tags['XMP-crs:HasSettings']).toBeUndefined();
   });
 

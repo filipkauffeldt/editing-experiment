@@ -20,25 +20,36 @@ export interface SourceTile {
   core: Rect;
 }
 
-/** Splits a `width` x `height` image into textures of at most `maxTexture` pixels per side. */
-export function planSourceTiles(width: number, height: number, maxTexture: number): SourceTile[] {
+/** Texture border around a tile's core when a lens correction displaces red and blue (lateral CA). */
+export const LENS_TILE_BORDER = 8;
+
+/**
+ * Splits a `width` x `height` image into textures of at most `maxTexture` pixels per side. `border`
+ * pixels around each core are uploaded too, for bilinear taps and for samples displaced by lateral CA.
+ */
+export function planSourceTiles(
+  width: number,
+  height: number,
+  maxTexture: number,
+  border = 1,
+): SourceTile[] {
   if (width <= maxTexture && height <= maxTexture) {
     const full = { x: 0, y: 0, w: width, h: height };
     return [{ texture: full, core: full }];
   }
   if (maxTexture < 4) throw new RangeError(`Texture size limit ${maxTexture} is too small to tile`);
-  const step = maxTexture - 2;
+  const step = maxTexture - 2 * border;
   const tiles: SourceTile[] = [];
   for (let y = 0; y < height; y += step) {
     for (let x = 0; x < width; x += step) {
       const core = { x, y, w: Math.min(step, width - x), h: Math.min(step, height - y) };
-      const tx = Math.max(0, x - 1);
-      const ty = Math.max(0, y - 1);
+      const tx = Math.max(0, x - border);
+      const ty = Math.max(0, y - border);
       const texture = {
         x: tx,
         y: ty,
-        w: Math.min(width, x + core.w + 1) - tx,
-        h: Math.min(height, y + core.h + 1) - ty,
+        w: Math.min(width, x + core.w + border) - tx,
+        h: Math.min(height, y + core.h + border) - ty,
       };
       tiles.push({ texture, core });
     }

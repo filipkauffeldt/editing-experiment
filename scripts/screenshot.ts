@@ -336,6 +336,14 @@ async function runReal(outDir: string): Promise<void> {
     );
     await shoot('11-real-slider-change.png');
 
+    // Lens Corrections: the camera's own profile, read from the NEF, with Remove CA on.
+    const lens = window.locator('[data-testid="lens-corrections"]');
+    await lens.scrollIntoViewIfNeeded();
+    await window.getByLabel('Enable profile corrections').check();
+    await window.getByLabel('Remove chromatic aberration').check();
+    await window.waitForTimeout(800);
+    await shoot('24-real-lens-corrections.png', '[data-testid="lens-corrections"]');
+
     // Crop mode, Lightroom style: drag outside the frame to rotate the photo
     // under it, with the finer grid up while rotating; Enter commits.
     await window.keyboard.press('c');

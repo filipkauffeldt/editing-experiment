@@ -1,5 +1,6 @@
 import { TUNING as T } from './tuning';
 import { COLOR_MATH_GLSL, COLOR_UNIFORMS } from './glsl/color';
+import { LENS_MATH_GLSL, LENS_UNIFORMS } from './glsl/lens';
 
 /**
  * GLSL ES 3.00 sources of the develop pipeline. Each function mirrors the
@@ -47,6 +48,9 @@ uniform float u_saturation;
 // EE colour/effects insertion point: uniforms.
 ${COLOR_UNIFORMS}
 
+// Lens corrections: where the corrected frame is recorded, lateral CA and the vignetting gain.
+${LENS_UNIFORMS}
+
 // Output / source mapping (see renderer.ts and crop.ts): output pixel -> source texel.
 uniform vec2 u_outSize;      // size of this render target in pixels (buffer, not logical crop size)
 uniform vec2 u_outScale;     // logical output pixels per buffer pixel (crop preview scaling)
@@ -91,6 +95,8 @@ float srgbDecode(float e) {
 
 // EE colour/effects insertion point: maths (ported from RAWmakase, MIT).
 ${COLOR_MATH_GLSL}
+
+${LENS_MATH_GLSL}
 
 float highlightsShadows(float y, float highlights, float shadows) {
   float e = srgbEncode(y);
@@ -183,7 +189,7 @@ vec3 developColor(vec3 lin) {
 
   // EE colour/effects insertion point: per-pixel colour.
   e = applyColorMixer(e);
-  return applyColorGrading(e);
+  return applyDefringe(applyColorGrading(e));
 }
 
 `;
@@ -212,22 +218,23 @@ export const FRAGMENT_SHADER =
   // Sample outside the image clamps to the edge, like the CPU reference and
   // CLAMP_TO_EDGE; clamping first also puts that fragment in the edge core.
   src = clamp(src, vec2(0.0), u_srcSize);
-  if (src.x < u_coreMin.x || src.y < u_coreMin.y || src.x > u_coreMax.x || src.y > u_coreMax.y)
+  // Lens corrections move where the corrected frame was recorded; the tile that owns that
+  // recorded position draws the fragment.
+  float lensQ;
+  vec2 recorded = lensRecorded(src, lensQ);
+  vec2 rec = clamp(recorded, vec2(0.0), u_srcSize);
+  if (rec.x < u_coreMin.x || rec.y < u_coreMin.y || rec.x > u_coreMax.x || rec.y > u_coreMax.y)
     discard;
   if (coverage <= 0.0) {
     outColor = vec4(u_outside, 1.0);
     return;
   }
 
-  vec3 cam;
-  if (u_nearest == 1) {
-    cam = texelFetch(u_image, ivec2(src - u_srcOrigin), 0).rgb;
-  } else {
-    cam = texture(u_image, (src - u_srcOrigin) / u_srcTexSize).rgb;
-  }
+  float gain;
+  vec3 cam = lensCam(recorded, lensQ, gain);
 
   // EE colour/effects insertion point: calibration sits next to the camera matrix.
-  vec3 lin = applyCalibration(u_color * clipHighlights(cam, u_wb)) * u_exposure;
+  vec3 lin = applyCalibration(u_color * (clipHighlights(cam, u_wb) * gain)) * u_exposure;
   vec3 e = developColor(lin);
 
   // Spatial effects come last.

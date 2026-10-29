@@ -1,10 +1,16 @@
-import { asPhotoId } from '@ee/contracts';
+import { asPhotoId, type LensShotInfo } from '@ee/contracts';
 import { cropAspect } from '@ee/develop-gl';
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it } from 'vitest';
 import { App } from '../src/renderer/App';
-import { activePhoto, createAppStore, photoFlags, type AppStore } from '../src/renderer/store';
+import {
+  activePhoto,
+  createAppStore,
+  paramsForPhoto,
+  photoFlags,
+  type AppStore,
+} from '../src/renderer/store';
 import { createFakeBridge, type FakeBridge } from './fake-bridge';
 
 const stores: AppStore[] = [];
@@ -468,5 +474,100 @@ describe('raw defaults in the develop panel', () => {
     // Double-click on the slider goes back to the default, not to 0.
     fireEvent.doubleClick(within(group('Sharpening')).getByLabelText('Amount'));
     await waitFor(() => expect(amount().value).toBe('40'));
+  });
+});
+
+describe('lens corrections in the develop panel', () => {
+  const nikonZ6: LensShotInfo = {
+    cameraModel: 'NIKON Z 6',
+    lensModel: 'NIKKOR Z 24-70mm f/4 S',
+    focalLength: 24,
+    focalLength35: 24,
+    fNumber: 4,
+  };
+
+  it('says there is no lens data for a photo without any', async () => {
+    await renderApp();
+    const panel = await screen.findByTestId('lens-corrections');
+    expect(within(panel).getByTestId('lens-profile-note').textContent).toBe(
+      'No lens data for this photo.',
+    );
+    expect(within(panel).getByLabelText<HTMLSelectElement>('Lens profile').disabled).toBe(true);
+  });
+
+  it('shows the matched Lensfun profile, lets the user switch it on and pick another', async () => {
+    const { store } = await renderApp();
+    const photo = activePhoto(store.getState());
+    if (!photo) throw new Error('no selection');
+    act(() => store.setPhotoLens(photo.id, nikonZ6, { width: 6048, height: 4032 }));
+    const panel = await screen.findByTestId('lens-corrections');
+    const select = within(panel).getByLabelText<HTMLSelectElement>('Lens profile');
+    await waitFor(() => expect(select.disabled).toBe(false));
+    expect(select.selectedOptions[0]?.textContent).toBe('Automatic');
+    expect(within(panel).getByTestId('lens-profile-note').textContent).toBe(
+      'Nikkor Z 24-70mm f/4 S (Lensfun): corrects distortion, vignetting, chromatic aberration.',
+    );
+    // Off until asked for: a lens the camera does not require.
+    const enable = within(panel).getByLabelText<HTMLInputElement>('Enable profile corrections');
+    expect(enable.checked).toBe(false);
+
+    fireEvent.click(enable);
+    await waitFor(() => expect(enable.checked).toBe(true));
+    expect(paramsForPhoto(store.getState(), photo).LensProfileEnable).toBe(true);
+
+    // Override with another lens from the list; back to automatic with the first entry.
+    const other = [...select.options].find((o) => o.textContent?.includes('24-120mm f/4 S'));
+    if (!other) throw new Error('no 24-120mm in the list');
+    fireEvent.change(select, { target: { value: other.value } });
+    await waitFor(() =>
+      expect(paramsForPhoto(store.getState(), photo).LensProfileChoice).toBe(other.value),
+    );
+    fireEvent.change(select, { target: { value: '' } });
+    await waitFor(() =>
+      expect(paramsForPhoto(store.getState(), photo).LensProfileChoice).toBeUndefined(),
+    );
+  });
+
+  it('keeps the shortcuts working after a switch is clicked', async () => {
+    const { store } = await renderApp();
+    const photo = activePhoto(store.getState());
+    if (!photo) throw new Error('no selection');
+    act(() => store.setPhotoLens(photo.id, nikonZ6, { width: 6048, height: 4032 }));
+    const panel = await screen.findByTestId('lens-corrections');
+    const removeCa = within(panel).getByLabelText<HTMLInputElement>('Remove chromatic aberration');
+    removeCa.focus();
+    fireEvent.click(removeCa);
+    const user = userEvent.setup();
+    await user.keyboard('t');
+    await waitFor(() => expect(photoFlags(store.getState(), photo.id).tagged).toBe(true));
+  });
+
+  it('keeps a lens the camera requires on until the user turns it off', async () => {
+    const { store } = await renderApp();
+    const photo = activePhoto(store.getState());
+    if (!photo) throw new Error('no selection');
+    act(() =>
+      store.setPhotoLens(
+        photo.id,
+        {
+          ...nikonZ6,
+          builtin: {
+            source: 'Nikon built-in',
+            required: true,
+            centre: { x: 0, y: 0 },
+            unit: 1,
+            distortion: [1],
+          },
+        },
+        { width: 6048, height: 4032 },
+      ),
+    );
+    const panel = await screen.findByTestId('lens-corrections');
+    const enable = within(panel).getByLabelText<HTMLInputElement>('Enable profile corrections');
+    await waitFor(() => expect(enable.checked).toBe(true));
+    expect(within(panel).getByTestId('lens-profile-note').textContent).toMatch(/camera requires/);
+    fireEvent.click(enable);
+    await waitFor(() => expect(enable.checked).toBe(false));
+    expect(paramsForPhoto(store.getState(), photo).LensProfileEnable).toBe(false);
   });
 });

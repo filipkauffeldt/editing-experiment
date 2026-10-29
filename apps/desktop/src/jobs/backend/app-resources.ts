@@ -3,6 +3,7 @@ import {
   LINEAR_IMAGE_HEADER,
   IpcError,
   asPhotoId,
+  type LensShotInfo,
   type LinearImageHeader,
 } from '@ee/contracts';
 import {
@@ -42,6 +43,15 @@ export interface AppResourcesOptions {
   maxEntries?: number;
   /** Most bytes of decoded images kept. Default 1.5 GiB. */
   maxBytes?: number;
+  /**
+   * Lens facts of a raw (EXIF lens, focal length, the camera's own correction), for the lens
+   * corrections in the develop pipeline. `frame` is the full-resolution size of the decoded image.
+   * Failing or returning nothing leaves the header without lens data.
+   */
+  lensShot?: (
+    path: string,
+    frame: { width: number; height: number },
+  ) => Promise<LensShotInfo | undefined>;
   /** Test seam. */
   decode?: (path: string, options: DecodeLinearOptions) => Promise<LinearImage>;
 }
@@ -57,6 +67,7 @@ export interface AppResourcesOptions {
 export class AppResources {
   private readonly entries = new Map<string, LinearEntry>();
   private readonly inFlight = new Map<string, Promise<LinearEntry>>();
+  private readonly lensShots = new Map<string, Promise<LensShotInfo | undefined>>();
   private readonly maxEntries: number;
   private readonly maxBytes: number;
   private readonly decode: NonNullable<AppResourcesOptions['decode']>;
@@ -197,13 +208,40 @@ export class AppResources {
       const temp = `${file}.tmp`;
       await writeFile(temp, image.data);
       await rename(temp, file);
-      const entry: LinearEntry = { file, bytes: image.data.byteLength, header: image.header };
+      const lens = await this.lensShot(path, image.header);
+      const header = lens === undefined ? image.header : { ...image.header, lens };
+      const entry: LinearEntry = { file, bytes: image.data.byteLength, header };
       this.entries.set(key, entry);
       await this.evict(entry);
       return entry;
     })().finally(() => this.inFlight.delete(key));
     this.inFlight.set(key, run);
     return run;
+  }
+
+  /** The lens facts of a raw, read once per file and size; a failure only means no lens correction. */
+  private lensShot(path: string, header: LinearImageHeader): Promise<LensShotInfo | undefined> {
+    const read = this.options.lensShot;
+    if (!read || !isRawPath(path)) return Promise.resolve(undefined);
+    const frame = {
+      width: header.sourceWidth || header.width,
+      height: header.sourceHeight || header.height,
+    };
+    const key = `${path}|${frame.width}x${frame.height}`;
+    let known = this.lensShots.get(key);
+    if (!known) {
+      known = read(path, frame).catch((error: unknown) => {
+        console.warn(`lens data of ${path} could not be read: ${String(error)}`);
+        return undefined;
+      });
+      this.lensShots.set(key, known);
+      // A small memo, not an archive.
+      if (this.lensShots.size > 64) {
+        const oldest = this.lensShots.keys().next().value;
+        if (oldest !== undefined) this.lensShots.delete(oldest);
+      }
+    }
+    return known;
   }
 
   /** Drop least recently used files until the limits hold. The newest entry always stays. */

@@ -23,8 +23,15 @@ import {
   type PipelineHost,
   type PipelineInput,
 } from './neighbourhood/pipeline';
-import { planSourceTiles, splitRect, type Rect, type SourceTile } from './tiling';
+import { LENS_TILE_BORDER, planSourceTiles, splitRect, type Rect, type SourceTile } from './tiling';
 import { TUNING } from './tuning';
+import { measuredLateralCa } from './lens/auto-ca';
+import {
+  CA_TERMS,
+  DISTORTION_TERMS,
+  VIGNETTE_DENOMINATOR_TERMS,
+  VIGNETTE_NUMERATOR_TERMS,
+} from './lens/model';
 
 export { DevelopGlError };
 
@@ -64,7 +71,10 @@ export interface CropViewTransform {
 }
 
 export interface DevelopRenderer {
-  /** Uploads the image (once). `data` is the sample buffer described by `header`; it is not retained. */
+  /**
+   * Uploads the image (once). `data` is the sample buffer described by `header`; the renderer
+   * keeps a reference to it (no copy) for the Remove Chromatic Aberration measurement.
+   */
   setImage(header: LinearImageHeader, data: LinearImageBuffer): void;
   /** Draws the image scaled to the canvas drawing buffer. Cheap enough to call on every slider tick. */
   render(params: EditParams): void;
@@ -108,6 +118,8 @@ interface Resources {
 
 interface Source {
   header: LinearImageHeader;
+  /** The sample buffer, kept (not copied) for the lateral CA measurement. */
+  data: LinearImageBuffer;
   tiles: { tile: SourceTile; texture: WebGLTexture }[];
 }
 
@@ -253,6 +265,8 @@ export function createDevelopRenderer(
   const neighbourhoodSupported =
     options.disableFloatRendering !== true && gl.getExtension('EXT_color_buffer_float') !== null;
   let warnedUnavailable = false;
+  /** Whether the uniforms last set move the sampling positions (the exact texel fetch is then wrong). */
+  let lensGeometry = false;
   /** `params`, minus the neighbourhood settings when they cannot be drawn (and a single notice). */
   const drawable = (params: EditParams): EditParams => {
     if (neighbourhoodSupported || !needsNeighbourhood(params)) return params;
@@ -396,6 +410,12 @@ export function createDevelopRenderer(
     gl.uniform1f(loc('u_grainFine'), u.grain?.fine ?? 0);
     gl.uniform1ui(loc('u_grainSeed'), (u.grain?.seed ?? 0) >>> 0);
 
+    setLensUniforms(prog, u.lens);
+    const fringe = (range: NonNullable<DevelopUniforms['defringe']>['purple']): number[] =>
+      range ? [range.amount, range.low, range.high, range.centre] : [0, 0, 0, 0];
+    gl.uniform4fv(loc('u_defringePurple'), fringe(u.defringe?.purple ?? null));
+    gl.uniform4fv(loc('u_defringeGreen'), fringe(u.defringe?.green ?? null));
+
     gl.activeTexture(gl.TEXTURE1);
     gl.bindTexture(gl.TEXTURE_2D, res.curveTexture);
     if (u.curveLut && res.uploadedCurve !== u.curveLut) {
@@ -413,6 +433,50 @@ export function createDevelopRenderer(
       res.uploadedCurve = u.curveLut;
     }
     gl.activeTexture(gl.TEXTURE0);
+  }
+
+  function setLensUniforms(prog: GlProgram, lens: DevelopUniforms['lens']): void {
+    const loc = (name: string): WebGLUniformLocation | null => prog.loc(name);
+    lensGeometry = lens.geometry;
+    gl.uniform1i(loc('u_lensGeometry'), lens.geometry ? 1 : 0);
+    gl.uniform1i(loc('u_lensGain'), lens.vignette || lens.manualVignette ? 1 : 0);
+    gl.uniform2f(loc('u_lensCentre'), lens.centre[0], lens.centre[1]);
+    gl.uniform3f(loc('u_lensFrame'), lens.frame.x, lens.frame.y, lens.frame.radius);
+    const d = lens.distortion;
+    gl.uniform1i(loc('u_lensHasDist'), d ? 1 : 0);
+    gl.uniform1fv(
+      loc('u_lensDist'),
+      d?.coefficients ?? new Array<number>(DISTORTION_TERMS).fill(0),
+    );
+    gl.uniform1f(loc('u_lensDistUnit'), d?.unit ?? 1);
+    gl.uniform1f(loc('u_lensManual'), lens.manualDistortion);
+    const ca = lens.ca;
+    gl.uniform1i(loc('u_lensHasCa'), ca ? 1 : 0);
+    gl.uniform1fv(loc('u_lensRed'), ca?.red ?? new Array<number>(CA_TERMS).fill(0));
+    gl.uniform1fv(loc('u_lensBlue'), ca?.blue ?? new Array<number>(CA_TERMS).fill(0));
+    gl.uniform1f(loc('u_lensCaUnit'), ca?.unit ?? 1);
+    gl.uniform1i(loc('u_lensCaAtSource'), ca?.atSource ? 1 : 0);
+    const v = lens.vignette;
+    gl.uniform1i(loc('u_lensHasVig'), v ? 1 : 0);
+    gl.uniform1fv(
+      loc('u_lensVigNum'),
+      v?.numerator ?? new Array<number>(VIGNETTE_NUMERATOR_TERMS).fill(0),
+    );
+    gl.uniform1fv(
+      loc('u_lensVigDen'),
+      v?.denominator ?? new Array<number>(VIGNETTE_DENOMINATOR_TERMS).fill(1),
+    );
+    gl.uniform1f(loc('u_lensVigUnit'), v?.unit ?? 1);
+    gl.uniform1f(loc('u_lensVigExp'), v?.exponent ?? 1);
+    const m = lens.manualVignette;
+    gl.uniform1i(loc('u_lensHasManualVig'), m ? 1 : 0);
+    gl.uniform4f(
+      loc('u_lensManualVig'),
+      m?.amount ?? 0,
+      m?.scale ?? 0,
+      m?.power ?? 1,
+      m?.knee ?? 0,
+    );
   }
 
   /** Sets the output -> source mapping uniforms (everything but the tile's own source texture). */
@@ -477,6 +541,7 @@ export function createDevelopRenderer(
     gl.uniform1i(
       loc('u_nearest'),
       allowNearest &&
+        !lensGeometry &&
         mapping.identity &&
         mapping.logical.width === buffer.width &&
         mapping.logical.height === buffer.height
@@ -581,9 +646,18 @@ export function createDevelopRenderer(
         u.multipliers,
         u.colorMatrix,
         u.calibration,
+        u.lens,
       ])}`,
       cache,
     };
+  }
+
+  /** Resolves `params` for `src`, measuring the lateral CA the first time it is asked for. */
+  function uniformsFor(src: Source, params: EditParams): DevelopUniforms {
+    return resolveUniforms(src.header, params, {
+      grainSeed: options.grainSeed,
+      measuredCa: params.AutoLateralCA === true ? measuredLateralCa(src.header, src.data) : null,
+    });
   }
 
   const usesNeighbourhood = (input: PipelineInput): boolean =>
@@ -605,15 +679,17 @@ export function createDevelopRenderer(
       freeSource();
       pipeline?.invalidate();
       imageId++;
-      const tiles = planSourceTiles(header.width, header.height, maxTexture).map((tile) => ({
-        tile,
-        texture: uploadTile(header, view, tile),
-      }));
-      source = { header, tiles };
+      const tiles = planSourceTiles(header.width, header.height, maxTexture, LENS_TILE_BORDER).map(
+        (tile) => ({
+          tile,
+          texture: uploadTile(header, view, tile),
+        }),
+      );
+      source = { header, data, tiles };
     },
 
     resolve(params) {
-      return resolveUniforms(requireSource().header, params, { grainSeed: options.grainSeed });
+      return uniformsFor(requireSource(), params);
     },
 
     render(requested) {
@@ -621,7 +697,7 @@ export function createDevelopRenderer(
       const src = requireSource();
       const out = { width: canvas.width, height: canvas.height };
       const mapping = mappingFor(src.header, params, cropLogicalSize(src.header, params), out);
-      const u = resolveUniforms(src.header, params, { grainSeed: options.grainSeed });
+      const u = uniformsFor(src, params);
       const input = pipelineInput(src, params, mapping, u, out, true);
       if (usesNeighbourhood(input)) {
         frame = { src, mapping, u };
@@ -655,7 +731,7 @@ export function createDevelopRenderer(
       const src = requireSource();
       const out = { width: canvas.width, height: canvas.height };
       const mapping = viewMapping(src.header, view, out);
-      const u = resolveUniforms(src.header, params, { grainSeed: options.grainSeed });
+      const u = uniformsFor(src, params);
       const input = pipelineInput(src, params, mapping, u, out, true);
       if (usesNeighbourhood(input)) {
         // The same pipeline and cached stages as the normal view; only the mapping and the
@@ -699,7 +775,7 @@ export function createDevelopRenderer(
       // `size` is the render-target buffer; the logical space is the crop (or
       // the full image), so other sizes resample it like the old pipeline did.
       const mapping = mappingFor(src.header, params, cropLogicalSize(src.header, params), out);
-      const u = resolveUniforms(src.header, params, { grainSeed: options.grainSeed });
+      const u = uniformsFor(src, params);
       const input = pipelineInput(src, params, mapping, u, out, false);
       const neighbourhood = usesNeighbourhood(input);
 

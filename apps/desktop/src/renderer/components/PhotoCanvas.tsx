@@ -7,6 +7,7 @@ import {
   type Shape,
 } from '@ee/contracts';
 import {
+  correctedShapes,
   createDevelopRenderer,
   cropDevelopedRgba,
   cropGeometry,
@@ -14,13 +15,14 @@ import {
   cropOutputSize,
   type CropViewTransform,
   type DevelopRenderer,
+  withoutLensGeometry,
 } from '@ee/develop-gl';
-import { applyMosaic, magicWand, simplifyPolygon } from '@ee/retouch';
+import { applyMosaic, magicWand, shapeBounds, simplifyPolygon } from '@ee/retouch';
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { ee } from '../ee';
 import { paramsForPhoto, topRetouchVersion, type RetouchFace, type RetouchTool } from '../store';
 import { cropFit, cropLayout, fitWithin } from '../crop-view';
-import { padFaceBox } from '../retouch-geometry';
+import { detectionRegion, faceStoredShape } from '../retouch-geometry';
 import { useAppState, useAppStore } from '../store-context';
 import { CropOverlay } from './CropOverlay';
 import { CropToolbar } from './CropToolbar';
@@ -68,6 +70,9 @@ const shapePath = (shape: Shape): string => {
     .map((point, index) => `${index === 0 ? 'M' : 'L'} ${point.x} ${point.y}`)
     .join(' ')} Z`;
 };
+
+const shapeBox = (shape: Shape): { x: number; y: number; w: number; h: number } =>
+  shapeBounds(shape);
 
 const TOOL_LABELS: Record<RetouchTool, string> = {
   rect: 'Rectangle',
@@ -189,6 +194,7 @@ function CanvasForPhoto({ photo }: { photo: Photo }) {
   const store = useAppStore();
   const state = useAppState();
   const params = paramsForPhoto(state, photo);
+  const lensContext = state.photoLens[photo.id];
   const session = state.retouch?.photoId === photo.id ? state.retouch : undefined;
   const cropSession = state.crop?.photoId === photo.id ? state.crop : undefined;
   const image = state.photos.find((candidate) => candidate.id === photo.id) ?? photo;
@@ -248,12 +254,17 @@ function CanvasForPhoto({ photo }: { photo: Photo }) {
         ? cropOutput.width / cropOutput.height
         : sourceAspect;
   const editing = session !== undefined || cropSession !== undefined;
+  const retouching = session !== undefined;
   const renderParams = useMemo(() => {
-    if (!editing || params.crop === undefined) return params;
-    const next = { ...params };
-    delete next.crop;
-    return next;
-  }, [editing, params]);
+    let next = params;
+    if (editing && next.crop !== undefined) {
+      next = { ...next };
+      delete next.crop;
+    }
+    // Retouch shapes are drawn and stored on the recorded picture, so a retouch session shows
+    // it without the lens corrections that resample it; the finished picture maps them across.
+    return retouching ? withoutLensGeometry(next) : next;
+  }, [editing, retouching, params]);
   const cropping = cropSession !== undefined;
   const display = cropping
     ? cropFit(container, imageAspect).size
@@ -411,6 +422,8 @@ function CanvasForPhoto({ photo }: { photo: Photo }) {
         const data = await response.arrayBuffer();
         if (!cancelled) {
           setLoaded({ header, data });
+          // The Lens Corrections panel reads the lens facts of the image on screen.
+          store.setPhotoLens(photo.id, header.lens, header);
           setLinearUnavailable(false);
           setError(undefined);
         }
@@ -423,7 +436,7 @@ function CanvasForPhoto({ photo }: { photo: Photo }) {
       cancelled = true;
       controller.abort();
     };
-  }, [photo.id, requestedEdge, container.width]);
+  }, [photo.id, requestedEdge, container.width, store]);
 
   // Upload the image after it arrives, after a context restore, and when the
   // photo changes. Rendering is separate so slider changes only draw.
@@ -470,10 +483,10 @@ function CanvasForPhoto({ photo }: { photo: Photo }) {
             ...session.shapes,
             ...session.faces
               .filter((face) => face.enabled)
-              .map((face) => padFaceBox(face.box, session.facePadding)),
+              .map((face) => faceStoredShape(face.box, session.facePadding, lensContext)),
           ]
         : (committedMosaic?.shapes ?? []),
-    [session, committedMosaic],
+    [session, committedMosaic, lensContext],
   );
   const blockSizeRel = session?.blockSizeRel ?? committedMosaic?.blockSizeRel ?? 0.012;
 
@@ -489,7 +502,12 @@ function CanvasForPhoto({ photo }: { photo: Photo }) {
       context.clearRect(0, 0, mosaic.width, mosaic.height);
       return;
     }
-    const op = { type: 'mosaic' as const, shapes: mosaicShapes, blockSizeRel };
+    // Shapes are stored on the recorded picture; a lens correction moves them with its pixels.
+    const op = {
+      type: 'mosaic' as const,
+      shapes: correctedShapes(mosaicShapes, loaded.header, renderParams),
+      blockSizeRel,
+    };
     const frame = requestAnimationFrame(() => {
       try {
         let rgba: Uint8Array;
@@ -610,7 +628,11 @@ function CanvasForPhoto({ photo }: { photo: Photo }) {
     if (!session) return;
     store.setRetouchBusy(true);
     try {
-      const detections = await ee.invoke('retouch:detectFaces', { photoId: photo.id, region });
+      // The region is drawn on the recorded picture; the detector looks at the camera's preview.
+      const detections = await ee.invoke('retouch:detectFaces', {
+        photoId: photo.id,
+        region: detectionRegion(region, lensContext),
+      });
       if (detections.length === 0) {
         store.notify('info', 'No faces found in that area');
       }
@@ -733,16 +755,14 @@ function CanvasForPhoto({ photo }: { photo: Photo }) {
               />
             )}
             {session.faces.map((face, index) => {
-              const padded = padFaceBox(face.box, session.facePadding);
+              const shape = faceStoredShape(face.box, session.facePadding, lensContext);
+              const bounds = shapeBox(shape);
               return (
-                <rect
+                <path
                   key={`face-${index}`}
-                  x={padded.x}
-                  y={padded.y}
-                  width={padded.w}
-                  height={padded.h}
+                  d={shapePath(shape)}
                   className={`${styles.face} ${face.enabled ? styles.faceOn : styles.faceOff}`}
-                  data-face-box={`${padded.x},${padded.y},${padded.w},${padded.h}`}
+                  data-face-box={`${bounds.x},${bounds.y},${bounds.w},${bounds.h}`}
                   data-face-index={index}
                   onPointerDown={(event) => event.stopPropagation()}
                   onClick={(event) => {
@@ -755,7 +775,7 @@ function CanvasForPhoto({ photo }: { photo: Photo }) {
                     {face.score === undefined ? '' : ` · ${(face.score * 100).toFixed(0)}%`}
                     {face.enabled ? ' · selected' : ' · off'}
                   </title>
-                </rect>
+                </path>
               );
             })}
           </svg>
