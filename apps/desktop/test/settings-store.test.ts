@@ -142,6 +142,18 @@ describe('SettingsStore', () => {
     ).toThrowError(/export presets/);
   });
 
+  it('rejects a develop-only preset that has send targets', () => {
+    const store = new SettingsStore(undefined, defaults);
+    expect(() =>
+      store.saveExportPreset({
+        ...defaults.exportPresets[0]!,
+        id: asPresetId('develop-only'),
+        version: 'develop',
+        sendTo: [desk.id],
+      }),
+    ).toThrowError(/develop-only/);
+  });
+
   it('sets a corrupt file aside, warns, and starts from defaults', async () => {
     const dir = await tempDir();
     const file = join(dir, 'settings.json');

@@ -89,6 +89,8 @@ export interface ExportJob {
   /** Destinations to send to after each successful export; empty = export only. */
   send: DestinationId[];
   state: ExportJobState;
+  /** Effective render version: send actions always use the top retouch version. */
+  version: ExportVersion;
   photos: ExportPhotoProgress[];
   createdAt: number;
   finishedAt?: number;
@@ -111,6 +113,8 @@ export interface StartExportArgs {
   presetId: PresetId;
   /** Overrides the preset's `sendTo`; `[]` exports without uploading. */
   send?: DestinationId[];
+  /** Export & send / Next & send force the top retouch version, even for a develop-only preset. */
+  forceTop?: boolean;
 }
 
 /** Arguments of `export:render`: the renderer's reply to an {@link ExportRenderRequest}. */

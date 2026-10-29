@@ -1,5 +1,6 @@
 import {
   asPhotoId,
+  asPresetId,
   asSourceId,
   type IptcFields,
   type Photo,
@@ -37,12 +38,16 @@ async function setup(
     height: number;
     rgba: Uint8Array;
   }> = async () => ({ width: 1, height: 1, rgba: new Uint8Array(4) }),
+  confirm?: (message: string) => boolean,
 ): Promise<{
   store: AppStore;
   fake: FakeBridge;
 }> {
   const fake = createFakeBridge(options);
-  const store = createAppStore(fake.bridge, { renderForExport });
+  const store = createAppStore(fake.bridge, {
+    renderForExport,
+    ...(confirm === undefined ? {} : { confirm }),
+  });
   stores.push(store);
   await store.init();
   return { store, fake };
@@ -276,6 +281,60 @@ describe('uploads and export', () => {
     expect(fake.calls.some((call) => call.channel === 'export:start')).toBe(true);
     expect(activePhoto(store.getState())?.id).not.toBe(first?.id);
     expect(activePhoto(store.getState())?.fileName).toBe('_DSC8331.NEF');
+  });
+
+  it('confirms before exporting a retouched photo without its mosaic', async () => {
+    const messages: string[] = [];
+    let answer = false;
+    const { store, fake } = await setup({}, undefined, (message) => {
+      messages.push(message);
+      answer = true;
+      return messages.length > 1;
+    });
+    const base = store.getState().exportPresets[0]!;
+    const develop = {
+      ...base,
+      id: asPresetId('develop-only'),
+      name: 'Develop only',
+      version: 'develop' as const,
+      sendTo: [],
+    };
+    await store.saveExportPreset(develop);
+    await store.setActivePreset(develop.id);
+    store.select(asPhotoId('mock-03'));
+
+    await store.exportSelected(false);
+    expect(messages[0]).toMatch(/photo has a retouch version; export without mosaic\?/);
+    expect(fake.calls.some((call) => call.channel === 'export:start')).toBe(false);
+
+    await store.exportSelected(false);
+    const call = fake.calls.find((candidate) => candidate.channel === 'export:start');
+    expect(call?.args[0]).toMatchObject({ send: [] });
+    expect(call?.args[0]).not.toHaveProperty('forceTop');
+    expect((call?.args[0] as { photoIds: string[] }).photoIds).toEqual(['mock-03']);
+    expect(answer).toBe(true);
+  });
+
+  it('forces the top version for Export & send even with a develop-only preset', async () => {
+    const { store, fake } = await setup({}, undefined, () => {
+      throw new Error('a send must not ask about dropping the mosaic');
+    });
+    const base = store.getState().exportPresets[0]!;
+    const develop = {
+      ...base,
+      id: asPresetId('develop-only'),
+      name: 'Develop only',
+      version: 'develop' as const,
+      sendTo: [],
+    };
+    await store.saveExportPreset(develop);
+    await store.setActivePreset(develop.id);
+    store.select(asPhotoId('mock-03'));
+
+    await store.exportSelected(true);
+    const call = fake.calls.find((candidate) => candidate.channel === 'export:start');
+    expect(call?.args[0]).toMatchObject({ forceTop: true });
+    expect(call?.args[0]).not.toHaveProperty('send');
   });
 
   it('saves remote credentials before the source', async () => {

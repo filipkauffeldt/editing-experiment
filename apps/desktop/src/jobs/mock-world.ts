@@ -387,7 +387,7 @@ export function createMockHandlers(world: MockWorld, emit: Emit): Partial<IpcHan
     'exportPresets:remove': async ({ presetId }) => {
       world.exportPresets = world.exportPresets.filter((preset) => preset.id !== presetId);
     },
-    'export:start': async ({ photoIds, presetId, send }) => {
+    'export:start': async ({ photoIds, presetId, send, forceTop }) => {
       const preset = world.exportPresets.find((candidate) => candidate.id === presetId);
       if (!preset) throw new Error(`no export preset ${presetId}`);
       const job: ExportJob = {
@@ -396,6 +396,8 @@ export function createMockHandlers(world: MockWorld, emit: Emit): Partial<IpcHan
         photoIds: [...photoIds],
         send: send ?? preset.sendTo,
         state: 'queued',
+        version:
+          forceTop === true || (send ?? preset.sendTo).length > 0 ? 'top' : preset.version,
         photos: photoIds.map((photoId) => ({ photoId, state: 'queued' })),
         createdAt: Date.now(),
       };

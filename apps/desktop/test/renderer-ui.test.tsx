@@ -128,6 +128,22 @@ describe('film strip', () => {
     await waitFor(() => expect(store.getState().exportOpen).toBe(false));
   });
 
+  it('clears and disables send targets for a develop-only preset', async () => {
+    await renderApp();
+    fireEvent.click(screen.getByTestId('open-export'));
+    await screen.findByTestId('export-dialog');
+    const version = screen.getByDisplayValue('Top retouch version');
+    fireEvent.change(version, { target: { value: 'develop' } });
+    await waitFor(() =>
+      expect(screen.getByDisplayValue('Develop only (export only)')).toBeTruthy(),
+    );
+    const outbox = screen.getByRole('checkbox', {
+      name: /Sportfotografen outbox/,
+    }) as HTMLInputElement;
+    expect(outbox.checked).toBe(false);
+    expect(outbox.disabled).toBe(true);
+  });
+
   it('shows edit, retouch, metadata and upload badges', async () => {
     await renderApp();
 

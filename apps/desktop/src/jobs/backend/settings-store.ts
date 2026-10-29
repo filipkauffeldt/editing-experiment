@@ -83,6 +83,12 @@ function assertExportPreset(value: unknown): asserts value is ExportPreset {
         'resize, outputSharpening, metadata, stripGps, version and sendTo',
     );
   }
+  if (value.version === 'develop' && value.sendTo.length > 0) {
+    throw new IpcError(
+      'invalid_argument',
+      'a develop-only export preset cannot have send targets; use the top retouch version',
+    );
+  }
 }
 
 function assertSettingsPatch(patch: Partial<AppSettings>): void {

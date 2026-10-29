@@ -294,10 +294,11 @@ export function createFakeBridge(
       exportPresets = exportPresets.filter((preset) => preset.id !== presetId);
     },
     'export:start': async (...args) => {
-      const { photoIds, presetId, send } = args[0] as {
+      const { photoIds, presetId, send, forceTop } = args[0] as {
         photoIds: PhotoId[];
         presetId: ExportPreset['id'];
         send?: ExportPreset['sendTo'];
+        forceTop?: boolean;
       };
       const preset = exportPresets.find((candidate) => candidate.id === presetId);
       if (!preset) throw new Error(`no export preset ${presetId}`);
@@ -307,6 +308,7 @@ export function createFakeBridge(
         photoIds: [...photoIds],
         send: send ?? preset.sendTo,
         state: 'queued',
+        version: forceTop === true || (send ?? preset.sendTo).length > 0 ? 'top' : preset.version,
         photos: photoIds.map((photoId) => ({ photoId, state: 'queued' })),
         createdAt: Date.now(),
       };

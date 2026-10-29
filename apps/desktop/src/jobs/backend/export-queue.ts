@@ -88,12 +88,17 @@ export class ExportQueue {
     const preset = this.options.getPreset(args.presetId);
     if (!preset) throw new IpcError('not_found', `no export preset ${args.presetId}`);
     const unique = [...new Set(args.photoIds)];
+    const send = args.send ?? preset.sendTo;
+    // A send must never deliver a mosaic-less render of a retouched photo.
+    const version: ExportJob['version'] =
+      args.forceTop === true || send.length > 0 ? 'top' : preset.version;
     const job: ExportJob = {
       id: this.newJobId(),
       presetId: preset.id,
       photoIds: unique,
-      send: args.send ?? preset.sendTo,
+      send,
       state: 'queued',
+      version,
       photos: unique.map((photoId) => ({ photoId, state: 'queued' })),
       createdAt: this.now(),
     };
@@ -217,7 +222,7 @@ export class ExportQueue {
 
     let rendered: RenderedImage;
     try {
-      rendered = await this.requestRender(job, photo.photoId, preset);
+      rendered = await this.requestRender(job, photo.photoId);
     } catch (error) {
       if (this.closed) {
         photo.state = 'queued';
@@ -300,14 +305,13 @@ export class ExportQueue {
   private requestRender(
     job: ExportJob,
     photoId: ExportPhotoProgress['photoId'],
-    preset: ExportPreset,
   ): Promise<RenderedImage> {
     const request: ExportRenderRequest = {
       jobId: job.id,
       requestId: this.newRequestId(),
       photoId,
-      presetId: preset.id,
-      version: preset.version,
+      presetId: job.presetId,
+      version: job.version,
     };
     return new Promise<RenderedImage>((resolve, reject) => {
       const timer = setTimeout(() => {
@@ -368,6 +372,7 @@ export class ExportQueue {
         if (typeof job?.id !== 'string' || !Array.isArray(job.photos)) continue;
         // A crash left running work behind: keep the photos queued, not lost.
         if (job.state === 'running' || job.state === 'queued') job.state = 'queued';
+        if (job.version !== 'develop') job.version = 'top';
         for (const photo of job.photos) {
           if (
             photo.state === 'rendering' ||

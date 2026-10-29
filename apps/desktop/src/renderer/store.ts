@@ -456,6 +456,11 @@ export function unsupportedSettings(preset: EditPreset): string[] {
 const messageOf = (cause: unknown): string =>
   cause instanceof Error ? cause.message : String(cause);
 
+const defaultConfirm = (message: string): boolean =>
+  typeof window !== 'undefined' && typeof window.confirm === 'function'
+    ? window.confirm(message)
+    : true;
+
 const structuredCloneShape = (shape: Shape): Shape =>
   shape.type === 'rect' ? { ...shape } : { ...shape, points: shape.points.map((p) => ({ ...p })) };
 
@@ -536,11 +541,15 @@ export class AppStore {
     { resolve(): void; reject(error: Error): void }
   >();
 
+  private readonly confirm: (message: string) => boolean;
+
   constructor(
     private readonly bridge: EeBridge,
     private readonly renderForExport: typeof renderFullResolution = renderFullResolution,
     renderEditedPreview?: EditedPreviewRenderer,
+    confirm?: (message: string) => boolean,
   ) {
+    this.confirm = confirm ?? defaultConfirm;
     if (renderEditedPreview) {
       this.editedPreviews = new EditedPreviewScheduler({
         render: renderEditedPreview,
@@ -1997,16 +2006,31 @@ export class AppStore {
       return undefined;
     }
     const presetId = options.presetId ?? activeExportPreset(this.state)?.id;
-    if (!presetId) {
+    const preset = this.state.exportPresets.find((candidate) => candidate.id === presetId);
+    if (!presetId || !preset) {
       this.toast('error', 'No export preset is configured');
       return undefined;
+    }
+    if (!options.send && preset.version === 'develop') {
+      const retouched = photoIds.filter(
+        (photoId) => topRetouchVersion(this.photoById.get(photoId)) !== undefined,
+      ).length;
+      if (
+        retouched > 0 &&
+        !this.confirm(
+          `${retouched} photo${retouched === 1 ? ' has' : 's have'} a retouch version; ` +
+            'export without mosaic?',
+        )
+      ) {
+        return undefined;
+      }
     }
     try {
       await this.settleBeforeExport(photoIds);
       const jobId = await this.bridge.invoke('export:start', {
         photoIds,
         presetId,
-        ...(options.send ? {} : { send: [] }),
+        ...(options.send ? { forceTop: true } : { send: [] }),
       });
       await this.refreshExportJobs();
       if (options.wait) await this.waitForExportJob(jobId);
@@ -2385,6 +2409,8 @@ export class AppStore {
 export interface CreateAppStoreOptions {
   /** Replaces the full-resolution renderer in tests. */
   renderForExport?: typeof renderFullResolution;
+  /** Confirmation for exporting without a retouched photo's mosaic. */
+  confirm?: (message: string) => boolean;
   /**
    * Draws the edited thumbnail and preview of a photo. Without it nothing is
    * rendered and the film strip keeps showing what the backend cached.
@@ -2394,5 +2420,10 @@ export interface CreateAppStoreOptions {
 
 /** Build a store against a bridge; the app uses the preload bridge, tests a fake. */
 export function createAppStore(bridge: EeBridge, options: CreateAppStoreOptions = {}): AppStore {
-  return new AppStore(bridge, options.renderForExport, options.renderEditedPreview);
+  return new AppStore(
+    bridge,
+    options.renderForExport,
+    options.renderEditedPreview,
+    options.confirm,
+  );
 }

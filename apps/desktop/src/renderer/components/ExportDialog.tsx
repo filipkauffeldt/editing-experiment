@@ -195,10 +195,14 @@ function PresetEditor({
           <select
             className={styles.input}
             value={draft.version}
-            onChange={(event) => patch({ version: event.target.value as ExportPreset['version'] })}
+            onChange={(event) => {
+              const version = event.target.value as ExportPreset['version'];
+              // Sending must never deliver a mosaic-less retouched photo.
+              patch(version === 'develop' ? { version, sendTo: [] } : { version });
+            }}
           >
             <option value="top">Top retouch version</option>
-            <option value="develop">Develop only</option>
+            <option value="develop">Develop only (export only)</option>
           </select>
         </label>
 
@@ -220,6 +224,7 @@ function PresetEditor({
               <input
                 type="checkbox"
                 checked={draft.sendTo.includes(destination.id)}
+                disabled={draft.version === 'develop'}
                 onChange={(event) => {
                   const id = asDestinationId(destination.id);
                   const sendTo = event.target.checked
@@ -232,6 +237,9 @@ function PresetEditor({
               <span className={styles.kind}>{destination.kind.toUpperCase()}</span>
             </label>
           ))}
+          {draft.version === 'develop' && (
+            <span className={styles.hint}>Develop-only presets can be exported, not sent.</span>
+          )}
           {state.destinations.length === 0 && (
             <span className={styles.hint}>No destinations configured yet.</span>
           )}
@@ -277,6 +285,10 @@ export function ExportDialog() {
     }
     if (!Number.isInteger(preset.quality) || preset.quality < 1 || preset.quality > 100) {
       setError('Quality must be between 1 and 100');
+      return undefined;
+    }
+    if (preset.version === 'develop' && preset.sendTo.length > 0) {
+      setError('A develop-only preset cannot have send targets');
       return undefined;
     }
     setError(undefined);

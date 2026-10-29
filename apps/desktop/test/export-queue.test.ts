@@ -48,7 +48,9 @@ interface Harness {
   job(jobId: ExportJob['id']): ExportJob | undefined;
 }
 
-function harness(options: { file?: string; fail?: PhotoId[] } = {}): Harness {
+function harness(
+  options: { file?: string; fail?: PhotoId[]; preset?: Partial<ExportPreset> } = {},
+): Harness {
   const events: JobEvent[] = [];
   const exported: PhotoId[] = [];
   const enqueued: Harness['enqueued'] = [];
@@ -57,7 +59,7 @@ function harness(options: { file?: string; fail?: PhotoId[] } = {}): Harness {
   let request = 0;
   const queue = new ExportQueue({
     ...(options.file === undefined ? {} : { file: options.file }),
-    getPreset: () => preset(),
+    getPreset: () => preset(options.preset),
     exportPhoto: async ({ photoId }) => {
       if (fail.has(photoId)) throw new Error(`could not encode ${photoId}`);
       exported.push(photoId);
@@ -194,6 +196,41 @@ describe('ExportQueue', () => {
     await vi.waitFor(() => expect(test.job(jobId)?.state).toBe('failed'));
     expect(test.job(jobId)?.photos[0]).toMatchObject({ state: 'failed', error: 'GPU lost' });
     expect(test.job(jobId)?.photos[1]?.state).toBe('done');
+  });
+
+  it('forces the top version for sends and send actions, but not for export only', async () => {
+    const test = harness({ preset: { version: 'develop' } });
+    const jobId = test.queue.start({
+      photoIds: [photo(1)],
+      presetId: preset().id,
+      send: [destination],
+    });
+    await vi.waitFor(() => expect(renderEvents(test.events, jobId)).toHaveLength(1));
+    expect(renderEvents(test.events, jobId)[0]?.version).toBe('top');
+    test.respond(renderEvents(test.events, jobId)[0]!);
+    await vi.waitFor(() => expect(test.job(jobId)?.state).toBe('done'));
+    expect(test.job(jobId)?.version).toBe('top');
+
+    const forced = test.queue.start({
+      photoIds: [photo(2)],
+      presetId: preset().id,
+      send: [],
+      forceTop: true,
+    });
+    await vi.waitFor(() => expect(renderEvents(test.events, forced)).toHaveLength(1));
+    expect(renderEvents(test.events, forced)[0]?.version).toBe('top');
+    test.respond(renderEvents(test.events, forced)[0]!);
+    await vi.waitFor(() => expect(test.job(forced)?.state).toBe('done'));
+
+    const local = test.queue.start({
+      photoIds: [photo(3)],
+      presetId: preset().id,
+      send: [],
+    });
+    await vi.waitFor(() => expect(renderEvents(test.events, local)).toHaveLength(1));
+    expect(renderEvents(test.events, local)[0]?.version).toBe('develop');
+    test.respond(renderEvents(test.events, local)[0]!);
+    await vi.waitFor(() => expect(test.job(local)?.state).toBe('done'));
   });
 
   it('re-emits the pending render request when the renderer comes back', async () => {
