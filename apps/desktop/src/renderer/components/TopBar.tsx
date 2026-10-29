@@ -43,7 +43,9 @@ export function TopBar({ className, loadError }: { className?: string; loadError
   }, []);
 
   const summary = uploadSummary(state.uploads);
-  const exportStatus = exportStatusText(state);
+  // Sending is already a dot; only a running export needs words.
+  const exportText = exportStatusText(state);
+  const exportStatus = exportText?.startsWith('Exporting') ? exportText : undefined;
   const runs = state.sources.flatMap((source) => {
     const run = state.ingest[source.id];
     return run ? [{ source, run }] : [];

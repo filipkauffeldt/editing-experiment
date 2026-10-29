@@ -5,8 +5,8 @@
   width: 11px;
   height: 11px;
   padding: 0;
-  border: 1px solid var(--muted);
-  background: var(--scrim);
+  border: 1px solid var(--text);
+  background: #0005;
 }
 
 .tag:hover {
