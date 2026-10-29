@@ -45,6 +45,10 @@ uniform int u_hasCurve;
 uniform float u_vibrance;
 uniform float u_saturation;
 
+// View-only clipping overlay (J), applied after the develop chain; exports pass 0.
+uniform float u_clipShadows;
+uniform float u_clipHighlights;
+
 // EE colour/effects insertion point: uniforms.
 ${COLOR_UNIFORMS}
 
@@ -176,6 +180,15 @@ vec3 vibranceSaturation(vec3 c, float vibrance, float saturation) {
   return l + (c - l) * factor;
 }
 
+/** View-only clipping overlay: red where a highlight channel clips, blue where a shadow channel crushes. */
+vec3 applyClipping(vec3 e) {
+  if (u_clipHighlights > 0.5 && max(e.r, max(e.g, e.b)) >= ${f(T.clippingHigh)})
+    return vec3(1.0, 0.0, 0.0);
+  if (u_clipShadows > 0.5 && min(e.r, min(e.g, e.b)) <= ${f(T.clippingLow)})
+    return vec3(0.0, 0.25, 1.0);
+  return e;
+}
+
 /** Linear light after white balance, calibration and exposure to the sRGB-encoded colour: tone, curves, colour. Not clamped. */
 vec3 developColor(vec3 lin) {
   if (u_toneActive == 1) lin = toneRgb(lin);
@@ -252,6 +265,7 @@ export const FRAGMENT_SHADER =
     if (!inFrame) e *= u_dim;
     e = mix(u_outside, e, coverage);
   }
+  e = applyClipping(e);
   outColor = vec4(e, 1.0);
 }
 `;

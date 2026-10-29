@@ -7,7 +7,12 @@
 
 // WebGL2 renderer
 export { createDevelopRenderer, DevelopGlError } from './renderer';
-export type { CropViewTransform, DevelopRenderer, DevelopRendererOptions } from './renderer';
+export type {
+  CropViewTransform,
+  DevelopRenderer,
+  DevelopRendererOptions,
+  DevelopViewOptions,
+} from './renderer';
 
 // Parameter model
 export { resolveUniforms, buildCurveLut } from './params';
@@ -98,6 +103,19 @@ export {
 export { LENSFUN, lensfunKey } from './lens/lensfun';
 export { lensCorrectedPosition } from './lens/model';
 export type { LensUniforms } from './lens/model';
+
+// Analysis: histogram, clipping view and one-click Auto
+export {
+  autoToneBasis,
+  autoWhiteBalance,
+  beforeParams,
+  cameraSamples,
+  histogramOfRgba,
+  histogramPeak,
+  predictAutoTone,
+  whiteBalanceFromPatch,
+} from './analysis';
+export type { AutoToneSettings, Histogram } from './analysis';
 
 // CPU reference (tests, export fallback)
 export { developPixel, renderCpu, renderCpuFloat } from './cpu';

@@ -21,6 +21,15 @@ export const TUNING = {
    * `clipKnee` to 1.0 in the largest raw channel.
    */
   clipKnee: 0.95,
+  /**
+   * Clipping overlay (J): an encoded pixel at or above the high value is a
+   * clipped highlight, at or below the low value a crushed shadow. A sensor-white
+   * pixel tops out at the shoulder (about 0.95 scene-linear, 0.978 encoded), so
+   * that is what counts as clipped here rather than the unreachable 1.0. The
+   * overlay marks the whole pixel (red or blue), as Lightroom does, not one channel.
+   */
+  clippingHigh: 0.975,
+  clippingLow: 0.004,
 
   /** Contrast: curve exponent is `2^(contrastExponent * contrast)`. */
   contrastExponent: 0.6,
