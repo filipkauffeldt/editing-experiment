@@ -59,6 +59,10 @@ async function readRaw(path: string): Promise<Basics> {
     model: raw.model,
     ...(raw.lens === undefined ? {} : { lens: raw.lens }),
     ...(raw.serial === undefined ? {} : { serialNumber: raw.serial }),
+    ...(raw.iso === undefined ? {} : { iso: raw.iso }),
+    ...(raw.focalLength === undefined ? {} : { focalLength: raw.focalLength }),
+    ...(raw.aperture === undefined ? {} : { aperture: raw.aperture }),
+    ...(raw.shutter === undefined ? {} : { shutter: raw.shutter }),
   };
   if (raw.captureTime !== undefined) basics.captureTime = raw.captureTime;
   basics.width = raw.width;
@@ -79,6 +83,19 @@ class PreviewError extends Error {
   }
 }
 
+/** ExifTool prints exposure time as a decimal or as a `1/500` fraction. */
+function exposureSeconds(value: unknown): number | undefined {
+  if (typeof value === 'number') return Number.isFinite(value) && value > 0 ? value : undefined;
+  if (typeof value !== 'string') return undefined;
+  const text = value.trim();
+  const fraction = /^(\d+(?:\.\d+)?)\/(\d+(?:\.\d+)?)$/.exec(text);
+  if (fraction) {
+    const seconds = Number(fraction[1]) / Number(fraction[2]);
+    return Number.isFinite(seconds) && seconds > 0 ? seconds : undefined;
+  }
+  return asNumber(text);
+}
+
 async function readImage(path: string, exiftool: ExifToolService): Promise<Basics> {
   const tags = await exiftool.read(path);
   const captureTime = toIsoDate(tags['ExifIFD:DateTimeOriginal'] ?? tags['IFD0:ModifyDate']);
@@ -86,6 +103,10 @@ async function readImage(path: string, exiftool: ExifToolService): Promise<Basic
   const model = asString(tags['IFD0:Model']);
   const lens = asString(tags['ExifIFD:LensModel']);
   const serial = asString(tags['ExifIFD:BodySerialNumber']);
+  const iso = asNumber(tags['ExifIFD:ISO'] ?? tags['EXIF:ISO']);
+  const focalLength = asNumber(tags['ExifIFD:FocalLength']);
+  const aperture = asNumber(tags['ExifIFD:FNumber']);
+  const shutter = exposureSeconds(tags['ExifIFD:ExposureTime']);
   // ExifTool reports the stored size; orientations 5..8 display it turned.
   const stored = [asNumber(tags['File:ImageWidth']), asNumber(tags['File:ImageHeight'])] as const;
   const orientationValue = validOrientation(asNumber(tags['IFD0:Orientation']));
@@ -95,13 +116,17 @@ async function readImage(path: string, exiftool: ExifToolService): Promise<Basic
       : stored;
   return {
     ...(captureTime === undefined ? {} : { captureTime }),
-    ...(make || model || lens || serial
+    ...(make || model || lens || serial || iso || focalLength || aperture || shutter
       ? {
           camera: {
             ...(make ? { make } : {}),
             ...(model ? { model } : {}),
             ...(lens ? { lens } : {}),
             ...(serial ? { serialNumber: serial } : {}),
+            ...(iso === undefined ? {} : { iso }),
+            ...(focalLength === undefined ? {} : { focalLength }),
+            ...(aperture === undefined ? {} : { aperture }),
+            ...(shutter === undefined ? {} : { shutter }),
           },
         }
       : {}),

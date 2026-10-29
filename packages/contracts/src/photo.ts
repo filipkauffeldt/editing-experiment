@@ -8,6 +8,14 @@ export interface CameraInfo {
   model?: string;
   lens?: string;
   serialNumber?: string;
+  /** ISO speed. */
+  iso?: number;
+  /** Focal length in millimetres. */
+  focalLength?: number;
+  /** F-number. */
+  aperture?: number;
+  /** Exposure time in seconds. */
+  shutter?: number;
 }
 
 /** Where a photo is in the ingest pipeline. */

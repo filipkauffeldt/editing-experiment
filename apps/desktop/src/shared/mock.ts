@@ -164,8 +164,10 @@ export function mockPhotos(): Photo[] {
     const sourceIndex = fromCard ? index : index - PHOTOS_PER_SOURCE;
     const seq = fromCard ? 8330 + sourceIndex : 9200 + sourceIndex;
     const fileName = `_DSC${seq}.NEF`;
-    // Photos live in the ingest destination (copies); the card and the FTP drop are never opened.
-    const path = `/mock/ingested/2026-10-24/${fromCard ? 'Card A' : 'Pool FTP'}/${fileName}`;
+    // Photos live in the local ingest copies; the card and the FTP drop are never opened.
+    // The folders read like a real sports photographer's Pictures tree in the Library.
+    const folder = fromCard ? '10-03 IFK–AIK' : '10-03 AIK–IFK';
+    const path = `/home/alex/Pictures/2026/${folder}/${fileName}`;
     const hour = fromCard ? 14 : 15;
     const minute = fromCard ? 10 + sourceIndex : 5 + sourceIndex;
     const id = mockPhotoId(n);
@@ -204,12 +206,20 @@ export function mockPhotos(): Photo[] {
             model: 'NIKON Z 9',
             lens: 'NIKKOR Z 70-200mm f/2.8 VR S',
             serialNumber: '3001234',
+            iso: 3200,
+            focalLength: 135,
+            aperture: 2.8,
+            shutter: 1 / 1000,
           }
         : {
             make: 'NIKON CORPORATION',
             model: 'NIKON Z 8',
             lens: 'NIKKOR Z 24-70mm f/2.8 S',
             serialNumber: '6005678',
+            iso: 1600,
+            focalLength: 24,
+            aperture: 2.8,
+            shutter: 1 / 640,
           },
       width: 8256,
       height: 5504,
