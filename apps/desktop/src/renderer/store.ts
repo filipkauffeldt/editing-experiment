@@ -47,6 +47,7 @@ import {
   type UploadItem,
   type VersionId,
   retouchOpsKey,
+  withDefaults,
 } from '@ee/contracts';
 import { EditedPreviewScheduler, type EditedPreviewRenderer } from './edited-preview-scheduler';
 import { renderFullResolution } from './export-render';
@@ -264,6 +265,8 @@ export interface AppState {
   template?: IptcFields;
   templatePath?: string;
   editParams: Record<string, EditParams>;
+  /** What a photo starts with when the sidecar does not say (Lightroom's raw sharpening and colour noise reduction, the camera's `crd:`). Not edits: never written. */
+  editDefaults: Record<string, EditParams>;
   retouch?: RetouchSession;
   crop?: CropSession;
   exportPresets: ExportPreset[];
@@ -374,9 +377,16 @@ export function topRetouchVersion(photo: Photo | undefined) {
   return undefined;
 }
 
-export function paramsForPhoto(state: AppState, photo: Photo | undefined): EditParams {
+/** The settings the photo's own sidecar holds (what a save writes). */
+export function editedParamsForPhoto(state: AppState, photo: Photo | undefined): EditParams {
   if (!photo) return {};
   return state.editParams[editParamsKey(photo.id, activeDevelopVersion(photo)?.id)] ?? {};
+}
+
+/** What the sliders show and what is drawn: the photo's settings over its raw defaults. */
+export function paramsForPhoto(state: AppState, photo: Photo | undefined): EditParams {
+  if (!photo) return {};
+  return withDefaults(editedParamsForPhoto(state, photo), state.editDefaults[photo.id]);
 }
 
 function matchesQuickFilter(state: AppState, photo: Photo, quick: QuickFilter): boolean {
@@ -500,6 +510,7 @@ const emptyState = (): AppState => ({
   metadata: {},
   metadataUnresolved: {},
   editParams: {},
+  editDefaults: {},
   filter: { quick: 'all' },
   sort: 'filename',
   toasts: [],
@@ -1682,15 +1693,31 @@ export class AppStore {
     const key = editParamsKey(photoId, versionId);
     const startedAt = this.paramEditVersion.get(key) ?? 0;
     try {
-      const params = await this.bridge.invoke('develop:getParams', { photoId, versionId });
+      const [params, defaults] = await Promise.all([
+        this.bridge.invoke('develop:getParams', { photoId, versionId }),
+        this.loadDefaults(photoId),
+      ]);
       if ((this.paramEditVersion.get(key) ?? 0) !== startedAt && this.state.editParams[key]) {
         return;
       }
       this.set({
         editParams: { ...this.state.editParams, [key]: params },
+        editDefaults: { ...this.state.editDefaults, [photoId]: defaults },
       });
     } catch (cause) {
       this.toast('error', `Could not read develop settings: ${messageOf(cause)}`);
+    }
+  }
+
+  /** The raw defaults of a photo, read once. A failure leaves the photo without defaults, with a notice. */
+  private async loadDefaults(photoId: PhotoId): Promise<EditParams> {
+    const known = this.state.editDefaults[photoId];
+    if (known) return known;
+    try {
+      return await this.bridge.invoke('develop:getDefaults', { photoId });
+    } catch (cause) {
+      this.toast('error', `Could not read the camera's default settings: ${messageOf(cause)}`);
+      return {};
     }
   }
 
@@ -1803,17 +1830,23 @@ export class AppStore {
   /** The develop params of any photo, including edits that have not reached the sidecar yet. */
   private async currentParams(photoId: PhotoId): Promise<EditParams> {
     const versionId = activeDevelopVersion(this.photoById.get(photoId))?.id;
-    return (
+    const [params, defaults] = await Promise.all([
       this.state.editParams[editParamsKey(photoId, versionId)] ??
-      this.bridge.invoke('develop:getParams', { photoId, versionId })
-    );
+        this.bridge.invoke('develop:getParams', { photoId, versionId }),
+      this.loadDefaults(photoId),
+    ]);
+    return withDefaults(params, defaults);
   }
 
   readonly setSlider = (name: keyof typeof SLIDER_SPECS, rawValue: number | undefined): void => {
     const spec = SLIDER_SPECS[name];
+    const photo = activePhoto(this.state);
+    // The value the slider starts at: the raw default where the photo has one, else neutral.
+    // Sitting on it means "not touched" (key removed); anything else, 0 included, is written.
+    const start = (photo && this.state.editDefaults[photo.id]?.[name]) ?? spec.neutral;
     this.patchParams((current) => {
       const next = { ...current };
-      if (rawValue === undefined || (spec.neutral !== null && rawValue === spec.neutral)) {
+      if (rawValue === undefined || (start !== null && rawValue === start)) {
         delete next[name];
       } else {
         next[name] = Math.max(spec.min, Math.min(spec.max, rawValue));
@@ -2057,7 +2090,10 @@ export class AppStore {
         this.saveMetadata(latest.id),
         this.flushDevelopParams(latest.id, versionId),
       ]);
-      const params = this.state.editParams[editParamsKey(latest.id, versionId)] ?? {};
+      const params = withDefaults(
+        this.state.editParams[editParamsKey(latest.id, versionId)] ?? {},
+        await this.loadDefaults(latest.id),
+      );
       const ops = request.version === 'top' ? (topRetouchVersion(latest)?.ops ?? []) : [];
       const rendered = await this.renderForExport({ photo: latest, params, ops });
       await this.bridge.invoke('export:render', {
