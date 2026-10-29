@@ -108,7 +108,7 @@ const BASIC_GROUPS: { title: string; params: SliderParam[] }[] = [
       'Blacks2012',
     ],
   },
-  { title: 'Presence', params: ['Vibrance', 'Saturation'] },
+  { title: 'Presence', params: ['Texture', 'Clarity2012', 'Dehaze', 'Vibrance', 'Saturation'] },
 ];
 
 type MixerTab = 'Hue' | 'Saturation' | 'Luminance';
@@ -191,6 +191,30 @@ function Group({ title, params }: { title: string; params: SliderParam[] }) {
       {params.map((name) => (
         <Slider key={name} name={name} />
       ))}
+    </section>
+  );
+}
+
+function DetailSection() {
+  return (
+    <section className={styles.group}>
+      <h3 className={styles.groupTitle}>Detail</h3>
+      <div className={styles.subgroup}>
+        <h4 className={styles.subgroupTitle}>Sharpening</h4>
+        <Slider name="Sharpness" />
+        <Slider name="SharpenRadius" />
+        <Slider name="SharpenDetail" />
+        <Slider name="SharpenEdgeMasking" />
+      </div>
+      <div className={styles.subgroup}>
+        <h4 className={styles.subgroupTitle}>Noise reduction</h4>
+        <Slider name="LuminanceSmoothing" />
+        <Slider name="LuminanceNoiseReductionDetail" />
+        <Slider name="LuminanceNoiseReductionContrast" />
+        <Slider name="ColorNoiseReduction" />
+        <Slider name="ColorNoiseReductionDetail" />
+        <Slider name="ColorNoiseReductionSmoothness" />
+      </div>
     </section>
   );
 }
@@ -345,6 +369,7 @@ export function DevelopPanel({ className }: { className?: string }) {
         {BASIC_GROUPS.map((group) => (
           <Group key={group.title} title={group.title} params={group.params} />
         ))}
+        <DetailSection />
         <ColorMixerSection />
         <ColorGradingSection />
         <Group
