@@ -1,0 +1,59 @@
+/*
+ * Design tokens. The one place colours, type and sizes are defined; see docs/DESIGN.md.
+ * Everything is monochrome. Colour exists only in the photo, colour-class dots, the
+ * temperature/tint slider tracks and the status dots.
+ */
+:root {
+  color-scheme: dark;
+
+  /* Surfaces */
+  --bg: #0e0e0f;
+  --panel: #141415;
+  --raised: #1c1c1e;
+  --line: #232325;
+  --line-strong: #2e2e31;
+
+  /* Text. White is also the only accent: selection, active tab, primary button. */
+  --text: #e8e8e8;
+  --muted: #8e8e90;
+  --dim: #58585b;
+  --on-text: #0e0e0f;
+
+  /* Status dots */
+  --ok: #7dbb7d;
+  --error: #d26a6a;
+
+  /* Colour classes 1..8 (Photo Mechanic order), as small dots only */
+  --class-1: #d26a6a;
+  --class-2: #d6925a;
+  --class-3: #cdbd62;
+  --class-4: #7dbb7d;
+  --class-5: #5fb0a6;
+  --class-6: #6b95cf;
+  --class-7: #9a82cf;
+  --class-8: #cf7fae;
+
+  /* Desaturated temperature and tint tracks */
+  --track-temperature: linear-gradient(to right, #5b6f93, #555555, #93805b);
+  --track-tint: linear-gradient(to right, #5f8a62, #555555, #8a5f88);
+
+  /* Overlay on thumbnails */
+  --scrim: #000a;
+
+  /* Type */
+  --font-sans: 'Inter Variable', Inter, system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --font-mono:
+    'JetBrains Mono Variable', 'JetBrains Mono', ui-monospace, 'SFMono-Regular', 'Cascadia Code',
+    Consolas, monospace;
+  --fs-base: 12px;
+  --fs-small: 11px;
+  --fs-mono: 11px;
+  --fs-label: 10px;
+  --tracking-label: 0.1em;
+
+  /* Layout */
+  --topbar-h: 36px;
+  --actionbar-h: 40px;
+  --select-outline: 2px solid var(--text);
+  --select-offset: 2px;
+}
