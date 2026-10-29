@@ -3,27 +3,26 @@
   flex-direction: column;
   min-height: 0;
   background: var(--panel);
-  border: 0 solid var(--border);
 }
 
 .header {
   display: flex;
+  flex: none;
   align-items: center;
   justify-content: space-between;
   gap: 8px;
-  padding: 7px 10px;
-  font-size: 10px;
-  font-weight: 700;
-  letter-spacing: 0.08em;
+  height: 28px;
+  padding: 0 12px;
+  border-bottom: 1px solid var(--line);
+  color: var(--text);
+  font-size: var(--fs-label);
+  font-weight: 500;
+  letter-spacing: var(--tracking-label);
   text-transform: uppercase;
-  color: var(--text-dim);
-  border-bottom: 1px solid var(--border);
-  background: var(--panel-raised);
 }
 
 .body {
   flex: 1;
   min-height: 0;
   overflow: auto;
-  padding: 10px;
 }

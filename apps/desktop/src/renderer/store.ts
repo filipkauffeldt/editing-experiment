@@ -267,6 +267,12 @@ export interface AppState {
   editParams: Record<string, EditParams>;
   /** What a photo starts with when the sidecar does not say (Lightroom's raw sharpening and colour noise reduction, the camera's `crd:`). Not edits: never written. */
   editDefaults: Record<string, EditParams>;
+  /**
+   * Values of develop sections that are switched off, by `<photoId>:<section>`. Switching a section
+   * off resets its sliders (so the render drops it) and parks the values here; switching it on
+   * restores them. In memory only: after a restart the section is simply on with its sliders at neutral.
+   */
+  sectionStash: Record<string, EditParams>;
   retouch?: RetouchSession;
   crop?: CropSession;
   exportPresets: ExportPreset[];
@@ -360,6 +366,11 @@ export function exportStatusText(state: AppState): string | undefined {
       photo.state === 'cancelled',
   ).length;
   return `Exporting ${done}/${job.photos.length}${sending > 0 ? ` · Sending ${sending}` : ''}`;
+}
+
+/** Whether a develop section is on for the photo (see `AppState.sectionStash`). */
+export function sectionEnabled(state: AppState, photo: Photo | undefined, section: string): boolean {
+  return !photo || state.sectionStash[`${photo.id}:${section}`] === undefined;
 }
 
 export function photoFlags(state: AppState, photoId: PhotoId): PhotoFlags {
@@ -511,6 +522,7 @@ const emptyState = (): AppState => ({
   metadataUnresolved: {},
   editParams: {},
   editDefaults: {},
+  sectionStash: {},
   filter: { quick: 'all' },
   sort: 'filename',
   toasts: [],
@@ -1869,6 +1881,38 @@ export class AppStore {
     this.patchParams((current) => {
       const next = { ...current };
       delete next[name];
+      return next;
+    });
+  };
+
+  /** Switch a develop section off (parking its values) or back on (restoring them). */
+  readonly setSectionEnabled = (
+    section: string,
+    params: readonly (keyof typeof SLIDER_SPECS)[],
+    enabled: boolean,
+  ): void => {
+    const photo = activePhoto(this.state);
+    if (!photo) return;
+    const key = `${photo.id}:${section}`;
+    const stash = { ...this.state.sectionStash };
+    if (enabled) {
+      const parked = stash[key];
+      delete stash[key];
+      this.set({ sectionStash: stash });
+      if (parked) this.patchParams((current) => ({ ...current, ...parked }));
+      return;
+    }
+    const current = paramsForPhoto(this.state, photo);
+    const parked: EditParams = {};
+    for (const name of params) {
+      const value = current[name];
+      if (value !== undefined) Object.assign(parked, { [name]: value });
+    }
+    stash[key] = parked;
+    this.set({ sectionStash: stash });
+    this.patchParams((existing) => {
+      const next = { ...existing };
+      for (const name of params) delete next[name];
       return next;
     });
   };
