@@ -2,8 +2,11 @@ import type { IptcFields, PhotoId } from '@ee/contracts';
 import { useState } from 'react';
 import { activePhoto } from '../store';
 import { useAppState, useAppStore } from '../store-context';
-import { CloseIcon, WarningIcon } from './icons';
+import { CloseIcon } from './icons';
 import { Panel } from './Panel';
+import { Button } from './ui/Button';
+import { Select, TextArea, TextInput } from './ui/Field';
+import { PanelSection } from './ui/PanelSection';
 import styles from './MetadataPanel.module.css';
 
 type FieldName = keyof IptcFields;
@@ -109,8 +112,7 @@ function KeywordsEditor({ photoId, keywords }: { photoId: PhotoId; keywords: str
         ))}
         {keywords.length === 0 && <span className={styles.noKeywords}>No keywords</span>}
       </div>
-      <input
-        className={styles.keywordInput}
+      <TextInput
         placeholder="Add keyword…"
         value={draft}
         onChange={(event) => setDraft(event.target.value)}
@@ -146,7 +148,7 @@ export function MetadataPanel({ className }: { className?: string }) {
       ) : (
         <div data-testid="metadata-fields">
           <div className={styles.summary}>
-            <span className={styles.fileName}>{photo.fileName}</span>
+            <span className={`${styles.fileName} mono`}>{photo.fileName}</span>
             <span className={styles.metaLine}>
               {photo.width && photo.height ? `${photo.width} × ${photo.height}` : 'Size unknown'}
               {photo.camera?.model ? ` · ${photo.camera.model}` : ''}
@@ -157,15 +159,14 @@ export function MetadataPanel({ className }: { className?: string }) {
           </div>
 
           <div className={styles.templateBar}>
-            <button
-              type="button"
-              className={styles.templateButton}
+            <Button
+              size="small"
               disabled={!templatePath}
               onClick={() => void store.applyTemplate(templateMode, photo.id)}
             >
               Apply template…
-            </button>
-            <select
+            </Button>
+            <Select
               className={styles.templateMode}
               aria-label="Template apply mode"
               value={templateMode}
@@ -173,20 +174,19 @@ export function MetadataPanel({ className }: { className?: string }) {
             >
               <option value="fillEmpty">Fill empty</option>
               <option value="replace">Replace all</option>
-            </select>
+            </Select>
             {photo.status.metadataDiffersFromTemplate && (
               <span
                 className={styles.diffPill}
                 title="Metadata no longer matches the ingest template"
               >
-                <WarningIcon size={10} /> differs
+                differs
               </span>
             )}
           </div>
 
           {SECTIONS.map((section) => (
-            <section key={section.title} className={styles.section}>
-              <h3 className={styles.sectionTitle}>{section.title}</h3>
+            <PanelSection key={section.title} title={section.title}>
               {section.fields.map((field) => {
                 const fieldDiffers = differs(field.name, fields, template);
                 const value = valueOf(fields[field.name]);
@@ -195,9 +195,11 @@ export function MetadataPanel({ className }: { className?: string }) {
                     {field.label}
                     {fieldDiffers && (
                       <span
-                        className={styles.diffDot}
+                        className={styles.diffMark}
                         title={`Template: ${valueOf(template?.[field.name])}`}
-                      />
+                      >
+                        ≠ template
+                      </span>
                     )}
                   </span>
                 );
@@ -210,14 +212,10 @@ export function MetadataPanel({ className }: { className?: string }) {
                   );
                 }
                 return (
-                  <label
-                    key={field.name}
-                    className={`${styles.field} ${fieldDiffers ? styles.fieldDiff : ''}`}
-                  >
+                  <label key={field.name} className={styles.field}>
                     {label}
                     {field.multiline ? (
-                      <textarea
-                        className={styles.input}
+                      <TextArea
                         data-caption-input={field.name === 'caption' ? true : undefined}
                         placeholder={field.placeholder}
                         value={value}
@@ -239,8 +237,7 @@ export function MetadataPanel({ className }: { className?: string }) {
                         }}
                       />
                     ) : (
-                      <input
-                        className={styles.input}
+                      <TextInput
                         value={value}
                         onChange={(event) =>
                           store.updateMetadataField(photo.id, field.name, event.target.value)
@@ -252,7 +249,6 @@ export function MetadataPanel({ className }: { className?: string }) {
               })}
               {section.title === 'Caption' && unresolved.length > 0 && (
                 <div className={styles.unresolved} role="status">
-                  <WarningIcon size={11} />
                   <span>Unknown codes:</span>
                   {unresolved.map((token) => (
                     <code key={token} className={styles.unresolvedToken}>
@@ -261,7 +257,7 @@ export function MetadataPanel({ className }: { className?: string }) {
                   ))}
                 </div>
               )}
-            </section>
+            </PanelSection>
           ))}
         </div>
       )}
