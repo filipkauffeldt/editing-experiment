@@ -105,6 +105,8 @@ export interface ExportRenderRequest {
   presetId: PresetId;
   /** Retouch ops to apply: none for `develop`, the newest retouch version for `top`. */
   version: ExportVersion;
+  /** {@link retouchOpsKey} of the ops the jobs process expects this render to apply. */
+  opsKey: string;
 }
 
 /** Arguments of `export:start`. */
@@ -122,6 +124,8 @@ export interface DeliverExportRenderArgs {
   jobId: ExportJobId;
   requestId: string;
   rendered?: RenderedImage;
+  /** Key of the ops the renderer actually applied; must match the request. */
+  opsKey?: string;
   /** Set instead of `rendered` when the renderer could not render the photo. */
   error?: string;
 }

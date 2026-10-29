@@ -12,7 +12,7 @@ import {
 import type { AppBackendResponse } from '../../shared/jobs-protocol';
 import { AppResources } from './app-resources';
 import { EditService } from './edit-service';
-import { EditedPreviews } from './edited-previews';
+import { EditedPreviews, retouchKey } from './edited-previews';
 import { LabelService } from './label-service';
 import { withIpcErrors } from './errors';
 import { FaceService, findYuNetModel } from './faces';
@@ -147,6 +147,8 @@ export async function createBackend(options: BackendOptions): Promise<Backend> {
   const exports = new ExportQueue({
     file: layout.exportJobsFile,
     getPreset: (presetId) => settings.getExportPreset(presetId),
+    getOpsKey: (photoId, version) =>
+      version === 'develop' ? '' : retouchKey(photos.get(photoId).versions),
     exportPhoto: (args) => exporter.exportOne(args),
     enqueue: ({ photoId, path, destinations }) => exporter.enqueue(photoId, path, destinations),
     discard: (photoId) => exporter.discard(photoId),

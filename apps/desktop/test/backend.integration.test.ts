@@ -91,7 +91,11 @@ const sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout
 async function runExportJob(
   handlerSet: IpcHandlers,
   args: Parameters<IpcHandlers['export:start']>[0],
-  render: (photoId: string) => { width: number; height: number; rgba: Uint8Array },
+  render: (
+    photoId: string,
+    expectedOpsKey: string,
+  ) => { width: number; height: number; rgba: Uint8Array },
+  opsKeyFor?: (photoId: string, expectedOpsKey: string) => string,
 ): Promise<ExportJob> {
   const jobId = await handlerSet['export:start'](args);
   const handled = new Set<string>();
@@ -107,12 +111,17 @@ async function runExportJob(
       );
     });
     if (request) {
-      const payload = request.payload as { requestId: string; photoId: string };
+      const payload = request.payload as {
+        requestId: string;
+        photoId: string;
+        opsKey: string;
+      };
       handled.add(payload.requestId);
       await handlerSet['export:render']({
         jobId,
         requestId: payload.requestId,
-        rendered: render(payload.photoId),
+        rendered: render(payload.photoId, payload.opsKey),
+        opsKey: opsKeyFor?.(payload.photoId, payload.opsKey) ?? payload.opsKey,
       });
       continue;
     }
@@ -600,6 +609,43 @@ describe.skipIf(nefs.length === 0)(
         ),
       ).toBe(true);
     }, 120_000);
+
+    it('refuses a render that does not carry the current retouch ops', async () => {
+      const photo = bySource(cardA)[0]!;
+      const version = await handlers['photos:createVersion']({
+        photoId: photo.id,
+        kind: 'retouch',
+      });
+      await handlers['retouch:set']({
+        photoId: photo.id,
+        versionId: version.id,
+        ops: [
+          {
+            type: 'mosaic',
+            shapes: [{ type: 'rect', x: 0.2, y: 0.2, w: 0.2, h: 0.2 }],
+            blockSizeRel: 0.01,
+          },
+        ],
+      });
+      const preset = testPreset({
+        id: asPresetId('ops-key-preset'),
+        folderTemplate: join(root, 'ops-key-exports'),
+        metadata: 'none',
+        version: 'top',
+        sendTo: [],
+      });
+      await handlers['exportPresets:save']({ preset });
+
+      const job = await runExportJob(
+        handlers,
+        { photoIds: [photo.id], presetId: preset.id },
+        () => ({ width: 16, height: 16, rgba: new Uint8Array(16 * 16 * 4).fill(180) }),
+        () => '',
+      );
+      expect(job.state).toBe('failed');
+      expect(job.photos[0]?.state).toBe('failed');
+      expect(job.photos[0]?.error).toMatch(/retouch version/);
+    });
 
     it('fails one photo without killing the batch and rejects an unknown preset', async () => {
       const [photo, second] = bySource(cardA);

@@ -27,6 +27,8 @@ export interface ExportQueueOptions {
   /** JSON file for resumable jobs; omit to keep jobs only in memory. */
   file?: string;
   getPreset(presetId: ExportPreset['id']): ExportPreset | undefined;
+  /** Key of the retouch ops a render for this version must apply ('' for develop). */
+  getOpsKey(photoId: ExportJob['photoIds'][number], version: ExportJob['version']): string;
   exportPhoto(args: {
     photoId: ExportJob['photoIds'][number];
     preset: ExportPreset;
@@ -50,6 +52,7 @@ export interface ExportQueueOptions {
 interface PendingRender {
   jobId: ExportJobId;
   request: ExportRenderRequest;
+  expectedOpsKey: string;
   resolve(rendered: RenderedImage): void;
   reject(error: Error): void;
   timer: NodeJS.Timeout;
@@ -153,18 +156,41 @@ export class ExportQueue {
     jobId: ExportJobId;
     requestId: string;
     rendered?: RenderedImage;
+    opsKey?: string;
     error?: string;
   }): void {
     const pending = this.pendingRender;
     if (!pending || pending.jobId !== args.jobId || pending.request.requestId !== args.requestId) {
       return;
     }
+    if (args.error !== undefined) {
+      this.pendingRender = undefined;
+      clearTimeout(pending.timer);
+      pending.reject(new Error(args.error));
+      return;
+    }
+    // The renderer proves what it drew; the photo must still have the same ops now,
+    // in case a retouch commit landed while the render was in flight.
+    const currentOpsKey = this.options.getOpsKey(pending.request.photoId, pending.request.version);
+    if (
+      args.opsKey === undefined ||
+      args.opsKey !== pending.expectedOpsKey ||
+      currentOpsKey !== pending.expectedOpsKey
+    ) {
+      this.pendingRender = undefined;
+      clearTimeout(pending.timer);
+      pending.reject(new Error('the render does not match the current retouch version'));
+      return;
+    }
+    if (args.rendered === undefined) {
+      this.pendingRender = undefined;
+      clearTimeout(pending.timer);
+      pending.reject(new Error('the renderer returned no image'));
+      return;
+    }
     this.pendingRender = undefined;
     clearTimeout(pending.timer);
-    if (args.error !== undefined) pending.reject(new Error(args.error));
-    else if (args.rendered === undefined) {
-      pending.reject(new Error('the renderer returned no image'));
-    } else pending.resolve(args.rendered);
+    pending.resolve(args.rendered);
   }
 
   /** Stop processing. The current photo stays renderable after a restart. */
@@ -306,12 +332,14 @@ export class ExportQueue {
     job: ExportJob,
     photoId: ExportPhotoProgress['photoId'],
   ): Promise<RenderedImage> {
+    const opsKey = this.options.getOpsKey(photoId, job.version);
     const request: ExportRenderRequest = {
       jobId: job.id,
       requestId: this.newRequestId(),
       photoId,
       presetId: job.presetId,
       version: job.version,
+      opsKey,
     };
     return new Promise<RenderedImage>((resolve, reject) => {
       const timer = setTimeout(() => {
@@ -320,7 +348,14 @@ export class ExportQueue {
         reject(new Error('the renderer did not answer in time'));
       }, this.renderTimeoutMs);
       timer.unref?.();
-      this.pendingRender = { jobId: job.id, request, resolve, reject, timer };
+      this.pendingRender = {
+        jobId: job.id,
+        request,
+        expectedOpsKey: opsKey,
+        resolve,
+        reject,
+        timer,
+      };
       this.options.emit({ type: 'export.render', at: this.now(), ...request });
     });
   }

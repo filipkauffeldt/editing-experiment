@@ -7,6 +7,7 @@ import {
   type RetouchOp,
   type Photo,
   type SetEditedPreviewArgs,
+  retouchOpsKey,
 } from '@ee/contracts';
 import { createHash } from 'node:crypto';
 import { encodeEditedJpegs } from './image-ops';
@@ -30,8 +31,7 @@ export function topRetouchOps(versions: PhotoVersion[]): RetouchOp[] {
  * cached render is only valid for the exact ops it was drawn with.
  */
 export function retouchKey(versions: PhotoVersion[]): string {
-  const ops = topRetouchOps(versions);
-  return ops.length === 0 ? '' : JSON.stringify(ops);
+  return retouchOpsKey(topRetouchOps(versions));
 }
 
 /** Order-independent fingerprint of develop params, for comparing what was drawn with what was saved. */

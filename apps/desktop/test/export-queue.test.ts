@@ -60,6 +60,7 @@ function harness(
   const queue = new ExportQueue({
     ...(options.file === undefined ? {} : { file: options.file }),
     getPreset: () => preset(options.preset),
+    getOpsKey: (photoId, version) => `${photoId}:${version}`,
     exportPhoto: async ({ photoId }) => {
       if (fail.has(photoId)) throw new Error(`could not encode ${photoId}`);
       exported.push(photoId);
@@ -231,6 +232,24 @@ describe('ExportQueue', () => {
     expect(renderEvents(test.events, local)[0]?.version).toBe('develop');
     test.respond(renderEvents(test.events, local)[0]!);
     await vi.waitFor(() => expect(test.job(local)?.state).toBe('done'));
+  });
+
+  it('rejects a render whose ops key does not match the requested version', async () => {
+    const test = harness({ preset: { version: 'top' } });
+    const jobId = test.queue.start({
+      photoIds: [photo(1)],
+      presetId: preset().id,
+      send: [],
+    });
+    await vi.waitFor(() => expect(renderEvents(test.events, jobId)).toHaveLength(1));
+    const request = renderEvents(test.events, jobId)[0]!;
+    test.queue.deliverRender({ ...request, rendered, opsKey: '' });
+    await vi.waitFor(() => expect(test.job(jobId)?.state).toBe('failed'));
+    expect(test.job(jobId)?.photos[0]).toMatchObject({
+      state: 'failed',
+      error: expect.stringMatching(/retouch version/),
+    });
+    expect(test.exported).toEqual([]);
   });
 
   it('re-emits the pending render request when the renderer comes back', async () => {

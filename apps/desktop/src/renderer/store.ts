@@ -46,6 +46,7 @@ import {
   type TemplateApplyMode,
   type UploadItem,
   type VersionId,
+  retouchOpsKey,
 } from '@ee/contracts';
 import { EditedPreviewScheduler, type EditedPreviewRenderer } from './edited-preview-scheduler';
 import { renderFullResolution } from './export-render';
@@ -2063,6 +2064,7 @@ export class AppStore {
         jobId: request.jobId,
         requestId: request.requestId,
         rendered,
+        opsKey: retouchOpsKey(ops),
       });
     } catch (cause) {
       await this.bridge
