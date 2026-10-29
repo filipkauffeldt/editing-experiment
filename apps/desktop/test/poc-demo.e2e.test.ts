@@ -686,6 +686,26 @@ describe.skipIf(nefs.length === 0 || !haveDisplay)(
       expect(params.Exposure2012).toBeCloseTo(1.2, 2);
     }, 60_000);
 
+    it('wires the histogram, clipping, split view and white balance picker', async () => {
+      await selectPhoto('cardA_001.NEF');
+      await canvasReady();
+      await window.getByTestId('histogram').waitFor();
+
+      await window.getByTestId('split-view').click();
+      await window.locator('[data-testid="split-divider"]').waitFor();
+      await window.getByTestId('split-view').click();
+      await window.locator('[data-testid="split-divider"]').waitFor({ state: 'detached' });
+
+      await window.getByTestId('clip-highlights').click();
+      expect(await window.getByTestId('clip-highlights').getAttribute('aria-pressed')).toBe('true');
+      await window.getByTestId('clip-highlights').click();
+
+      await window.getByTestId('wb-picker').click();
+      await window.locator('[data-testid="wb-picker-layer"]').waitFor();
+      await window.keyboard.press('Escape');
+      await window.locator('[data-testid="wb-picker-layer"]').waitFor({ state: 'detached' });
+    }, 15_000);
+
     it('crops to 1:1 with a 3 degree straighten and uploads the crop size', async () => {
       await selectPhoto('cardA_002.NEF');
       await canvasReady();
