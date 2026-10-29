@@ -369,7 +369,11 @@ export function exportStatusText(state: AppState): string | undefined {
 }
 
 /** Whether a develop section is on for the photo (see `AppState.sectionStash`). */
-export function sectionEnabled(state: AppState, photo: Photo | undefined, section: string): boolean {
+export function sectionEnabled(
+  state: AppState,
+  photo: Photo | undefined,
+  section: string,
+): boolean {
   return !photo || state.sectionStash[`${photo.id}:${section}`] === undefined;
 }
 
