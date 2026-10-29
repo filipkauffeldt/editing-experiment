@@ -12,13 +12,19 @@ const renderer = vi.hoisted(() => ({
   renderToRGBA: vi.fn(() => new Uint8Array(4)),
   resolve: vi.fn(),
   contextLost: false,
+  supportsNeighbourhood: true,
   dispose: vi.fn(),
+  /** The options the component created the renderer with. */
+  options: undefined as { onNeighbourhoodUnavailable?: () => void } | undefined,
 }));
 
 vi.mock('@ee/develop-gl', async (importOriginal) => ({
   // The crop maths is real: the crop session in the store needs it.
   ...(await importOriginal<typeof DevelopGl>()),
-  createDevelopRenderer: () => renderer,
+  createDevelopRenderer: (_canvas: unknown, options?: typeof renderer.options) => {
+    renderer.options = options;
+    return renderer;
+  },
   grainSeedFromId: () => 0,
 }));
 
@@ -116,6 +122,28 @@ describe('PhotoCanvas preview', () => {
       expect(screen.getByTestId('develop-canvas').getAttribute('data-visible')).toBe('true'),
     );
     expect(preview.getAttribute('data-visible')).toBe('false');
+  });
+
+  it('tells the user once that a GPU without float targets skips the detail settings', async () => {
+    const photo = activePhoto(store.getState());
+    if (!photo) throw new Error('no selection');
+    pendingLinear();
+    render(
+      <AppStoreProvider store={store}>
+        <PhotoCanvas photo={photo} />
+      </AppStoreProvider>,
+    );
+    await waitFor(() => expect(renderer.options?.onNeighbourhoodUnavailable).toBeDefined());
+    const unavailable = renderer.options?.onNeighbourhoodUnavailable;
+    act(() => {
+      unavailable?.();
+      unavailable?.();
+    });
+    const notices = store
+      .getState()
+      .toasts.filter((toast) => /float render targets/.test(toast.message));
+    expect(notices).toHaveLength(1);
+    expect(notices[0]?.kind).toBe('info');
   });
 
   it('shows a toast when face detection fails', async () => {

@@ -1,4 +1,9 @@
-import { createDevelopRenderer, cropDevelopedRgba } from '@ee/develop-gl';
+import {
+  createDevelopRenderer,
+  cropDevelopedRgba,
+  needsNeighbourhood,
+  renderCpu,
+} from '@ee/develop-gl';
 import { applyMosaic } from '@ee/retouch';
 import type { EditParams, LinearImageHeader, RetouchOp } from '@ee/contracts';
 
@@ -77,6 +82,41 @@ export function composeDevelopedRgba({
   return rgba;
 }
 
+/**
+ * Largest picture (source or output, in pixels) the CPU reference renders for an export
+ * when the GPU cannot draw Texture, Clarity, Dehaze, sharpening or noise reduction.
+ * It holds several float planes per pixel (about 100 bytes), so beyond this it would
+ * run out of memory; the render fails with a clear message instead.
+ */
+export const CPU_FALLBACK_MAX_PIXELS = 16_000_000;
+
+/**
+ * Renders with `renderer`, or, when the settings need the neighbourhood passes and the GPU
+ * has no float render targets, with the CPU reference (the same maths, slower), so an export
+ * is never silently drawn without the settings. Too large for the CPU: throws.
+ */
+export function renderWithFallback(
+  renderer: ReturnType<typeof createDevelopRenderer>,
+  header: LinearImageHeader,
+  data: ArrayBuffer,
+  params: EditParams,
+  size: { width: number; height: number },
+  grainSeed?: number,
+): Uint8Array {
+  if (renderer.supportsNeighbourhood || !needsNeighbourhood(params)) {
+    return renderer.renderToRGBA(params, size);
+  }
+  const pixels = Math.max(header.width * header.height, size.width * size.height);
+  if (pixels > CPU_FALLBACK_MAX_PIXELS) {
+    throw new Error(
+      'Texture, Clarity, Dehaze, sharpening and noise reduction need GPU float support ' +
+        '(EXT_color_buffer_float), which this GPU lacks, and this picture is too large to ' +
+        'render them on the CPU. Set those sliders to 0 or export a smaller size.',
+    );
+  }
+  return renderCpu(header, data, params, size, grainSeed === undefined ? {} : { grainSeed });
+}
+
 export function renderDevelopRgba(request: RenderRequest): RenderResult {
   const { header, data, params, ops, width, height, grainSeed } = request;
   const canvas = createCanvas();
@@ -90,7 +130,8 @@ export function renderDevelopRgba(request: RenderRequest): RenderResult {
       width,
       height,
       source: { width: header.width, height: header.height },
-      render: (renderParams, size) => renderer.renderToRGBA(renderParams, size),
+      render: (renderParams, size) =>
+        renderWithFallback(renderer, header, data, renderParams, size, grainSeed),
     });
     request.onProgress?.(0.95);
     return { width, height, rgba };

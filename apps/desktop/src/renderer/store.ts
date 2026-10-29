@@ -613,6 +613,15 @@ export class AppStore {
   /** Surface an operational message (e.g. a failed face detection) without a dialog. */
   readonly notify = (kind: Toast['kind'], message: string): void => this.toast(kind, message);
 
+  private readonly notified = new Set<string>();
+
+  /** Like {@link notify}, but only the first time for `key` in this session. */
+  readonly notifyOnce = (key: string, kind: Toast['kind'], message: string): void => {
+    if (this.notified.has(key)) return;
+    this.notified.add(key);
+    this.toast(kind, message);
+  };
+
   // ---------------------------------------------------------------- lifecycle
 
   readonly init = async (): Promise<void> => {

@@ -328,6 +328,12 @@ function CanvasForPhoto({ photo }: { photo: Photo }) {
     try {
       created = createDevelopRenderer(canvas, {
         grainSeed: grainSeedFromId(photo.id),
+        onNeighbourhoodUnavailable: () =>
+          store.notifyOnce(
+            'develop-float',
+            'info',
+            'This GPU cannot draw Texture, Clarity, Dehaze, sharpening or noise reduction (no float render targets), so the preview skips them. Exports still apply them.',
+          ),
         onContextLost: () => {
           setContextLost(true);
           setFirstFrame(false);
@@ -347,7 +353,7 @@ function CanvasForPhoto({ photo }: { photo: Photo }) {
       rendererRef.current = null;
       setRenderer(null);
     };
-  }, [photo.id]);
+  }, [photo.id, store]);
 
   // Keep the drawing buffer exactly the size the image is fitted to (capped).
   useLayoutEffect(() => {
