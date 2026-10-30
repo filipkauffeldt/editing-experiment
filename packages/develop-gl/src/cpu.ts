@@ -35,6 +35,7 @@ import { buildPyramid, downsample, makePlane, type Plane } from './neighbourhood
 import { sharpenPlane } from './neighbourhood/sharpen';
 import { MAX_LEVEL } from './neighbourhood/tuning';
 import { measuredLateralCa } from './lens/auto-ca';
+import { profileBase, profileFinish, withLookSettings } from './profile/render';
 import { lensGain, lensSample, type LensSample, type LensUniforms } from './lens/model';
 
 /**
@@ -86,9 +87,16 @@ export function basePixel(
   const wr = clipped[0] * gain;
   const wg = clipped[1] * gain;
   const wb = clipped[2] * gain;
-  let lr = m[0] * wr + m[1] * wg + m[2] * wb;
-  let lg = m[3] * wr + m[4] * wg + m[5] * wb;
-  let lb = m[6] * wr + m[7] * wg + m[8] * wb;
+  let lr: number;
+  let lg: number;
+  let lb: number;
+  if (u.profile) {
+    [lr, lg, lb] = profileBase(u.profile, m, wr, wg, wb);
+  } else {
+    lr = m[0] * wr + m[1] * wg + m[2] * wb;
+    lg = m[3] * wr + m[4] * wg + m[5] * wb;
+    lb = m[6] * wr + m[7] * wg + m[8] * wb;
+  }
   // Calibration sits next to the camera matrix, before exposure and tone.
   [lr, lg, lb] = applyCalibration([lr, lg, lb], u.calibration);
   return [lr * k, lg * k, lb * k];
@@ -103,9 +111,10 @@ export function colorPixel(
 ): [number, number, number] {
   if (u.toneActive) [lr, lg, lb] = toneRgb(lr, lg, lb, u.tone);
 
-  let er = srgbEncode(shoulder(lr));
-  let eg = srgbEncode(shoulder(lg));
-  let eb = srgbEncode(shoulder(lb));
+  // A camera profile's tone curve takes the place of the highlight shoulder.
+  let [er, eg, eb] = u.profile
+    ? profileFinish(u.profile, lr, lg, lb)
+    : [srgbEncode(shoulder(lr)), srgbEncode(shoulder(lg)), srgbEncode(shoulder(lb))];
 
   if (u.curveLut) {
     er = lookupCurve(u.curveLut, 0, 4, er);
@@ -291,6 +300,7 @@ export function renderCpuFloat(
   options: ResolveOptions = {},
 ): Float32Array {
   const samples = toFloat32Samples(header, data);
+  params = withLookSettings(params, options.profile ?? null);
   const u = resolveUniforms(header, params, {
     ...options,
     measuredCa:

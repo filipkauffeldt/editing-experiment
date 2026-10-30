@@ -81,13 +81,20 @@ export function cameraNeutralToXY(xyzToCamera: Mat3, neutral: Multipliers): XY {
   return { x: X / sum, y: Y / sum };
 }
 
+/**
+ * The XYZ to camera matrix for a white of the given colour temperature. A constant matrix (LibRaw's)
+ * ignores it; a DNG camera profile interpolates its two `ColorMatrix` tags by it.
+ */
+export type ColorModel = (kelvin: number) => Mat3;
+
 /** Temperature/tint to multipliers (`camera * multipliers` renders that illuminant neutral). */
 export function multipliersFromTemperatureTint(
-  xyzToCamera: Mat3,
+  xyzToCamera: Mat3 | ColorModel,
   temperature: number,
   tint: number,
 ): Multipliers {
-  const n = xyToCameraNeutral(xyzToCamera, temperatureTintToXY({ temperature, tint }));
+  const matrix = typeof xyzToCamera === 'function' ? xyzToCamera(temperature) : xyzToCamera;
+  const n = xyToCameraNeutral(matrix, temperatureTintToXY({ temperature, tint }));
   // The white balance gain is the reciprocal of the neutral; g stays 1.
   return { r: 1 / n.r, g: 1, b: 1 / n.b };
 }
@@ -98,12 +105,39 @@ export function temperatureTintFromMultipliers(xyzToCamera: Mat3, m: Multipliers
   return xyToTemperatureTint(cameraNeutralToXY(xyzToCamera, neutral));
 }
 
+/**
+ * Temperature/tint of the white a camera neutral stands for when the colour matrix depends on that
+ * white (a DNG profile interpolates between two). Iterates like the DNG SDK's `NeutralToXY`: guess a
+ * white, take the matrix at its temperature, find the white that matrix gives, repeat.
+ */
+export function temperatureTintFromMultipliersIterated(
+  model: ColorModel,
+  m: Multipliers,
+): TemperatureTint {
+  const neutral = { r: m.g / m.r, g: 1, b: m.g / m.b };
+  let xy: XY = { x: 0.3457, y: 0.3585 }; // D50
+  for (let pass = 0; pass < 30; pass++) {
+    const { temperature } = xyToTemperatureTint(xy);
+    const next = cameraNeutralToXY(model(temperature), neutral);
+    const change = Math.abs(next.x - xy.x) + Math.abs(next.y - xy.y);
+    // The last passes average, which settles the rare oscillating case.
+    xy = pass === 29 ? { x: (xy.x + next.x) / 2, y: (xy.y + next.y) / 2 } : next;
+    if (change < 1e-7) break;
+  }
+  return xyToTemperatureTint(xy);
+}
+
 /** As-shot temperature/tint for slider display, derived from `asShotMultipliers`. */
-export function asShotTemperatureTint(camera: WhiteBalanceCamera): TemperatureTint {
+export function asShotTemperatureTint(
+  camera: WhiteBalanceCamera,
+  model?: ColorModel,
+): TemperatureTint {
   const m = camera.asShotMultipliers;
   if (m.r > 0 && m.g > 0 && m.b > 0) {
     try {
-      return temperatureTintFromMultipliers(camera.xyzToCamera, m);
+      return model
+        ? temperatureTintFromMultipliersIterated(model, m)
+        : temperatureTintFromMultipliers(camera.xyzToCamera, m);
     } catch {
       // fall through to the decoder-provided values
     }
@@ -119,12 +153,16 @@ const clampSlider = (name: 'Temperature' | 'Tint', value: number): number =>
  * - `Temperature` / `Tint` set: use them (an absent one keeps its as-shot value);
  * - else a named `WhiteBalance` (Daylight, ...): its fixed temperature/tint;
  * - else (absent, `As Shot`, `Auto`): the as-shot multipliers, untouched.
+ *
+ * With a `model` (a camera profile's colour matrices) the temperature picks the matrix, so the
+ * multipliers and the as-shot temperature come from the profile instead of LibRaw's matrix.
  */
 export function resolveWhiteBalance(
   camera: WhiteBalanceCamera,
   params: Pick<EditParams, 'WhiteBalance' | 'Temperature' | 'Tint'>,
+  model?: ColorModel,
 ): ResolvedWhiteBalance {
-  const asShot = asShotTemperatureTint(camera);
+  const asShot = asShotTemperatureTint(camera, model);
   const named = params.WhiteBalance ? WHITE_BALANCE_PRESETS[params.WhiteBalance] : undefined;
   const temperature = params.Temperature ?? named?.temperature;
   const tint = params.Tint ?? named?.tint;
@@ -137,6 +175,6 @@ export function resolveWhiteBalance(
   return {
     temperature: t,
     tint: ti,
-    multipliers: multipliersFromTemperatureTint(camera.xyzToCamera, t, ti),
+    multipliers: multipliersFromTemperatureTint(model ?? camera.xyzToCamera, t, ti),
   };
 }
