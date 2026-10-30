@@ -27,6 +27,21 @@ const desk: FolderDestination = {
   remotePathTemplate: '{fileName}',
 };
 
+describe('SettingsStore profile folders', () => {
+  it('keeps the folders the user added across a restart, without repeats', async () => {
+    const file = join(await tempDir(), 'settings.json');
+    const store = new SettingsStore(file, defaults);
+    expect(store.get().profileFolders).toBeUndefined();
+    store.set({ profileFolders: ['/profiles/a', '/profiles/b', '/profiles/a'] });
+    expect(store.get().profileFolders).toEqual(['/profiles/a', '/profiles/b']);
+    expect(new SettingsStore(file, defaults).get().profileFolders).toEqual([
+      '/profiles/a',
+      '/profiles/b',
+    ]);
+    expect(() => store.set({ profileFolders: [''] })).toThrow(/profileFolders/);
+  });
+});
+
 describe('SettingsStore', () => {
   it('starts from defaults and survives a restart', async () => {
     const file = join(await tempDir(), 'settings.json');

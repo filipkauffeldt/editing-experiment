@@ -12,6 +12,7 @@ import {
   autoWhiteBalance,
   beforeParams,
   createDevelopRenderer,
+  profileColorModel,
   cropDevelopedRgba,
   cropGeometry,
   croppedToSourcePixels,
@@ -26,7 +27,13 @@ import {
 import { applyMosaic, magicWand, shapeBounds, simplifyPolygon } from '@ee/retouch';
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { ee } from '../ee';
-import { paramsForPhoto, topRetouchVersion, type RetouchFace, type RetouchTool } from '../store';
+import {
+  namesProfile,
+  paramsForPhoto,
+  topRetouchVersion,
+  type RetouchFace,
+  type RetouchTool,
+} from '../store';
 import {
   clearDevelopAction,
   setHistogram,
@@ -208,6 +215,19 @@ function CanvasForPhoto({ photo }: { photo: Photo }) {
   const state = useAppState();
   const params = paramsForPhoto(state, photo);
   const lensContext = state.photoLens[photo.id];
+  const profileState = state.photoProfiles[photo.id];
+  const lookAmount = params.LookAmount;
+  // The profile the settings name, or null (none named, not on this machine). The canvas waits for
+  // a named profile to load, so a photo never flashes in the camera-matrix colours first.
+  const profile = useMemo(
+    () =>
+      profileState?.status === 'ok' && profileState.profile
+        ? { ...profileState.profile, amount: lookAmount ?? 1 }
+        : null,
+    [profileState, lookAmount],
+  );
+  const profilePending =
+    namesProfile(params) && (profileState === undefined || profileState.status === 'loading');
   const session = state.retouch?.photoId === photo.id ? state.retouch : undefined;
   const cropSession = state.crop?.photoId === photo.id ? state.crop : undefined;
   const image = state.photos.find((candidate) => candidate.id === photo.id) ?? photo;
@@ -226,6 +246,12 @@ function CanvasForPhoto({ photo }: { photo: Photo }) {
   const [container, setContainer] = useState({ width: 0, height: 0 });
   const [renderer, setRenderer] = useState<DevelopRenderer | null>(null);
   const [loaded, setLoaded] = useState<LoadedImage | null>(null);
+
+  // Auto and the picker turn camera gains into a temperature through the profile's ColorMatrix.
+  const colorModel = useMemo(
+    () => (loaded ? profileColorModel(profile, loaded.header.xyzToCamera) : undefined),
+    [profile, loaded],
+  );
   const [error, setError] = useState<string | undefined>(() =>
     typeof WebGL2RenderingContext === 'undefined' ? 'WebGL2 is not available' : undefined,
   );
@@ -352,6 +378,16 @@ function CanvasForPhoto({ photo }: { photo: Photo }) {
     bufferRatio,
   ]);
 
+  useEffect(() => {
+    store.loadPhotoProfile(photo.id, {
+      CameraProfile: params.CameraProfile,
+      LookName: params.LookName,
+      LookUUID: params.LookUUID,
+    });
+    // `params` itself changes with every slider; only the profile choice matters here.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [store, photo.id, params.CameraProfile, params.LookName, params.LookUUID]);
+
   // Create the WebGL renderer once per canvas; the image is uploaded separately.
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -463,23 +499,25 @@ function CanvasForPhoto({ photo }: { photo: Photo }) {
   // Upload the image after it arrives, after a context restore, and when the
   // photo changes. Rendering is separate so slider changes only draw.
   useEffect(() => {
-    if (!renderer || !loaded || contextLost) return;
+    if (!renderer || !loaded || contextLost || profilePending) return;
     try {
       renderer.setImage(loaded.header, loaded.data);
+      renderer.setProfile(profile);
       renderer.render(renderParams);
     } catch (cause) {
       queueMicrotask(() => setError(cause instanceof Error ? cause.message : String(cause)));
     }
     // Rendering on the next frame keeps the slider smooth.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [renderer, loaded, contextLost]);
+  }, [renderer, loaded, contextLost, profilePending]);
 
   useEffect(() => {
-    if (!renderer || !loaded || contextLost) return;
+    if (!renderer || !loaded || contextLost || profilePending) return;
     // One draw per animation frame however fast pointer events arrive; the
     // view transform is a uniform change, not a CPU resample.
     const frame = requestAnimationFrame(() => {
       try {
+        renderer.setProfile(profile);
         const options = {
           clipping: { shadows: viewMode.clipShadows, highlights: viewMode.clipHighlights },
         };
@@ -534,6 +572,8 @@ function CanvasForPhoto({ photo }: { photo: Photo }) {
     viewMode.clipShadows,
     viewMode.clipHighlights,
     histogramReadback,
+    profile,
+    profilePending,
   ]);
 
   // One-shot Auto commands from the panel: measure a small render (tone) or the
@@ -543,7 +583,7 @@ function CanvasForPhoto({ photo }: { photo: Photo }) {
     if (!request || !renderer || !loaded || contextLost) return;
     try {
       if (request.action === 'auto-wb') {
-        const result = autoWhiteBalance(loaded.header, loaded.data, renderParams.crop);
+        const result = autoWhiteBalance(loaded.header, loaded.data, renderParams.crop, colorModel);
         store.setWhiteBalance(Math.round(result.temperature), Math.round(result.tint));
       } else {
         const source = { width: loaded.header.width, height: loaded.header.height };
@@ -566,7 +606,7 @@ function CanvasForPhoto({ photo }: { photo: Photo }) {
     } finally {
       clearDevelopAction(request.sequence);
     }
-  }, [viewMode.request, renderer, loaded, contextLost, renderParams, store]);
+  }, [viewMode.request, renderer, loaded, contextLost, renderParams, store, colorModel]);
 
   const pickerFrom = (event: React.MouseEvent<HTMLDivElement>): { x: number; y: number } => {
     const rect = event.currentTarget.getBoundingClientRect();
@@ -594,7 +634,13 @@ function CanvasForPhoto({ photo }: { photo: Photo }) {
     // About five display pixels across, in source pixels.
     const radius = Math.max(2, Math.round((source.width / Math.max(1, rect.width)) * 5));
     try {
-      const result = whiteBalanceFromPatch(loaded.header, loaded.data, imagePoint, radius);
+      const result = whiteBalanceFromPatch(
+        loaded.header,
+        loaded.data,
+        imagePoint,
+        radius,
+        colorModel,
+      );
       store.setWhiteBalance(Math.round(result.temperature), Math.round(result.tint));
       setWbPicker(false);
       setPickerPoint(null);

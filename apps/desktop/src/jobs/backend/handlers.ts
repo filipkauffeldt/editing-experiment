@@ -1,4 +1,5 @@
 import { IpcError, type IpcHandlers } from '@ee/contracts';
+import { isRawPath } from '@ee/metadata';
 import { detectCards, testSource, type GetSecret } from '@ee/ingest';
 import type { UploadQueue } from '@ee/export';
 import { systemHandlers } from '../handlers/system';
@@ -87,9 +88,16 @@ export function createBackendHandlers(deps: HandlerDeps): IpcHandlers {
     'develop:listPresets': () => presets.list(),
     'develop:importPreset': ({ path }) => presets.import(path),
 
-    'profiles:list': async ({ photoId }) => profiles.list(photos.get(photoId).camera),
+    // Camera profiles describe a raw sensor; a JPEG or TIFF is already rendered and has none.
+    'profiles:list': async ({ photoId }) => {
+      const photo = photos.get(photoId);
+      return isRawPath(photo.path) ? profiles.list(photo.camera) : { camera: '', profiles: [] };
+    },
     'profiles:index': async (args) => profiles.index(args?.rescan === true),
-    'profiles:resolve': async (args) => profiles.resolve(args, photos.get(args.photoId).camera),
+    'profiles:resolve': async (args) => {
+      const photo = photos.get(args.photoId);
+      return isRawPath(photo.path) ? profiles.resolve(args, photo.camera) : { status: 'none' };
+    },
 
     'retouch:get': (ref) => edits.getRetouch(ref),
     'retouch:set': (args) => edits.setRetouch(args),

@@ -3,6 +3,7 @@ import type {
   Photo,
   PhotoId,
   RenderedImage,
+  ResolvedProfile,
   RetouchOp,
   SetEditedPreviewArgs,
 } from '@ee/contracts';
@@ -12,6 +13,7 @@ export interface EditedPreviewRenderer {
     photo: Photo,
     params: EditParams,
     ops: RetouchOp[],
+    options?: { profile?: ResolvedProfile | null },
   ): Promise<{
     thumb: RenderedImage;
     preview: RenderedImage;

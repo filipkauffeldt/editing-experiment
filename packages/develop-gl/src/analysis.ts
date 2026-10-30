@@ -1,7 +1,13 @@
 import type { CropParams, EditParams, LinearImageHeader } from '@ee/contracts';
 import { cropOutputSize, croppedToSourcePixels, isUsableCrop, type Size } from './crop';
 import { halfToFloat, samplesView, type LinearImageBuffer } from './image';
-import { temperatureTintFromMultipliers, type Multipliers, type TemperatureTint } from './wb';
+import {
+  temperatureTintFromMultipliers,
+  temperatureTintFromMultipliersIterated,
+  type ColorModel,
+  type Multipliers,
+  type TemperatureTint,
+} from './wb';
 
 /**
  * Histogram, clipping and one-click develop analysis.
@@ -246,17 +252,30 @@ function grayWorldMultipliers(samples: readonly [number, number, number][]): Mul
   return { r: g / r, g: 1, b: g / b };
 }
 
+/**
+ * Temperature and tint of camera gains. With a camera profile's `colorModel` its ColorMatrix is
+ * interpolated by the white's temperature (the DNG SDK's iteration), the same matrices the render
+ * turns that temperature back into gains with; without one it is LibRaw's single matrix.
+ */
+function temperatureTintOf(
+  header: LinearImageHeader,
+  multipliers: Multipliers,
+  colorModel?: ColorModel,
+): TemperatureTint {
+  return colorModel
+    ? temperatureTintFromMultipliersIterated(colorModel, multipliers)
+    : temperatureTintFromMultipliers(header.xyzToCamera, multipliers);
+}
+
 /** Auto white balance: gray world over the crop, converted to Temperature/Tint like the DNG SDK. */
 export function autoWhiteBalance(
   header: LinearImageHeader,
   data: LinearImageBuffer,
   crop?: CropParams,
+  colorModel?: ColorModel,
 ): TemperatureTint & { multipliers: Multipliers } {
   const multipliers = grayWorldMultipliers(cameraSamples(header, data, crop));
-  return {
-    ...temperatureTintFromMultipliers(header.xyzToCamera, multipliers),
-    multipliers,
-  };
+  return { ...temperatureTintOf(header, multipliers, colorModel), multipliers };
 }
 
 /** White balance picker: the neutral of a small camera-RGB patch, in Temperature/Tint and gains. */
@@ -265,6 +284,7 @@ export function whiteBalanceFromPatch(
   data: LinearImageBuffer,
   point: { x: number; y: number },
   radius = 6,
+  colorModel?: ColorModel,
 ): TemperatureTint & { multipliers: Multipliers } {
   const view = samplesView(header, data);
   const samples: [number, number, number][] = [];
@@ -276,8 +296,5 @@ export function whiteBalanceFromPatch(
     }
   }
   const multipliers = grayWorldMultipliers(samples);
-  return {
-    ...temperatureTintFromMultipliers(header.xyzToCamera, multipliers),
-    multipliers,
-  };
+  return { ...temperatureTintOf(header, multipliers, colorModel), multipliers };
 }

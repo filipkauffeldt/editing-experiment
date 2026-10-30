@@ -10,6 +10,7 @@ import { createMonotoneSpline } from '../spline';
 import {
   resolveWhiteBalance,
   temperatureTintToXY,
+  type ColorModel,
   type ResolvedWhiteBalance,
   type WhiteBalanceCamera,
   type XY,
@@ -460,6 +461,19 @@ export interface ProfileUniforms {
 export function colorMatrixAt(camera: CameraProfileData, kelvin: number): Mat3 | undefined {
   if (camera.colorMatrices.length === 0) return undefined;
   return blendNumbers(camera.colorMatrices, illuminantWeight(kelvin, camera.illuminants));
+}
+
+/**
+ * The colour matrix model of a profile choice for white balance (temperature to XYZ-to-camera
+ * matrix), or undefined for no profile or a profile without a ColorMatrix, which keep LibRaw's.
+ */
+export function profileColorModel(
+  profile: ResolvedProfile | null,
+  xyzToCamera: Mat3,
+): ColorModel | undefined {
+  if (!profile || profile.camera.colorMatrices.length === 0) return undefined;
+  const camera = profile.camera;
+  return (kelvin) => colorMatrixAt(camera, kelvin) ?? xyzToCamera;
 }
 
 /**
