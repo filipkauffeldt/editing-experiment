@@ -415,7 +415,9 @@ app reads them where they are and never copies them into the repo, userData or f
   `applyPreset` replaces the profile whole, so a camera profile drops the previous look. A preset
   that names a profile this machine does not have still sets the name: the panel says "not in the
   profile folders" and the picture is drawn with the camera matrix (the sidecar keeps the name for
-  Lightroom). Exports and thumbnails draw what the canvas shows.
+  Lightroom). Exports (rendered directly at the preset's output size) and thumbnails draw what
+  the canvas shows. Copy/Paste/Sync Settings has a first group, *Treatment & Profile*, holding
+  `CameraProfile`, `CameraProfileDigest` and the look fields.
 - **Pipeline order** (CPU: `profile/render.ts`, shader: `glsl/profile.ts`; the stages are their own
   files, the shaders have two insertion points `baseColor` and `profileFinish`):
 
