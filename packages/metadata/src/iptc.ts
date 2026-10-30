@@ -28,6 +28,11 @@ export interface IptcTagMapping {
   readonly xmp: string;
   /** ExifTool `Family1:Tag` name for the IIM dataset, when one exists. */
   readonly iim?: string;
+  /**
+   * EXIF tag that MWG keeps consistent with this field in embedded metadata.
+   * Raws are never written, so this only applies to JPEG/TIFF.
+   */
+  readonly exif?: string;
   /** XMP representation of a contract-scalar field is an RDF list (e.g. `dc:creator`). */
   readonly xmpList?: boolean;
   /** Contract field is a list (keywords). */
@@ -40,11 +45,17 @@ export const IPTC_TAG_MAP: readonly IptcTagMapping[] = [
   { field: 'headline', xmp: 'XMP-photoshop:Headline', iim: 'IPTC:Headline' },
   { field: 'caption', xmp: 'XMP-dc:Description', iim: 'IPTC:Caption-Abstract' },
   { field: 'keywords', xmp: 'XMP-dc:Subject', iim: 'IPTC:Keywords', list: true },
-  { field: 'byline', xmp: 'XMP-dc:Creator', iim: 'IPTC:By-line', xmpList: true },
+  {
+    field: 'byline',
+    xmp: 'XMP-dc:Creator',
+    iim: 'IPTC:By-line',
+    xmpList: true,
+    exif: 'EXIF:Artist',
+  },
   { field: 'bylineTitle', xmp: 'XMP-photoshop:AuthorsPosition', iim: 'IPTC:By-lineTitle' },
   { field: 'credit', xmp: 'XMP-photoshop:Credit', iim: 'IPTC:Credit' },
   { field: 'source', xmp: 'XMP-photoshop:Source', iim: 'IPTC:Source' },
-  { field: 'copyright', xmp: 'XMP-dc:Rights', iim: 'IPTC:CopyrightNotice' },
+  { field: 'copyright', xmp: 'XMP-dc:Rights', iim: 'IPTC:CopyrightNotice', exif: 'EXIF:Copyright' },
   { field: 'city', xmp: 'XMP-photoshop:City', iim: 'IPTC:City' },
   { field: 'state', xmp: 'XMP-photoshop:State', iim: 'IPTC:Province-State' },
   { field: 'country', xmp: 'XMP-photoshop:Country', iim: 'IPTC:Country-PrimaryLocationName' },
@@ -216,6 +227,7 @@ export async function writeIptc(
     if (isEmptyValue(value)) {
       tags[mapping.xmp] = null;
       if (embedded && mapping.iim !== undefined) tags[mapping.iim] = null;
+      if (embedded && mapping.exif !== undefined) tags[mapping.exif] = null;
       continue;
     }
 
@@ -230,6 +242,8 @@ export async function writeIptc(
     const text = String(value);
     tags[mapping.xmp] = mapping.xmpList === true ? [text] : text;
     if (embedded && mapping.iim !== undefined) tags[mapping.iim] = text;
+    // MWG: EXIF Artist/Copyright must agree with XMP/IPTC when both exist in one file.
+    if (embedded && mapping.exif !== undefined) tags[mapping.exif] = text;
   }
 
   if (Object.keys(tags).length === 0) return;

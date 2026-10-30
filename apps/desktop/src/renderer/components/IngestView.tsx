@@ -5,14 +5,30 @@ import { Button } from './ui/Button';
 import { IngestSection } from './SettingsDialog';
 import styles from './IngestView.module.css';
 
+const baseName = (path: string): string => path.split(/[\\/]/).pop() ?? path;
+
 /** Ingest: every source with its progress, and the ingest settings (destination, rename, template). */
 export function IngestView() {
   const store = useAppStore();
   const state = useAppState();
+  const ingest = state.settings?.ingest;
+  const templatePath = ingest?.metadataTemplatePath;
+  const templateMode = ingest?.metadataTemplateMode ?? 'replace';
+  const presetId = ingest?.developPresetId;
+  const presetName = presetId
+    ? (state.presets.find((preset) => preset.id === presetId)?.name ?? presetId)
+    : 'None';
   return (
     <div className={styles.view} data-testid="ingest-view">
       <section className={styles.sources}>
         <h3 className={styles.title}>Sources</h3>
+        <p className={styles.activeChoices} data-testid="ingest-active-choices">
+          Template:{' '}
+          {templatePath
+            ? `${baseName(templatePath)} (${templateMode === 'replace' ? 'replace existing' : 'fill empty'})`
+            : 'None'}{' '}
+          · Preset: {presetName}
+        </p>
         {state.sources.length === 0 && (
           <p className={styles.empty}>No sources yet. Add a card, folder or FTP server.</p>
         )}

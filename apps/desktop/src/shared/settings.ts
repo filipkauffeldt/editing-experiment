@@ -29,6 +29,7 @@ export function defaultSettings(homeDir: string): AppSettings {
     ingest: {
       destination: { path: join(homeDir, 'Pictures', 'ee-ingest') },
       renameTemplate: '{date}_{seq:4}',
+      metadataTemplateMode: 'replace',
       codeReplacementPaths: [],
     },
     exportRoot: join(homeDir, 'Pictures', 'ee-exports'),
@@ -38,13 +39,8 @@ export function defaultSettings(homeDir: string): AppSettings {
 }
 
 /**
- * Ingest options as the real backend persists them. `IngestConfig` has no field
- * for how the metadata template merges at ingest, so it is kept alongside the
- * other ingest settings (see "Contract concerns" in the PR).
+ * Merge mode used for the ingest template when settings do not say. Replace is
+ * the default: cameras often write their own copyright/artist, and the template
+ * must correct those fields.
  */
-export type BackendIngestSettings = AppSettings['ingest'] & {
-  metadataTemplateMode?: TemplateApplyMode;
-};
-
-/** Merge mode used for the ingest template when settings do not say. */
-export const DEFAULT_TEMPLATE_MODE: TemplateApplyMode = 'fillEmpty';
+export const DEFAULT_TEMPLATE_MODE: TemplateApplyMode = 'replace';

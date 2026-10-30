@@ -8,8 +8,10 @@ import {
   type PresetId,
   type SourceConfig,
   type SourceId,
+  type TemplateApplyMode,
 } from '@ee/contracts';
 import { existsSync, readFileSync, renameSync } from 'node:fs';
+import { DEFAULT_TEMPLATE_MODE } from '../../shared/settings';
 import { writeJsonAtomic } from './atomic-json';
 
 interface PersistedState extends AppSettings {
@@ -32,6 +34,9 @@ const FILE_VERSION = 2;
 const isObject = (value: unknown): value is Record<string, unknown> =>
   typeof value === 'object' && value !== null && !Array.isArray(value);
 
+const isTemplateApplyMode = (value: unknown): value is TemplateApplyMode =>
+  value === 'replace' || value === 'fillEmpty';
+
 function assertIngest(value: unknown): asserts value is AppSettings['ingest'] {
   if (
     !isObject(value) ||
@@ -39,7 +44,10 @@ function assertIngest(value: unknown): asserts value is AppSettings['ingest'] {
     typeof value.destination.path !== 'string' ||
     value.destination.path === '' ||
     typeof value.renameTemplate !== 'string' ||
-    !Array.isArray(value.codeReplacementPaths)
+    !Array.isArray(value.codeReplacementPaths) ||
+    (value.metadataTemplateMode !== undefined &&
+      !isTemplateApplyMode(value.metadataTemplateMode)) ||
+    (value.developPresetId !== undefined && typeof value.developPresetId !== 'string')
   ) {
     throw new IpcError(
       'invalid_argument',
@@ -179,10 +187,22 @@ export class SettingsStore {
         typeof parsed.activePresetId === 'string'
           ? (parsed.activePresetId as PresetId)
           : (presets[0]?.id ?? defaults.activePresetId);
+      const storedIngest = isObject(parsed.ingest)
+        ? (parsed.ingest as unknown as AppSettings['ingest'])
+        : undefined;
+      // Settings written before the mode existed mean Replace: a camera-written
+      // copyright/artist must be corrected by the template, not kept.
+      const ingest =
+        storedIngest === undefined
+          ? defaults.ingest
+          : isTemplateApplyMode(storedIngest.metadataTemplateMode)
+            ? storedIngest
+            : { ...storedIngest, metadataTemplateMode: DEFAULT_TEMPLATE_MODE };
+      if (storedIngest !== undefined && !isTemplateApplyMode(storedIngest.metadataTemplateMode)) {
+        migrated = true;
+      }
       this.state = {
-        ingest: isObject(parsed.ingest)
-          ? (parsed.ingest as unknown as AppSettings['ingest'])
-          : defaults.ingest,
+        ingest,
         exportRoot:
           typeof parsed.exportRoot === 'string' && parsed.exportRoot !== ''
             ? parsed.exportRoot

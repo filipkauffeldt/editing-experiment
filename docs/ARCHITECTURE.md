@@ -72,8 +72,13 @@ exports/             default exportRoot (presets choose folders below it)
 ```
 
 - Ingest: `@ee/ingest` with the `{variable}` expander from `@ee/metadata` and a per-file hook that reads
-  camera data, caches a 2560px preview and a 320px thumbnail, applies the PM template, indexes the
+  camera data, caches a 2560px preview and a 320px thumbnail, applies the PM template (replace
+  existing values by default, or fill empty fields) and the configured develop preset, indexes the
   photo and emits `photos:added`. Ingest awaits the hook per source, so photos appear in copy order.
+  A preset is merged over the file's current `crs:` settings, so a photo that arrived with its own
+  develop settings (e.g. an existing Lightroom sidecar) keeps them; a missing preset is skipped with
+  one warning per job. Applying a preset marks the photo edited and `previewStale`, so the
+  edited-preview scheduler draws it.
 - `app://thumb|preview` are cached JPEGs. `app://linear/<id>?maxEdge=N` is decoded in the jobs process
   (f16 for raws, f32 for JPEGs), written to `cache/linear` (small LRU) and streamed from
   there by main, with the `LinearImageHeader` in `x-ee-linear-image`. Main only streams
@@ -148,7 +153,8 @@ Key types (names are binding, fields can grow):
   (`FtpSource` covers FTP and FTPS; remote sources have `pollIntervalMs`,
   `remotePath`, `deleteAfterDownload` default false, `credentialRef`)
 - `IngestConfig { sources, destination, backupDestination?, renameTemplate,
-  metadataTemplatePath?, codeReplacementPaths[] }`
+  metadataTemplatePath?, metadataTemplateMode?, developPresetId?, codeReplacementPaths[] }`;
+  the template mode is `replace` (default) or `fillEmpty`.
 - `IptcFields` (IPTC Core + common Ext: headline, caption, keywords, byline,
   bylineTitle, credit, source, copyright, city, state, country, countryCode,
   location, event, objectName, jobId, instructions, captionWriter, dateCreated)
@@ -208,7 +214,12 @@ are not decoded.
 - Develop settings: `crs:` namespace in the same sidecar.
 - Retouch versions: namespace `ee:` (`http://ns.editing-experiment/1.0/`).
 - PM metadata templates are `.XMP` files; code replacement files are
-  tab-delimited text; variables use `{name}` syntax.
+  tab-delimited text; variables use `{name}` syntax. Ingest replaces existing
+  values by default (cameras write their own copyright/artist); "fill empty"
+  is the opt-in alternative. For embedded JPEG/TIFF metadata the template's
+  `copyright`/`byline` are also written to EXIF `Copyright`/`Artist`, as MWG
+  requires them to agree with XMP/IPTC. Raws are never written: their EXIF is
+  left alone and the template goes to the sidecar.
 
 ## Linear image format
 

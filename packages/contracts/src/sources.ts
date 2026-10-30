@@ -1,4 +1,4 @@
-import type { SourceId } from './ids';
+import type { PresetId, SourceId } from './ids';
 
 /** Fields shared by every ingest source. */
 interface SourceBase {
@@ -91,6 +91,9 @@ export interface IngestDestination {
   subfolderTemplate?: string;
 }
 
+/** How a metadata template merges into existing metadata. */
+export type TemplateApplyMode = 'replace' | 'fillEmpty';
+
 /** Everything `ingest:start` needs. All sources run in parallel, each in filename order. */
 export interface IngestConfig {
   sources: SourceConfig[];
@@ -101,6 +104,13 @@ export interface IngestConfig {
   renameTemplate: string;
   /** Photo Mechanic style `.XMP` metadata template applied to every ingested photo. */
   metadataTemplatePath?: string;
+  /**
+   * How the template merges into metadata the file already has. Defaults to
+   * `replace` so camera-written fields (e.g. copyright/artist) are corrected.
+   */
+  metadataTemplateMode?: TemplateApplyMode;
+  /** Imported develop preset applied to every ingested photo; absent means none. */
+  developPresetId?: PresetId;
   /** Tab-delimited code replacement files, later files override earlier ones. */
   codeReplacementPaths: string[];
 }

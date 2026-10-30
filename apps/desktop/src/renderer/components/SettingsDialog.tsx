@@ -1,11 +1,13 @@
 import {
   asDestinationId,
+  asPresetId,
   asSourceId,
   type CredentialSecret,
   type Destination,
   type FtpSecurity,
   type IngestSettings,
   type SourceConfig,
+  type TemplateApplyMode,
 } from '@ee/contracts';
 import { useEffect, useState } from 'react';
 import { ee } from '../ee';
@@ -887,6 +889,8 @@ export function IngestSection() {
   const [backup, setBackup] = useState('');
   const [renameTemplate, setRenameTemplate] = useState('{date}_{seq:4}');
   const [metadataTemplatePath, setMetadataTemplatePath] = useState('');
+  const [metadataTemplateMode, setMetadataTemplateMode] = useState<TemplateApplyMode>('replace');
+  const [developPresetId, setDevelopPresetId] = useState('');
   const [codeReplacementPaths, setCodeReplacementPaths] = useState<string[]>([]);
   const [status, setStatus] = useState<string>();
   const [error, setError] = useState<string>();
@@ -902,6 +906,8 @@ export function IngestSection() {
     setBackup(ingest.backupDestination?.path ?? '');
     setRenameTemplate(ingest.renameTemplate);
     setMetadataTemplatePath(ingest.metadataTemplatePath ?? '');
+    setMetadataTemplateMode(ingest.metadataTemplateMode ?? 'replace');
+    setDevelopPresetId(ingest.developPresetId ?? '');
     setCodeReplacementPaths(ingest.codeReplacementPaths);
   }, [state.settings]);
 
@@ -913,6 +919,8 @@ export function IngestSection() {
     backupDestination: backup.trim() ? { path: backup.trim() } : undefined,
     renameTemplate: renameTemplate.trim(),
     metadataTemplatePath: metadataTemplatePath.trim() || undefined,
+    metadataTemplateMode,
+    developPresetId: developPresetId ? asPresetId(developPresetId) : undefined,
     codeReplacementPaths,
   });
 
@@ -1002,29 +1010,58 @@ export function IngestSection() {
         </label>
       </div>
 
-      <label className={styles.field}>
-        <span className={styles.label}>Metadata template (.XMP)</span>
-        <span className={styles.inputRow}>
-          <input
+      <div className={styles.gridTwo}>
+        <label className={styles.field}>
+          <span className={styles.label}>Metadata template (.XMP)</span>
+          <span className={styles.inputRow}>
+            <input
+              className={styles.input}
+              value={metadataTemplatePath}
+              onChange={(event) => setMetadataTemplatePath(event.target.value)}
+            />
+            <button
+              type="button"
+              className={styles.smallButton}
+              onClick={async () => {
+                const [path] = await ee.invoke('dialog:pick', {
+                  kind: 'file',
+                  title: 'Metadata template',
+                  extensions: ['xmp'],
+                });
+                if (path) setMetadataTemplatePath(path);
+              }}
+            >
+              Choose…
+            </button>
+          </span>
+        </label>
+        <label className={styles.field}>
+          <span className={styles.label}>Template mode</span>
+          <select
             className={styles.input}
-            value={metadataTemplatePath}
-            onChange={(event) => setMetadataTemplatePath(event.target.value)}
-          />
-          <button
-            type="button"
-            className={styles.smallButton}
-            onClick={async () => {
-              const [path] = await ee.invoke('dialog:pick', {
-                kind: 'file',
-                title: 'Metadata template',
-                extensions: ['xmp'],
-              });
-              if (path) setMetadataTemplatePath(path);
-            }}
+            value={metadataTemplateMode}
+            onChange={(event) => setMetadataTemplateMode(event.target.value as TemplateApplyMode)}
           >
-            Choose…
-          </button>
-        </span>
+            <option value="replace">Replace existing values</option>
+            <option value="fillEmpty">Fill empty fields</option>
+          </select>
+        </label>
+      </div>
+
+      <label className={styles.field}>
+        <span className={styles.label}>Develop preset</span>
+        <select
+          className={styles.input}
+          value={developPresetId}
+          onChange={(event) => setDevelopPresetId(event.target.value)}
+        >
+          <option value="">None</option>
+          {state.presets.map((preset) => (
+            <option key={preset.id} value={preset.id}>
+              {preset.name}
+            </option>
+          ))}
+        </select>
       </label>
 
       <div className={styles.field}>
