@@ -66,6 +66,8 @@ export function DevelopView() {
                   ['0–8', 'class'],
                   ['C', 'crop'],
                   ['R', 'retouch'],
+                  ['Y', 'before/after'],
+                  ['J', 'clipping'],
                 ]}
               />
             </>

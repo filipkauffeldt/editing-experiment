@@ -127,7 +127,10 @@ void main() {
   vec3 e = developColor(texelFetch(u_lin2, t, 0).rgb * u_linGain);
   if (u_effects == 1) e = finalEffects(e, t);
   e = clamp(e, 0.0, 1.0);
-  if (u_effects == 1) e = finalView(e, t);
+  if (u_effects == 1) {
+    e = finalView(e, t);
+    e = applyClipping(e);
+  }
   outColor = vec4(e, 1.0);
 }
 `;

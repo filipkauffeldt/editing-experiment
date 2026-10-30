@@ -1,10 +1,41 @@
 import { useEffect } from 'react';
+import {
+  cancelWbPicker,
+  developViewStore,
+  toggleBefore,
+  toggleClipping,
+  toggleWbPicker,
+} from './develop-view';
 import type { AppStore } from './store';
 
 /** Focus the caption editor without threading a ref through every panel. */
 export function focusCaptionField(): void {
   document.querySelector<HTMLTextAreaElement>('[data-caption-input]')?.focus();
 }
+
+/**
+ * Symbols that a Swedish (and most non-US) layout only produces with AltGr.
+ * Windows/Linux report AltGr as Ctrl+Alt, so a combo carrying one of these is
+ * character input, never a command.
+ */
+const ALT_GRAPH_SYMBOLS = new Set(['@', '$', '{', '[', ']', '}', '\\', '|', '~', '€']);
+
+const wbPickerOpen = (): boolean => developViewStore.get().wbPicker;
+
+function isAltGraph(event: KeyboardEvent): boolean {
+  if (event.getModifierState?.('AltGraph') === true) return true;
+  // Some drivers do not report AltGraph; a Ctrl+Alt combo that does not type a
+  // plain letter or digit is a character on those layouts too.
+  return (
+    event.ctrlKey &&
+    event.altKey &&
+    (ALT_GRAPH_SYMBOLS.has(event.key) || !/^[a-z0-9]$/i.test(event.key))
+  );
+}
+
+/** Letters and digits match what the keyboard prints, in any layout. */
+const keyIs = (event: KeyboardEvent, key: string): boolean =>
+  event.key.toLowerCase() === key.toLowerCase();
 
 function isTypingTarget(target: EventTarget | null): target is HTMLElement {
   if (!(target instanceof HTMLElement)) return false;
@@ -33,14 +64,6 @@ function isTextEntryTarget(target: EventTarget | null): boolean {
 }
 
 /**
- * AltGr is reported as Ctrl+Alt on Windows/Linux. It must never fire a
- * Ctrl+Alt shortcut, so check the modifier state rather than the two keys.
- */
-function isAltGraph(event: KeyboardEvent): boolean {
-  return typeof event.getModifierState === 'function' && event.getModifierState('AltGraph');
-}
-
-/**
  * Global shortcuts. While an input, textarea, select or contenteditable has
  * focus only the explicit command shortcuts work (Ctrl/Cmd+Enter, Ctrl/Cmd+I,
  * Shift+Ctrl/Cmd+Enter, Shift+Ctrl/Cmd+E, Escape and Ctrl+Space inside the caption).
@@ -55,6 +78,11 @@ export function useKeyboardShortcuts(store: AppStore): void {
       const command = event.ctrlKey || event.metaKey;
 
       if (event.key === 'Escape') {
+        if (!typing && !state.dialog && wbPickerOpen()) {
+          event.preventDefault();
+          cancelWbPicker();
+          return;
+        }
         if (state.crop && !typing && !state.dialog && !state.copySettings) {
           event.preventDefault();
           store.cancelCrop();
@@ -84,6 +112,17 @@ export function useKeyboardShortcuts(store: AppStore): void {
         return;
       }
 
+      // A dead key (Swedish ¨, ´ …) or an IME composition must reach the field,
+      // and AltGr is a character modifier: neither may fire a shortcut.
+      if (
+        event.isComposing ||
+        event.keyCode === 229 ||
+        event.key === 'Dead' ||
+        event.key === 'Process'
+      )
+        return;
+      if (isAltGraph(event)) return;
+
       if (
         state.dialog ||
         state.copySettings ||
@@ -94,6 +133,12 @@ export function useKeyboardShortcuts(store: AppStore): void {
         return;
 
       const library = state.module === 'library';
+      // The physical slash key, so the shortcut does not depend on where `/` sits.
+      if (command && event.code === 'Slash') {
+        event.preventDefault();
+        store.toggleShortcuts(true);
+        return;
+      }
       if (command && event.shiftKey && (event.key === 'e' || event.key === 'E')) {
         event.preventDefault();
         store.openExportDialog();
@@ -159,6 +204,12 @@ export function useKeyboardShortcuts(store: AppStore): void {
         }
       }
 
+      if (event.key === 'F1') {
+        event.preventDefault();
+        store.toggleShortcuts(true);
+        return;
+      }
+
       if (typing) return;
       if (state.crop && event.key === 'Enter') {
         event.preventDefault();
@@ -174,13 +225,34 @@ export function useKeyboardShortcuts(store: AppStore): void {
       // Single-key shortcuts never fire with a command modifier, during IME
       // composition, or for the synthetic keydown an IME emits on commit.
       if (event.ctrlKey || event.metaKey || event.altKey) return;
-      if (event.isComposing || event.keyCode === 229) return;
-      if (event.repeat && (event.key === 't' || event.key === 'T')) return;
+      if (event.repeat && keyIs(event, 't')) return;
+
+      const developing = state.module === 'develop' && !state.crop && !state.retouch;
+      if (developing && (event.code === 'Backslash' || event.code === 'IntlBackslash')) {
+        event.preventDefault();
+        toggleBefore();
+        return;
+      }
+      if (developing && keyIs(event, 'y')) {
+        event.preventDefault();
+        toggleBefore();
+        return;
+      }
+      if (developing && keyIs(event, 'j')) {
+        event.preventDefault();
+        toggleClipping();
+        return;
+      }
+      if (developing && keyIs(event, 'w')) {
+        event.preventDefault();
+        toggleWbPicker();
+        return;
+      }
 
       if (state.module === 'ingest') {
         // Ingest has no photos to cull; only the module keys apply.
-        if (event.key === 'g' || event.key === 'G') store.openLibrary('grid');
-        else if (event.key === 'd' || event.key === 'D') store.setModule('develop');
+        if (keyIs(event, 'g')) store.openLibrary('grid');
+        else if (keyIs(event, 'd')) store.setModule('develop');
         return;
       }
 
@@ -217,8 +289,6 @@ export function useKeyboardShortcuts(store: AppStore): void {
           store.moveRowInLibrary(event.key === 'ArrowUp' ? -1 : 1, event.shiftKey);
           break;
         case '?':
-        case '/':
-          if (event.key === '/' && !event.shiftKey) break;
           event.preventDefault();
           store.toggleShortcuts(true);
           break;

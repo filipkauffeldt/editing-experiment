@@ -72,7 +72,7 @@ const shooter = (window: Page, outDir: string) => async (name: string, selector?
 };
 
 async function runMock(outDir: string): Promise<void> {
-  const app = await launch({ EE_MOCK: '1', EE_SOFTWARE_GL: '1' });
+  const app = await launch({ EE_MOCK: '1', EE_SOFTWARE_GL: '1', EE_SCREENSHOTS: '1' });
   const shoot = shooter(await app.firstWindow(), outDir);
   try {
     const window = await app.firstWindow();
@@ -146,7 +146,7 @@ async function runMock(outDir: string): Promise<void> {
     await shoot('05b-export-dialog.png');
     await window.keyboard.press('Escape');
     await window.locator('[data-testid="photo-view"]').click({ position: { x: 10, y: 10 } });
-    await window.keyboard.press('Shift+/');
+    await window.keyboard.press('F1');
     await window.getByTestId('shortcuts-overlay').waitFor();
     await shoot('06-shortcuts.png');
 
@@ -213,6 +213,47 @@ async function runMock(outDir: string): Promise<void> {
     await window.keyboard.press('Escape');
     await window.locator('[data-testid="retouch-toolbar"]').waitFor({ state: 'detached' });
 
+    // Develop tools: histogram, clipping overlay, before/after split and the
+    // white balance picker loupe.
+    await window.locator('[title^="_DSC8334.NEF"]').click();
+    await window.waitForSelector('[data-testid="histogram"][data-has-data="true"]');
+    await window.keyboard.press('j');
+    const exposure = window.locator('input[aria-label="Exposure value"]');
+    await exposure.fill('2.5');
+    await exposure.blur();
+    const blacks = window.locator('input[aria-label="Blacks value"]');
+    await blacks.fill('-100');
+    await blacks.blur();
+    await window.waitForTimeout(300);
+    await shoot('28-clipping-overlay.png');
+    await window.keyboard.press('j');
+
+    await window.locator('[title^="_DSC8336.NEF"]').click();
+    await window.waitForTimeout(200);
+    const splitExposure = window.locator('input[aria-label="Exposure value"]');
+    await splitExposure.fill('1');
+    await splitExposure.blur();
+    await window.getByTestId('split-view').click();
+    await window.locator('[data-testid="split-divider"]').waitFor();
+    await window.waitForTimeout(300);
+    await shoot('29-before-after-split.png');
+    await window.getByTestId('split-view').click();
+
+    await window.locator('[title^="_DSC8337.NEF"]').click();
+    await window.waitForTimeout(200);
+    await window.getByTestId('wb-picker').click();
+    const canvasBox = await window.locator('[data-testid="photo-canvas"]').boundingBox();
+    if (canvasBox) {
+      await window.mouse.move(
+        canvasBox.x + canvasBox.width * 0.42,
+        canvasBox.y + canvasBox.height * 0.46,
+      );
+    }
+    await window.locator('[data-testid="wb-loupe"]').waitFor();
+    await window.waitForTimeout(200);
+    await shoot('30-wb-picker-loupe.png');
+    await window.keyboard.press('Escape');
+
     await window.getByRole('tab', { name: 'Ingest' }).click();
     await window.locator('[data-testid="ingest-view"]').waitFor();
     await shoot('22-ingest.png');
@@ -246,7 +287,12 @@ async function runReal(outDir: string): Promise<void> {
   copyFileSync(face, join(source, 'B1.jpg'));
   copyFileSync(join(rawDir, nefs[1] ?? nefs[0]!), join(source, 'C1.NEF'));
 
-  const app = await launch({ EE_MOCK: '', EE_SOFTWARE_GL: '1', EE_USER_DATA_DIR: userData });
+  const app = await launch({
+    EE_MOCK: '',
+    EE_SOFTWARE_GL: '1',
+    EE_SCREENSHOTS: '1',
+    EE_USER_DATA_DIR: userData,
+  });
   try {
     const window = await app.firstWindow();
     const problems = watchErrors(window);

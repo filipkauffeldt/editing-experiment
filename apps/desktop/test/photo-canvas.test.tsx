@@ -9,10 +9,20 @@ import { createFakeBridge, type FakeBridge } from './fake-bridge';
 const renderer = vi.hoisted(() => ({
   setImage: vi.fn(),
   render: vi.fn(),
+  renderView: vi.fn(),
+  renderSplit: vi.fn(),
+  readHistogram: vi.fn(() => ({
+    bins: 4,
+    red: new Uint32Array(4),
+    green: new Uint32Array(4),
+    blue: new Uint32Array(4),
+    luminance: new Uint32Array(4),
+  })),
   renderToRGBA: vi.fn(() => new Uint8Array(4)),
   resolve: vi.fn(),
   contextLost: false,
   supportsNeighbourhood: true,
+  softwareRendering: false,
   dispose: vi.fn(),
   /** The options the component created the renderer with. */
   options: undefined as { onNeighbourhoodUnavailable?: () => void } | undefined,

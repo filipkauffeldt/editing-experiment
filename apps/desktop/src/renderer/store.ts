@@ -16,6 +16,7 @@ import {
   rotateCropInView,
   sanitizeCrop,
   straightenAngleFromLine,
+  type AutoToneSettings,
   type CropHandle,
 } from '@ee/develop-gl';
 import {
@@ -2114,6 +2115,24 @@ export class AppStore {
       }
       return next;
     });
+  };
+
+  /** White balance picker / Auto WB: Temperature and Tint as one normal, saved edit. */
+  readonly setWhiteBalance = (temperature: number, tint: number): void => {
+    this.patchParams((current) => ({
+      ...current,
+      WhiteBalance: 'Custom',
+      Temperature: Math.min(
+        SLIDER_SPECS.Temperature.max,
+        Math.max(SLIDER_SPECS.Temperature.min, temperature),
+      ),
+      Tint: Math.min(SLIDER_SPECS.Tint.max, Math.max(SLIDER_SPECS.Tint.min, tint)),
+    }));
+  };
+
+  /** Auto tone: the six Basic sliders plus Vibrance and Saturation, saved like slider moves. */
+  readonly applyAutoTone = (tone: AutoToneSettings): void => {
+    this.patchParams((current) => ({ ...current, ...tone }));
   };
 
   readonly resetSlider = (name: keyof typeof SLIDER_SPECS): void => {

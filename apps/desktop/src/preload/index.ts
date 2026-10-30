@@ -19,3 +19,7 @@ const transport: BridgeTransport = {
 };
 
 contextBridge.exposeInMainWorld('eeTransport', transport);
+
+contextBridge.exposeInMainWorld('eeEnvironment', {
+  screenshots: process.argv.includes('--ee-screenshots'),
+});

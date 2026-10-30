@@ -1,4 +1,5 @@
 import type { EditParams, LinearImageHeader } from '@ee/contracts';
+import { histogramOfRgba, type Histogram } from './analysis';
 import { cropGeometry, cropOutputSize, isUsableCrop, type Size } from './crop';
 import { DevelopGlError } from './errors';
 import { FRAGMENT_SHADER } from './glsl';
@@ -54,6 +55,12 @@ export interface DevelopRendererOptions {
   grainSeed?: number;
 }
 
+/** View-only overlays; `renderToRGBA` never takes them, so exports stay clean. */
+export interface DevelopViewOptions {
+  /** The `J` overlay: red for clipped highlights, blue for crushed shadows. */
+  clipping?: { shadows: boolean; highlights: boolean };
+}
+
 /** Where the crop-mode view puts the image on the canvas, in drawing-buffer pixels. */
 export interface CropViewTransform {
   /** The crop being edited (`EditParams.crop` units): gives the pivot in the source and the angle. */
@@ -77,7 +84,7 @@ export interface DevelopRenderer {
    */
   setImage(header: LinearImageHeader, data: LinearImageBuffer): void;
   /** Draws the image scaled to the canvas drawing buffer. Cheap enough to call on every slider tick. */
-  render(params: EditParams): void;
+  render(params: EditParams, options?: DevelopViewOptions): void;
   /**
    * Draws the crop-mode view: the whole image, turned by `-view.crop.angle`
    * about the frame centre, with empty canvas outside the image and a dimmed
@@ -87,7 +94,24 @@ export interface DevelopRenderer {
    * and noise reduction are drawn through the same pipeline (and cached stages) as
    * {@link render}.
    */
-  renderView(params: EditParams, view: CropViewTransform): void;
+  renderView(params: EditParams, view: CropViewTransform, options?: DevelopViewOptions): void;
+  /**
+   * Draws `params` on the right and the unedited `before` on the left of
+   * `fraction` (0..1). The before side uses the per-pixel shader without the
+   * neighbourhood stages; it is a view aid, not an export.
+   */
+  renderSplit(
+    params: EditParams,
+    before: EditParams,
+    fraction: number,
+    options?: DevelopViewOptions,
+  ): void;
+  /**
+   * Histogram of the frame just drawn into the canvas: a GPU downsample
+   * (`blitFramebuffer`) followed by a small readback, so it does not re-render
+   * the pipeline. Call it right after {@link render}, before the browser
+   * composites. */
+  readHistogram(bins?: number): Histogram;
   /**
    * Renders at an arbitrary size into a new 8-bit RGBA buffer (row 0 at the top),
    * through an offscreen framebuffer, in tiles when needed. Handles full resolution.
@@ -102,6 +126,8 @@ export interface DevelopRenderer {
    * export) renders with the CPU reference instead (`renderCpu`).
    */
   readonly supportsNeighbourhood: boolean;
+  /** True on SwiftShader/llvmpipe; the app skips GPU readbacks (the histogram) there unless capturing screenshots. */
+  readonly softwareRendering: boolean;
   dispose(): void;
 }
 
@@ -227,6 +253,9 @@ function createResources(gl: WebGL2RenderingContext): Resources {
   return { direct, base, curveTexture, uploadedCurve: null };
 }
 
+const clampFraction = (value: number): number =>
+  Number.isFinite(value) ? Math.min(1, Math.max(0, value)) : 0;
+
 /** Row-major 3x3 to the column-major order `uniformMatrix3fv` expects, so `u_color * v` is `M v`. */
 const toColumnMajor = (m: readonly number[]): Float32Array =>
   new Float32Array([
@@ -256,6 +285,10 @@ export function createDevelopRenderer(
   }) as WebGL2RenderingContext | null;
   if (!context) throw new DevelopGlError('WebGL2 is not available');
   const gl: WebGL2RenderingContext = context;
+  const debugInfo = gl.getExtension('WEBGL_debug_renderer_info');
+  const rendererName =
+    debugInfo === null ? '' : String(gl.getParameter(debugInfo.UNMASKED_RENDERER_WEBGL));
+  const softwareRendering = /swiftshader|llvmpipe|software/i.test(rendererName);
 
   let res = createResources(gl);
   let source: Source | undefined;
@@ -347,7 +380,7 @@ export function createDevelopRenderer(
     return texture;
   }
 
-  function setUniforms(prog: GlProgram, u: DevelopUniforms): void {
+  function setUniforms(prog: GlProgram, u: DevelopUniforms, options?: DevelopViewOptions): void {
     const loc = (name: string): WebGLUniformLocation | null => prog.loc(name);
     gl.useProgram(prog.program);
     gl.uniform1i(loc('u_image'), 0);
@@ -364,6 +397,8 @@ export function createDevelopRenderer(
     gl.uniform1i(loc('u_hasCurve'), u.curveLut ? 1 : 0);
     gl.uniform1f(loc('u_vibrance'), u.vibrance);
     gl.uniform1f(loc('u_saturation'), u.saturation);
+    gl.uniform1f(loc('u_clipShadows'), options?.clipping?.shadows ? 1 : 0);
+    gl.uniform1f(loc('u_clipHighlights'), options?.clipping?.highlights ? 1 : 0);
 
     gl.uniformMatrix3fv(loc('u_calibration'), false, toColumnMajor(u.calibration.matrix));
     gl.uniform1f(loc('u_shadowTint'), u.calibration.shadow);
@@ -562,7 +597,14 @@ export function createDevelopRenderer(
 
   /** What the neighbourhood pipeline needs of the current frame. */
   let frame:
-    { src: Source; mapping: Mapping; u: DevelopUniforms; view?: CropViewTransform } | undefined;
+    | {
+        src: Source;
+        mapping: Mapping;
+        u: DevelopUniforms;
+        view?: CropViewTransform;
+        options?: DevelopViewOptions;
+      }
+    | undefined;
   let imageId = 0;
   let pipeline: NeighbourhoodPipeline | undefined;
 
@@ -582,7 +624,7 @@ export function createDevelopRenderer(
       const { src, mapping, u } = frame;
       const prog = res.base;
       // The pipeline works at Exposure 0 and applies the exposure after its cached stages.
-      setUniforms(prog, { ...u, exposureGain: 1 });
+      setUniforms(prog, { ...u, exposureGain: 1 }, frame.options);
       gl.uniform1i(prog.loc('u_taps'), o.taps);
       gl.uniform1f(prog.loc('u_posScale'), o.posScale);
       gl.uniform2f(prog.loc('u_posMax'), o.posMax[0], o.posMax[1]);
@@ -603,7 +645,7 @@ export function createDevelopRenderer(
       }
     },
     applyDevelop(program, u) {
-      setUniforms(program, u);
+      setUniforms(program, u, frame?.options);
     },
     applyView(program) {
       setViewUniformsOn(program, frame?.view);
@@ -663,6 +705,153 @@ export function createDevelopRenderer(
   const usesNeighbourhood = (input: PipelineInput): boolean =>
     hasDenoise(input.n) || hasLocalContrast(input.n) || input.n.sharpen !== null;
 
+  /** Draws the normal (cropped) view. Split view also uses this for its right side. */
+  function drawDevelop(requested: EditParams, viewOptions?: DevelopViewOptions): void {
+    const params = drawable(requested);
+    const src = requireSource();
+    const out = { width: canvas.width, height: canvas.height };
+    const mapping = mappingFor(src.header, params, cropLogicalSize(src.header, params), out);
+    const u = uniformsFor(src, params);
+    const input = pipelineInput(src, params, mapping, u, out, true);
+    if (usesNeighbourhood(input)) {
+      frame = { src, mapping, u, options: viewOptions };
+      const cores = planCores(out, maxOutputTile, effectiveHalo(input.n, input.geometry.scale));
+      getPipeline().run(input, cores, (core) => ({
+        framebuffer: null,
+        viewport: { x: core.x, y: out.height - core.y - core.h, w: core.w, h: core.h },
+        flipY: true,
+      }));
+      return;
+    }
+    setUniforms(res.direct, u, viewOptions);
+    setViewUniforms(undefined);
+    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+    for (const entry of src.tiles) {
+      drawTile(
+        res.direct,
+        src,
+        entry,
+        out,
+        mapping,
+        { x: 0, y: 0, w: out.width, h: out.height },
+        { x: 0, y: 0 },
+        true,
+      );
+    }
+  }
+
+  /** Draws the crop-mode view (the whole image under the frame). */
+  function drawCropView(
+    requested: EditParams,
+    view: CropViewTransform,
+    viewOptions?: DevelopViewOptions,
+  ): void {
+    const params = drawable(requested);
+    const src = requireSource();
+    const out = { width: canvas.width, height: canvas.height };
+    const mapping = viewMapping(src.header, view, out);
+    const u = uniformsFor(src, params);
+    const input = pipelineInput(src, params, mapping, u, out, true);
+    if (usesNeighbourhood(input)) {
+      // The same pipeline and cached stages as the normal view; only the mapping and the
+      // last step (empty canvas, dimmed outside the frame) differ.
+      frame = { src, mapping, u, view, options: viewOptions };
+      const cores = planCores(out, maxOutputTile, effectiveHalo(input.n, input.geometry.scale));
+      getPipeline().run(input, cores, (core) => ({
+        framebuffer: null,
+        viewport: { x: core.x, y: out.height - core.y - core.h, w: core.w, h: core.h },
+        flipY: true,
+      }));
+      return;
+    }
+    setUniforms(res.direct, u, viewOptions);
+    setViewUniforms(view);
+    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+    for (const entry of src.tiles) {
+      drawTile(
+        res.direct,
+        src,
+        entry,
+        out,
+        mapping,
+        { x: 0, y: 0, w: out.width, h: out.height },
+        { x: 0, y: 0 },
+        true,
+      );
+    }
+    setViewUniforms(undefined);
+  }
+
+  /** The before side of a split view: the whole frame (or the committed crop), drawn directly. */
+  function drawBefore(
+    before: EditParams,
+    fraction: number,
+    viewOptions?: DevelopViewOptions,
+  ): void {
+    const src = requireSource();
+    const out = { width: canvas.width, height: canvas.height };
+    const width = Math.round(clampFraction(fraction) * out.width);
+    if (width <= 0) return;
+    const params = drawable(before);
+    const mapping = mappingFor(src.header, params, cropLogicalSize(src.header, params), out);
+    const u = uniformsFor(src, params);
+    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+    gl.enable(gl.SCISSOR_TEST);
+    gl.scissor(0, 0, width, out.height);
+    setUniforms(res.direct, u, viewOptions);
+    setViewUniforms(undefined);
+    for (const entry of src.tiles) {
+      drawTile(
+        res.direct,
+        src,
+        entry,
+        out,
+        mapping,
+        { x: 0, y: 0, w: out.width, h: out.height },
+        { x: 0, y: 0 },
+        true,
+      );
+    }
+    gl.disable(gl.SCISSOR_TEST);
+  }
+
+  let histogramTarget:
+    | { framebuffer: WebGLFramebuffer; texture: WebGLTexture; width: number; height: number }
+    | undefined;
+
+  function dropHistogramTarget(): void {
+    if (!histogramTarget) return;
+    gl.deleteFramebuffer(histogramTarget.framebuffer);
+    gl.deleteTexture(histogramTarget.texture);
+    histogramTarget = undefined;
+  }
+
+  function histogramTargetOf(width: number, height: number): NonNullable<typeof histogramTarget> {
+    if (histogramTarget?.width === width && histogramTarget.height === height)
+      return histogramTarget;
+    dropHistogramTarget();
+    const texture = gl.createTexture();
+    const framebuffer = gl.createFramebuffer();
+    if (!texture || !framebuffer) throw new DevelopGlError('Could not create histogram target');
+    gl.bindTexture(gl.TEXTURE_2D, texture);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, width, height, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
+    gl.bindFramebuffer(gl.FRAMEBUFFER, framebuffer);
+    gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, texture, 0);
+    if (gl.checkFramebufferStatus(gl.FRAMEBUFFER) !== gl.FRAMEBUFFER_COMPLETE) {
+      gl.deleteFramebuffer(framebuffer);
+      gl.deleteTexture(texture);
+      gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+      throw new DevelopGlError(`Histogram framebuffer of ${width}x${height} is incomplete`);
+    }
+    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+    histogramTarget = { framebuffer, texture, width, height };
+    return histogramTarget;
+  }
+
   return {
     get contextLost() {
       return lost;
@@ -670,6 +859,10 @@ export function createDevelopRenderer(
 
     get supportsNeighbourhood() {
       return neighbourhoodSupported;
+    },
+
+    get softwareRendering() {
+      return softwareRendering;
     },
 
     setImage(header, data) {
@@ -692,75 +885,53 @@ export function createDevelopRenderer(
       return uniformsFor(requireSource(), params);
     },
 
-    render(requested) {
-      const params = drawable(requested);
-      const src = requireSource();
-      const out = { width: canvas.width, height: canvas.height };
-      const mapping = mappingFor(src.header, params, cropLogicalSize(src.header, params), out);
-      const u = uniformsFor(src, params);
-      const input = pipelineInput(src, params, mapping, u, out, true);
-      if (usesNeighbourhood(input)) {
-        frame = { src, mapping, u };
-        const cores = planCores(out, maxOutputTile, effectiveHalo(input.n, input.geometry.scale));
-        getPipeline().run(input, cores, (core) => ({
-          framebuffer: null,
-          viewport: { x: core.x, y: out.height - core.y - core.h, w: core.w, h: core.h },
-          flipY: true,
-        }));
-        return;
-      }
-      setUniforms(res.direct, u);
-      setViewUniforms(undefined);
-      gl.bindFramebuffer(gl.FRAMEBUFFER, null);
-      for (const entry of src.tiles) {
-        drawTile(
-          res.direct,
-          src,
-          entry,
-          out,
-          mapping,
-          { x: 0, y: 0, w: out.width, h: out.height },
-          { x: 0, y: 0 },
-          true,
-        );
-      }
+    render(requested, viewOptions) {
+      drawDevelop(requested, viewOptions);
     },
 
-    renderView(requested, view) {
-      const params = drawable(requested);
-      const src = requireSource();
-      const out = { width: canvas.width, height: canvas.height };
-      const mapping = viewMapping(src.header, view, out);
-      const u = uniformsFor(src, params);
-      const input = pipelineInput(src, params, mapping, u, out, true);
-      if (usesNeighbourhood(input)) {
-        // The same pipeline and cached stages as the normal view; only the mapping and the
-        // last step (empty canvas, dimmed outside the frame) differ.
-        frame = { src, mapping, u, view };
-        const cores = planCores(out, maxOutputTile, effectiveHalo(input.n, input.geometry.scale));
-        getPipeline().run(input, cores, (core) => ({
-          framebuffer: null,
-          viewport: { x: core.x, y: out.height - core.y - core.h, w: core.w, h: core.h },
-          flipY: true,
-        }));
-        return;
+    renderView(requested, view, viewOptions) {
+      drawCropView(requested, view, viewOptions);
+    },
+
+    renderSplit(requested, before, fraction, viewOptions) {
+      drawDevelop(requested, viewOptions);
+      drawBefore(before, fraction, viewOptions);
+    },
+
+    readHistogram(bins = 256) {
+      const width = canvas.width;
+      const height = canvas.height;
+      if (!(width > 0 && height > 0)) {
+        throw new DevelopGlError('Nothing to measure: the canvas has no pixels');
       }
-      setUniforms(res.direct, u);
-      setViewUniforms(view);
+      const scale = Math.min(1, 256 / Math.max(width, height));
+      const targetWidth = Math.max(1, Math.round(width * scale));
+      const targetHeight = Math.max(1, Math.round(height * scale));
+      const target = histogramTargetOf(targetWidth, targetHeight);
+      gl.bindFramebuffer(gl.READ_FRAMEBUFFER, null);
+      gl.bindFramebuffer(gl.DRAW_FRAMEBUFFER, target.framebuffer);
+      gl.blitFramebuffer(
+        0,
+        0,
+        width,
+        height,
+        0,
+        0,
+        targetWidth,
+        targetHeight,
+        gl.COLOR_BUFFER_BIT,
+        gl.LINEAR,
+      );
       gl.bindFramebuffer(gl.FRAMEBUFFER, null);
-      for (const entry of src.tiles) {
-        drawTile(
-          res.direct,
-          src,
-          entry,
-          out,
-          mapping,
-          { x: 0, y: 0, w: out.width, h: out.height },
-          { x: 0, y: 0 },
-          true,
-        );
+      const error = gl.getError();
+      if (error !== gl.NO_ERROR) {
+        throw new DevelopGlError(`WebGL error 0x${error.toString(16)} while reading the histogram`);
       }
-      setViewUniforms(undefined);
+      const pixels = new Uint8Array(targetWidth * targetHeight * 4);
+      gl.bindFramebuffer(gl.READ_FRAMEBUFFER, target.framebuffer);
+      gl.readPixels(0, 0, targetWidth, targetHeight, gl.RGBA, gl.UNSIGNED_BYTE, pixels);
+      gl.bindFramebuffer(gl.READ_FRAMEBUFFER, null);
+      return histogramOfRgba(pixels, targetWidth, targetHeight, bins);
     },
 
     renderToRGBA(requested, size) {
@@ -860,6 +1031,7 @@ export function createDevelopRenderer(
       if (!lost) {
         freeSource();
         pipeline?.dispose();
+        dropHistogramTarget();
         gl.deleteTexture(res.curveTexture);
         gl.deleteProgram(res.direct.program);
         gl.deleteProgram(res.base.program);
