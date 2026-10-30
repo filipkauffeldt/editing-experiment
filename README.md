@@ -189,6 +189,26 @@ The raw tests use `fixtures/raw`; `EE_SAMPLE_NEF_DIR=~/nefs pnpm test` also runs
 them against your own NEFs (read only). Tests skip cleanly when the fixtures or
 the variable are absent.
 
+## First use
+
+Set things up in this order:
+
+1. **Settings → Ingest.** Choose the destination folder and rename template
+   (and optionally a subfolder template and backup folder). Pick the metadata
+   template `.XMP` and its mode, `Replace existing values` (the default) or
+   `Fill empty fields`, add code replacement files, and choose the develop
+   preset to apply on import. Import presets with **Develop → Presets →
+   Import** first.
+2. **Settings → Sources.** Add a folder, card, FTP or SFTP source, then
+   **Test** and **Save source**. Anonymous FTP needs no password.
+3. **Settings → Destinations** for upload targets, and **Export… → New
+   preset** for export presets (Location, File, Content, Then send), then
+   **Save preset** and **Set as active**.
+4. Optional: **Settings → Profiles → Add folder…** for `.dcp`/`.xmp` camera
+   profiles. Adobe's own folders are found automatically on macOS and Windows.
+5. Start with **Ingest → Ingest**, then **Library** → **Develop** →
+   **Export…** or **Export & send** (or **Next & send**, Ctrl/⌘+Enter).
+
 ## Credentials
 
 Passwords and SFTP key material are stored only through Electron `safeStorage`,
