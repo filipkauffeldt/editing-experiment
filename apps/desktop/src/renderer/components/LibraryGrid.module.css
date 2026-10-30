@@ -72,6 +72,13 @@
   white-space: nowrap;
 }
 
+.flags {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 6px;
+}
+
 .selected .fileName {
   color: var(--text);
 }

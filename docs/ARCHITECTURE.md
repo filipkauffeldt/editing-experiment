@@ -197,7 +197,9 @@ are not decoded.
   (`http://ns.camerabits.com/photomechanic/1.0/`, prefix `photomechanic`):
   `photomechanic:Tagged`, `photomechanic:ColorClass` and the combined
   `photomechanic:Prefs` string `tagged:colorClass:rating:frameNum`, with the
-  rating/frame number preserved from an existing value. With label syncing on
+  frame number preserved from an existing value and the rating mirrored to
+  `xmp:Rating` (0 removes it). Reading takes Prefs first, then `xmp:Rating`.
+  With label syncing on
   (the default) the class name is mirrored to `xmp:Label`; PM's defaults are
   Winner, Winner alt, Superior, Superior alt, Typical, Typical alt, Extras,
   Trash, and the table is overridable because PM lets users rename classes.
@@ -516,7 +518,9 @@ with its tone, curves, presence, detail and effects removed.
 Keyboard shortcuts match `event.key` letters and digits, not US key positions. Symbol keys
 have letter/F-key primaries (`Y` before/after, `F1` or Ctrl/Cmd+`/` for shortcuts), and
 AltGr is treated as character input so Swedish `@`, `$`, `{`… and dead keys never fire a
-command.
+command. Ratings are plain `1`-`5` (0 clears); colour classes are the platform's primary
+modifier plus `1`-`8` (0 clears), falling back to `event.code` when a layout changes the
+digit under the modifier.
 
 ## Crop mode
 
@@ -622,8 +626,9 @@ Design tokens and component rules are in `docs/DESIGN.md`.
   (also used by the film strip and the export actions); a grid click is `select(id, mode)` with
   `replace`, `toggle` (Ctrl/Cmd) or `range` (Shift), where a range follows the grid's order in the
   Library and the film strip's elsewhere. The last clicked photo is `selectedId`, the one the
-  inspector and Develop show. Tag (`T`) and class (`0`-`8`) act on the selection in the Library
-  and on the open photo elsewhere, in one `photos:setLabels` call. Export… and Export & send
+  inspector and Develop show. Tag (`T`), rating (`1`-`5`, `0` clears) and class
+  (Ctrl/Cmd+`1`-`8`, `0` clears) act on the selection in the Library and on the open photo
+  elsewhere, in one `photos:setLabels` call. Export… and Export & send
   use `openExportDialog` and `exportSelected(true)`.
 - **Folders** come from `libraryFolders(photos)`: the directory of each photo's `path`, which is
   always the ingest copy. Sources are not consulted.

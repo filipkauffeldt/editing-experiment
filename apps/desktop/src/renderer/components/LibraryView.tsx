@@ -54,10 +54,15 @@ export function LibraryView() {
         <ActionBar
           testId="library-action-bar"
           left={
-            <span className={barStyles.count} data-testid="library-selection-count">
-              <span className="mono">{selected.length}</span> selected ·{' '}
-              <span className="mono">{taggedCount}</span> tagged
-            </span>
+            <>
+              <span className={barStyles.count} data-testid="library-selection-count">
+                <span className="mono">{selected.length}</span> selected ·{' '}
+                <span className="mono">{taggedCount}</span> tagged
+              </span>
+              <span className={barStyles.hints} data-testid="library-label-hints">
+                Rating 1–5 · Class {mod}+1–8
+              </span>
+            </>
           }
           right={
             <>

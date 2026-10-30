@@ -278,7 +278,6 @@ describe('library batch actions', () => {
       expect(last?.args[0]).toMatchObject({ photoIds: ids, rating: 4 });
     });
 
-
     await user.keyboard('0');
     expect(
       store

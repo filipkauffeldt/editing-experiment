@@ -1,7 +1,14 @@
 import { appUrl, type Photo, type PhotoId } from '@ee/contracts';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useAppState, useAppStore } from '../store-context';
-import { ColorDot, StatusLabels, TagSquare, uploadPercent, uploadsByPhoto } from './PhotoOverlays';
+import {
+  ColorDot,
+  RatingStars,
+  StatusLabels,
+  TagSquare,
+  uploadPercent,
+  uploadsByPhoto,
+} from './PhotoOverlays';
 import styles from './FilmStrip.module.css';
 
 const ITEM_WIDTH = 112;
@@ -14,6 +21,7 @@ function PhotoBadges({ photo, percent }: { photo: Photo; percent?: number }) {
     <>
       <span className={styles.topLeft}>{photo.tagged && <TagSquare tagged />}</span>
       <span className={styles.topRight}>
+        <RatingStars rating={photo.rating} />
         <ColorDot colorClass={photo.colorClass} />
       </span>
       <span className={styles.bottomLeft}>

@@ -56,7 +56,8 @@ const GROUPS: { title: string; rows: [string, string][] }[] = [
     title: 'Cull and classify',
     rows: [
       ['T', 'Tag / untag photo'],
-      ['0 – 8', 'Set colour class (0 clears)'],
+      ['1 – 5', 'Set the star rating (0 clears)'],
+      ['Ctrl/⌘ + 1 – 8', 'Set the colour class (Ctrl/⌘ + 0 clears)'],
     ],
   },
   {

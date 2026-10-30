@@ -63,7 +63,8 @@ export function DevelopView() {
                 items={[
                   ['← →', 'photo'],
                   ['T', 'tag'],
-                  ['0–8', 'class'],
+                  ['1–5', 'rating'],
+                  [`${mod}+1–8`, 'class'],
                   ['C', 'crop'],
                   ['R', 'retouch'],
                   ['Y', 'before/after'],

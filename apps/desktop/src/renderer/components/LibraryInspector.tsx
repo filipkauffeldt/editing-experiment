@@ -1,7 +1,7 @@
 import { appUrl } from '@ee/contracts';
 import { activePhoto } from '../store';
 import { useAppState, useAppStore } from '../store-context';
-import { COLOR_CLASS_NAMES } from './PhotoOverlays';
+import { COLOR_CLASS_NAMES, RatingStars } from './PhotoOverlays';
 import { Panel } from './Panel';
 import { PanelSection } from './ui/PanelSection';
 import { TextArea } from './ui/Field';
@@ -63,6 +63,12 @@ export function LibraryInspector({ className }: { className?: string }) {
               }
             />
             <Row label="Tagged" value={photo.tagged ? 'yes' : 'no'} />
+            {photo.rating > 0 && (
+              <div className={styles.row}>
+                <span className={styles.rowLabel}>Rating</span>
+                <RatingStars rating={photo.rating} />
+              </div>
+            )}
           </PanelSection>
 
           <PanelSection title="Template">
