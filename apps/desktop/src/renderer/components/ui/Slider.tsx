@@ -2,6 +2,8 @@ import styles from './Slider.module.css';
 
 export interface SliderProps {
   label: string;
+  /** Accessible name when several sliders share a visible label (e.g. one per wheel). */
+  ariaLabel?: string;
   /** Position of the thumb on the range, in the range's own units. */
   value: number;
   min: number;
@@ -18,6 +20,8 @@ export interface SliderProps {
   numberStep?: number;
   /** Desaturated gradient behind the track. */
   tone?: 'temperature' | 'tint';
+  /** Tighter label and number columns, for sliders under a grading wheel. */
+  compact?: boolean;
   disabled?: boolean;
   onRange(position: number): void;
   /** `undefined` when the typed field is cleared. */
@@ -34,6 +38,7 @@ const percent = (value: number, min: number, max: number): number =>
  */
 export function Slider({
   label,
+  ariaLabel = label,
   value,
   min,
   max,
@@ -45,6 +50,7 @@ export function Slider({
   numberMax = max,
   numberStep = step,
   tone,
+  compact,
   disabled,
   onRange,
   onNumber,
@@ -56,6 +62,7 @@ export function Slider({
     styles.slider,
     tone === 'temperature' ? styles.temperature : tone === 'tint' ? styles.tint : '',
     display === '' ? styles.asShot : '',
+    compact ? styles.compact : '',
   ];
   return (
     <div
@@ -67,7 +74,7 @@ export function Slider({
       <input
         className={`${styles.number} mono`}
         type="number"
-        aria-label={`${label} value`}
+        aria-label={`${ariaLabel} value`}
         min={numberMin}
         max={numberMax}
         step={numberStep}
@@ -97,7 +104,7 @@ export function Slider({
         <input
           className={styles.range}
           type="range"
-          aria-label={label}
+          aria-label={ariaLabel}
           min={min}
           max={max}
           step={step}

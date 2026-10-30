@@ -118,3 +118,20 @@
   gap: 8px;
   padding: 3px 0;
 }
+
+.hint {
+  margin: 2px 0 4px;
+  color: var(--dim);
+  font-size: var(--fs-label);
+}
+
+/* Five views have to fit in the 300 px panel. */
+.curveViews {
+  flex-wrap: wrap;
+  gap: 7px;
+}
+
+.gradingViews {
+  flex-wrap: wrap;
+  gap: 8px;
+}

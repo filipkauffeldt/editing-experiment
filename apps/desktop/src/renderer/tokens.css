@@ -37,6 +37,10 @@
   --track-temperature: linear-gradient(to right, #5b6f93, #555555, #93805b);
   --track-tint: linear-gradient(to right, #5f8a62, #555555, #8a5f88);
 
+  /* Desaturated hue ring of the Color Grading wheels */
+  --wheel-ring-sat: 18%;
+  --wheel-ring-light: 55%;
+
   /* Overlay on thumbnails */
   --scrim: #000a;
 
