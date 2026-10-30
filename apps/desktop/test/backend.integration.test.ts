@@ -482,29 +482,33 @@ describe.skipIf(nefs.length === 0)(
       expect(await handlers['retouch:get']({ photoId: targets[0]!.id })).toEqual([op]);
     });
 
-    it('persists tag and colour class in the index and the sidecar', async () => {
+    it('persists tag, colour class and rating in the index and the sidecar', async () => {
       const raw = bySource(cardA)[0]!;
       const [updated] = await handlers['photos:setLabels']({
         photoIds: [raw.id],
         tagged: true,
         colorClass: 3,
+        rating: 4,
       });
-      expect(updated).toMatchObject({ tagged: true, colorClass: 3 });
+      expect(updated).toMatchObject({ tagged: true, colorClass: 3, rating: 4 });
       expect(
         await handlers['photos:get']({ photoId: raw.id }).then((photo) => ({
           tagged: photo.tagged,
           colorClass: photo.colorClass,
+          rating: photo.rating,
         })),
-      ).toEqual({ tagged: true, colorClass: 3 });
+      ).toEqual({ tagged: true, colorClass: 3, rating: 4 });
 
       const tags = await exiftool.read(raw.sidecarPath);
       expect(String(tags['XMP-photomech:Tagged'])).toMatch(/yes|true/i);
       expect(String(tags['XMP-photomech:ColorClass'])).toMatch(/^3\b/);
-      expect(String(tags['XMP-photomech:Prefs'])).toMatch(/Tagged:1, ColorClass:3/);
+      expect(String(tags['XMP-photomech:Prefs'])).toMatch(/Tagged:1, ColorClass:3, Rating:4/);
+      expect(String(tags['XMP-xmp:Rating'])).toBe('4');
       expect(String(tags['XMP-xmp:Label'])).toBe('Superior');
       expect(await readPhotoLabels(raw.path, { service: exiftool })).toEqual({
         tagged: true,
         colorClass: 3,
+        rating: 4,
       });
 
       const jpeg = bySource(cardB).find((photo) => photo.fileName.endsWith('.jpg'));
@@ -513,15 +517,21 @@ describe.skipIf(nefs.length === 0)(
           photoIds: [jpeg.id],
           tagged: false,
           colorClass: 0,
+          rating: 0,
         });
-        expect(cleared).toMatchObject({ tagged: false, colorClass: 0 });
+        expect(cleared).toMatchObject({ tagged: false, colorClass: 0, rating: 0 });
         expect(await readPhotoLabels(jpeg.path, { service: exiftool })).toEqual({
           tagged: false,
           colorClass: 0,
+          rating: 0,
         });
+        expect((await exiftool.read(jpeg.path))['XMP-xmp:Rating']).toBeUndefined();
       }
       await expect(
         handlers['photos:setLabels']({ photoIds: [raw.id], colorClass: 12 }),
+      ).rejects.toMatchObject({ code: 'invalid_argument' });
+      await expect(
+        handlers['photos:setLabels']({ photoIds: [raw.id], rating: 6 }),
       ).rejects.toMatchObject({ code: 'invalid_argument' });
     });
 

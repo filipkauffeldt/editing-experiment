@@ -3,9 +3,9 @@ import { writePhotoLabels, type ExifToolService } from '@ee/metadata';
 import type { PhotoLibrary } from './photo-library';
 
 /**
- * Tag and colour-class changes. The index stores the fields and the sidecar
- * (or the JPEG's embedded XMP) is written first, so a failed write does not
- * leave the UI claiming a label that was never persisted.
+ * Tag, colour-class and rating changes. The index stores the fields and the
+ * sidecar (or the JPEG's embedded XMP) is written first, so a failed write does
+ * not leave the UI claiming a label that was never persisted.
  */
 export class LabelService {
   constructor(
@@ -14,15 +14,18 @@ export class LabelService {
   ) {}
 
   async setLabels(args: SetPhotoLabelsArgs): Promise<Photo[]> {
-    const { tagged, colorClass } = args;
-    if (tagged === undefined && colorClass === undefined) {
-      throw new IpcError('invalid_argument', 'photos:setLabels needs tagged or colorClass');
+    const { tagged, colorClass, rating } = args;
+    if (tagged === undefined && colorClass === undefined && rating === undefined) {
+      throw new IpcError('invalid_argument', 'photos:setLabels needs tagged, colorClass or rating');
     }
     if (
       colorClass !== undefined &&
       (!Number.isInteger(colorClass) || colorClass < 0 || colorClass > 8)
     ) {
       throw new IpcError('invalid_argument', 'colorClass must be 0..8');
+    }
+    if (rating !== undefined && (!Number.isInteger(rating) || rating < 0 || rating > 5)) {
+      throw new IpcError('invalid_argument', 'rating must be 0..5');
     }
     if (args.photoIds.length === 0) return [];
 
@@ -36,6 +39,7 @@ export class LabelService {
             {
               ...(tagged === undefined ? {} : { tagged }),
               ...(colorClass === undefined ? {} : { colorClass }),
+              ...(rating === undefined ? {} : { rating }),
             },
             { service: this.exiftool },
           );
@@ -43,6 +47,7 @@ export class LabelService {
             ...current,
             ...(tagged === undefined ? {} : { tagged }),
             ...(colorClass === undefined ? {} : { colorClass }),
+            ...(rating === undefined ? {} : { rating }),
           }));
         }),
       );

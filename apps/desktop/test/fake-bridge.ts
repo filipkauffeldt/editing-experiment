@@ -121,15 +121,17 @@ export function createFakeBridge(
       return version;
     },
     'photos:setLabels': async (...args) => {
-      const { photoIds, tagged, colorClass } = args[0] as {
+      const { photoIds, tagged, colorClass, rating } = args[0] as {
         photoIds: PhotoId[];
         tagged?: boolean;
         colorClass?: number;
+        rating?: number;
       };
       return photoIds.map((photoId) => {
         const photo = findPhoto(photoId);
         if (tagged !== undefined) photo.tagged = tagged;
         if (colorClass !== undefined) photo.colorClass = colorClass;
+        if (rating !== undefined) photo.rating = rating;
         return photo;
       });
     },

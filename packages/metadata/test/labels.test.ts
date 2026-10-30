@@ -59,9 +59,13 @@ describe('Photo Mechanic labels', () => {
     await writeFile(raw, originalBytes);
     const before = await sha256File(raw);
 
-    await writePhotoLabels(raw, { tagged: true, colorClass: 3 }, { service });
+    await writePhotoLabels(raw, { tagged: true, colorClass: 3, rating: 0 }, { service });
 
-    expect(await readPhotoLabels(raw, { service })).toEqual({ tagged: true, colorClass: 3 });
+    expect(await readPhotoLabels(raw, { service })).toEqual({
+      tagged: true,
+      colorClass: 3,
+      rating: 0,
+    });
     const tags = await service.read(join(dir, 'photo.xmp'));
     expect(String(tags['XMP-photomech:Tagged'])).toMatch(/yes|true/i);
     expect(String(tags['XMP-photomech:ColorClass'])).toMatch(/^3\b/);
@@ -81,10 +85,14 @@ describe('Photo Mechanic labels', () => {
       const raw = await copyFixture('z30_14bit.NEF', dir);
       const before = await sha256File(raw);
 
-      await writePhotoLabels(raw, { tagged: true, colorClass: 3 }, { service });
+      await writePhotoLabels(raw, { tagged: true, colorClass: 3, rating: 0 }, { service });
 
       expect(await sha256File(raw)).toBe(before);
-      expect(await readPhotoLabels(raw, { service })).toEqual({ tagged: true, colorClass: 3 });
+      expect(await readPhotoLabels(raw, { service })).toEqual({
+        tagged: true,
+        colorClass: 3,
+        rating: 0,
+      });
     },
   );
 
@@ -93,8 +101,12 @@ describe('Photo Mechanic labels', () => {
     const jpeg = join(dir, 'photo.jpg');
     await makeJpeg(jpeg);
 
-    await writePhotoLabels(jpeg, { tagged: true, colorClass: 7 }, { service });
-    expect(await readPhotoLabels(jpeg, { service })).toEqual({ tagged: true, colorClass: 7 });
+    await writePhotoLabels(jpeg, { tagged: true, colorClass: 7, rating: 0 }, { service });
+    expect(await readPhotoLabels(jpeg, { service })).toEqual({
+      tagged: true,
+      colorClass: 7,
+      rating: 0,
+    });
 
     const tags = await service.read(jpeg);
     expect(String(tags['XMP-photomech:ColorClass'])).toMatch(/^7\b/);
@@ -132,12 +144,101 @@ describe('Photo Mechanic labels', () => {
     );
   });
 
+  it('round-trips a rating through a raw sidecar and keeps Prefs and xmp:Rating in sync', async () => {
+    const dir = await makeTempDir();
+    const raw = join(dir, 'photo.NEF');
+    const originalBytes = Buffer.from('pretend this is a NEF');
+    await writeFile(raw, originalBytes);
+    const before = await sha256File(raw);
+    await writeXmp(join(dir, 'photo.xmp'), prefsValue('0:3:4:1234'));
+
+    await writePhotoLabels(raw, { rating: 2 }, { service });
+
+    const tags = await service.read(join(dir, 'photo.xmp'));
+    expect(String(tags['XMP-photomech:Prefs'])).toBe(
+      'Tagged:0, ColorClass:3, Rating:2, FrameNum:1234',
+    );
+    expect(String(tags['XMP-xmp:Rating'])).toBe('2');
+    expect(await readPhotoLabels(raw, { service })).toEqual({
+      tagged: false,
+      colorClass: 3,
+      rating: 2,
+    });
+    expect(await sha256File(raw)).toBe(before);
+  });
+
+  it('round-trips a rating in a JPEG and removes xmp:Rating when it is cleared', async () => {
+    const dir = await makeTempDir();
+    const jpeg = join(dir, 'photo.jpg');
+    await makeJpeg(jpeg);
+
+    await writePhotoLabels(jpeg, { rating: 5 }, { service });
+    expect(await readPhotoLabels(jpeg, { service })).toEqual({
+      tagged: false,
+      colorClass: 0,
+      rating: 5,
+    });
+    let tags = await service.read(jpeg);
+    expect(String(tags['XMP-photomech:Prefs'])).toBe(
+      'Tagged:0, ColorClass:0, Rating:5, FrameNum:0',
+    );
+    expect(String(tags['XMP-xmp:Rating'])).toBe('5');
+
+    await writePhotoLabels(jpeg, { rating: 0 }, { service });
+    expect(await readPhotoLabels(jpeg, { service })).toEqual({
+      tagged: false,
+      colorClass: 0,
+      rating: 0,
+    });
+    tags = await service.read(jpeg);
+    expect(String(tags['XMP-photomech:Prefs'])).toBe(
+      'Tagged:0, ColorClass:0, Rating:0, FrameNum:0',
+    );
+    expect(tags['XMP-xmp:Rating']).toBeUndefined();
+  });
+
+  it('mirrors an existing Prefs rating to xmp:Rating when another label is written', async () => {
+    const dir = await makeTempDir();
+    const raw = join(dir, 'photo.NEF');
+    await writeFile(raw, 'raw bytes');
+    await writeXmp(join(dir, 'photo.xmp'), `${prefsValue('0:3:4:1234')}<xmp:Rating>5</xmp:Rating>`);
+
+    await writePhotoLabels(raw, { colorClass: 2 }, { service });
+
+    const tags = await service.read(join(dir, 'photo.xmp'));
+    expect(String(tags['XMP-photomech:Prefs'])).toBe(
+      'Tagged:0, ColorClass:2, Rating:4, FrameNum:1234',
+    );
+    expect(String(tags['XMP-xmp:Rating'])).toBe('4');
+    expect(await readPhotoLabels(raw, { service })).toEqual({
+      tagged: false,
+      colorClass: 2,
+      rating: 4,
+    });
+  });
+
   it('reads a sidecar written the way PM writes it, with only Prefs', async () => {
     const dir = await makeTempDir();
     const raw = join(dir, 'photo.NEF');
     await writeXmp(join(dir, 'photo.xmp'), prefsValue('0:3:4:1234'));
 
-    expect(await readPhotoLabels(raw, { service })).toEqual({ tagged: false, colorClass: 3 });
+    expect(await readPhotoLabels(raw, { service })).toEqual({
+      tagged: false,
+      colorClass: 3,
+      rating: 4,
+    });
+  });
+
+  it('prefers the Prefs rating over xmp:Rating', async () => {
+    const dir = await makeTempDir();
+    const raw = join(dir, 'photo.NEF');
+    await writeXmp(join(dir, 'photo.xmp'), `${prefsValue('0:0:2:7')}<xmp:Rating>5</xmp:Rating>`);
+
+    expect(await readPhotoLabels(raw, { service })).toEqual({
+      tagged: false,
+      colorClass: 0,
+      rating: 2,
+    });
   });
 
   it('prefers Prefs over the separate Tagged and ColorClass properties', async () => {
@@ -148,7 +249,11 @@ describe('Photo Mechanic labels', () => {
       `${prefsValue('0:3:4:1234')}<photomechanic:Tagged>True</photomechanic:Tagged><photomechanic:ColorClass>7</photomechanic:ColorClass>`,
     );
 
-    expect(await readPhotoLabels(raw, { service })).toEqual({ tagged: false, colorClass: 3 });
+    expect(await readPhotoLabels(raw, { service })).toEqual({
+      tagged: false,
+      colorClass: 3,
+      rating: 4,
+    });
   });
 
   it('maps xmp:Label back to a colour class when nothing else is present', async () => {
@@ -156,7 +261,11 @@ describe('Photo Mechanic labels', () => {
     const raw = join(dir, 'photo.NEF');
     await writeXmp(join(dir, 'photo.xmp'), '<xmp:Label>Extras</xmp:Label>');
 
-    expect(await readPhotoLabels(raw, { service })).toEqual({ tagged: false, colorClass: 7 });
+    expect(await readPhotoLabels(raw, { service })).toEqual({
+      tagged: false,
+      colorClass: 7,
+      rating: 0,
+    });
   });
 
   it('uses an overridable colour class name table for reading and writing', async () => {
@@ -169,6 +278,7 @@ describe('Photo Mechanic labels', () => {
     expect(await readPhotoLabels(raw, { service, colorClassNames })).toEqual({
       tagged: false,
       colorClass: 2,
+      rating: 0,
     });
 
     await writePhotoLabels(raw, { colorClass: 1 }, { service, colorClassNames });
@@ -217,5 +327,12 @@ describe('Photo Mechanic labels', () => {
     await expect(writePhotoLabels(jpeg, { colorClass: 9 }, { service })).rejects.toThrow(
       /colorClass/,
     );
+  });
+
+  it('rejects a rating outside 0..5', async () => {
+    const dir = await makeTempDir();
+    const jpeg = join(dir, 'photo.jpg');
+    await makeJpeg(jpeg);
+    await expect(writePhotoLabels(jpeg, { rating: 6 }, { service })).rejects.toThrow(/rating/);
   });
 });

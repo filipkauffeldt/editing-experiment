@@ -478,12 +478,13 @@ export function createMockHandlers(world: MockWorld, emit: Emit): Partial<IpcHan
       updateUpload(world, emit, item, 'cancelled');
     },
 
-    'photos:setLabels': async ({ photoIds, tagged, colorClass }) => {
+    'photos:setLabels': async ({ photoIds, tagged, colorClass, rating }) => {
       const updated: Photo[] = [];
       for (const photoId of photoIds) {
         const photo = findPhoto(photoId);
         if (tagged !== undefined) photo.tagged = tagged;
         if (colorClass !== undefined) photo.colorClass = colorClass;
+        if (rating !== undefined) photo.rating = rating;
         emitPhoto(world, emit, photo);
         updated.push(photo);
       }
