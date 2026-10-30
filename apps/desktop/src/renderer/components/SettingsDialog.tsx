@@ -5,7 +5,9 @@ import {
   type CredentialSecret,
   type Destination,
   type FtpSecurity,
+  type FileTypeFilter,
   type IngestSettings,
+  type LockFilter,
   type SourceConfig,
   type TemplateApplyMode,
 } from '@ee/contracts';
@@ -16,6 +18,13 @@ import { useAppState, useAppStore } from '../store-context';
 import { FolderIcon, PlusIcon, ServerIcon } from './icons';
 import { Modal } from './Modal';
 import { ProfilesSettings } from './ProfilesSettings';
+import {
+  DEFAULT_FILE_TYPES,
+  DEFAULT_INCREMENTAL,
+  DEFAULT_LOCK_FILTER,
+  SourceFilters,
+  sourceFilterValues,
+} from './SourceFilters';
 import styles from './SettingsDialog.module.css';
 
 const newId = (prefix: string): string =>
@@ -29,6 +38,9 @@ interface SourceFormState {
   name: string;
   path: string;
   recursive: boolean;
+  fileTypes: FileTypeFilter;
+  lockFilter: LockFilter;
+  incremental: boolean;
   mountPath: string;
   volumeLabel: string;
   host: string;
@@ -53,6 +65,9 @@ const sourceForm = (
     name: source?.name ?? '',
     path: '',
     recursive: true,
+    fileTypes: DEFAULT_FILE_TYPES,
+    lockFilter: DEFAULT_LOCK_FILTER,
+    incremental: DEFAULT_INCREMENTAL,
     mountPath: '',
     volumeLabel: '',
     host: '',
@@ -68,7 +83,13 @@ const sourceForm = (
   };
   if (!source) return { ...base, kind };
   if (source.kind === 'folder') {
-    return { ...base, kind: source.kind, path: source.path, recursive: source.recursive ?? false };
+    return {
+      ...base,
+      kind: source.kind,
+      path: source.path,
+      recursive: source.recursive ?? false,
+      ...sourceFilterValues(source),
+    };
   }
   if (source.kind === 'card') {
     return {
@@ -76,6 +97,7 @@ const sourceForm = (
       kind: source.kind,
       mountPath: source.mountPath,
       volumeLabel: source.volumeLabel ?? '',
+      ...sourceFilterValues(source),
     };
   }
   return {
@@ -100,7 +122,16 @@ function buildSource(form: SourceFormState): { source: SourceConfig; error?: str
   if (form.kind === 'folder') {
     if (!form.path.trim()) return { source: {} as SourceConfig, error: 'Folder path is required' };
     return {
-      source: { id, kind: 'folder', name, path: form.path.trim(), recursive: form.recursive },
+      source: {
+        id,
+        kind: 'folder',
+        name,
+        path: form.path.trim(),
+        recursive: form.recursive,
+        fileTypes: form.fileTypes,
+        lockFilter: form.lockFilter,
+        incremental: form.incremental,
+      },
     };
   }
   if (form.kind === 'card') {
@@ -114,6 +145,9 @@ function buildSource(form: SourceFormState): { source: SourceConfig; error?: str
         name,
         mountPath: form.mountPath.trim(),
         volumeLabel: form.volumeLabel.trim() || undefined,
+        fileTypes: form.fileTypes,
+        lockFilter: form.lockFilter,
+        incremental: form.incremental,
       },
     };
   }
@@ -411,6 +445,18 @@ function SourcesSection() {
               />
             </label>
           </>
+        )}
+
+        {(form.kind === 'folder' || form.kind === 'card') && (
+          <SourceFilters
+            value={{
+              fileTypes: form.fileTypes,
+              lockFilter: form.lockFilter,
+              incremental: form.incremental,
+            }}
+            name={form.name.trim() || undefined}
+            onChange={(value) => patch(value)}
+          />
         )}
 
         {remote && (

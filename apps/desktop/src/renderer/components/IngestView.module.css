@@ -99,8 +99,19 @@
   background: var(--text);
 }
 
-.error {
+.sourceFilters {
+  grid-column: 1 / -1;
+  padding-top: 2px;
+}
+
+.error,
+.warning {
   grid-column: 1 / -1;
   color: var(--muted);
   font-size: var(--fs-small);
+}
+
+.warning {
+  border-left: 1px solid var(--line-strong);
+  padding-left: 7px;
 }

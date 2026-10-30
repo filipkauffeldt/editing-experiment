@@ -1,11 +1,74 @@
+import type { SourceConfig } from '@ee/contracts';
+import { useEffect, useState } from 'react';
 import { useAppState, useAppStore } from '../store-context';
+import type { IngestRun } from '../store';
 import { ActionBar, barStyles } from './ActionBar';
 import { Dot } from './ui/Dot';
 import { Button } from './ui/Button';
 import { IngestSection } from './SettingsDialog';
+import { SourceFilters, sourceFilterValues } from './SourceFilters';
 import styles from './IngestView.module.css';
 
 const baseName = (path: string): string => path.split(/[\\/]/).pop() ?? path;
+
+function progressText(source: SourceConfig, run: IngestRun | undefined): string {
+  if (!run) return 'not started';
+  const selected = run.filesTotal + (run.filesSkipped ?? 0);
+  const parts = [
+    run.state === 'finished' ? 'done' : `${run.state} ${run.filesDone}/${run.filesTotal}`,
+  ];
+  if (run.filesSkipped) {
+    parts.push(`${run.filesTotal} new · ${run.filesSkipped} already ingested`);
+  }
+  if (run.filesScanned !== undefined && selected !== run.filesScanned) {
+    const what =
+      source.kind !== 'ftp' && source.kind !== 'sftp' && source.lockFilter === 'locked'
+        ? 'locked'
+        : source.kind !== 'ftp' && source.kind !== 'sftp' && source.lockFilter === 'unlocked'
+          ? 'unlocked'
+          : 'selected';
+    parts.push(`${selected} ${what} of ${run.filesScanned}`);
+  }
+  return parts.join(' · ');
+}
+
+/**
+ * Saves each click immediately. The local copy keeps fast clicks from racing:
+ * the next change starts from what the user just chose, not an older saved row.
+ */
+function IngestSourceFilters({
+  source,
+}: {
+  source: Extract<SourceConfig, { kind: 'folder' | 'card' }>;
+}) {
+  const store = useAppStore();
+  const [value, setValue] = useState(() => sourceFilterValues(source));
+  useEffect(() => {
+    // A save from another view (e.g. settings) is the new truth.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setValue(sourceFilterValues(source));
+  }, [source]);
+
+  return (
+    <SourceFilters
+      value={value}
+      name={source.name}
+      onChange={(next) => {
+        setValue(next);
+        void store
+          .saveSource({ ...source, ...next })
+          .catch((cause: unknown) =>
+            store.notify(
+              'error',
+              `Could not save the source filters: ${
+                cause instanceof Error ? cause.message : String(cause)
+              }`,
+            ),
+          );
+      }}
+    />
+  );
+}
 
 /** Ingest: every source with its progress, and the ingest settings (destination, rename, template). */
 export function IngestView() {
@@ -50,17 +113,17 @@ export function IngestView() {
                 />
                 <span className={styles.name}>{source.name}</span>
                 <span className={styles.kind}>{source.kind}</span>
-                <span className={`${styles.state} mono`}>
-                  {run
-                    ? run.state === 'finished'
-                      ? 'done'
-                      : `${run.state} ${run.filesDone}/${run.filesTotal}`
-                    : 'not started'}
-                </span>
+                <span className={`${styles.state} mono`}>{progressText(source, run)}</span>
                 <span className={styles.bar}>
                   <span style={{ width: `${percent}%` }} />
                 </span>
+                {source.kind === 'folder' || source.kind === 'card' ? (
+                  <div className={styles.sourceFilters}>
+                    <IngestSourceFilters source={source} />
+                  </div>
+                ) : null}
                 {run?.error && <span className={styles.error}>{run.error}</span>}
+                {run?.warning && <span className={styles.warning}>{run.warning}</span>}
               </li>
             );
           })}
