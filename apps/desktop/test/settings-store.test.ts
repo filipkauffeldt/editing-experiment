@@ -81,6 +81,82 @@ describe('SettingsStore', () => {
     expect(reopened.get().ingest.metadataTemplateMode).toBe('fillEmpty');
   });
 
+  it('round-trips the local ingest filters on card and folder sources', async () => {
+    const file = join(await tempDir(), 'settings.json');
+    const store = new SettingsStore(file, defaults);
+    store.saveSource({
+      id: asSourceId('card'),
+      kind: 'card',
+      name: 'Card',
+      mountPath: '/cards/a',
+      fileTypes: 'raw',
+      lockFilter: 'locked',
+      incremental: false,
+    });
+    store.saveSource({
+      id: asSourceId('folder'),
+      kind: 'folder',
+      name: 'Folder',
+      path: '/cards/b',
+      fileTypes: 'jpeg',
+      lockFilter: 'unlocked',
+      incremental: true,
+    });
+
+    const reopened = new SettingsStore(file, defaults);
+    expect(reopened.listSources()).toMatchObject([
+      { id: 'card', fileTypes: 'raw', lockFilter: 'locked', incremental: false },
+      { id: 'folder', fileTypes: 'jpeg', lockFilter: 'unlocked', incremental: true },
+    ]);
+  });
+
+  it('migrates the old lockedOnly boolean to lockFilter and drops the old key', async () => {
+    const dir = await tempDir();
+    const file = join(dir, 'settings.json');
+    await writeFile(
+      file,
+      JSON.stringify({
+        version: 2,
+        ingest: {
+          destination: { path: '/ingest' },
+          renameTemplate: '{date}',
+          codeReplacementPaths: [],
+        },
+        sources: [
+          {
+            id: 'locked-card',
+            kind: 'card',
+            name: 'Locked',
+            mountPath: '/cards/a',
+            lockedOnly: true,
+          },
+          {
+            id: 'unlocked-folder',
+            kind: 'folder',
+            name: 'Unlocked',
+            path: '/cards/b',
+            lockedOnly: false,
+          },
+        ],
+        destinations: [],
+      }),
+    );
+
+    const store = new SettingsStore(file, defaults);
+    expect(store.listSources()).toMatchObject([
+      { id: 'locked-card', lockFilter: 'locked' },
+      { id: 'unlocked-folder' },
+    ]);
+    expect(store.listSources().some((source) => 'lockedOnly' in source)).toBe(false);
+
+    const saved = JSON.parse(await readFile(file, 'utf8')) as {
+      sources: Array<Record<string, unknown>>;
+    };
+    expect(saved.sources[0]?.lockFilter).toBe('locked');
+    expect(saved.sources[1]?.lockFilter).toBeUndefined();
+    expect(saved.sources.some((source) => 'lockedOnly' in source)).toBe(false);
+  });
+
   it('migrates settings written before the template mode existed to replace', async () => {
     const dir = await tempDir();
     const file = join(dir, 'settings.json');

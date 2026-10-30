@@ -290,8 +290,11 @@ export interface IngestRun {
   state: IngestJobInfo['state'];
   filesDone: number;
   filesTotal: number;
+  filesScanned?: number;
+  filesSkipped?: number;
   bytesDone: number;
   error?: string;
+  warning?: string;
 }
 
 /** The settings last copied from a photo, and the groups the user chose. */
@@ -830,8 +833,11 @@ export class AppStore {
         state: info.state,
         filesDone: info.filesDone,
         filesTotal: info.filesTotal,
+        ...(info.filesScanned === undefined ? {} : { filesScanned: info.filesScanned }),
+        ...(info.filesSkipped === undefined ? {} : { filesSkipped: info.filesSkipped }),
         bytesDone: info.bytesDone,
         error: info.error,
+        warning: info.warning,
       };
     }
 
@@ -3033,8 +3039,11 @@ export class AppStore {
         state: info.state,
         filesDone: info.filesDone,
         filesTotal: info.filesTotal,
+        ...(info.filesScanned === undefined ? {} : { filesScanned: info.filesScanned }),
+        ...(info.filesSkipped === undefined ? {} : { filesSkipped: info.filesSkipped }),
         bytesDone: info.bytesDone,
         error: info.error,
+        warning: info.warning,
       };
     }
     this.set({ ingest: runs });
@@ -3074,8 +3083,19 @@ export class AppStore {
               state: current?.state ?? 'running',
               filesDone: event.filesDone,
               filesTotal: event.filesTotal,
+              ...(event.filesScanned === undefined
+                ? current?.filesScanned === undefined
+                  ? {}
+                  : { filesScanned: current.filesScanned }
+                : { filesScanned: event.filesScanned }),
+              ...(event.filesSkipped === undefined
+                ? current?.filesSkipped === undefined
+                  ? {}
+                  : { filesSkipped: current.filesSkipped }
+                : { filesSkipped: event.filesSkipped }),
               bytesDone: event.bytesDone,
               error: current?.error,
+              warning: current?.warning,
             },
           },
         });
@@ -3087,7 +3107,12 @@ export class AppStore {
         this.set({
           ingest: {
             ...this.state.ingest,
-            [event.sourceId]: { ...current, jobId: event.jobId, state: event.state },
+            [event.sourceId]: {
+              ...current,
+              jobId: event.jobId,
+              state: event.state,
+              ...(event.warning === undefined ? {} : { warning: event.warning }),
+            },
           },
         });
         break;

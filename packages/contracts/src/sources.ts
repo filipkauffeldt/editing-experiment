@@ -7,8 +7,38 @@ interface SourceBase {
   name: string;
 }
 
+/** Which files a local source copies. */
+export type FileTypeFilter = 'raw' | 'jpeg' | 'both';
+
+/**
+ * Which protect/read-only states a local source copies. `locked` is the
+ * camera's protect button (the file's read-only attribute).
+ */
+export type LockFilter = 'locked' | 'unlocked' | 'all';
+
+/**
+ * Per-source ingest filters. These apply to local folders and cards only;
+ * remote sources have no readable protect attribute.
+ */
+export interface LocalSourceFilters {
+  /**
+   * `raw` copies the supported raw formats plus their `.xmp` sidecars, `jpeg`
+   * copies `.jpg`/`.jpeg`, and `both` (the default) copies every supported
+   * image, including HEIF/TIFF only in this mode.
+   */
+  fileTypes?: FileTypeFilter;
+  /** Defaults to `all`. A raw/JPEG pair is locked when either file is locked. */
+  lockFilter?: LockFilter;
+  /**
+   * Skip files already ingested from this source (path, size and modification
+   * time). Defaults to `true`; when off, copies are renamed with a numeric
+   * suffix instead of overwriting.
+   */
+  incremental?: boolean;
+}
+
 /** A plain local folder treated as a source. */
-export interface FolderSource extends SourceBase {
+export interface FolderSource extends SourceBase, LocalSourceFilters {
   kind: 'folder';
   path: string;
   /** Descend into subfolders (default false). */
@@ -16,7 +46,7 @@ export interface FolderSource extends SourceBase {
 }
 
 /** A memory card (removable volume). Detection is platform specific; see `sources:detectCards`. */
-export interface CardSource extends SourceBase {
+export interface CardSource extends SourceBase, LocalSourceFilters {
   kind: 'card';
   /** Mount point of the volume (e.g. `/run/media/user/NIKON_Z9`, `E:\`). */
   mountPath: string;

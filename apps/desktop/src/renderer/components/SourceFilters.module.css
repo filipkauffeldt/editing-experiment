@@ -1,0 +1,49 @@
+.filters {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 14px;
+}
+
+.group {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.legend {
+  color: var(--dim);
+  font-size: var(--fs-label);
+  letter-spacing: var(--tracking-label);
+  text-transform: uppercase;
+}
+
+.option {
+  padding: 1px 0;
+  border: 0;
+  border-bottom: 1px solid transparent;
+  background: transparent;
+  color: var(--muted);
+  font-size: var(--fs-label);
+}
+
+.option:hover {
+  color: var(--text);
+}
+
+.optionActive {
+  border-bottom-color: var(--text);
+  color: var(--text);
+}
+
+.checkbox {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--muted);
+  font-size: var(--fs-label);
+}
+
+.checkbox input {
+  accent-color: var(--text);
+}
