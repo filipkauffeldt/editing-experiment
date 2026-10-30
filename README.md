@@ -15,27 +15,47 @@ It is a proof of concept, not production software. The PoC demo in
 
 - Ingest from folder and card sources and from polled FTP/FTPS/SFTP servers, in
   parallel. Each source copies in filename order, with rename and subfolder
-  templates, hash verification, an optional backup destination, and no writes
-  to the originals.
-- Photo Mechanic `.XMP` metadata templates, `=code=` replacement tables, and
-  `{variables}` in captions and path templates.
+  templates, SHA-256 verification, an optional backup destination, and no
+  writes to the originals; deleting from a server is opt-in and off by
+  default.
+- Photo Mechanic `.XMP` metadata templates with Replace (the default) or Fill
+  empty, `=code=` replacement tables, and `{variables}` in captions and path
+  templates. Ingest can apply a develop preset to every imported photo.
 - IPTC metadata in XMP sidecars for raws and embedded IIM + XMP for JPEGs.
-  Tagged/colour class is mirrored to `xmp:Label`.
-- WebGL2 develop preview and full-resolution rendering with Lightroom-compatible
-  `crs:` parameters (exposure, temperature/tint, contrast, highlights, shadows,
-  whites, blacks, tone curves, vibrance, saturation, texture, clarity,
-  dehaze, sharpening, luminance and colour noise reduction) and imported `.xmp`
-  presets. Legacy `.lrtemplate` presets are parsed too.
-- **Camera profiles**: Lightroom-style profile select (Adobe Standard, Adobe Color and the
-  other Adobe Raw looks, Camera Matching) from the DNG camera profiles (`.dcp`) and XMP
-  profiles you provide; see "Camera profiles".
-- Retouch mosaic, with YuNet face detection inside a dragged region.
-- **Export presets**: JPEG into a local folder with the selected metadata, resize
-  and output sharpening (rendered directly at the preset's output size), and no
-  embedded preview of the unretouched image; Export & send / Next & send then upload the exported files
-  through the folder/FTP/FTPS/SFTP queue.
-- Anonymous FTP for sources and destinations when no credential reference is
-  set.
+  Tagged state and colour class use Photo Mechanic's `Tagged` and `ColorClass`
+  fields and the combined `Prefs` string; the class is mirrored to `xmp:Label`
+  (with label syncing on, the default) and the rating is written to
+  `xmp:Rating` and `Prefs`.
+- Library: virtualised grid and loupe, multi-select (click, Shift range,
+  Ctrl/⌘ toggle, Ctrl/⌘+A), quick and colour-class filters. Folders are the
+  local ingest copies only, so cards and servers never appear there.
+- Batch caption for the selection: replace or append selected IPTC fields,
+  with codes and `{variables}` expanded per photo.
+- Star ratings `1`-`5` (`0` clears), colour classes Ctrl+`1`-`8` (Cmd on macOS;
+  `0` clears) and tag `T`. They apply to the Library selection or the open
+  photo.
+- Edited thumbnails and previews: develop settings, crop/straighten and the
+  newest mosaic are drawn into the film strip and previews, not just the
+  camera's embedded preview.
+- Develop panel with WebGL2 preview and export rendering: Basic (White
+  balance, Tone), Presence, Tone Curve (parametric, point RGB and R/G/B),
+  Color Mixer, Color Grading wheels, Detail (sharpening and noise reduction),
+  Lens Corrections (Nikon's embedded data or Lensfun, manual
+  distortion/vignette, Remove chromatic aberration and Defringe), Effects
+  (post-crop vignette and grain), Calibration, camera profiles and imported
+  `.xmp` presets.
+- Histogram read from the rendered frame, clipping `J`, before/after `Y`,
+  white balance picker `W`, Auto tone and Auto WB.
+- Lightroom-style crop and straighten `C`, applied in the preview and the
+  export.
+- Copy, paste and sync develop settings by group.
+- Retouch mosaic (rectangle, lasso, magic wand) with YuNet face detection
+  inside a dragged region.
+- Export presets (JPEG location, resize, output sharpening, metadata and send
+  targets) and Export / Export & send / Next & send. Exports render at the
+  preset's output size and contain no embedded preview of the unretouched
+  image.
+- Anonymous FTP for sources and destinations when no credentials are set.
 
 ## Camera profiles
 
@@ -71,21 +91,26 @@ panel and is drawn with the camera matrix. For a development test against real p
 - Colour matches Lightroom only when you give the app Adobe's camera profiles (see
   "Camera profiles" below). Without one, colour comes from LibRaw's camera matrix and a
   simple highlight shoulder, which is not Lightroom's rendering. Profiles with an RGB
-  table (Artistic, Vintage, Modern looks), monochrome looks and `DefaultBlackRender` are not
-  rendered, and the camera's own baseline exposure is not applied.
+  table (Artistic, Vintage, Modern looks), monochrome looks and three-illuminant
+  profiles are not rendered; `DefaultBlackRender` and the camera's own baseline
+  exposure are not applied.
 - Texture, Clarity, Dehaze, sharpening and noise reduction follow RAWmakase's
   fits of Camera Raw, not Camera Raw itself. Raws start with Lightroom's
   sharpening and colour noise reduction (or the camera's own `crd:` values), shown
-  on the sliders but never written to the sidecar. Their preview speed has only been
-  measured on software GL.
+  on the sliders but never written to the sidecar.
 - Nikon HE/HE* NEFs (TicoRAW) are not supported by the vendored LibRaw 0.22.3.
-- Crop and straighten round-trip through `crs:` sidecars but are not applied in
-  the preview or export yet; that work is in progress.
-- Full-resolution export sends the rendered RGBA buffer over IPC (about 180 MB
-  for a 45 MP frame). It works, but the copy is a known cost.
+- Full-size exports (`resize: none`) send the rendered RGBA buffer over IPC
+  (about 180 MB for a 45 MP frame). Smaller exports render at the preset's
+  output size and avoid that copy; the full-size path is a known cost.
+- GPU performance is unmeasured: the tests and screenshots use software GL
+  (SwiftShader), so preview and export speed on a real GPU has not been
+  benchmarked.
 - macOS and Windows are untested; CI runs on Linux only.
-- Photo Mechanic label compatibility (`Tagged`/`ColorClass` ↔ `xmp:Label`) is
-  implemented but has not been verified against a real Photo Mechanic install.
+- Photo Mechanic and Lightroom compatibility has not been verified against real
+  reference files: sidecar labels and ratings, develop settings and profile
+  renders are tested internally (and the profile maths against the DNG SDK),
+  not against files produced by those apps.
+- There is no installer or packaging; run the app from source.
 
 ## Getting started
 
