@@ -105,14 +105,31 @@ jobs:
             fixtures/retouch
           key: fixtures-retouch-${{ hashFiles('scripts/fetch-retouch.ts') }}
       - run: pnpm fetch-retouch
-      # The develop-gl WebGL parity tests run in headless Chromium (software GL via SwiftShader).
-      - name: Install Playwright Chromium
-        run: pnpm --filter @ee/develop-gl exec playwright install --with-deps chromium
       - name: Unit tests
         run: pnpm test:unit
 
-  # The PoC demo and the crop-overlay interactions each launch their own app, so
-  # they run as two jobs instead of one long serial file (CI bails on failure).
+  browser:
+    # The develop-gl WebGL parity tests run in headless Chromium (SwiftShader).
+    # No native addon needed, so this starts immediately instead of waiting for native.
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v7
+      # Version comes from "packageManager" in package.json.
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Install Playwright Chromium
+        run: pnpm --filter @ee/develop-gl exec playwright install --with-deps chromium
+      - name: WebGL parity tests
+        run: pnpm test:browser
+
+  # The demo, the export checks and the crop-overlay interactions each launch
+  # their own app, so they run as three jobs instead of one long serial file
+  # (CI bails on failure).
   e2e-demo:
     needs: native
     runs-on: ubuntu-latest
@@ -153,6 +170,44 @@ jobs:
         run: node scripts/ensure-electron.mjs
       - name: Electron e2e (demo, real window and WebGL under Xvfb)
         run: xvfb-run -a --server-args='-screen 0 1920x1080x24' pnpm test:e2e:demo
+
+  e2e-export:
+    needs: native
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v7
+      # Version comes from "packageManager" in package.json.
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - uses: actions/download-artifact@v8
+        with:
+          name: native-addon
+          path: crates/core
+      - uses: actions/cache@v6
+        with:
+          path: fixtures/raw
+          key: fixtures-raw-${{ hashFiles('scripts/fetch-fixtures.ts') }}
+      - run: pnpm fetch-fixtures
+      - uses: actions/cache@v6
+        with:
+          path: |
+            fixtures/models
+            fixtures/retouch
+          key: fixtures-retouch-${{ hashFiles('scripts/fetch-retouch.ts') }}
+      - run: pnpm fetch-retouch
+      - name: Install Xvfb
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends xvfb xauth
+      - name: Install Electron binary
+        run: node scripts/ensure-electron.mjs
+      - name: Electron e2e (exports at the preset size, under Xvfb)
+        run: xvfb-run -a --server-args='-screen 0 1920x1080x24' pnpm test:e2e:export
 
   e2e-crop:
     needs: native
