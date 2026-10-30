@@ -67,13 +67,14 @@ describe('rendering with the CPU reference when the GPU cannot draw the detail s
     expect(Array.from(out)).not.toEqual(Array.from(without));
   });
 
-  it('fails clearly instead of running out of memory on a huge picture', () => {
-    const huge = { ...header, width: 5000, height: 4000 };
+  it('fails clearly instead of running out of memory on a huge output', () => {
+    // The CPU reference works at the output size; a large source rendered small is fine.
+    const huge = { width: 5000, height: 4000 };
     expect(huge.width * huge.height).toBeGreaterThan(CPU_FALLBACK_MAX_PIXELS);
-    expect(() => renderWithFallback(gpu(false), huge, new ArrayBuffer(0), detail, size)).toThrow(
+    expect(() => renderWithFallback(gpu(false), header, data, detail, huge)).toThrow(
       /need GPU float support/,
     );
     // The check does not get in the way of a GPU that can do it.
-    expect(renderWithFallback(gpu(true), huge, new ArrayBuffer(0), detail, size)[0]).toBe(7);
+    expect(renderWithFallback(gpu(true), header, data, detail, huge)[0]).toBe(7);
   });
 });

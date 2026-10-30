@@ -11,8 +11,8 @@
    (temp/tint), contrast, highlights, shadows, whites, blacks, vibrance and
    saturation with live GPU preview.
 4. Select an area, run face detection inside it, mosaic the detected faces.
-5. **Next & send** renders a full-resolution JPEG with metadata and no
-   leaked original thumbnail into the active export preset's local folder,
+5. **Next & send** renders a JPEG at the active export preset's output size with
+   metadata and no leaked original thumbnail into the preset's local folder,
    uploads the exported file to a target FTP/SFTP server, and advances to the
    next photo.
 
@@ -34,7 +34,7 @@ scripts/              fetch-fixtures, screenshot helpers
 
 ```
 Renderer (React)  ── typed IPC (contracts) ──>  Main (thin: windows, routing)
-   │  WebGL2 develop preview + full-res export render       │
+   │  WebGL2 develop preview + export render                 │
    │  images via app:// protocol                            ├─> Utility process "jobs":
    │                                                        │     ingest, metadata (ExifTool),
    │                                                        │     export encode, upload queue
@@ -46,7 +46,7 @@ Renderer (React)  ── typed IPC (contracts) ──>  Main (thin: windows, rou
 - `app://thumb/<photoId>`, `app://preview/<photoId>` serve cached JPEGs;
   `app://linear/<photoId>?maxEdge=N` serves the decoded linear image
   (see "Linear image format"). JPEGs are served as linear sRGB with an identity
-  camera matrix so develop preview and full-resolution export work for them too.
+  camera matrix so develop preview and export renders work for them too.
 - SQLite (built-in `node:sqlite`, `DatabaseSync`; no native module to rebuild per
   Electron ABI) in the utility process: photo index, source state
   (seen remote files), upload queue. It is a cache: XMP sidecars are the
@@ -85,12 +85,16 @@ exports/             default exportRoot (presets choose folders below it)
 - Edits: develop params are the `crs:` block of the sidecar (one develop version per photo), retouch
   versions are `ee:RetouchVersions`. Writes to one photo's sidecar are serialised.
 - Exports: an export job owns a list of photos and a preset. The jobs process asks the renderer for
-  each full-resolution render over `jobs:event` (`export.render`); the renderer replies with
-  `export:render` (RGBA over IPC, the same PoC cost as the old finish action). The jobs process then
-  resizes, applies output sharpening (a luminance unsharp mask in `packages/export`), encodes,
+  each export render over `jobs:event` (`export.render`); the renderer replies with
+  `export:render` (RGBA over IPC, the same PoC cost as the old finish action). The renderer fetches
+  the full-resolution linear source but draws it directly at the preset's output size: the crop's
+  pixel size is fitted to `resize` by the shared pure `outputSizeForResize`
+  (`@ee/export/output-size`), so only `resize: none` renders at full resolution. The jobs process
+  then applies output sharpening (a luminance unsharp mask in `packages/export`), encodes,
   writes metadata, runs `assertNoEmbeddedPreviews`, publishes atomically and only then enqueues the
-  exported file for upload. Jobs are persisted in `export-jobs.json`; after a restart the current
-  photo is queued again once the renderer calls `export:rendererReady`.
+  exported file for upload. The encoder uses the same size function and skips its resize when the
+  render is already the output size. Jobs are persisted in `export-jobs.json`; after a restart the
+  current photo is queued again once the renderer calls `export:rendererReady`.
 - Export safety: the target is checked against every indexed photo's `path` and `sidecarPath`
   (case-folded on macOS/Windows) and an export never writes over them. `ifExists` defaults to
   `suffix`; `overwrite` only replaces a path recorded in `exported-files.json`. The render request
@@ -169,9 +173,9 @@ Key types (names are binding, fields can grow):
   typed event channels. Preload exposes it as `window.ee`.
 - `exportPresets:list/save/remove`, `export:start/cancel/list`, `export:render` and
   `export:rendererReady`; progress arrives as `export.progress` / `export.state`
-  job events. `export:render` sends the full-resolution RGBA render over IPC. That is
-  fine for the PoC (about 180 MB for a 45 MP Z9 frame) but a known cost to optimise
-  later (e.g. MessagePort transfer or a shared temp file).
+  job events. `export:render` sends the RGBA render over IPC (full-resolution only
+  for `resize: none`: about 180 MB for a 45 MP Z9 frame). That is fine for the PoC
+  but a known cost to optimise later (e.g. MessagePort transfer or a shared temp file).
 
 ## Image ops (no sharp)
 
@@ -275,8 +279,9 @@ Absent `Temperature`/`Tint` mean as shot. If `Temperature` or `Tint` is set it
 overrides `WhiteBalance: 'As Shot'`, so to return to as shot clear both (the preset
 helper `applyPreset` does this for "As Shot" presets). A CPU reference of the same
 maths (`renderCpu`) lives next to the shaders; a browser test checks that the two agree.
-Export renders the same pipeline offscreen at full resolution, in tiles when the image
-or the output exceeds GPU limits. All tunable constants are in `src/tuning.ts`.
+Export renders the same pipeline offscreen directly at the preset's output size
+(full resolution only for `resize: none`), in tiles when the image or the output
+exceeds GPU limits. All tunable constants are in `src/tuning.ts`.
 
 ### Neighbourhood ops
 
@@ -446,11 +451,13 @@ Code is in `packages/develop-gl/src/lens` (maths, matching, measurement), `src/g
 - **Defringe** is the RAWmakase fit of Camera Raw: Oklab chroma reduction in the purple (0.875)
   and green (0.46) hue windows; the spatial part (more next to edges) is not reproduced.
 - **Retouch.** Mosaic shapes are stored in the recorded (uncorrected) picture. The mosaic is
-  applied to the corrected pixels, after the geometry, with the shapes moved into the corrected
-  frame by `correctedShapes` (each outline cut into <= 8 px pieces, mapped through the exact
-  inverse of the lens map, pushed out 1.5 px; points the corrected frame no longer shows are
-  clamped along their ray). `composeDevelopedRgba` does this for the export, the edited previews
-  and the canvas preview alike, before the crop. While a retouch session is open the canvas shows
+  applied to the rendered pixels, after the lens geometry and the crop, with the shapes moved first
+  into the corrected frame by `correctedShapes` (each outline cut into <= 8 px pieces, mapped
+  through the exact inverse of the lens map, pushed out 1.5 px; points the corrected frame no longer
+  shows are clamped along their ray) and then into the cropped output by `cropMosaicOp` (a
+  straightened rectangle becomes a polygon). `composeDevelopedRgba` does this for the export, the
+  edited previews and the canvas preview alike. No resampling happens after the mosaic, so blocks
+  stay exactly constant. While a retouch session is open the canvas shows
   the picture without the lens geometry (`withoutLensGeometry`), so a drawn selection is already
   in the stored frame. A test on pixels proves a 3 px checker "face" in a corner, where a strong
   barrel correction moves it by 20 px, is fully covered, and shows that the unmapped shape would
@@ -539,7 +546,15 @@ preset, then advance). A batch runs in the jobs process; the renderer stays usab
 `ifExists` picks suffix/overwrite/skip. Metadata modes write IPTC/XMP, optionally
 copy camera EXIF and GPS from the original, or only copyright; `stripGps` drops the
 location tags. Output sharpening is a simple luminance unsharp mask applied after
-the resize, in the jobs process, before encoding.
+the resize (normally a no-op), in the jobs process, before encoding.
+
+The renderer draws at the final output size so a 1600 px export never renders a
+45 MP raw. `outputSizeForResize` is the one definition of that size: the renderer
+uses it on the crop's pixel size and the encoder uses it to decide whether its own
+resize is needed. Neighbourhood radii are in full-resolution source pixels and
+`blockSizeRel` is relative to the image edge, so the smaller render has the same
+look; a browser test compares a 2048 px direct render with a full-resolution
+render downscaled to 2048 px.
 
 ## Renderer shell
 

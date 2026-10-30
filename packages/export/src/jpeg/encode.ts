@@ -1,41 +1,13 @@
 import { encodeJpeg as encodeJpegNative, resizeRgba } from '@ee/core';
-import type { ExportPreset, ExportResize, RenderedImage } from '@ee/contracts';
+import type { ExportPreset, RenderedImage } from '@ee/contracts';
 import { ExportError } from '../errors';
+import { resizeMaxEdge } from '../output-size';
 import { sharpenRgba } from './sharpen';
 
 export interface EncodedJpeg {
   data: Buffer;
   width: number;
   height: number;
-}
-
-/**
- * Longest edge to ask the native resizer for. `undefined` means "leave the
- * pixels alone". The native resizer never upscales, so a target larger than the
- * source still returns the source size.
- */
-export function resizeMaxEdge(
-  width: number,
-  height: number,
-  resize: ExportResize,
-): number | undefined {
-  const longest = Math.max(width, height);
-  const shortest = Math.min(width, height);
-  switch (resize.mode) {
-    case 'none':
-      return undefined;
-    case 'longEdge':
-      return resize.pixels;
-    case 'shortEdge':
-      return shortest <= resize.pixels
-        ? undefined
-        : Math.max(resize.pixels, Math.round((resize.pixels * longest) / shortest));
-    case 'megapixels': {
-      const target = resize.megapixels * 1_000_000;
-      if (target >= width * height) return undefined;
-      return Math.max(1, Math.round(longest * Math.sqrt(target / (width * height))));
-    }
-  }
 }
 
 /**

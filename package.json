@@ -13,14 +13,20 @@
     "lint": "eslint . && prettier --check .",
     "format": "prettier --write .",
     "typecheck": "pnpm -r --workspace-concurrency=1 run typecheck && tsc --noEmit -p scripts",
-    "test": "node scripts/ensure-electron.mjs && pnpm build:native && vitest run --exclude '**/*.e2e.test.ts' --exclude '**/real-mode.smoke.test.ts' && vitest run --no-file-parallelism apps/desktop/test/poc-demo.e2e.test.ts apps/desktop/test/real-mode.smoke.test.ts",
+    "test": "node scripts/ensure-electron.mjs && pnpm build:native && pnpm test:unit && pnpm test:browser && pnpm test:e2e",
     "build:native": "pnpm --filter @ee/core run build",
     "build": "pnpm -r --workspace-concurrency=1 run --if-present build",
     "dev": "pnpm build:native && pnpm --filter @ee/desktop run dev",
     "screenshot": "pnpm build && node scripts/screenshot.ts",
     "fetch-fixtures": "node scripts/fetch-fixtures.ts",
     "fetch-retouch": "node scripts/fetch-retouch.ts",
-    "update-lensfun": "pnpm --filter @ee/develop-gl run update-lensfun"
+    "update-lensfun": "pnpm --filter @ee/develop-gl run update-lensfun",
+    "test:unit": "vitest run --exclude '**/*.e2e.test.ts' --exclude '**/real-mode.smoke.test.ts' --exclude '**/*.browser.test.ts'",
+    "test:e2e": "vitest run --no-file-parallelism apps/desktop/test/poc-demo.e2e.test.ts apps/desktop/test/real-mode.smoke.test.ts",
+    "test:e2e:demo": "vitest run --no-file-parallelism apps/desktop/test/poc-demo.e2e.test.ts --testNamePattern='ingests three sources|Photo Mechanic template|code replacement|Lightroom preset and a moved exposure|crops to 1:1|detects faces|finishes at the export size|edited in the film strip|linear image too|batch exports a retouched photo|full-resolution crop'",
+    "test:e2e:crop": "vitest run --no-file-parallelism apps/desktop/test/poc-demo.e2e.test.ts apps/desktop/test/real-mode.smoke.test.ts --testNamePattern='Lightroom-style crop overlay|real mode smoke'",
+    "test:browser": "pnpm --filter @ee/develop-gl exec vitest run --config vitest.browser.config.ts",
+    "test:e2e:export": "vitest run --no-file-parallelism apps/desktop/test/poc-demo.e2e.test.ts --testNamePattern='batch exports three|batch exports and sends|never overwrites'"
   },
   "devDependencies": {
     "@eslint/js": "10.0.1",

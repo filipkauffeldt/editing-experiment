@@ -2371,7 +2371,16 @@ export class AppStore {
         await this.loadDefaults(latest.id),
       );
       const ops = request.version === 'top' ? (topRetouchVersion(latest)?.ops ?? []) : [];
-      const rendered = await this.renderForExport({ photo: latest, params, ops });
+      const preset = this.state.exportPresets.find(
+        (candidate) => candidate.id === request.presetId,
+      );
+      if (!preset) throw new Error(`no export preset ${request.presetId}`);
+      const rendered = await this.renderForExport({
+        photo: latest,
+        params,
+        ops,
+        resize: preset.resize,
+      });
       await this.bridge.invoke('export:render', {
         jobId: request.jobId,
         requestId: request.requestId,

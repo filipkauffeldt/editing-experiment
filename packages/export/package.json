@@ -6,7 +6,8 @@
   "license": "GPL-3.0-or-later",
   "type": "module",
   "exports": {
-    ".": "./src/index.ts"
+    ".": "./src/index.ts",
+    "./output-size": "./src/output-size.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit",

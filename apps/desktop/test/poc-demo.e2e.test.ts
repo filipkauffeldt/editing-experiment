@@ -12,15 +12,16 @@ import {
   type FtpSource,
   type IngestConfig,
   type IpcResult,
+  type MosaicOp,
   type Photo,
   type SourceConfig,
   type UploadItem,
 } from '@ee/contracts';
 import { decodeJpeg } from '@ee/core';
-import { cropOutputPixels, sourceToCroppedPixels } from '@ee/develop-gl';
-import { assertNoEmbeddedPreviews } from '@ee/export';
+import { cropMosaicOp, cropOutputPixels } from '@ee/develop-gl';
+import { assertNoEmbeddedPreviews, outputSizeForResize } from '@ee/export';
 import { ExifToolService, readIptc } from '@ee/metadata';
-import { blockSizeForShape } from '@ee/retouch';
+import { blockSizeForShape, shapeBounds } from '@ee/retouch';
 import { _electron as electron, type ElectronApplication, type Page } from '@playwright/test';
 import { spawn, spawnSync, type ChildProcess } from 'node:child_process';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
@@ -102,6 +103,8 @@ describe.skipIf(nefs.length === 0 || !haveDisplay)(
     let sourceB: SourceConfig;
     let sourcePool: SourceConfig;
     let destination: FtpDestination;
+    let mainPreset: ExportPreset;
+    let batchPreset: ExportPreset;
     let templateFields: Record<string, unknown>;
 
     const invoke = async <T>(channel: string, ...args: unknown[]): Promise<T> => {
@@ -220,6 +223,49 @@ describe.skipIf(nefs.length === 0 || !haveDisplay)(
       const decoded = await decodeJpeg(readFileSync(uploaded));
       expect(decoded.width).toBe(expected.width);
       expect(decoded.height).toBe(expected.height);
+    };
+
+    /** The size the renderer should draw for this photo, crop and preset. */
+    const exportSize = (
+      source: { width: number; height: number },
+      crop: CropParams | undefined,
+      preset: ExportPreset,
+    ): { width: number; height: number } => {
+      const cropped = crop ? cropOutputPixels(crop, source) : source;
+      return outputSizeForResize(cropped.width, cropped.height, preset.resize);
+    };
+
+    /** A block centre inside the exported mosaic is block-constant (JPEG tolerates some ringing). */
+    const expectMosaicBlockConstant = (
+      decoded: { width: number; height: number; rgba: Uint8Array | Buffer },
+      crop: CropParams,
+      source: { width: number; height: number },
+      op: MosaicOp,
+      preset: ExportPreset,
+    ): void => {
+      const output = exportSize(source, crop, preset);
+      const mapped = cropMosaicOp(op, crop, source, output);
+      const shape = mapped.shapes[0];
+      if (!shape) throw new Error('no mosaic shape');
+      const block = blockSizeForShape(shape, mapped.blockSizeRel, output.width, output.height);
+      const bounds = shapeBounds(shape);
+      const centreX = (bounds.x + bounds.w / 2) * output.width;
+      const centreY = (bounds.y + bounds.h / 2) * output.height;
+      const blockX = Math.floor(centreX / block) * block + block / 2;
+      const blockY = Math.floor(centreY / block) * block + block / 2;
+      const x0 = Math.max(0, Math.round(blockX) - 1);
+      const y0 = Math.max(0, Math.round(blockY) - 1);
+      const values: number[][] = [];
+      for (let y = y0; y < Math.min(decoded.height, y0 + 3); y++) {
+        for (let x = x0; x < Math.min(decoded.width, x0 + 3); x++) {
+          const index = (y * decoded.width + x) * 4;
+          values.push([decoded.rgba[index]!, decoded.rgba[index + 1]!, decoded.rgba[index + 2]!]);
+        }
+      }
+      for (let channel = 0; channel < 3; channel++) {
+        const channelValues = values.map((value) => value[channel]!);
+        expect(Math.max(...channelValues) - Math.min(...channelValues)).toBeLessThanOrEqual(8);
+      }
     };
 
     interface CropState {
@@ -440,7 +486,7 @@ describe.skipIf(nefs.length === 0 || !haveDisplay)(
         await invoke('sources:save', { source });
       }
       await invoke('destinations:save', { destination });
-      const mainPreset: ExportPreset = {
+      mainPreset = {
         id: asPresetId('poc-main'),
         name: 'Sportfotografen',
         folderTemplate: '{folder}/Export/{preset}',
@@ -449,14 +495,14 @@ describe.skipIf(nefs.length === 0 || !haveDisplay)(
         format: 'jpeg',
         quality: 90,
         colorSpace: 'srgb',
-        resize: { mode: 'none' },
+        resize: { mode: 'longEdge', pixels: 1600 },
         outputSharpening: { target: 'none', amount: 'standard' },
         metadata: 'all',
         stripGps: false,
         version: 'top',
         sendTo: [destination.id],
       };
-      const batchPreset: ExportPreset = {
+      batchPreset = {
         ...mainPreset,
         id: asPresetId('poc-batch'),
         name: 'Batch',
@@ -469,6 +515,14 @@ describe.skipIf(nefs.length === 0 || !haveDisplay)(
         name: 'Source folder',
         folderTemplate: '{folderpath}',
       };
+      // The one full-resolution export in the demo: only this preset has `resize: none`.
+      const fullPreset: ExportPreset = {
+        ...mainPreset,
+        id: asPresetId('poc-full'),
+        name: 'Full resolution',
+        folderTemplate: join(root, 'full-exports', '{preset}'),
+        resize: { mode: 'none' },
+      };
       exportRoot = join(root, 'exports');
       const settings: AppSettings = {
         ingest: {
@@ -478,7 +532,7 @@ describe.skipIf(nefs.length === 0 || !haveDisplay)(
           codeReplacementPaths: [codesPath],
         },
         exportRoot,
-        exportPresets: [mainPreset, batchPreset, sourceFolderPreset],
+        exportPresets: [mainPreset, batchPreset, sourceFolderPreset, fullPreset],
         activePresetId: mainPreset.id,
       };
       await invoke('settings:set', settings);
@@ -656,10 +710,11 @@ describe.skipIf(nefs.length === 0 || !haveDisplay)(
         return current.crop ? current : undefined;
       });
       expect(params.crop?.angle).toBeCloseTo(3, 1);
-      const expected = cropOutputPixels(params.crop!, {
-        width: photo.width ?? 0,
-        height: photo.height ?? 0,
-      });
+      const expected = exportSize(
+        { width: photo.width ?? 0, height: photo.height ?? 0 },
+        params.crop!,
+        mainPreset,
+      );
       expect(expected.width).toBe(expected.height);
 
       // The film strip shows the photo as cropped: a 1:1 crop gives a square thumbnail,
@@ -823,7 +878,7 @@ describe.skipIf(nefs.length === 0 || !haveDisplay)(
       expect(retouch[0]?.ops[0]).toMatchObject({ type: 'mosaic' });
     }, 60_000);
 
-    it('finishes at full resolution, applies the mosaic and uploads anonymously to FTP', async () => {
+    it('finishes at the export size, applies the mosaic and uploads anonymously to FTP', async () => {
       const exportedPhoto = (await invoke<Photo[]>('photos:list')).find(
         (photo) => photo.fileName === 'cardB_001.jpg',
       )!;
@@ -866,30 +921,12 @@ describe.skipIf(nefs.length === 0 || !haveDisplay)(
       };
       const mosaic = exportedPhoto.versions.filter((version) => version.kind === 'retouch').at(-1)
         ?.ops[0];
-      expect(mosaic && mosaic.type === 'mosaic' ? mosaic.shapes.length : 0).toBeGreaterThan(0);
-      const shape = mosaic && mosaic.type === 'mosaic' ? mosaic.shapes[0] : undefined;
-      if (!shape || mosaic?.type !== 'mosaic') throw new Error('no mosaic shape');
-      const block = blockSizeForShape(shape, mosaic.blockSizeRel, source.width, source.height);
-      const centreX = (shape.type === 'rect' ? shape.x + shape.w / 2 : 0.5) * source.width;
-      const centreY = (shape.type === 'rect' ? shape.y + shape.h / 2 : 0.5) * source.height;
-      // A source-space block centre, mapped through the crop to the exported JPEG.
-      const blockX = Math.floor(centreX / block) * block + block / 2;
-      const blockY = Math.floor(centreY / block) * block + block / 2;
-      const outputPoint = sourceToCroppedPixels(crop, source, { x: blockX, y: blockY });
-      const x0 = Math.max(0, Math.round(outputPoint.x) - 1);
-      const y0 = Math.max(0, Math.round(outputPoint.y) - 1);
-      const values: number[][] = [];
-      for (let y = y0; y < Math.min(decoded.height, y0 + 3); y++) {
-        for (let x = x0; x < Math.min(decoded.width, x0 + 3); x++) {
-          const index = (y * decoded.width + x) * 4;
-          values.push([decoded.rgba[index]!, decoded.rgba[index + 1]!, decoded.rgba[index + 2]!]);
-        }
+      if (!mosaic || mosaic.type !== 'mosaic' || mosaic.shapes.length === 0) {
+        throw new Error('no mosaic shape');
       }
-      for (let channel = 0; channel < 3; channel++) {
-        const channelValues = values.map((value) => value[channel]!);
-        // JPEG re-encoding is lossy; a mosaicked block stays nearly constant.
-        expect(Math.max(...channelValues) - Math.min(...channelValues)).toBeLessThanOrEqual(8);
-      }
+      const expected = exportSize(source, crop, mainPreset);
+      expect([decoded.width, decoded.height]).toEqual([expected.width, expected.height]);
+      expectMosaicBlockConstant(decoded, crop, source, mosaic, mainPreset);
 
       await window.waitForFunction(
         () =>
@@ -1044,27 +1081,31 @@ describe.skipIf(nefs.length === 0 || !haveDisplay)(
       const mosaic = current.versions.filter((version) => version.kind === 'retouch').at(-1)
         ?.ops[0];
       if (!mosaic || mosaic.type !== 'mosaic') throw new Error('no mosaic shape');
-      const shape = mosaic.shapes[0];
-      if (!shape) throw new Error('no mosaic shape');
-      const block = blockSizeForShape(shape, mosaic.blockSizeRel, source.width, source.height);
-      const centreX = (shape.type === 'rect' ? shape.x + shape.w / 2 : 0.5) * source.width;
-      const centreY = (shape.type === 'rect' ? shape.y + shape.h / 2 : 0.5) * source.height;
-      const blockX = Math.floor(centreX / block) * block + block / 2;
-      const blockY = Math.floor(centreY / block) * block + block / 2;
-      const outputPoint = sourceToCroppedPixels(crop, source, { x: blockX, y: blockY });
-      const x0 = Math.max(0, Math.round(outputPoint.x) - 1);
-      const y0 = Math.max(0, Math.round(outputPoint.y) - 1);
-      const values: number[][] = [];
-      for (let y = y0; y < Math.min(decoded.height, y0 + 3); y++) {
-        for (let x = x0; x < Math.min(decoded.width, x0 + 3); x++) {
-          const index = (y * decoded.width + x) * 4;
-          values.push([decoded.rgba[index]!, decoded.rgba[index + 1]!, decoded.rgba[index + 2]!]);
-        }
-      }
-      for (let channel = 0; channel < 3; channel++) {
-        const channelValues = values.map((value) => value[channel]!);
-        expect(Math.max(...channelValues) - Math.min(...channelValues)).toBeLessThanOrEqual(8);
-      }
+      const expected = exportSize(source, crop, batchPreset);
+      expect([decoded.width, decoded.height]).toEqual([expected.width, expected.height]);
+      expectMosaicBlockConstant(decoded, crop, source, mosaic, batchPreset);
+    }, 180_000);
+
+    it('exports a full-resolution crop when the preset does not resize', async () => {
+      const photo = photos.find((candidate) => candidate.fileName === 'cardB_001.jpg')!;
+      await clickThumb('cardB_001.jpg');
+      await openExportDialog();
+      await choosePreset('Full resolution');
+      await window.getByTestId('export-only').click();
+      await waitForExportJob([photo.id]);
+
+      const local = join(root, 'full-exports', 'Full resolution', 'cardB_001.jpg');
+      await waitFor(`${local} to exist`, () => existsSync(local));
+      const decoded = await decodeJpeg(readFileSync(local));
+      const crop = (await invoke<{ crop?: CropParams }>('develop:getParams', { photoId: photo.id }))
+        .crop;
+      if (!crop) throw new Error('the retouched export has no crop');
+      const source = {
+        width: photo.width ?? decoded.width,
+        height: photo.height ?? decoded.height,
+      };
+      const expected = cropOutputPixels(crop, source);
+      expect([decoded.width, decoded.height]).toEqual([expected.width, expected.height]);
     }, 180_000);
 
     describe('Lightroom-style crop overlay', () => {
@@ -1243,10 +1284,11 @@ describe.skipIf(nefs.length === 0 || !haveDisplay)(
         [saved.left, saved.top, saved.right, saved.bottom, saved.angle].forEach((value, index) =>
           expect(value).toBeCloseTo(draft.crop[index]!, 5),
         );
-        const expected = cropOutputPixels(saved, {
-          width: photo.width ?? 0,
-          height: photo.height ?? 0,
-        });
+        const expected = exportSize(
+          { width: photo.width ?? 0, height: photo.height ?? 0 },
+          saved,
+          mainPreset,
+        );
 
         // The normal view shows the committed crop at the exported aspect ratio.
         const shown = await window.locator('[data-testid="develop-canvas"]').boundingBox();

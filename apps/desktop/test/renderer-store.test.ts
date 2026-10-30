@@ -484,8 +484,20 @@ describe('crop editing', () => {
     await store.nextAndSend();
 
     expect(renders[0]?.params.crop?.angle).toBeCloseTo(-4, 9);
+    expect(renders[0]?.resize).toEqual({ mode: 'none' });
     const channels = fake.calls.map((call) => call.channel);
     expect(channels.indexOf('develop:setParams')).toBeLessThan(channels.indexOf('export:start'));
+  });
+
+  it('renders at the active preset output size', async () => {
+    const renders: FullResolutionRenderRequest[] = [];
+    const { store } = await setup({}, async (request) => {
+      renders.push(request);
+      return { width: 1, height: 1, rgba: new Uint8Array(4) };
+    });
+    await store.setActivePreset(asPresetId('mock-export-preset-web'));
+    await store.nextAndSend();
+    expect(renders[0]?.resize).toEqual({ mode: 'longEdge', pixels: 2400 });
   });
 });
 
