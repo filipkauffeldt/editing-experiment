@@ -109,8 +109,15 @@ export {
   withoutNeighbourhood,
 } from './neighbourhood/params';
 export { grainSeedFromId } from './color/effects';
-export { createMonotoneSpline, isIdentityCurve } from './spline';
+export { createMonotoneSpline, isIdentityCurve, sampleCurve } from './spline';
 export type { Spline } from './spline';
+export {
+  buildParametricLut,
+  parametricActive,
+  parametricCurveAt,
+  parametricSplits,
+} from './color/parametric';
+export type { ParametricSplit } from './color/parametric';
 
 // Image buffers
 export { floatToHalf, halfToFloat, quantizeToHalf, toFloat32Samples } from './image';

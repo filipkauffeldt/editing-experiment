@@ -1,0 +1,91 @@
+.wheels {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  align-items: start;
+  padding: 2px 0 6px;
+}
+
+.single {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.wheelColumn {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 2px;
+  min-width: 0;
+}
+
+.regionName {
+  overflow: hidden;
+  color: var(--muted);
+  font-size: var(--fs-label);
+  text-align: center;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.wheel {
+  display: block;
+  width: 100%;
+  max-width: 104px;
+  aspect-ratio: 1;
+  margin: 0 auto;
+  cursor: crosshair;
+  touch-action: none;
+  user-select: none;
+}
+
+.single .wheel {
+  width: 132px;
+  max-width: 132px;
+}
+
+.wheel:focus-visible {
+  outline: 1px solid var(--text);
+  outline-offset: 2px;
+}
+
+.outline {
+  fill: var(--panel);
+  stroke: var(--line-strong);
+  stroke-width: 1;
+  vector-effect: non-scaling-stroke;
+}
+
+/* The one place besides the photo and the temperature tracks where colour reads. */
+.segment {
+  stroke: hsl(var(--wheel-hue) var(--wheel-ring-sat) var(--wheel-ring-light));
+  stroke-width: 1.5;
+  stroke-linecap: butt;
+}
+
+.crosshair {
+  stroke: var(--line);
+  stroke-width: 1;
+  vector-effect: non-scaling-stroke;
+  pointer-events: none;
+}
+
+.puck {
+  fill: var(--text);
+  stroke: var(--bg);
+  stroke-width: 1.5;
+  cursor: grab;
+  vector-effect: non-scaling-stroke;
+}
+
+.puck:active {
+  cursor: grabbing;
+}
+
+.values {
+  overflow: hidden;
+  color: var(--muted);
+  font-size: var(--fs-label);
+  text-align: center;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

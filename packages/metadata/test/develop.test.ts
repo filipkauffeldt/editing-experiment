@@ -137,6 +137,52 @@ describe('develop and retouch XMP', () => {
     expect(tags['XMP-crs:ToneCurvePV2012']).toEqual(['0, 0', '64, 70', '255, 255']);
   });
 
+  it('round-trips the tone curve points and the Color Grading wheels', async () => {
+    const dir = await makeTempDir();
+    const jpeg = join(dir, 'photo.jpg');
+    await makeJpeg(jpeg);
+    const curveParams: EditParams = {
+      ProcessVersion: '11.0',
+      ToneCurvePV2012: [
+        [0, 0],
+        [64, 70],
+        [128, 140],
+        [255, 255],
+      ],
+      ToneCurvePV2012Red: [
+        [0, 0],
+        [128, 120],
+        [255, 255],
+      ],
+      ToneCurvePV2012Green: [
+        [0, 0],
+        [200, 190],
+        [255, 255],
+      ],
+      ToneCurvePV2012Blue: [
+        [0, 10],
+        [255, 245],
+      ],
+      ColorGradeShadowHue: 215,
+      ColorGradeShadowSat: 30,
+      ColorGradeShadowLum: -10,
+      ColorGradeMidtoneHue: 40,
+      ColorGradeMidtoneSat: 15,
+      ColorGradeMidtoneLum: 5,
+      ColorGradeHighlightHue: 45,
+      ColorGradeHighlightSat: 20,
+      ColorGradeHighlightLum: 10,
+      ColorGradeGlobalHue: 30,
+      ColorGradeGlobalSat: 5,
+      ColorGradeGlobalLum: -5,
+      ColorGradeBlending: 60,
+      ColorGradeBalance: -12,
+    };
+
+    await writeEditParams(jpeg, curveParams, { service });
+    expect(await readEditParams(jpeg, service)).toEqual(curveParams);
+  });
+
   it('reads legacy split toning as Color Grading at Blending 100', async () => {
     const dir = await makeTempDir();
     const jpeg = join(dir, 'photo.jpg');

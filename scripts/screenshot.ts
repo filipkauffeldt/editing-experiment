@@ -157,6 +157,34 @@ async function runMock(outDir: string): Promise<void> {
     await window.waitForFunction(() => document.documentElement.clientWidth >= 1900);
     await shoot('07-main-1920.png');
 
+    // Tone curve: point mode with three points, then the red channel.
+    await window.getByTestId('tone-curve').scrollIntoViewIfNeeded();
+    await window.getByRole('tab', { name: 'Point (RGB)' }).click();
+    const curve = await window.getByTestId('tone-curve-graph').boundingBox();
+    if (curve) {
+      await window.mouse.click(curve.x + curve.width * 0.5, curve.y + curve.height * 0.45);
+    }
+    await shoot('25-tone-curve-point.png', '[data-testid="tone-curve"]');
+    await window.getByRole('tab', { name: 'Red' }).click();
+    const red = await window.getByTestId('tone-curve-graph').boundingBox();
+    if (red) {
+      await window.mouse.click(red.x + red.width * 0.45, red.y + red.height * 0.6);
+    }
+    await shoot('26-tone-curve-red.png', '[data-testid="tone-curve"]');
+    await window.getByTestId('color-grading').scrollIntoViewIfNeeded();
+    const wheelOffsets = [
+      ['shadows', 0.32, 0.3],
+      ['midtones', 0.72, 0.5],
+      ['highlights', 0.45, 0.72],
+    ] as const;
+    for (const [region, x, y] of wheelOffsets) {
+      const wheel = await window.getByTestId(`grading-wheel-${region}`).boundingBox();
+      if (wheel) {
+        await window.mouse.click(wheel.x + wheel.width * x, wheel.y + wheel.height * y);
+      }
+    }
+    await shoot('27-color-grading-3way.png', '[data-testid="color-grading"]');
+
     // Library: click, Shift-range and Ctrl-toggle build a multi-selection.
     await window.keyboard.press('g');
     await window.locator('[data-testid="library-grid"]').waitFor();

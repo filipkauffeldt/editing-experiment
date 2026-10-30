@@ -1,15 +1,25 @@
 import { describeLens } from '@ee/develop-gl';
-import { SLIDER_SPECS, type SliderParam, type VignetteStyle } from '@ee/contracts';
+import { SLIDER_SPECS, type EditParams, type SliderParam, type VignetteStyle } from '@ee/contracts';
 import { useState, type ReactNode } from 'react';
 import { activePhoto, paramsForPhoto, sectionEnabled } from '../store';
 import { asShotTrackPosition, temperatureToTrack, trackToTemperature } from '../temperature-scale';
 import { useAppState, useAppStore } from '../store-context';
 import { CloseIcon, PlusIcon } from './icons';
 import { Panel } from './Panel';
+import { ColorGradingWheels, GRADING_VIEWS, type GradingView } from './ColorGradingWheels';
+import { ToneCurveEditor } from './ToneCurveEditor';
 import { Button } from './ui/Button';
 import { Select } from './ui/Field';
 import { PanelSection } from './ui/PanelSection';
 import { Slider as SliderControl } from './ui/Slider';
+import {
+  CURVE_CHANNELS,
+  PARAMETRIC_REGION_PARAMS,
+  PARAMETRIC_SPLIT_PARAMS,
+  TONE_CURVE_PARAMS,
+  curveParamForChannel,
+  type CurveChannel,
+} from '../tone-curve';
 import styles from './DevelopPanel.module.css';
 
 const LABELS: Record<SliderParam, string> = {
@@ -179,10 +189,14 @@ function Slider({ name }: { name: SliderParam }) {
 function Section({
   title,
   params,
+  actions,
+  testId,
   children,
 }: {
   title: string;
-  params: readonly SliderParam[];
+  params: readonly (keyof EditParams)[];
+  actions?: ReactNode;
+  testId?: string;
   children: ReactNode;
 }) {
   const store = useAppStore();
@@ -193,6 +207,8 @@ function Section({
       title={title}
       enabled={sectionEnabled(state, photo, title)}
       onEnabledChange={(enabled) => store.setSectionEnabled(title, params, enabled)}
+      actions={actions}
+      testId={testId}
     >
       {children}
     </PanelSection>
@@ -284,17 +300,111 @@ const GRADING_PARAMS: SliderParam[] = [
   'ColorGradeBalance',
 ];
 
-function ColorGradingSection() {
+function ToneCurveSection() {
+  const store = useAppStore();
+  const state = useAppState();
+  const photo = activePhoto(state);
+  const params = paramsForPhoto(state, photo);
+  const [channel, setChannel] = useState<CurveChannel>('Parametric');
+  const param = curveParamForChannel(channel);
+  const enabled = sectionEnabled(state, photo, 'Tone Curve');
+  const reset = (): void => {
+    if (param) {
+      store.setCurvePoints(param, undefined);
+      return;
+    }
+    for (const name of [...PARAMETRIC_REGION_PARAMS, ...PARAMETRIC_SPLIT_PARAMS]) {
+      store.resetSlider(name);
+    }
+  };
+
   return (
-    <Section title="Color Grading" params={GRADING_PARAMS}>
-      {GRADING_PREFIXES.map(([label, prefix]) => (
-        <div key={label} className={styles.subgroup}>
-          <h4 className={styles.subgroupTitle}>{label}</h4>
-          <Slider name={`${prefix}Hue` as SliderParam} />
-          <Slider name={`${prefix}Sat` as SliderParam} />
-          <Slider name={`${prefix}Lum` as SliderParam} />
+    <Section
+      title="Tone Curve"
+      params={TONE_CURVE_PARAMS}
+      testId="tone-curve"
+      actions={
+        <Button variant="ghost" size="small" disabled={!photo || !enabled} onClick={reset}>
+          Reset
+        </Button>
+      }
+    >
+      <div
+        className={`${styles.tabs} ${styles.curveViews}`}
+        role="tablist"
+        aria-label="Tone curve channel"
+      >
+        {CURVE_CHANNELS.map((name) => (
+          <button
+            key={name}
+            type="button"
+            role="tab"
+            aria-selected={channel === name}
+            className={`${styles.tab} ${channel === name ? styles.tabActive : ''}`}
+            onClick={() => setChannel(name)}
+          >
+            {name}
+          </button>
+        ))}
+      </div>
+      <ToneCurveEditor
+        channel={channel}
+        params={params}
+        disabled={!photo || !enabled}
+        onChangePoints={(next) => {
+          if (param) store.setCurvePoints(param, next);
+        }}
+        onChangeParam={(name, value) => store.setSlider(name, value)}
+        onReset={reset}
+      />
+      {channel === 'Parametric' ? (
+        <div className={styles.subgroup}>
+          {PARAMETRIC_REGION_PARAMS.map((name) => (
+            <Slider key={name} name={name} />
+          ))}
         </div>
-      ))}
+      ) : (
+        <p className={styles.hint}>
+          Click to add a point. Drag one out of the box or double-click it to remove it.
+          Double-click empty space to reset.
+        </p>
+      )}
+    </Section>
+  );
+}
+
+function ColorGradingSection() {
+  const store = useAppStore();
+  const state = useAppState();
+  const photo = activePhoto(state);
+  const params = paramsForPhoto(state, photo);
+  const [view, setView] = useState<GradingView>('3-way');
+  return (
+    <Section title="Color Grading" params={GRADING_PARAMS} testId="color-grading">
+      <div
+        className={`${styles.tabs} ${styles.gradingViews}`}
+        role="tablist"
+        aria-label="Color grading view"
+      >
+        {GRADING_VIEWS.map((name) => (
+          <button
+            key={name}
+            type="button"
+            role="tab"
+            aria-selected={view === name}
+            className={`${styles.tab} ${view === name ? styles.tabActive : ''}`}
+            onClick={() => setView(name)}
+          >
+            {name}
+          </button>
+        ))}
+      </div>
+      <ColorGradingWheels
+        view={view}
+        params={params}
+        disabled={!photo}
+        onChange={(name, value) => store.setSlider(name, value)}
+      />
       <Slider name="ColorGradeBlending" />
       <Slider name="ColorGradeBalance" />
     </Section>
@@ -511,6 +621,7 @@ export function DevelopPanel({ className }: { className?: string }) {
         {BASIC_GROUPS.map((group) => (
           <Group key={group.title} title={group.title} params={group.params} />
         ))}
+        <ToneCurveSection />
         <DetailSection />
         <ColorMixerSection />
         <ColorGradingSection />
@@ -524,18 +635,6 @@ export function DevelopPanel({ className }: { className?: string }) {
             'GreenSaturation',
             'BlueHue',
             'BlueSaturation',
-          ]}
-        />
-        <Group
-          title="Parametric curve"
-          params={[
-            'ParametricShadows',
-            'ParametricDarks',
-            'ParametricLights',
-            'ParametricHighlights',
-            'ParametricShadowSplit',
-            'ParametricMidtoneSplit',
-            'ParametricHighlightSplit',
           ]}
         />
         <LensSection />

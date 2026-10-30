@@ -135,3 +135,13 @@
 .asShot .range::-webkit-slider-thumb {
   background: var(--muted);
 }
+
+.compact {
+  grid-template-columns: minmax(0, 1fr) 34px;
+  column-gap: 4px;
+}
+
+.compact .number {
+  width: 34px;
+  font-size: var(--fs-label);
+}

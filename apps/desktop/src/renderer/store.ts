@@ -44,9 +44,11 @@ import {
   type MosaicOp,
   type Rect,
   type Shape,
+  type SliderParam,
   type SourceConfig,
   type SourceId,
   type TemplateApplyMode,
+  type ToneCurvePoint,
   type UploadItem,
   type VersionId,
   retouchOpsKey,
@@ -2122,10 +2124,26 @@ export class AppStore {
     });
   };
 
+  /** Replace one point curve; `undefined` restores Lightroom's linear curve. */
+  readonly setCurvePoints = (
+    name: 'ToneCurvePV2012' | 'ToneCurvePV2012Red' | 'ToneCurvePV2012Green' | 'ToneCurvePV2012Blue',
+    points: readonly ToneCurvePoint[] | undefined,
+  ): void => {
+    this.patchParams((current) => {
+      const next = { ...current };
+      if (points === undefined) {
+        delete next[name];
+      } else {
+        next[name] = points.map(([x, y]) => [x, y] as const);
+      }
+      return next;
+    });
+  };
+
   /** Switch a develop section off (parking its values) or back on (restoring them). */
   readonly setSectionEnabled = (
     section: string,
-    params: readonly (keyof typeof SLIDER_SPECS)[],
+    params: readonly (keyof EditParams)[],
     enabled: boolean,
   ): void => {
     const photo = activePhoto(this.state);
@@ -2158,9 +2176,9 @@ export class AppStore {
       for (const name of params) {
         delete next[name];
         // A raw default (say, sharpening 40) would come back, so "off" writes the neutral value.
-        const neutral = SLIDER_SPECS[name].neutral;
-        if (defaults[name] !== undefined && neutral !== null)
-          Object.assign(next, { [name]: neutral });
+        const spec = name in SLIDER_SPECS ? SLIDER_SPECS[name as SliderParam] : undefined;
+        if (defaults[name] !== undefined && spec && spec.neutral !== null)
+          Object.assign(next, { [name]: spec.neutral });
       }
       return next;
     });
