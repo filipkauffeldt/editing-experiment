@@ -1,7 +1,7 @@
 import {
   correctedShapes,
   createDevelopRenderer,
-  cropDevelopedRgba,
+  cropMosaicOp,
   needsNeighbourhood,
   renderCpu,
 } from '@ee/develop-gl';
@@ -60,15 +60,15 @@ export interface ComposeRequest {
 }
 
 /**
- * The full-resolution pixel path after the GL draw: apply retouch ops and crop.
+ * The pixel path after the GL draw: apply retouch ops at the output size.
  *
- * Mosaics live in uncropped source coordinates. When a crop is present the
- * source is rendered and mosaicked first, then cropped/rotated, so resampling
- * can only blur mosaic blocks, never expose a face that the mosaic covered.
- *
- * A lens correction resamples the picture before the crop, so the stored shapes (in the recorded
- * picture) are moved into the corrected one first (`mapShapes`, outlines padded by a pixel and a
- * half): the mosaic is applied to the corrected pixels over the corrected outline.
+ * The develop pass renders directly at `width` x `height`, lens correction,
+ * crop and straighten included. Mosaic shapes are stored in the recorded
+ * (uncorrected, uncropped) picture. A lens correction resamples the picture, so
+ * the stored shapes are first moved into the corrected picture (`mapShapes`,
+ * outlines padded by a pixel and a half); a crop then moves them into the
+ * cropped output. No resampling happens after the mosaic, so blocks stay
+ * exactly constant and a face the shape covered cannot reappear.
  */
 export function composeDevelopedRgba({
   params,
@@ -79,19 +79,16 @@ export function composeDevelopedRgba({
   mapShapes,
   render,
 }: ComposeRequest): Uint8Array {
-  const mosaic = ops
-    .filter((op) => op.type === 'mosaic')
-    .map((op) => (mapShapes ? { ...op, shapes: mapShapes(op.shapes) } : op));
-  if (params.crop !== undefined && mosaic.length > 0) {
-    const uncropped: EditParams = { ...params };
-    delete uncropped.crop;
-    const rgba = render(uncropped, source);
-    for (const op of mosaic) applyMosaic(rgba, source.width, source.height, op, { inPlace: true });
-    return cropDevelopedRgba(rgba, source, params.crop, { width, height });
-  }
-
   const rgba = render(params, { width, height });
-  for (const op of mosaic) applyMosaic(rgba, width, height, op, { inPlace: true });
+  for (const op of ops) {
+    if (op.type !== 'mosaic') continue;
+    const corrected = mapShapes ? { ...op, shapes: mapShapes(op.shapes) } : op;
+    const mapped =
+      params.crop === undefined
+        ? corrected
+        : cropMosaicOp(corrected, params.crop, source, { width, height });
+    applyMosaic(rgba, width, height, mapped, { inPlace: true });
+  }
   return rgba;
 }
 
@@ -119,7 +116,8 @@ export function renderWithFallback(
   if (renderer.supportsNeighbourhood || !needsNeighbourhood(params)) {
     return renderer.renderToRGBA(params, size);
   }
-  const pixels = Math.max(header.width * header.height, size.width * size.height);
+  // The CPU reference works at the output size; the source is only sampled.
+  const pixels = size.width * size.height;
   if (pixels > CPU_FALLBACK_MAX_PIXELS) {
     throw new Error(
       'Texture, Clarity, Dehaze, sharpening and noise reduction need GPU float support ' +

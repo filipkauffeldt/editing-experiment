@@ -2,12 +2,14 @@ import {
   LINEAR_IMAGE_HEADER,
   appUrl,
   type EditParams,
+  type ExportResize,
   type LinearImageHeader,
   type Photo,
   type RenderedImage,
   type RetouchOp,
 } from '@ee/contracts';
 import { cropOutputPixels, grainSeedFromId } from '@ee/develop-gl';
+import { outputSizeForResize } from '@ee/export/output-size';
 import {
   renderDevelopRgba,
   type DevelopWorkerRequest,
@@ -18,6 +20,8 @@ export interface FullResolutionRenderRequest {
   photo: Photo;
   params: EditParams;
   ops: RetouchOp[];
+  /** The export preset's resize; the renderer draws directly at that size. */
+  resize: ExportResize;
   onProgress?: (progress: { label: string; percent?: number }) => void;
 }
 
@@ -53,11 +57,15 @@ export interface OutputSize {
 }
 
 /**
- * Size of the full-resolution export render. Full-resolution export must be the
- * source size, and the linear fetch is deliberately made without `maxEdge`;
- * a downscaled header here would silently export a preview-sized file.
+ * Pixel size of the export render: the crop's pixels at full resolution, then
+ * the preset's resize. Rendering at this size is both faster and the same
+ * pixels the jobs process would otherwise produce by downscaling.
  */
-export function fullResolutionOutput(header: LinearImageHeader, params: EditParams): OutputSize {
+export function exportRenderSize(
+  header: LinearImageHeader,
+  params: EditParams,
+  resize: ExportResize,
+): OutputSize {
   const source = { width: header.sourceWidth, height: header.sourceHeight };
   if (!(source.width > 0) || !(source.height > 0)) {
     throw new Error(
@@ -69,7 +77,8 @@ export function fullResolutionOutput(header: LinearImageHeader, params: EditPara
       `expected a full-resolution linear image (${source.width}x${source.height}), got ${header.width}x${header.height}`,
     );
   }
-  return params.crop ? cropOutputPixels(params.crop, source) : source;
+  const cropped = params.crop ? cropOutputPixels(params.crop, source) : source;
+  return outputSizeForResize(cropped.width, cropped.height, resize);
 }
 
 const workerTimeoutMs = 120_000;
@@ -97,7 +106,7 @@ export function renderInWorker(
     const id = 1;
     const timer = setTimeout(() => {
       worker.terminate();
-      reject(new Error('the full-resolution render timed out'));
+      reject(new Error('the export render timed out'));
     }, workerTimeoutMs);
     const finish = (run: () => void): void => {
       clearTimeout(timer);
@@ -139,8 +148,8 @@ export function renderInWorker(
 const yieldToUi = (): Promise<void> => new Promise((resolve) => setTimeout(resolve, 0));
 
 /**
- * Full-resolution render for an export: the develop pipeline at the
- * source size, then every retouch op (the newest retouch version's mosaic).
+ * Export render: the develop pipeline drawn directly at the preset's output
+ * size, then every retouch op (the newest retouch version's mosaic).
  * Runs in a worker when the renderer can create one, with a yielding main
  * thread fallback.
  */
@@ -148,14 +157,16 @@ export async function renderFullResolution({
   photo,
   params,
   ops,
+  resize,
   onProgress,
 }: FullResolutionRenderRequest): Promise<RenderedImage> {
-  // No `maxEdge`: export is always at the source resolution, and the crop's
-  // pixel size is derived from that source size.
+  // No `maxEdge`: export always starts from the full-resolution source, so a
+  // preset can never export a preview-sized file. Only `resize: none` renders
+  // at the source size; every other preset renders at its output size.
   const { header, data } = await fetchLinear(photo.id, { onProgress });
   const grainSeed = grainSeedFromId(photo.id);
-  const output = fullResolutionOutput(header, params);
-  onProgress?.({ label: 'Rendering full resolution…', percent: 20 });
+  const output = exportRenderSize(header, params, resize);
+  onProgress?.({ label: 'Rendering at export size…', percent: 20 });
 
   try {
     const rendered = await renderInWorker(
@@ -167,13 +178,13 @@ export async function renderFullResolution({
       output.height,
       grainSeed,
     );
-    onProgress?.({ label: 'Rendering full resolution…', percent: 90 });
+    onProgress?.({ label: 'Rendering at export size…', percent: 90 });
     return rendered;
   } catch {
     // No worker/OffscreenCanvas support (or the worker failed): render here,
     // yielding first so the progress label paints. The worker may have taken
     // the buffer with it, so fetch again when it is detached.
-    onProgress?.({ label: 'Rendering full resolution…', percent: 25 });
+    onProgress?.({ label: 'Rendering at export size…', percent: 25 });
     await yieldToUi();
     const fallbackData =
       data.byteLength === 0 ? (await fetchLinear(photo.id, { onProgress })).data : data;
@@ -186,7 +197,7 @@ export async function renderFullResolution({
       height: output.height,
       grainSeed,
     });
-    onProgress?.({ label: 'Rendering full resolution…', percent: 90 });
+    onProgress?.({ label: 'Rendering at export size…', percent: 90 });
     await yieldToUi();
     return rendered;
   }

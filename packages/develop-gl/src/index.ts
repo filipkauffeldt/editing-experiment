@@ -60,6 +60,7 @@ export type {
   Point as CropPoint,
   Size as CropSize,
 } from './crop';
+export { cropMosaicOp } from './crop-mosaic';
 
 // White balance
 export {
