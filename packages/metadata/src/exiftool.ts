@@ -30,7 +30,10 @@ export const EE_CONFIG = String.raw`%Image::ExifTool::UserDefined = (
 `;
 
 /** A tag value accepted by {@link ExifToolService.write}. `null` deletes the tag. */
-export type ExifToolTagValue = string | number | boolean | readonly string[] | null;
+/** An XMP struct (e.g. `crs:Look`): field name to scalar value. */
+export type ExifToolStruct = { readonly [field: string]: string | number | boolean };
+export type ExifToolTagValue =
+  string | number | boolean | readonly string[] | ExifToolStruct | null;
 export type ExifToolTags = Readonly<Record<string, ExifToolTagValue>>;
 
 export interface ExifToolServiceOptions {

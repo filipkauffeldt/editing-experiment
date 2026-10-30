@@ -393,3 +393,85 @@ describe('lens corrections in presets', () => {
     expect(next.LensProfileEnable).toBe(true);
   });
 });
+
+describe('Lightroom preset with a camera profile', () => {
+  const head = `<x:xmpmeta xmlns:x="adobe:ns:meta/">
+  <rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
+    <rdf:Description rdf:about=""
+      xmlns:crs="http://ns.adobe.com/camera-raw-settings/1.0/"
+      crs:PresetType="Normal"
+      crs:Name="Look and Feel"`;
+
+  const plain = `${head}
+      crs:CameraProfile="Camera Standard"
+      crs:CameraProfileDigest="0123456789ABCDEF0123456789ABCDEF"
+      crs:Contrast2012="10" />
+  </rdf:RDF>
+</x:xmpmeta>`;
+
+  const withLook = `${head}
+      crs:CameraProfile="Adobe Standard">
+      <crs:Look>
+        <rdf:Description crs:Name="Adobe Color" crs:Amount="0.5" crs:UUID="B952C231111CD8E0ECCF14B86BAA7077">
+          <crs:Parameters><rdf:Description crs:Version="14.3" crs:LookTable="0123456789ABCDEF0123456789ABCDEF" /></crs:Parameters>
+        </rdf:Description>
+      </crs:Look>
+    </rdf:Description>
+  </rdf:RDF>
+</x:xmpmeta>`;
+
+  it('reads the profile name and digest, and reports nothing as unsupported', () => {
+    const { preset, unsupported } = parsePresetXmp(plain);
+    expect(preset.params).toEqual({
+      CameraProfile: 'Camera Standard',
+      CameraProfileDigest: '0123456789ABCDEF0123456789ABCDEF',
+      Contrast2012: 10,
+    });
+    expect(unsupported).toEqual([]);
+  });
+
+  it('reads the look over the profile: name, amount and uuid', () => {
+    const { preset, unsupported } = parsePresetXmp(withLook);
+    expect(preset.params).toEqual({
+      CameraProfile: 'Adobe Standard',
+      LookName: 'Adobe Color',
+      LookAmount: 0.5,
+      LookUUID: 'B952C231111CD8E0ECCF14B86BAA7077',
+    });
+    expect(unsupported).toEqual([]);
+  });
+
+  it('applies a profile whole: the new camera profile drops the old look, a look defaults to 100 %', () => {
+    const current = {
+      CameraProfile: 'Adobe Standard',
+      CameraProfileDigest: 'AAAA',
+      LookName: 'Adobe Landscape',
+      LookUUID: 'X',
+      LookAmount: 1.5,
+      Exposure2012: 1,
+    };
+    const camera = applyPreset(current, parsePresetXmp(plain).preset);
+    expect(camera).toMatchObject({ CameraProfile: 'Camera Standard', Exposure2012: 1 });
+    expect(camera.LookName).toBeUndefined();
+    expect(camera.LookAmount).toBeUndefined();
+    const look = applyPreset(
+      { ...current, LookAmount: 1.5 },
+      {
+        ...parsePresetXmp(withLook).preset,
+        params: { CameraProfile: 'Adobe Standard', LookName: 'Adobe Color' },
+      },
+    );
+    expect(look.LookName).toBe('Adobe Color');
+    expect(look.LookAmount).toBeUndefined();
+    // A preset without any profile leaves the photo's profile alone.
+    expect(
+      applyPreset(
+        current,
+        parsePresetXmp(`${head} crs:Contrast2012="5" />\n</rdf:RDF></x:xmpmeta>`).preset,
+      ),
+    ).toMatchObject({
+      CameraProfile: 'Adobe Standard',
+      LookName: 'Adobe Landscape',
+    });
+  });
+});
