@@ -275,7 +275,12 @@ export function checkTable(table: ProfileTable): void {
   }
 }
 
-function readTable(ifd: Ifd, dims: number, data: number, encoding: number): ProfileTable | undefined {
+function readTable(
+  ifd: Ifd,
+  dims: number,
+  data: number,
+  encoding: number,
+): ProfileTable | undefined {
   if (!ifd.has(data)) return undefined;
   const d = ifd.numbers(dims);
   if (d.length !== 3) throw new ProfileParseError('Invalid profile table dimensions');

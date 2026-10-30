@@ -1,4 +1,4 @@
-import type { EditParams, LinearImageHeader } from '@ee/contracts';
+import type { EditParams, LinearImageHeader, ResolvedProfile } from '@ee/contracts';
 import { histogramOfRgba, type Histogram } from './analysis';
 import { cropGeometry, cropOutputSize, isUsableCrop, type Size } from './crop';
 import { DevelopGlError } from './errors';
@@ -24,6 +24,7 @@ import {
   type PipelineHost,
   type PipelineInput,
 } from './neighbourhood/pipeline';
+import { withLookSettings, type TableData, TONE_TABLE_SIZE } from './profile/render';
 import { LENS_TILE_BORDER, planSourceTiles, splitRect, type Rect, type SourceTile } from './tiling';
 import { TUNING } from './tuning';
 import { measuredLateralCa } from './lens/auto-ca';
@@ -119,6 +120,11 @@ export interface DevelopRenderer {
   renderToRGBA(params: EditParams, size: { width: number; height: number }): Uint8Array;
   /** Resolves `params` against the current image, e.g. to show as-shot temperature/tint in the sliders. */
   resolve(params: EditParams): DevelopUniforms;
+  /**
+   * Renders through a camera profile (and look) from now on, or back to the decoder's camera matrix
+   * with `null`. Keep the object: its tables are uploaded once per object.
+   */
+  setProfile(profile: ResolvedProfile | null): void;
   readonly contextLost: boolean;
   /**
    * Whether Texture, Clarity, Dehaze, sharpening and noise reduction can be drawn here.
@@ -140,7 +146,18 @@ interface Resources {
   base: GlProgram;
   curveTexture: WebGLTexture;
   uploadedCurve: Float32Array | null | undefined;
+  /** The camera profile's tone curves (units 2) and its four 3D tables (units 3..6), with what they hold. */
+  toneTexture: WebGLTexture;
+  uploadedTone: Float32Array | null;
+  tables: { texture: WebGLTexture; uploaded: TableData | null }[];
+  emptyTable: WebGLTexture;
 }
+
+/** Texture units of the camera profile's textures; 0 and 1 are the image and the tone curve. */
+const PROFILE_TONE_UNIT = 2;
+const PROFILE_TABLE_UNIT = 3;
+const PROFILE_TABLE_SAMPLERS = ['u_hsm1', 'u_hsm2', 'u_lookTable', 'u_lookXmp'] as const;
+const PROFILE_TABLE_METAS = ['u_hsm1Meta', 'u_hsm2Meta', 'u_lookMeta', 'u_lookXmpMeta'] as const;
 
 interface Source {
   header: LinearImageHeader;
@@ -250,7 +267,51 @@ function createResources(gl: WebGL2RenderingContext): Resources {
     gl.FLOAT,
     new Float32Array(TUNING.curveLutSize * 4),
   );
-  return { direct, base, curveTexture, uploadedCurve: null };
+
+  const toneTexture = gl.createTexture();
+  if (!toneTexture) throw new DevelopGlError('Could not create texture');
+  gl.bindTexture(gl.TEXTURE_2D, toneTexture);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+  gl.texImage2D(
+    gl.TEXTURE_2D,
+    0,
+    gl.R32F,
+    TONE_TABLE_SIZE,
+    2,
+    0,
+    gl.RED,
+    gl.FLOAT,
+    new Float32Array(TONE_TABLE_SIZE * 2),
+  );
+
+  const newTable = (): WebGLTexture => {
+    const texture = gl.createTexture();
+    if (!texture) throw new DevelopGlError('Could not create texture');
+    gl.bindTexture(gl.TEXTURE_3D, texture);
+    gl.texParameteri(gl.TEXTURE_3D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
+    gl.texParameteri(gl.TEXTURE_3D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+    gl.texParameteri(gl.TEXTURE_3D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+    gl.texParameteri(gl.TEXTURE_3D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+    gl.texParameteri(gl.TEXTURE_3D, gl.TEXTURE_WRAP_R, gl.CLAMP_TO_EDGE);
+    return texture;
+  };
+  // A 1x1x1 table stands in for an absent one, so every sampler3D has a complete texture.
+  const emptyTable = newTable();
+  gl.texImage3D(gl.TEXTURE_3D, 0, gl.RGBA32F, 1, 1, 1, 0, gl.RGBA, gl.FLOAT, new Float32Array(4));
+  const tables = PROFILE_TABLE_SAMPLERS.map(() => ({ texture: newTable(), uploaded: null }));
+  return {
+    direct,
+    base,
+    curveTexture,
+    uploadedCurve: null,
+    toneTexture,
+    uploadedTone: null,
+    tables,
+    emptyTable,
+  };
 }
 
 const clampFraction = (value: number): number =>
@@ -300,6 +361,8 @@ export function createDevelopRenderer(
   let warnedUnavailable = false;
   /** Whether the uniforms last set move the sampling positions (the exact texel fetch is then wrong). */
   let lensGeometry = false;
+  /** The camera profile in use; null renders through the decoder's camera matrix. */
+  let profile: ResolvedProfile | null = null;
   /** `params`, minus the neighbourhood settings when they cannot be drawn (and a single notice). */
   const drawable = (params: EditParams): EditParams => {
     if (neighbourhoodSupported || !needsNeighbourhood(params)) return params;
@@ -467,7 +530,86 @@ export function createDevelopRenderer(
       );
       res.uploadedCurve = u.curveLut;
     }
+    setProfileUniforms(prog, u.profile);
     gl.activeTexture(gl.TEXTURE0);
+  }
+
+  /** The camera profile's uniforms and textures; absent tables bind the empty one. */
+  function setProfileUniforms(prog: GlProgram, p: DevelopUniforms['profile']): void {
+    const loc = (name: string): WebGLUniformLocation | null => prog.loc(name);
+    gl.uniform1i(loc('u_profile'), p ? 1 : 0);
+    gl.uniform1i(loc('u_profileTone'), PROFILE_TONE_UNIT);
+    gl.uniformMatrix3fv(loc('u_proToWorking'), false, toColumnMajor(p?.proToWorking ?? []));
+    gl.uniformMatrix3fv(loc('u_workingToPro'), false, toColumnMajor(p?.workingToPro ?? []));
+    gl.uniform1f(loc('u_profileGain'), p?.prepared.baselineGain ?? 1);
+    gl.uniform1f(loc('u_hsmWeight'), p?.hueSatWeight ?? 0);
+    gl.uniform1i(loc('u_hasLookCurve'), p?.prepared.hasLookCurve ? 1 : 0);
+
+    gl.activeTexture(gl.TEXTURE0 + PROFILE_TONE_UNIT);
+    gl.bindTexture(gl.TEXTURE_2D, res.toneTexture);
+    if (p && res.uploadedTone !== p.prepared.tone) {
+      gl.texImage2D(
+        gl.TEXTURE_2D,
+        0,
+        gl.R32F,
+        TONE_TABLE_SIZE,
+        2,
+        0,
+        gl.RED,
+        gl.FLOAT,
+        p.prepared.tone,
+      );
+      res.uploadedTone = p.prepared.tone;
+    }
+
+    const wanted: (TableData | null)[] = [
+      p?.prepared.hueSat?.first ?? null,
+      p?.prepared.hueSat?.second ?? null,
+      p?.prepared.look ?? null,
+      p?.prepared.lookXmp ?? null,
+    ];
+    wanted.forEach((table, i) => {
+      const slot = res.tables[i];
+      if (!slot) return;
+      const unit = PROFILE_TABLE_UNIT + i;
+      gl.uniform1i(loc(PROFILE_TABLE_SAMPLERS[i] ?? ''), unit);
+      gl.uniform4i(
+        loc(PROFILE_TABLE_METAS[i] ?? ''),
+        table?.hue ?? 0,
+        table?.sat ?? 0,
+        table?.val ?? 0,
+        table?.srgb ? 1 : 0,
+      );
+      gl.activeTexture(gl.TEXTURE0 + unit);
+      if (!table) {
+        gl.bindTexture(gl.TEXTURE_3D, res.emptyTable);
+        return;
+      }
+      gl.bindTexture(gl.TEXTURE_3D, slot.texture);
+      if (slot.uploaded !== table) {
+        // Width is the saturation axis, height the hue axis, depth the value axis: the DNG node order.
+        const nodes = table.hue * table.sat * table.val;
+        const rgba = new Float32Array(nodes * 4);
+        for (let n = 0; n < nodes; n++) {
+          rgba[n * 4] = table.data[n * 3] ?? 0;
+          rgba[n * 4 + 1] = table.data[n * 3 + 1] ?? 1;
+          rgba[n * 4 + 2] = table.data[n * 3 + 2] ?? 1;
+        }
+        gl.texImage3D(
+          gl.TEXTURE_3D,
+          0,
+          gl.RGBA32F,
+          table.sat,
+          table.hue,
+          table.val,
+          0,
+          gl.RGBA,
+          gl.FLOAT,
+          rgba,
+        );
+        slot.uploaded = table;
+      }
+    });
   }
 
   function setLensUniforms(prog: GlProgram, lens: DevelopUniforms['lens']): void {
@@ -687,6 +829,7 @@ export function createDevelopRenderer(
         [mapping.center, mapping.cos, mapping.sin, mapping.outScale, mapping.outCenter],
         u.multipliers,
         u.colorMatrix,
+        u.profile?.baseKey ?? null,
         u.calibration,
         u.lens,
       ])}`,
@@ -695,19 +838,30 @@ export function createDevelopRenderer(
   }
 
   /** Resolves `params` for `src`, measuring the lateral CA the first time it is asked for. */
-  function uniformsFor(src: Source, params: EditParams): DevelopUniforms {
+  function uniformsFor(
+    src: Source,
+    params: EditParams,
+    use: ResolvedProfile | null = profile,
+  ): DevelopUniforms {
     return resolveUniforms(src.header, params, {
+      profile: use,
       grainSeed: options.grainSeed,
       measuredCa: params.AutoLateralCA === true ? measuredLateralCa(src.header, src.data) : null,
     });
   }
+
+  /** Whether `params` name the camera profile (and look) the renderer currently has. */
+  const namesCurrentProfile = (params: EditParams): boolean =>
+    profile !== null &&
+    params.CameraProfile === profile.camera.name &&
+    params.LookName === profile.look?.name;
 
   const usesNeighbourhood = (input: PipelineInput): boolean =>
     hasDenoise(input.n) || hasLocalContrast(input.n) || input.n.sharpen !== null;
 
   /** Draws the normal (cropped) view. Split view also uses this for its right side. */
   function drawDevelop(requested: EditParams, viewOptions?: DevelopViewOptions): void {
-    const params = drawable(requested);
+    const params = drawable(withLookSettings(requested, profile));
     const src = requireSource();
     const out = { width: canvas.width, height: canvas.height };
     const mapping = mappingFor(src.header, params, cropLogicalSize(src.header, params), out);
@@ -746,7 +900,7 @@ export function createDevelopRenderer(
     view: CropViewTransform,
     viewOptions?: DevelopViewOptions,
   ): void {
-    const params = drawable(requested);
+    const params = drawable(withLookSettings(requested, profile));
     const src = requireSource();
     const out = { width: canvas.width, height: canvas.height };
     const mapping = viewMapping(src.header, view, out);
@@ -792,9 +946,11 @@ export function createDevelopRenderer(
     const out = { width: canvas.width, height: canvas.height };
     const width = Math.round(clampFraction(fraction) * out.width);
     if (width <= 0) return;
-    const params = drawable(before);
+    // The before side is drawn through the camera profile only when its settings name the one in use.
+    const beforeProfile = namesCurrentProfile(before) ? profile : null;
+    const params = drawable(withLookSettings(before, beforeProfile));
     const mapping = mappingFor(src.header, params, cropLogicalSize(src.header, params), out);
-    const u = uniformsFor(src, params);
+    const u = uniformsFor(src, params, beforeProfile);
     gl.bindFramebuffer(gl.FRAMEBUFFER, null);
     gl.enable(gl.SCISSOR_TEST);
     gl.scissor(0, 0, width, out.height);
@@ -881,8 +1037,12 @@ export function createDevelopRenderer(
       source = { header, data, tiles };
     },
 
+    setProfile(next) {
+      profile = next;
+    },
+
     resolve(params) {
-      return uniformsFor(requireSource(), params);
+      return uniformsFor(requireSource(), withLookSettings(params, profile));
     },
 
     render(requested, viewOptions) {
@@ -935,7 +1095,7 @@ export function createDevelopRenderer(
     },
 
     renderToRGBA(requested, size) {
-      const params = drawable(requested);
+      const params = drawable(withLookSettings(requested, profile));
       const src = requireSource();
       const width = Math.round(size.width);
       const height = Math.round(size.height);
@@ -1033,6 +1193,9 @@ export function createDevelopRenderer(
         pipeline?.dispose();
         dropHistogramTarget();
         gl.deleteTexture(res.curveTexture);
+        gl.deleteTexture(res.toneTexture);
+        gl.deleteTexture(res.emptyTable);
+        for (const slot of res.tables) gl.deleteTexture(slot.texture);
         gl.deleteProgram(res.direct.program);
         gl.deleteProgram(res.base.program);
       }

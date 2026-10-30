@@ -21,7 +21,8 @@ import { checkTable, ProfileParseError } from './dcp';
 
 const CRS = 'http://ns.adobe.com/camera-raw-settings/1.0/';
 
-const ALPHABET = '0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ.-:+=^!/*?`\'|()[]{}@%$#';
+const ALPHABET =
+  "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ.-:+=^!/*?`'|()[]{}@%$#";
 const DIGIT = new Map<string, number>([...ALPHABET].map((c, i) => [c, i]));
 
 const MAX_TEXT = 16_000_000;
@@ -73,7 +74,8 @@ export function expandBigTable(text: string): Buffer {
       power *= 85;
     }
     if (value > 0xffffffff) throw new ProfileParseError('Base 85 overflow');
-    for (let b = 0; b < chunk.length - 1; b++) compressed[out++] = Math.floor(value / 256 ** b) & 255;
+    for (let b = 0; b < chunk.length - 1; b++)
+      compressed[out++] = Math.floor(value / 256 ** b) & 255;
   }
   if (compressed.length < 5) throw new ProfileParseError('Truncated compressed table');
   const expected = compressed.readUInt32LE(0);
@@ -219,7 +221,10 @@ const boolean = (v: string | undefined): boolean | undefined => {
 function readCurve(items: unknown[]): number[] {
   const out: number[] = [];
   for (const item of items) {
-    const [x, y] = (textOf(item) ?? '').split(/[\s,]+/).filter(Boolean).map(Number);
+    const [x, y] = (textOf(item) ?? '')
+      .split(/[\s,]+/)
+      .filter(Boolean)
+      .map(Number);
     if (x === undefined || y === undefined || !Number.isFinite(x) || !Number.isFinite(y)) {
       throw new ProfileParseError('Invalid look curve point');
     }
@@ -285,7 +290,9 @@ export function parseLookXmp(text: string): LookProfileData {
   if (!name) throw new ProfileParseError('The look has no name');
   const base = attr('CameraProfile') ?? '';
   if (base === '') {
-    throw new ProfileParseError('The look names no camera profile (creative looks are not supported)');
+    throw new ProfileParseError(
+      'The look names no camera profile (creative looks are not supported)',
+    );
   }
 
   const tableId = attr('LookTable');

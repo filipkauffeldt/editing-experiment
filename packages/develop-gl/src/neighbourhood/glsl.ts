@@ -60,7 +60,7 @@ void main() {
       float tapQ;
       float gain;
       vec3 cam = lensCam(lensRecorded(src, tapQ), tapQ, gain);
-      vec3 lin = applyCalibration(u_color * (clipHighlights(cam, u_wb) * gain)) * u_exposure;
+      vec3 lin = applyCalibration(baseColor(clipHighlights(cam, u_wb) * gain)) * u_exposure;
       sum += vec4(lin, log2(max(dot(LUMA, lin), LUMINANCE_FLOOR)));
     }
   }

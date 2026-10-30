@@ -186,7 +186,8 @@ export function resolveUniforms(
     lens: resolveLens(camera as LensImage, params, options.measuredCa).uniforms,
     multipliers: [m.r, m.g, m.b],
     colorMatrix: profileMatrix ? profileMatrix.matrix : camera.cameraToSrgb,
-    profile: profile && profileMatrix ? resolveProfileUniforms(profile, profileMatrix.weight) : null,
+    profile:
+      profile && profileMatrix ? resolveProfileUniforms(profile, profileMatrix.weight) : null,
     exposureGain: exposureGain(sliderValue(params, 'Exposure2012')),
     toneActive:
       contrast !== 0 ||

@@ -1,4 +1,9 @@
-import type { CameraProfileData, LookProfileData, ProfileTable, ResolvedProfile } from '@ee/contracts';
+import type {
+  CameraProfileData,
+  LookProfileData,
+  ProfileTable,
+  ResolvedProfile,
+} from '@ee/contracts';
 import { invert, mulMat, mulMatVec, type Mat3 } from '../mat3';
 import { srgbDecode, srgbEncode } from '../ops';
 import { createMonotoneSpline } from '../spline';
@@ -32,7 +37,7 @@ const PROPHOTO_TO_XYZ: readonly number[] = [
 ];
 const XYZ_TO_PROPHOTO: readonly number[] = invert(PROPHOTO_TO_XYZ);
 /** XYZ D50 to linear sRGB primaries, Bradford adapted (Lindbloom). */
-const XYZ_D50_TO_SRGB: readonly number[] = [
+export const XYZ_D50_TO_SRGB: readonly number[] = [
   3.1338561, -1.6168667, -0.4906146, -0.9787684, 1.9161415, 0.033454, 0.0719453, -0.2289914,
   1.4052427,
 ];
@@ -40,7 +45,6 @@ export const PROPHOTO_TO_SRGB: readonly number[] = mulMat(XYZ_D50_TO_SRGB, PROPH
 export const SRGB_TO_PROPHOTO: readonly number[] = invert(PROPHOTO_TO_SRGB);
 
 const D50_XYZ: readonly [number, number, number] = [0.9642, 1, 0.8249];
-const D50_XY: XY = { x: 0.3457, y: 0.3585 };
 
 /** Samples of a tone curve table: `TONE_TABLE_SIZE` over input 0..1. */
 export const TONE_TABLE_SIZE = 4097;
@@ -187,7 +191,7 @@ export function applyTable(
   const d = max - min;
   let h = 0;
   if (d >= 1e-9) {
-    if (max === r) h = (((g - b) / d) % 6 + 6) % 6;
+    if (max === r) h = ((((g - b) / d) % 6) + 6) % 6;
     else if (max === g) h = (b - r) / d + 2;
     else h = (r - g) / d + 4;
     h /= 6;
@@ -198,7 +202,8 @@ export function applyTable(
   const delta = lookupTable(a, h, sat, v, scratchA);
   if (second && weight > 0) {
     const other = lookupTable(second, h, sat, v, scratchB);
-    for (let c = 0; c < 3; c++) delta[c] = (delta[c] ?? 0) * (1 - weight) + (other[c] ?? 0) * weight;
+    for (let c = 0; c < 3; c++)
+      delta[c] = (delta[c] ?? 0) * (1 - weight) + (other[c] ?? 0) * weight;
   }
   let hh = h + (delta[0] ?? 0) / 360;
   hh = (hh - Math.floor(hh)) * 6;
@@ -365,9 +370,7 @@ export function prepareProfile(profile: ResolvedProfile): PreparedProfile {
   tone.set(camera.toneCurve ? sampleToneCurve(camera.toneCurve) : defaultToneTable(), 0);
   if (look?.curve) tone.set(lookCurveTable(look.curve, amount), TONE_TABLE_SIZE);
 
-  const strength = look
-    ? Math.min(look.tableBounds[1], Math.max(look.tableBounds[0], amount))
-    : 1;
+  const strength = look ? Math.min(look.tableBounds[1], Math.max(look.tableBounds[0], amount)) : 1;
   const settings: PreparedProfile['settings'] = {};
   if (look) {
     for (const [key, value] of Object.entries(look.settings)) {
@@ -471,15 +474,11 @@ export function cameraToProPhoto(
     );
     // Y of the white is 1 for the PCS: scale so the neutral lands on it.
     toXyzD50 = mulMat(adapt, scene).map((v) => v / white[1]);
-    // `scene` maps white-balanced values; dividing by the white's luminance keeps it at Y = 1.
   }
   return { matrix: mulMat(XYZ_TO_PROPHOTO, toXyzD50), weight };
 }
 
-export function resolveProfileUniforms(
-  profile: PreparedProfile,
-  weight: number,
-): ProfileUniforms {
+export function resolveProfileUniforms(profile: PreparedProfile, weight: number): ProfileUniforms {
   return {
     prepared: profile,
     hueSatWeight: weight,

@@ -1,6 +1,7 @@
 import { TUNING as T } from './tuning';
 import { COLOR_MATH_GLSL, COLOR_UNIFORMS } from './glsl/color';
 import { LENS_MATH_GLSL, LENS_UNIFORMS } from './glsl/lens';
+import { PROFILE_MATH_GLSL, PROFILE_UNIFORMS } from './glsl/profile';
 
 /**
  * GLSL ES 3.00 sources of the develop pipeline. Each function mirrors the
@@ -33,7 +34,7 @@ uniform sampler2D u_image;   // camera RGB (RGBA16F), one source tile
 uniform sampler2D u_curve;   // tone curve table, RGBA32F, curveLutSize x 1, NEAREST
 
 uniform vec3 u_wb;           // white balance multipliers
-uniform mat3 u_color;        // white-balanced camera RGB -> linear Rec.709
+uniform mat3 u_color;        // white-balanced camera RGB -> linear Rec.709 (linear ProPhoto with a camera profile)
 uniform float u_exposure;    // linear gain
 uniform int u_toneActive;
 uniform float u_contrastGamma;
@@ -54,6 +55,9 @@ ${COLOR_UNIFORMS}
 
 // Lens corrections: where the corrected frame is recorded, lateral CA and the vignetting gain.
 ${LENS_UNIFORMS}
+
+// Camera profile (DCP): HueSatMap, LookTable, tone curve. Off unless u_profile is 1.
+${PROFILE_UNIFORMS}
 
 // Output / source mapping (see renderer.ts and crop.ts): output pixel -> source texel.
 uniform vec2 u_outSize;      // size of this render target in pixels (buffer, not logical crop size)
@@ -101,6 +105,8 @@ float srgbDecode(float e) {
 ${COLOR_MATH_GLSL}
 
 ${LENS_MATH_GLSL}
+
+${PROFILE_MATH_GLSL}
 
 float highlightsShadows(float y, float highlights, float shadows) {
   float e = srgbEncode(y);
@@ -193,7 +199,10 @@ vec3 applyClipping(vec3 e) {
 vec3 developColor(vec3 lin) {
   if (u_toneActive == 1) lin = toneRgb(lin);
 
-  vec3 e = vec3(srgbEncode(shoulder(lin.r)), srgbEncode(shoulder(lin.g)), srgbEncode(shoulder(lin.b)));
+  // A camera profile's tone curve takes the place of the highlight shoulder.
+  vec3 e = u_profile == 1
+    ? profileFinish(lin)
+    : vec3(srgbEncode(shoulder(lin.r)), srgbEncode(shoulder(lin.g)), srgbEncode(shoulder(lin.b)));
 
   if (u_hasCurve == 1) {
     e = vec3(lookupCurve(e.r, 0), lookupCurve(e.g, 1), lookupCurve(e.b, 2));
@@ -247,7 +256,7 @@ export const FRAGMENT_SHADER =
   vec3 cam = lensCam(recorded, lensQ, gain);
 
   // EE colour/effects insertion point: calibration sits next to the camera matrix.
-  vec3 lin = applyCalibration(u_color * (clipHighlights(cam, u_wb) * gain)) * u_exposure;
+  vec3 lin = applyCalibration(baseColor(clipHighlights(cam, u_wb) * gain)) * u_exposure;
   vec3 e = developColor(lin);
 
   // Spatial effects come last.

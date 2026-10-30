@@ -9,14 +9,8 @@ import {
   scaledTable,
   tableData,
 } from '../src/profile/render';
-import {
-  buildDcp,
-  buildLookXmp,
-  ILLUMINANT_A,
-  ILLUMINANT_D65,
-  identityTable,
-  setNode,
-} from './profile-support';
+import { buildLookXmp } from './look-support';
+import { buildDcp, ILLUMINANT_A, ILLUMINANT_D65, identityTable, setNode } from './profile-support';
 
 const A = [1, 0, 0, 0, 1, 0, 0, 0, 1];
 const B = [2, 0, 0, 0, 3, 0, 0, 0, 4];
@@ -189,7 +183,10 @@ describe('HueSatMap / LookTable lookup', () => {
     expect(lookupTable(table, 5.5 / 6, 1, 0)[0]).toBeCloseTo(10, 6);
     // Hue exactly 1 is hue 0, and a hue past 1 wraps.
     expect(lookupTable(table, 1, 1, 0)[0]).toBeCloseTo(-20, 6);
-    expect(lookupTable(table, 1 + 2.5 / 6, 1, 0)[0]).toBeCloseTo(lookupTable(table, 2.5 / 6, 1, 0)[0] ?? NaN, 9);
+    expect(lookupTable(table, 1 + 2.5 / 6, 1, 0)[0]).toBeCloseTo(
+      lookupTable(table, 2.5 / 6, 1, 0)[0] ?? NaN,
+      9,
+    );
     expect(lookupTable(table, -0.5 / 6, 1, 0)[0]).toBeCloseTo(10, 6);
   });
 
@@ -234,7 +231,14 @@ describe('HueSatMap / LookTable lookup', () => {
     const b = tableData(setNode(identityTable(6, 2, 1), 0, 0, 1, [-20, 1, 1]));
     expect(lookupTable(a, 0, 1, 0)[0]).toBe(40);
     const mixed = applyTable(1, 0, 0, a, b, 0.5);
-    const direct = applyTable(1, 0, 0, tableData(setNode(identityTable(6, 2, 1), 0, 0, 1, [10, 1, 1])), null, 0);
+    const direct = applyTable(
+      1,
+      0,
+      0,
+      tableData(setNode(identityTable(6, 2, 1), 0, 0, 1, [10, 1, 1])),
+      null,
+      0,
+    );
     mixed.forEach((v, i) => expect(v).toBeCloseTo(direct[i] ?? 0, 6));
   });
 
@@ -280,7 +284,11 @@ describe('XMP look parser', () => {
           [128, 140],
           [255, 255],
         ],
-        attributes: { 'crs:Highlights2012': '-20', 'crs:Clarity2012': '10', 'crs:Shadows2012': '0' },
+        attributes: {
+          'crs:Highlights2012': '-20',
+          'crs:Clarity2012': '10',
+          'crs:Shadows2012': '0',
+        },
       }),
     );
     expect(look).toMatchObject({
@@ -307,10 +315,20 @@ describe('XMP look parser', () => {
   it('refuses looks it cannot render, with the reason', () => {
     const table = identityTable(2, 2, 1);
     expect(() => parseLookXmp('<x/>')).toThrow(ProfileParseError);
-    expect(() => parseLookXmp(buildLookXmp({ table, attributes: { 'crs:PresetType': 'Normal' } }))).toThrow(/not a look/);
-    expect(() => parseLookXmp(buildLookXmp({ table, base: null }))).toThrow(/names no camera profile/);
-    expect(() => parseLookXmp(buildLookXmp({ table, attributes: { 'crs:ConvertToGrayscale': 'True' } }))).toThrow(/Monochrome/);
-    expect(() => parseLookXmp(buildLookXmp({ table, attributes: { 'crs:RGBTable': 'abc' } }))).toThrow(/RGB table/);
-    expect(() => parseLookXmp(buildLookXmp({ table, attributes: { 'crs:Dehaze': '20' } }))).toThrow(/Dehaze/);
+    expect(() =>
+      parseLookXmp(buildLookXmp({ table, attributes: { 'crs:PresetType': 'Normal' } })),
+    ).toThrow(/not a look/);
+    expect(() => parseLookXmp(buildLookXmp({ table, base: null }))).toThrow(
+      /names no camera profile/,
+    );
+    expect(() =>
+      parseLookXmp(buildLookXmp({ table, attributes: { 'crs:ConvertToGrayscale': 'True' } })),
+    ).toThrow(/Monochrome/);
+    expect(() =>
+      parseLookXmp(buildLookXmp({ table, attributes: { 'crs:RGBTable': 'abc' } })),
+    ).toThrow(/RGB table/);
+    expect(() => parseLookXmp(buildLookXmp({ table, attributes: { 'crs:Dehaze': '20' } }))).toThrow(
+      /Dehaze/,
+    );
   });
 });
