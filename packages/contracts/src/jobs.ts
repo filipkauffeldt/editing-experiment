@@ -12,10 +12,14 @@ export interface IngestProgressEvent extends JobEventBase {
   type: 'ingest.progress';
   jobId: JobId;
   sourceId: SourceId;
-  /** Files found so far (remote sources may still be listing). */
+  /** Files selected for copying: after the type/lock filters and seen-store skip. */
   filesTotal: number;
   filesDone: number;
   bytesDone: number;
+  /** Image files found before the type/lock filters. */
+  filesScanned?: number;
+  /** Selected files already ingested earlier, so skipped by incremental ingest. */
+  filesSkipped?: number;
   /** File being copied right now. */
   currentFile?: string;
 }
@@ -26,6 +30,8 @@ export interface IngestStateEvent extends JobEventBase {
   jobId: JobId;
   sourceId: SourceId;
   state: IngestJobState;
+  /** A condition the user must know about, e.g. a read-only volume. */
+  warning?: string;
 }
 
 /** Progress of one upload. */
@@ -97,8 +103,15 @@ export interface IngestJobInfo {
   jobId: JobId;
   sourceId: SourceId;
   state: IngestJobState;
+  /** Files selected for copying: after the type/lock filters and seen-store skip. */
   filesTotal: number;
   filesDone: number;
   bytesDone: number;
+  /** Image files found before the type/lock filters. */
+  filesScanned?: number;
+  /** Selected files already ingested earlier, so skipped by incremental ingest. */
+  filesSkipped?: number;
   error?: string;
+  /** A condition the user must know about, e.g. a read-only volume. */
+  warning?: string;
 }

@@ -15,6 +15,7 @@ import { randomUUID } from 'node:crypto';
 import { nodeFileCopier } from './copy';
 import { IngestError, errorMessage, isAbortError, redactSecrets } from './errors';
 import { ingestFile } from './ingest-file';
+import { filterSourceFiles, sourceRoot } from './filters';
 import { connectRemote } from './remote';
 import { pollRemoteSource } from './remote/poller';
 import { MemorySeenStore, SqliteSeenStore, type SeenStore } from './seen-store';
@@ -29,7 +30,10 @@ interface JobRuntime {
   filesTotal: number;
   filesDone: number;
   bytesDone: number;
+  filesScanned?: number;
+  filesSkipped?: number;
   error?: string;
+  warning?: string;
   seq: number;
   secretValues: string[];
   readonly controller: AbortController;
@@ -49,9 +53,14 @@ function jobInfo(job: JobRuntime): IngestJobInfo {
     filesTotal: job.filesTotal,
     filesDone: job.filesDone,
     bytesDone: job.bytesDone,
+    ...(job.filesScanned === undefined ? {} : { filesScanned: job.filesScanned }),
+    ...(job.filesSkipped === undefined ? {} : { filesSkipped: job.filesSkipped }),
   };
   if (job.error !== undefined) {
     info.error = job.error;
+  }
+  if (job.warning !== undefined) {
+    info.warning = job.warning;
   }
   return info;
 }
@@ -112,6 +121,7 @@ export function startIngest(config: IngestConfig, hooks: IngestHooks = {}): Inge
       jobId: job.jobId,
       sourceId: job.source.id,
       state,
+      ...(job.warning === undefined ? {} : { warning: job.warning }),
     });
   };
 
@@ -124,6 +134,8 @@ export function startIngest(config: IngestConfig, hooks: IngestHooks = {}): Inge
       filesTotal: job.filesTotal,
       filesDone: job.filesDone,
       bytesDone: job.bytesDone,
+      ...(job.filesScanned === undefined ? {} : { filesScanned: job.filesScanned }),
+      ...(job.filesSkipped === undefined ? {} : { filesSkipped: job.filesSkipped }),
       ...(currentFile ? { currentFile } : {}),
     });
   };
@@ -152,30 +164,50 @@ export function startIngest(config: IngestConfig, hooks: IngestHooks = {}): Inge
     let files: SourceFile[];
     try {
       files = await listSourceFiles(source);
+      const filtered = await filterSourceFiles(files, {
+        ...(source.fileTypes === undefined ? {} : { fileTypes: source.fileTypes }),
+        ...(source.lockFilter === undefined ? {} : { lockFilter: source.lockFilter }),
+        probeDirectory: sourceRoot(source),
+        ...(hooks.isDirectoryWritable ? { isDirectoryWritable: hooks.isDirectoryWritable } : {}),
+      });
+      files = filtered.files;
+      job.filesScanned = filtered.scanned;
+      if (filtered.warning !== undefined) {
+        job.warning = filtered.warning;
+        job.filesTotal = 0;
+        emitProgress(job);
+        setState(job, 'failed');
+        return;
+      }
     } catch (error) {
       recordError(job, error);
       setState(job, 'failed');
       return;
     }
 
-    job.filesTotal = files.length;
-    emitProgress(job);
-    setState(job, 'running');
-
-    for (const file of files) {
-      if (signal.aborted) {
-        return;
-      }
-      job.seq += 1;
-      const key = {
+    const incremental = source.incremental ?? true;
+    const entries = files.map((file, index) => ({
+      file,
+      seq: index + 1,
+      key: {
         sourceId: source.id,
         path: file.path,
         size: file.size,
         mtimeMs: file.mtimeMs,
-      };
-      if (seenStore.has(key)) {
-        continue;
+      },
+    }));
+    const pending = incremental ? entries.filter((entry) => !seenStore.has(entry.key)) : entries;
+    job.filesTotal = pending.length;
+    job.filesSkipped = entries.length - pending.length;
+    emitProgress(job);
+    setState(job, 'running');
+
+    for (const entry of pending) {
+      const { file, key, seq } = entry;
+      if (signal.aborted) {
+        return;
       }
+      job.seq = seq;
 
       try {
         emitProgress(job, file.name);

@@ -58,6 +58,7 @@ async function walk(
         extension: splitName(entry.name).extension,
         size: info.size,
         mtimeMs: info.mtimeMs,
+        mode: info.mode,
       });
     } catch (error) {
       const code = (error as NodeJS.ErrnoException).code;

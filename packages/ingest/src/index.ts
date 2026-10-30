@@ -14,6 +14,18 @@ export {
   VerificationError,
   redactSecrets,
 } from './errors';
+export {
+  DEFAULT_FILE_TYPES,
+  DEFAULT_INCREMENTAL,
+  DEFAULT_LOCK_FILTER,
+  READ_ONLY_WARNING,
+  filterSourceFiles,
+  isDirectoryWritable,
+  isLockedFile,
+  matchesFileType,
+  sourceRoot,
+} from './filters';
+export type { FilterSourceFilesOptions, FilterSourceFilesResult } from './filters';
 export { IMAGE_EXTENSIONS, RAW_EXTENSIONS, isImageFileName, isRawFileName } from './formats';
 export { hashFile } from './hash';
 export { isTemporaryName, naturalCompare, safeFileBase, safeSubfolder, splitName } from './naming';

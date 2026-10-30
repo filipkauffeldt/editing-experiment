@@ -79,6 +79,21 @@ exports/             default exportRoot (presets choose folders below it)
   develop settings (e.g. an existing Lightroom sidecar) keeps them; a missing preset is skipped with
   one warning per job. Applying a preset marks the photo edited and `previewStale`, so the
   edited-preview scheduler draws it.
+- Local source filters (`FolderSource`/`CardSource`): `fileTypes` is `raw` (supported raw formats and
+  their XMP sidecars), `jpeg` (`.jpg`/`.jpeg`) or `both` (the default, every supported image,
+  including HEIF/TIFF/PNG/WebP/AVIF); `lockFilter` is `locked`, `unlocked` or `all` (default);
+  `incremental` (default on) skips files the seen-store already has. A RAW+JPEG pair with the same
+  base name in one folder is locked when either file is locked, and that is decided before the type
+  filter, so `raw` copies a RAW whose JPEG alone was locked. Locked means the camera's protect
+  attribute, read from `fs.stat().mode` as `(mode & 0o222) === 0` on Linux vfat/exfat, macOS
+  msdos/exfat and Windows (`FILE_ATTRIBUTE_READONLY`). A read-only volume makes every file look
+  locked, so `@ee/ingest` probes the source directory with `fs.access(dir, W_OK)` (never a write); if
+  that fails (`EROFS`, or a directory that is not writable) the lock run stops with the warning
+  "Card is mounted read-only; can't tell locked photos apart" instead of copying everything or
+  nothing. Progress reports `filesScanned` (before filters), `filesTotal` (new files to copy) and
+  `filesSkipped` (already ingested), so the UI can show "12 locked of 480" and
+  "142 new · 338 already ingested". With incremental off the existing collision handling adds
+  numeric suffixes; ingest never overwrites.
 - `app://thumb|preview` are cached JPEGs. `app://linear/<id>?maxEdge=N` is decoded in the jobs process
   (f16 for raws, f32 for JPEGs), written to `cache/linear` (small LRU) and streamed from
   there by main, with the `LinearImageHeader` in `x-ee-linear-image`. Main only streams
@@ -151,7 +166,10 @@ Key types (names are binding, fields can grow):
 - `PhotoStatus { ingest, edited, metadataDiffersFromTemplate, export, upload }`
 - `SourceConfig` = `FolderSource | CardSource | FtpSource | SftpSource`
   (`FtpSource` covers FTP and FTPS; remote sources have `pollIntervalMs`,
-  `remotePath`, `deleteAfterDownload` default false, `credentialRef`)
+  `remotePath`, `deleteAfterDownload` default false, `credentialRef`).
+  `FolderSource` and `CardSource` also have optional `fileTypes` (`both` default),
+  `lockFilter` (`all` default) and `incremental` (`true` default); remote sources
+  have none of them.
 - `IngestConfig { sources, destination, backupDestination?, renameTemplate,
   metadataTemplatePath?, metadataTemplateMode?, developPresetId?, codeReplacementPaths[] }`;
   the template mode is `replace` (default) or `fillEmpty`.

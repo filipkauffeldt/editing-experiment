@@ -20,6 +20,8 @@ export interface SourceFile {
   extension: string;
   size: number;
   mtimeMs: number;
+  /** POSIX mode bits from `fs.stat`, used to read the protect attribute. */
+  mode?: number;
 }
 
 export interface CopyOutcome {
@@ -84,6 +86,8 @@ export interface IngestHooks {
   retryBaseDelayMs?: number;
   /** Maximum retry delay for remote connections. Defaults to 5 s. */
   retryMaxDelayMs?: number;
+  /** Test seam for the read-only volume probe used by the lock filter. */
+  isDirectoryWritable?: (directory: string) => Promise<boolean>;
 }
 
 /** The running ingest. Remote sources keep watching until `stop()` is called. */
