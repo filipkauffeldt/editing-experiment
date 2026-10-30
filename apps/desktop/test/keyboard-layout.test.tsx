@@ -49,7 +49,7 @@ const key = (init: KeyboardEventInit): void => {
 };
 
 describe('develop shortcuts on non-US layouts', () => {
-  it('uses printed letters and digits for before/after, clipping, white balance and classes', async () => {
+  it('uses printed letters and digits for before/after, clipping, white balance, ratings and classes', async () => {
     const { store } = await renderApp();
     const photo = activePhoto(store.getState());
     if (!photo) throw new Error('no selection');
@@ -70,8 +70,35 @@ describe('develop shortcuts on non-US layouts', () => {
     key({ key: 'Escape' });
     expect(developViewStore.get().wbPicker).toBe(false);
 
+    key({ key: '4', code: 'Digit4' });
+    expect(photoFlags(store.getState(), photo.id).rating).toBe(4);
+    key({ key: '5', code: 'Numpad5' });
+    expect(photoFlags(store.getState(), photo.id).rating).toBe(5);
+    key({ key: '0', code: 'Digit0' });
+    expect(photoFlags(store.getState(), photo.id).rating).toBe(0);
+
     key({ key: '7', code: 'Digit7' });
+    expect(photoFlags(store.getState(), photo.id).colorClass).toBe(0);
+    key({ key: '7', code: 'Digit7', ctrlKey: true });
     expect(photoFlags(store.getState(), photo.id).colorClass).toBe(7);
+    key({ key: '0', code: 'Digit0', ctrlKey: true });
+    expect(photoFlags(store.getState(), photo.id).colorClass).toBe(0);
+  });
+
+  it('does not take Shift+digit symbols or AltGr as ratings or colour classes', async () => {
+    const { store } = await renderApp();
+    const photo = activePhoto(store.getState());
+    if (!photo) throw new Error('no selection');
+    const before = photoFlags(store.getState(), photo.id);
+
+    key({ key: '!', code: 'Digit1', shiftKey: true });
+    key({ key: '¤', code: 'Digit4', shiftKey: true });
+    key({ key: '#', code: 'Digit3', shiftKey: true });
+    expect(photoFlags(store.getState(), photo.id)).toEqual(before);
+
+    key({ key: '7', code: 'Digit7', ctrlKey: true, altKey: true });
+    key({ key: '2', code: 'Digit2', ctrlKey: true, altKey: true });
+    expect(photoFlags(store.getState(), photo.id)).toEqual(before);
   });
 
   it('keeps the optional physical backslash as a second before/after key', async () => {
@@ -113,15 +140,17 @@ describe('develop shortcuts on non-US layouts', () => {
     const { store } = await renderApp();
     const photo = activePhoto(store.getState());
     if (!photo) throw new Error('no selection');
+    const before = photoFlags(store.getState(), photo.id);
     const user = userEvent.setup();
     const caption = captionField();
     caption.focus();
     await user.type(caption, 'åäö yjw7');
+    fireEvent.keyDown(caption, { key: '2', code: 'Digit2', ctrlKey: true });
     expect(caption.value).toContain('åäö');
     expect(developViewStore.get().beforeAfter).toBe('off');
     expect(developViewStore.get().clipShadows).toBe(false);
     expect(developViewStore.get().wbPicker).toBe(false);
-    expect(photoFlags(store.getState(), photo.id).colorClass).toBe(0);
+    expect(photoFlags(store.getState(), photo.id)).toEqual(before);
 
     // A dead key (¨) followed by u must not toggle anything either.
     fireEvent.keyDown(caption, { key: 'Dead', code: 'Quote' });

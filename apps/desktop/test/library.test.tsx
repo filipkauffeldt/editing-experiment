@@ -231,7 +231,7 @@ describe('library batch actions', () => {
     ).toBe(false);
   });
 
-  it('sets a colour class on every selected photo from the bar and with 1-8', async () => {
+  it('sets a colour class on every selected photo from the bar and with Ctrl+1-8', async () => {
     const { store, fake } = await openLibrary();
     fireEvent.click(cell('_DSC8335.NEF'));
     fireEvent.click(cell('_DSC8336.NEF'), { shiftKey: true });
@@ -246,7 +246,7 @@ describe('library batch actions', () => {
         .map((p) => p.colorClass),
     ).toEqual([5, 5]);
 
-    await user.keyboard('2');
+    fireEvent.keyDown(window, { key: '2', code: 'Digit2', ctrlKey: true });
     expect(
       store
         .getState()
@@ -256,6 +256,39 @@ describe('library batch actions', () => {
     await waitFor(() => {
       const last = fake.calls.filter((call) => call.channel === 'photos:setLabels').at(-1);
       expect(last?.args[0]).toMatchObject({ photoIds: ids, colorClass: 2 });
+    });
+  });
+
+  it('rates every selected photo with 1-5 and clears it with 0', async () => {
+    const { store, fake } = await openLibrary();
+    fireEvent.click(cell('_DSC8335.NEF'));
+    fireEvent.click(cell('_DSC8336.NEF'), { shiftKey: true });
+    const ids = store.getState().selection;
+    const user = userEvent.setup();
+
+    await user.keyboard('4');
+    expect(
+      store
+        .getState()
+        .photos.filter((p) => ids.includes(p.id))
+        .map((p) => p.rating),
+    ).toEqual([4, 4]);
+    await waitFor(() => {
+      const last = fake.calls.filter((call) => call.channel === 'photos:setLabels').at(-1);
+      expect(last?.args[0]).toMatchObject({ photoIds: ids, rating: 4 });
+    });
+
+
+    await user.keyboard('0');
+    expect(
+      store
+        .getState()
+        .photos.filter((p) => ids.includes(p.id))
+        .map((p) => p.rating),
+    ).toEqual([0, 0]);
+    await waitFor(() => {
+      const last = fake.calls.filter((call) => call.channel === 'photos:setLabels').at(-1);
+      expect(last?.args[0]).toMatchObject({ photoIds: ids, rating: 0 });
     });
   });
 

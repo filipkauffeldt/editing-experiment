@@ -6,6 +6,7 @@ import {
   toggleClipping,
   toggleWbPicker,
 } from './develop-view';
+import { colorClassFromKey, isMacPlatform, ratingFromKey } from './rating-keys';
 import type { AppStore } from './store';
 
 /** Focus the caption editor without threading a ref through every panel. */
@@ -211,6 +212,20 @@ export function useKeyboardShortcuts(store: AppStore): void {
       }
 
       if (typing) return;
+
+      const rating = ratingFromKey(event);
+      if (rating !== undefined) {
+        event.preventDefault();
+        store.setRating(rating);
+        return;
+      }
+      const colorClass = colorClassFromKey(event, isMacPlatform());
+      if (colorClass !== undefined) {
+        event.preventDefault();
+        store.setColorClass(colorClass);
+        return;
+      }
+
       if (state.crop && event.key === 'Enter') {
         event.preventDefault();
         store.applyCrop();
@@ -327,11 +342,6 @@ export function useKeyboardShortcuts(store: AppStore): void {
           event.preventDefault();
           store.swapCropOrientation();
           break;
-        default:
-          if (/^[0-8]$/.test(event.key)) {
-            event.preventDefault();
-            store.setColorClass(Number(event.key));
-          }
       }
     };
     window.addEventListener('keydown', onKeyDown);

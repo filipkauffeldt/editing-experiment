@@ -97,6 +97,8 @@ export interface PhotoFlags {
   tagged: boolean;
   /** 0 = none, 1..8 = colour class. */
   colorClass: number;
+  /** 0 = none, 1..5 = star rating. */
+  rating: number;
 }
 
 /** Which gesture the retouch overlay currently records. */
@@ -423,7 +425,11 @@ export function sectionEnabled(
 
 export function photoFlags(state: AppState, photoId: PhotoId): PhotoFlags {
   const photo = state.photos.find((candidate) => candidate.id === photoId);
-  return { tagged: photo?.tagged ?? false, colorClass: photo?.colorClass ?? 0 };
+  return {
+    tagged: photo?.tagged ?? false,
+    colorClass: photo?.colorClass ?? 0,
+    rating: photo?.rating ?? 0,
+  };
 }
 
 /** The newest retouch version, which is the one an export applies by default. */
@@ -1127,6 +1133,14 @@ export class AppStore {
     if (ids.length === 0) return;
     this.applyLabelPatch(ids, { colorClass });
     this.persistLabels(ids, { colorClass });
+  };
+
+  readonly setRating = (rating: number, photoId?: PhotoId): void => {
+    if (!Number.isInteger(rating) || rating < 0 || rating > 5) return;
+    const ids = this.labelTargets(photoId).filter((id) => this.photoById.has(id));
+    if (ids.length === 0) return;
+    this.applyLabelPatch(ids, { rating });
+    this.persistLabels(ids, { rating });
   };
 
   // ------------------------------------------------------------------ modules
