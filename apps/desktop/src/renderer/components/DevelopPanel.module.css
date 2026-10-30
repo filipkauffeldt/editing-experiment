@@ -112,7 +112,6 @@
   font-size: var(--fs-small);
 }
 
-<<<<<<< HEAD
 .checkRow {
   display: flex;
   align-items: center;
@@ -135,7 +134,8 @@
 .gradingViews {
   flex-wrap: wrap;
   gap: 8px;
-=======
+}
+
 .tools {
   display: flex;
   flex-wrap: wrap;
@@ -148,5 +148,4 @@
   display: flex;
   gap: 4px;
   margin-left: auto;
->>>>>>> 2f787b5 (Add histogram, clipping, before/after and white balance picker to Develop)
 }

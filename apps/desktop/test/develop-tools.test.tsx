@@ -3,9 +3,11 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { App } from '../src/renderer/App';
 import {
   cancelWbPicker,
+  clearHistogram,
   developViewStore,
   setBeforeAfter,
   setClipping,
+  setHistogram,
   setWbPicker,
 } from '../src/renderer/develop-view';
 import { activePhoto, createAppStore, type AppStore } from '../src/renderer/store';
@@ -27,6 +29,7 @@ async function renderApp(): Promise<{ store: AppStore; fake: FakeBridge }> {
 
 function resetView(): void {
   setClipping(false, false);
+  clearHistogram();
   setBeforeAfter('off');
   setWbPicker(false);
   cancelWbPicker();
@@ -55,6 +58,26 @@ describe('histogram and clipping switches', () => {
     fireEvent.click(screen.getByTestId('clip-highlights'));
     expect(developViewStore.get().clipHighlights).toBe(true);
   });
+});
+
+it('draws the histogram faintly behind the tone curve', async () => {
+  const { store } = await renderApp();
+  const photo = activePhoto(store.getState());
+  if (!photo) throw new Error('no selection');
+  const bins = new Uint32Array(256);
+  bins[40] = 500;
+  bins[128] = 900;
+  setHistogram(photo.id, {
+    bins: 256,
+    red: bins,
+    green: bins,
+    blue: bins,
+    luminance: bins,
+  });
+  const curve = await screen.findByTestId('tone-curve');
+  await waitFor(() =>
+    expect(curve.querySelector('[data-testid="tone-curve-histogram"]')).not.toBeNull(),
+  );
 });
 
 describe('before/after and Auto write the right things', () => {

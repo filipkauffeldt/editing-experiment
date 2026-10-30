@@ -495,7 +495,9 @@ requires, one it makes optional, a DX zoom) for plausibility, not against Adobe'
 
 The histogram at the top of Develop is measured from the frame just drawn into the canvas:
 `readHistogram` blits the drawing buffer into a small RGBA8 target (`blitFramebuffer`, long
-edge 256) and reads that back, so it never re-renders the pipeline. The renderer throttles the
+edge 256) and reads that back, so it never re-renders the pipeline. Because it measures the
+canvas, it is the lens-corrected, fully developed output (RGB and Rec. 709 luminance); the
+same luminance bins are drawn faintly behind the Tone Curve editor. The renderer throttles the
 readback to 5 Hz; it is skipped in crop mode, where the canvas has the crop-view overlays,
 and on software rasterisers (SwiftShader/llvmpipe), where the readback blocks the frame. The
 screenshot tour sets `EE_SCREENSHOTS=1` so it is still captured there.

@@ -9,6 +9,7 @@ import {
   toggleBefore,
   toggleWbPicker,
   useDevelopViewMode,
+  useHistogram,
 } from '../develop-view';
 import { useAppState, useAppStore } from '../store-context';
 import { CloseIcon, PlusIcon } from './icons';
@@ -313,6 +314,7 @@ function ToneCurveSection() {
   const state = useAppState();
   const photo = activePhoto(state);
   const params = paramsForPhoto(state, photo);
+  const histogram = useHistogram(photo?.id);
   const [channel, setChannel] = useState<CurveChannel>('Parametric');
   const param = curveParamForChannel(channel);
   const enabled = sectionEnabled(state, photo, 'Tone Curve');
@@ -359,6 +361,7 @@ function ToneCurveSection() {
         channel={channel}
         params={params}
         disabled={!photo || !enabled}
+        histogram={histogram ? [...histogram.luminance] : undefined}
         onChangePoints={(next) => {
           if (param) store.setCurvePoints(param, next);
         }}

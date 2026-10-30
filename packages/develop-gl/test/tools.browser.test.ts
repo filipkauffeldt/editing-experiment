@@ -116,6 +116,18 @@ describe('histogram', () => {
     }
   });
 
+  it('measures the lens-corrected frame, not the recorded pixels', () => {
+    const scene = rampScene();
+    renderer = createDevelopRenderer(canvas);
+    renderer.setImage(scene.header, scene.data);
+    renderer.render({});
+    const plain = renderer.readHistogram(16);
+    // The manual lens vignette is part of the lens stage, before the histogram readback.
+    renderer.render({ VignetteAmount: 100 });
+    const corrected = renderer.readHistogram(16);
+    expect([...corrected.luminance]).not.toEqual([...plain.luminance]);
+  });
+
   it('measures the cropped frame when a crop is committed', () => {
     const scene = clippingScene();
     renderer = createDevelopRenderer(canvas);
