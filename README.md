@@ -26,6 +26,9 @@ It is a proof of concept, not production software. The PoC demo in
   whites, blacks, tone curves, vibrance, saturation, texture, clarity,
   dehaze, sharpening, luminance and colour noise reduction) and imported `.xmp`
   presets. Legacy `.lrtemplate` presets are parsed too.
+- **Camera profiles**: Lightroom-style profile select (Adobe Standard, Adobe Color and the
+  other Adobe Raw looks, Camera Matching) from the DNG camera profiles (`.dcp`) and XMP
+  profiles you provide; see "Camera profiles".
 - Retouch mosaic, with YuNet face detection inside a dragged region.
 - **Export presets**: JPEG into a local folder with the selected metadata, resize
   and output sharpening (rendered directly at the preset's output size), and no
@@ -34,11 +37,42 @@ It is a proof of concept, not production software. The PoC demo in
 - Anonymous FTP for sources and destinations when no credential reference is
   set.
 
+## Camera profiles
+
+Lightroom renders a raw through a _profile_. Adobe's profiles are Adobe's files, so this app
+does not ship them: you point it at your own copies and it reads them where they are (nothing
+is copied into the app or the repository).
+
+- **macOS and Windows.** Install the free [Adobe DNG
+  Converter](https://helpx.adobe.com/camera-raw/using/adobe-dng-converter.html) (Lightroom
+  Classic and Photoshop's Camera Raw install the same files). The profiles are in
+  `/Library/Application Support/Adobe/CameraRaw/CameraProfiles` (macOS) and
+  `C:\ProgramData\Adobe\CameraRaw\CameraProfiles` (Windows); the app searches those folders and
+  the per-user `CameraProfiles` folder (`~/Library/Application Support/Adobe/CameraRaw/CameraProfiles`,
+  `%APPDATA%\Adobe\CameraRaw\CameraProfiles`) by itself. Adobe Standard and the Camera Matching
+  profiles are `.dcp` files in subfolders there.
+- **Linux.** Adobe has no Linux installer. Copy the `CameraProfiles` folder from a Mac or
+  Windows machine, then add it in _Settings → Profiles → Add folder…_ (or from _Browse profile
+  folders…_ under Profile in the Develop panel). Folders are scanned recursively for `.dcp`
+  and `.xmp` files.
+- XMP profiles such as Adobe Color, Landscape, Portrait, Vivid and Neutral are `.xmp` files with
+  an HSV table. They are found in any folder you add; if Adobe's installer puts them
+  elsewhere on your machine, add that folder too.
+
+The Profile select at the top of the Develop panel offers the profiles made for the photo's
+camera, grouped Adobe Raw / Camera Matching / Other. The choice is written to the sidecar as
+`crs:CameraProfile` (and `crs:Look` for an XMP profile), so Lightroom reads it too. A photo
+whose sidecar names a profile this machine does not have keeps the name, says so in the
+panel and is drawn with the camera matrix. For a development test against real profiles, set
+`EE_PROFILE_DIR` to the profile folder and `EE_SAMPLE_NEF_DIR` to a folder of NEFs.
+
 ## Known gaps
 
-- Colour is not calibrated against Lightroom: camera matrices come from LibRaw
-  and there are no Adobe DCP profiles, so develop results will not match
-  Lightroom exactly.
+- Colour matches Lightroom only when you give the app Adobe's camera profiles (see
+  "Camera profiles" below). Without one, colour comes from LibRaw's camera matrix and a
+  simple highlight shoulder, which is not Lightroom's rendering. Profiles with an RGB
+  table (Artistic, Vintage, Modern looks), monochrome looks and `DefaultBlackRender` are not
+  rendered, and the camera's own baseline exposure is not applied.
 - Texture, Clarity, Dehaze, sharpening and noise reduction follow RAWmakase's
   fits of Camera Raw, not Camera Raw itself. Raws start with Lightroom's
   sharpening and colour noise reduction (or the camera's own `crd:` values), shown
@@ -160,6 +194,11 @@ GPL-3.0-or-later; see `LICENSE`.
   and Nikon F lenses only, regenerated with `pnpm update-lensfun`). It is data kept in its
   own file under its own licence — see `packages/develop-gl/data/LICENSE-lensfun-CC-BY-SA-3.0.txt`.
   The Lensfun library is not used; the lens model maths is written from its documentation.
+- The camera profile pipeline (`packages/develop-gl/src/profile`) follows the Adobe DNG SDK
+  (`dng_color_spec`, `dng_hue_sat_map`, `dng_render`, `dng_temperature`; © Adobe Inc., DNG SDK
+  License Agreement, kept in `packages/develop-gl/third_party/adobe-dng-sdk/LICENSE`) and
+  RAWmakase's profile support. The Robertson temperature table and the default (ACR 3) tone curve
+  samples are the SDK's published data. No Adobe profile is included.
 - NOTICE: RAWmakase is the reference implementation of those controls; its
   licence text is kept unchanged next to this repository's code.
 

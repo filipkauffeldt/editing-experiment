@@ -385,7 +385,6 @@ function CanvasForPhoto({ photo }: { photo: Photo }) {
       LookUUID: params.LookUUID,
     });
     // `params` itself changes with every slider; only the profile choice matters here.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [store, photo.id, params.CameraProfile, params.LookName, params.LookUUID]);
 
   // Create the WebGL renderer once per canvas; the image is uploaded separately.
