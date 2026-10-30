@@ -209,6 +209,41 @@ Set things up in this order:
 5. Start with **Ingest → Ingest**, then **Library** → **Develop** →
    **Export…** or **Export & send** (or **Next & send**, Ctrl/⌘+Enter).
 
+## Keyboard shortcuts
+
+`Ctrl/⌘` means Ctrl, or Cmd on macOS. Letters and digits match the character
+the key prints, so the shortcuts work on a Swedish layout; AltGr combinations
+are treated as text. `F1` always opens the in-app list; `?` does too, as does
+`Ctrl/⌘` plus the physical Slash key. In Ingest only `G` and `D` switch
+modules.
+
+| Key                            | Action                                                                                                 |
+| ------------------------------ | ------------------------------------------------------------------------------------------------------ |
+| `G` / `D` / `E`                | Library grid / Develop / Library loupe                                                                 |
+| `←` `→`                        | Previous / next photo; Shift extends the selection                                                     |
+| `↑` `↓`                        | Previous / next grid row in the Library; Shift extends                                                 |
+| `T`                            | Tag / untag                                                                                            |
+| `1`-`5`, `0`                   | Star rating; `0` clears                                                                                |
+| `Ctrl/⌘`+`1`-`8`, `Ctrl/⌘`+`0` | Colour class; `Ctrl/⌘`+`0` clears                                                                      |
+| `C`                            | Enter crop mode / apply the crop                                                                       |
+| `Enter`                        | Apply the crop (crop mode)                                                                             |
+| `R`                            | Retouch; in crop mode, the crop frame tool                                                             |
+| `A` / `O` / `X`                | Straighten tool / cycle overlay / swap orientation (crop mode)                                         |
+| `Ctrl/⌘`+`Alt`+`R`             | Reset the crop                                                                                         |
+| `Esc`                          | Cancel crop, WB picker or retouch; close the shortcut list; leave a field; clear the Library selection |
+| `Y` or the physical `\` key    | Before / after (Develop)                                                                               |
+| `J` / `W`                      | Clipping overlay / white balance picker (Develop)                                                      |
+| `Ctrl/⌘`+`Z`                   | Undo the last retouch shape                                                                            |
+| `Ctrl/⌘`+`I`                   | Batch caption (Library); focus the caption field (Develop)                                             |
+| `Ctrl/⌘`+`A`                   | Select all in the Library                                                                              |
+| `Shift`+`Ctrl/⌘`+`C`           | Copy settings…                                                                                         |
+| `Shift`+`Ctrl/⌘`+`V`           | Paste settings to the selection                                                                        |
+| `Ctrl/⌘`+`Alt`+`V`             | Paste the previous photo's settings                                                                    |
+| `Shift`+`Ctrl/⌘`+`E`           | Export…                                                                                                |
+| `Shift`+`Ctrl/⌘`+`Enter`       | Export & send                                                                                          |
+| `Ctrl/⌘`+`Enter`               | Next & send (Develop)                                                                                  |
+| `?` / `F1` / `Ctrl/⌘`+`/`      | Show the in-app shortcut list                                                                          |
+
 ## Credentials
 
 Passwords and SFTP key material are stored only through Electron `safeStorage`,
