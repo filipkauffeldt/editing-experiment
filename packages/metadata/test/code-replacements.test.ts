@@ -82,11 +82,33 @@ describe('code replacements', () => {
     const first = join(dir, 'first.txt');
     const second = join(dir, 'second.txt');
     await writeFile(first, '\uFEFFcode\tfrom first\r\nother\tkept\r\n', 'utf8');
-    await writeFile(second, 'code\tfrom second\r\n', 'utf8');
+    await writeFile(second, 'code\tfrom second\r\nonlysecond\tfrom second\r\n', 'utf8');
 
     const set = await loadCodeReplacements([first, second]);
-    expect(set.size).toBe(2);
-    expect(expandCodeReplacements('=code= =other=', set).text).toBe('from second kept');
+    expect(set.size).toBe(3);
+    expect(expandCodeReplacements('=code= =other= =onlysecond=', set).text).toBe(
+      'from second kept from second',
+    );
+  });
+
+  it('stops expanding the codes of a file that was removed from the list', async () => {
+    const dir = await makeTempDir();
+    const first = join(dir, 'first.txt');
+    const second = join(dir, 'second.txt');
+    await writeFile(first, 'code\tfrom first\r\nother\tkept\r\n', 'utf8');
+    await writeFile(second, 'code\tfrom second\r\nonlysecond\tfrom second\r\n', 'utf8');
+
+    const withBoth = await loadCodeReplacements([first, second]);
+    expect(expandCodeReplacements('=code= =onlysecond=', withBoth).text).toBe(
+      'from second from second',
+    );
+
+    const afterRemoval = await loadCodeReplacements([first]);
+    expect(expandCodeReplacements('=code= =other=', afterRemoval).text).toBe('from first kept');
+    expect(expandCodeReplacements('=onlysecond=', afterRemoval)).toEqual({
+      text: '=onlysecond=',
+      unknownCodes: ['onlysecond'],
+    });
   });
 
   it('supports a custom delimiter', () => {
