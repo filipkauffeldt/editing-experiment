@@ -225,7 +225,7 @@ async function runMock(outDir: string): Promise<void> {
     await blacks.fill('-100');
     await blacks.blur();
     await window.waitForTimeout(300);
-    await shoot('24-clipping-overlay.png');
+    await shoot('28-clipping-overlay.png');
     await window.keyboard.press('j');
 
     await window.locator('[title^="_DSC8336.NEF"]').click();
@@ -236,7 +236,7 @@ async function runMock(outDir: string): Promise<void> {
     await window.getByTestId('split-view').click();
     await window.locator('[data-testid="split-divider"]').waitFor();
     await window.waitForTimeout(300);
-    await shoot('25-before-after-split.png');
+    await shoot('29-before-after-split.png');
     await window.getByTestId('split-view').click();
 
     await window.locator('[title^="_DSC8337.NEF"]').click();
@@ -251,7 +251,7 @@ async function runMock(outDir: string): Promise<void> {
     }
     await window.locator('[data-testid="wb-loupe"]').waitFor();
     await window.waitForTimeout(200);
-    await shoot('26-wb-picker-loupe.png');
+    await shoot('30-wb-picker-loupe.png');
     await window.keyboard.press('Escape');
 
     await window.getByRole('tab', { name: 'Ingest' }).click();
