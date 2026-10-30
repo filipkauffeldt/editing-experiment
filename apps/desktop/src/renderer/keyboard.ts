@@ -19,6 +19,28 @@ function isTypingTarget(target: EventTarget | null): target is HTMLElement {
 }
 
 /**
+ * Whether a key event would type text. Sliders, checkboxes and buttons are not
+ * text entry, so command shortcuts stay available after using them.
+ */
+function isTextEntryTarget(target: EventTarget | null): boolean {
+  if (!(target instanceof HTMLElement)) return false;
+  if (target instanceof HTMLInputElement) {
+    return !['checkbox', 'radio', 'range', 'button', 'submit', 'reset', 'color', 'file'].includes(
+      target.type,
+    );
+  }
+  return target.tagName === 'TEXTAREA' || target.tagName === 'SELECT' || target.isContentEditable;
+}
+
+/**
+ * AltGr is reported as Ctrl+Alt on Windows/Linux. It must never fire a
+ * Ctrl+Alt shortcut, so check the modifier state rather than the two keys.
+ */
+function isAltGraph(event: KeyboardEvent): boolean {
+  return typeof event.getModifierState === 'function' && event.getModifierState('AltGraph');
+}
+
+/**
  * Global shortcuts. While an input, textarea, select or contenteditable has
  * focus only the explicit command shortcuts work (Ctrl/Cmd+Enter, Ctrl/Cmd+I,
  * Shift+Ctrl/Cmd+Enter, Shift+Ctrl/Cmd+E, Escape and Ctrl+Space inside the caption).
@@ -28,15 +50,17 @@ export function useKeyboardShortcuts(store: AppStore): void {
     const onKeyDown = (event: KeyboardEvent): void => {
       const state = store.getState();
       const typing = isTypingTarget(event.target);
+      const textEntry = isTextEntryTarget(event.target);
+      const altGraph = isAltGraph(event);
       const command = event.ctrlKey || event.metaKey;
 
       if (event.key === 'Escape') {
-        if (state.crop && !typing && !state.dialog) {
+        if (state.crop && !typing && !state.dialog && !state.copySettings) {
           event.preventDefault();
           store.cancelCrop();
           return;
         }
-        if (state.retouch && !typing && !state.dialog) {
+        if (state.retouch && !typing && !state.dialog && !state.copySettings) {
           event.preventDefault();
           void store.requestExitRetouch();
           return;
@@ -46,7 +70,8 @@ export function useKeyboardShortcuts(store: AppStore): void {
           store.toggleShortcuts(false);
           return;
         }
-        if (state.dialog || state.exportOpen || state.batchCaptionOpen) return;
+        if (state.dialog || state.copySettings || state.exportOpen || state.batchCaptionOpen)
+          return;
         if (state.module === 'library' && !typing && state.selection.length > 1) {
           event.preventDefault();
           store.clearLibrarySelection();
@@ -59,7 +84,14 @@ export function useKeyboardShortcuts(store: AppStore): void {
         return;
       }
 
-      if (state.dialog || state.shortcutsOpen || state.exportOpen || state.batchCaptionOpen) return;
+      if (
+        state.dialog ||
+        state.copySettings ||
+        state.shortcutsOpen ||
+        state.exportOpen ||
+        state.batchCaptionOpen
+      )
+        return;
 
       const library = state.module === 'library';
       if (command && event.shiftKey && (event.key === 'e' || event.key === 'E')) {
@@ -93,6 +125,38 @@ export function useKeyboardShortcuts(store: AppStore): void {
         event.preventDefault();
         store.undoRetouchShape();
         return;
+      }
+
+      // Copy/paste develop settings. AltGr (Ctrl+Alt on Windows/Linux) is not a
+      // command shortcut, and text fields keep their own paste behaviour.
+      if (!textEntry && !altGraph) {
+        if (
+          command &&
+          event.shiftKey &&
+          !event.altKey &&
+          (event.key === 'c' || event.key === 'C')
+        ) {
+          event.preventDefault();
+          store.openCopySettings('copy');
+          return;
+        }
+        if (
+          command &&
+          event.shiftKey &&
+          !event.altKey &&
+          (event.key === 'v' || event.key === 'V')
+        ) {
+          event.preventDefault();
+          store.pasteSettings();
+          return;
+        }
+        // `code`, because Option+V types another character on macOS. AltGr is
+        // Ctrl+Alt on Windows/Linux, so the AltGraph check above keeps it out.
+        if (command && event.altKey && !event.shiftKey && event.code === 'KeyV') {
+          event.preventDefault();
+          store.pastePreviousSettings();
+          return;
+        }
       }
 
       if (typing) return;

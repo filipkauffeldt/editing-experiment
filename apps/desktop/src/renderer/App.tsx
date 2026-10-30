@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import styles from './App.module.css';
 import { BatchCaptionDialog } from './components/BatchCaptionDialog';
+import { CopySettingsDialog } from './components/CopySettingsDialog';
 import { DevelopView } from './components/DevelopView';
 import { ExportDialog } from './components/ExportDialog';
 import { IngestView } from './components/IngestView';
@@ -31,6 +32,7 @@ function Shell() {
       <Toasts />
       {state.shortcutsOpen && <ShortcutsOverlay />}
       {state.batchCaptionOpen && <BatchCaptionDialog />}
+      {state.copySettings && <CopySettingsDialog />}
       {state.dialog && <SettingsDialog />}
       {state.exportOpen && <ExportDialog />}
     </div>

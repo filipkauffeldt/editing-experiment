@@ -98,8 +98,9 @@ on the copies. The sidebar also has an **Ingesting → folder** section with per
 and the Collections Tagged, Sent and Edited.
 
 Library keys: click, Shift-range, Ctrl/Cmd-toggle, Ctrl/Cmd+A, arrows (Shift extends), `T` tag,
-`1`-`8` class, Ctrl/Cmd+I caption, Shift+Ctrl/Cmd+E export, Shift+Ctrl/Cmd+Enter export and
-send. In Develop Ctrl/Cmd+Enter is Next & send, and its bar shows the active export preset
+`1`-`8` class, Ctrl/Cmd+I caption, Shift+Ctrl/Cmd+C copy settings, Shift+Ctrl/Cmd+V paste
+settings, Shift+Ctrl/Cmd+E export, Shift+Ctrl/Cmd+Enter export and send. The bottom bar's
+**Sync…** opens the same group dialog for the whole selection. In Develop Ctrl/Cmd+Enter is Next & send, and its bar shows the active export preset
 ("Desk 2048 q90 → Export/Desk → destination").
 
 The export dialog lists the presets on the left; the editor has the sections Location, File,

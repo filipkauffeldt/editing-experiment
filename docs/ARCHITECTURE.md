@@ -538,6 +538,33 @@ unchanged: the rotated rectangle in source space, whose output is the leveled fr
 - **Keys**: `C` enters (and applies), `Enter` or a double-click inside the frame
   applies, `Esc` cancels, `X` swaps orientation, `Ctrl/Cmd+Alt+R` resets, double-click on
   the angle slider resets the angle.
+## Copy, paste and sync develop settings
+
+Lightroom-style settings transfer. The groups are defined once in
+`packages/contracts` (`DEVELOP_SETTING_GROUPS`, one entry per `EditParams` field;
+a contract test fails when a new field is not assigned). Crop is in the list but
+off by default. Retouch is not a develop setting, so it is never copied; mosaics
+stay with each photo.
+
+- **Copy settings** (`Shift+Ctrl/Cmd+C`) opens the group dialog for the active photo and
+  remembers its settings (as shown, including raw defaults) with the chosen groups.
+- **Paste settings** (`Shift+Ctrl/Cmd+V`) applies that snapshot to the selection in the
+  Library or Develop. **Sync…** in the Library bottom bar opens the same dialog with
+  the active photo as the source and applies it to the whole selection.
+- **Previous** (`Ctrl/Cmd+Alt+V`) applies the settings of the last photo edited before
+  the current one, with the default groups (everything except Crop). `event.code` is
+  used for the V key because Option+V types another character on macOS, and AltGr
+  (Ctrl+Alt on Windows/Linux) is ignored via `getModifierState('AltGraph')`.
+- A paste is one `develop:applySettings` call carrying the source params and the group
+  ids. The backend reads each photo's current settings, replaces only the selected
+  groups (a field the source leaves neutral is removed), writes the sidecar and
+  publishes the photo. Pending slider writes are flushed first, so unselected groups
+  keep what the user sees.
+- Thumbnails are redrawn through the existing `EditedPreviewScheduler`
+  (`scheduleNow`, ahead of the debounce).
+- There is no general undo stack in the app, so a batch paste is one write but not an
+  undoable step yet.
+
 ## Export model
 
 Three actions share one model: Export… (preset into a local folder), Export & send

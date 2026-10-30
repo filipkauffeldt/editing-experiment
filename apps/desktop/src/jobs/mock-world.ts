@@ -1,5 +1,6 @@
 import {
   IPTC_FIELD_NAMES,
+  applyDevelopSettingGroups,
   asExportJobId,
   asJobId,
   asPresetId,
@@ -349,6 +350,21 @@ export function createMockHandlers(world: MockWorld, emit: Emit): Partial<IpcHan
     'develop:setParams': async ({ photoId, versionId, params }) => {
       findPhoto(photoId);
       world.params.set(versionKey(photoId, versionId), { ...params });
+    },
+    'develop:applySettings': async ({ photoIds, params, groups }) => {
+      const updated: Photo[] = [];
+      for (const photoId of photoIds) {
+        const photo = findPhoto(photoId);
+        const develop = photo.versions.find((version) => version.kind === 'develop');
+        const key = versionKey(photoId, develop?.id);
+        const next = applyDevelopSettingGroups(world.params.get(key) ?? {}, params, groups);
+        world.params.set(key, next);
+        if (develop?.kind === 'develop') develop.ops = next;
+        photo.status.edited = Object.keys(next).some((name) => name !== 'ProcessVersion');
+        emitPhoto(world, emit, photo);
+        updated.push(photo);
+      }
+      return updated;
     },
     'develop:listPresets': async () => world.presets,
     'develop:importPreset': async ({ path }) => {

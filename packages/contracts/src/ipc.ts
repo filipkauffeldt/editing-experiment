@@ -1,4 +1,4 @@
-import type { EditParams, EditPreset } from './develop';
+import type { ApplyDevelopSettingsArgs, EditParams, EditPreset } from './develop';
 import type {
   CredentialSecret,
   DeliverExportRenderArgs,
@@ -272,6 +272,12 @@ export interface IpcApi {
   'develop:getDefaults': (args: { photoId: PhotoId }) => Promise<EditParams>;
   /** Replaces the whole parameter set of the version. */
   'develop:setParams': (args: VersionRef & { params: EditParams }) => Promise<void>;
+  /**
+   * Copies the selected setting groups from `params` onto every photo in one
+   * call. Each photo keeps the groups that were not selected; retouch versions
+   * are never touched. Resolves with the updated photos.
+   */
+  'develop:applySettings': (args: ApplyDevelopSettingsArgs) => Promise<Photo[]>;
   'develop:listPresets': () => Promise<EditPreset[]>;
   /** Parse a Lightroom/Camera Raw `.xmp` preset and remember it. */
   'develop:importPreset': (args: { path: string }) => Promise<EditPreset>;
@@ -353,6 +359,7 @@ export const INVOKE_CHANNELS = [
   'develop:getParams',
   'develop:getDefaults',
   'develop:setParams',
+  'develop:applySettings',
   'develop:listPresets',
   'develop:importPreset',
   'retouch:get',

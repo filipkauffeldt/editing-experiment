@@ -89,6 +89,13 @@ export function LibraryView() {
               >
                 Caption…
               </Button>
+              <Button
+                data-testid="sync-settings"
+                disabled={selected.length < 2}
+                onClick={() => store.openCopySettings('sync')}
+              >
+                Sync…
+              </Button>
               <Button disabled={none} hint={`⇧${mod}+E`} onClick={() => store.openExportDialog()}>
                 Export…
               </Button>

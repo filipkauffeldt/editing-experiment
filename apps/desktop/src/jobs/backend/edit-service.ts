@@ -1,6 +1,8 @@
 import {
   IpcError,
+  applyDevelopSettingGroups,
   asVersionId,
+  type ApplyDevelopSettingsArgs,
   type CreateVersionArgs,
   type DeleteVersionArgs,
   type EditParams,
@@ -105,6 +107,34 @@ export class EditService {
       // Re-read so the index shows what the sidecar says, not what was asked for.
       await this.publish(photo, await this.readVersions(photo.path, photo.id, cropSpaceFor(photo)));
     });
+  }
+
+  /**
+   * Copy the selected setting groups from `args.params` onto each photo in one
+   * call. Every photo is read, merged and written under its own lock; retouch
+   * versions are not touched. Photos are written in the given order.
+   */
+  async applySettings(args: ApplyDevelopSettingsArgs): Promise<Photo[]> {
+    const updated: Photo[] = [];
+    for (const photoId of args.photoIds) {
+      await this.photos.withLock(photoId, async () => {
+        const photo = this.photos.get(photoId);
+        const current = await readEditParams(photo.path, this.exiftool, cropSpaceFor(photo));
+        const next = applyDevelopSettingGroups(current, args.params, args.groups);
+        this.previews.noteParams(photo.id, next);
+        await writeEditParams(photo.path, next, {
+          service: this.exiftool,
+          cropSpace: cropSpaceFor(photo),
+        });
+        updated.push(
+          await this.publish(
+            photo,
+            await this.readVersions(photo.path, photo.id, cropSpaceFor(photo)),
+          ),
+        );
+      });
+    }
+    return updated;
   }
 
   async getRetouch(ref: VersionRef): Promise<RetouchOp[]> {
