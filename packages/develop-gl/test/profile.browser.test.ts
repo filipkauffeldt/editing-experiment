@@ -1,5 +1,6 @@
 import type { EditParams, LookProfileData, ResolvedProfile } from '@ee/contracts';
 import { afterEach, beforeAll, describe, expect, it } from 'vitest';
+import { histogramOfRgba } from '../src/analysis';
 import { renderCpu } from '../src/cpu';
 import { invert, mulMat, mulMatVec } from '../src/mat3';
 import { bradfordAdaptation } from '../src/profile/render';
@@ -114,6 +115,17 @@ const PARAMS: Record<string, EditParams> = {
   },
 };
 
+/** Reads the canvas after a draw (the drawing buffer is cleared once the task ends). */
+function readCanvas(source: HTMLCanvasElement): Uint8ClampedArray {
+  const copy = document.createElement('canvas');
+  copy.width = source.width;
+  copy.height = source.height;
+  const ctx = copy.getContext('2d');
+  if (!ctx) throw new Error('no 2d context');
+  ctx.drawImage(source, 0, 0);
+  return ctx.getImageData(0, 0, source.width, source.height).data;
+}
+
 let canvas: HTMLCanvasElement;
 let renderer: DevelopRenderer | undefined;
 
@@ -190,5 +202,50 @@ describe('camera profile: WebGL2 vs CPU reference', () => {
     const gpu = renderer.renderToRGBA({}, { width: W, height: H });
     const cpu = renderCpu(chart.header, chart.data, {}, undefined, { profile });
     expect(maxAbsDiff(gpu, cpu)).toBeLessThanOrEqual(MAX_LEVELS);
+  });
+
+  it('the histogram measures the profile render, as the canvas shows it', () => {
+    const profile = PROFILES['camera profile and look at 100%'] ?? null;
+    renderer = createDevelopRenderer(canvas);
+    renderer.setImage(chart.header, chart.data);
+    renderer.render({});
+    const plain = renderer.readHistogram(16);
+    renderer.setProfile(profile);
+    renderer.render({});
+    const gpu = renderer.readHistogram(16);
+    const cpu = histogramOfRgba(
+      renderCpu(chart.header, chart.data, {}, { width: W, height: H }, { profile }),
+      W,
+      H,
+      16,
+    );
+    const tolerance = Math.max(20, Math.round((W * H) / 100));
+    expect([...gpu.luminance]).not.toEqual([...plain.luminance]);
+    for (const channel of ['red', 'green', 'blue', 'luminance'] as const) {
+      for (let bin = 0; bin < gpu.bins; bin++) {
+        expect(Math.abs((gpu[channel][bin] ?? 0) - (cpu[channel][bin] ?? 0))).toBeLessThanOrEqual(
+          tolerance,
+        );
+      }
+    }
+  });
+
+  it('the before side of a split uses the profile only when its settings name it', () => {
+    const profile = PROFILES['camera profile'] ?? null;
+    const named: EditParams = { CameraProfile: 'Test Standard' };
+    renderer = createDevelopRenderer(canvas);
+    renderer.setImage(chart.header, chart.data);
+    renderer.setProfile(profile);
+    const shown = (before: EditParams): Uint8ClampedArray => {
+      renderer?.renderSplit(named, before, 1);
+      return readCanvas(canvas);
+    };
+    const cpuPlain = renderCpu(chart.header, chart.data, {});
+    const cpuProfile = renderCpu(chart.header, chart.data, {}, undefined, { profile });
+    // A before that names no profile is the camera matrix; one that names it is drawn through it.
+    expect(maxAbsDiff(shown({}), cpuPlain)).toBeLessThanOrEqual(MAX_LEVELS);
+    expect(
+      maxAbsDiff(shown({ CameraProfile: profile?.camera.name ?? '' }), cpuProfile),
+    ).toBeLessThanOrEqual(MAX_LEVELS);
   });
 });

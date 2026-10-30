@@ -445,6 +445,13 @@ app reads them where they are and never copies them into the repo, userData or f
   a ColorMatrix is adapted from the white to D50 with Bradford, as the SDK does. The forward
   matrix is scaled by `1 / min(multipliers)`, because the SDK normalises the neutral so its largest
   channel is 1 and this app normalises green to 1.
+- **Develop tools.** The white balance picker and Auto white balance solve camera gains for a
+  neutral and turn them into a temperature and tint; with a profile active they use the profile's
+  interpolated ColorMatrix (`profileColorModel`, the SDK's iteration) instead of LibRaw's matrix, so
+  the slider values the render turns back into gains give the picked neutral. The histogram, the
+  clipping overlay and Auto tone read the canvas / a render of the same renderer, so they measure the
+  profile render. The before side of the before/after split is drawn through the profile only when its
+  settings name the profile in use.
 - **HueSatMap and LookTable** are the SDK's `dng_hue_sat_map`: HSV of the linear ProPhoto colour
   (the value axis sRGB encoded when the table says so), hue 0..1 wrapping, trilinear in
   (hue, saturation, value), node = (hue shift in degrees, saturation scale, value scale), node
