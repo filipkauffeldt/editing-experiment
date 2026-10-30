@@ -427,6 +427,61 @@ describe.skipIf(nefs.length === 0)(
       expect((await handlers['develop:listPresets']()).map((p) => p.id)).toContain(preset.id);
     });
 
+    it('applies copied setting groups to a batch and writes every sidecar', async () => {
+      const targets = [bySource(cardA)[0]!, bySource(cardB)[0]!, bySource(ftp)[0]!];
+      await handlers['develop:setParams']({
+        photoId: targets[0]!.id,
+        params: { Saturation: 30 },
+      });
+      const version = await handlers['photos:createVersion']({
+        photoId: targets[0]!.id,
+        kind: 'retouch',
+        name: 'Retouch',
+      });
+      const op = {
+        type: 'mosaic' as const,
+        shapes: [{ type: 'rect' as const, x: 0.1, y: 0.1, w: 0.2, h: 0.2 }],
+        blockSizeRel: 0.012,
+      };
+      await handlers['retouch:set']({
+        photoId: targets[0]!.id,
+        versionId: version.id,
+        ops: [op],
+      });
+
+      const source = {
+        Exposure2012: 0.8,
+        Contrast2012: 20,
+        Temperature: 6100,
+        Tint: -5,
+        GrainAmount: 12,
+        crop: { left: 0.1, top: 0.1, right: 0.9, bottom: 0.9, angle: 0 },
+      };
+      const updated = await handlers['develop:applySettings']({
+        photoIds: targets.map((photo) => photo.id),
+        params: source,
+        groups: ['whiteBalance', 'basicTone', 'effects'],
+      });
+      expect(updated.map((photo) => photo.id)).toEqual(targets.map((photo) => photo.id));
+
+      for (const photo of targets) {
+        const params = await readEditParams(photo.path, exiftool);
+        expect(params).toMatchObject({
+          Exposure2012: 0.8,
+          Contrast2012: 20,
+          Temperature: 6100,
+          Tint: -5,
+          GrainAmount: 12,
+        });
+        // Crop was not selected, so the source's crop is not copied.
+        expect(params.crop).toBeUndefined();
+      }
+      // An unselected group keeps what the target already had.
+      expect((await readEditParams(targets[0]!.path, exiftool)).Saturation).toBe(30);
+      // Retouch is never part of a develop settings copy.
+      expect(await handlers['retouch:get']({ photoId: targets[0]!.id })).toEqual([op]);
+    });
+
     it('persists tag and colour class in the index and the sidecar', async () => {
       const raw = bySource(cardA)[0]!;
       const [updated] = await handlers['photos:setLabels']({

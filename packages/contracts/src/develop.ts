@@ -1,4 +1,4 @@
-import type { PresetId } from './ids';
+import type { PhotoId, PresetId } from './ids';
 
 /**
  * Develop parameters. Names and value ranges deliberately mirror the Adobe
@@ -471,6 +471,368 @@ export function withDefaults(params: EditParams, defaults: EditParams | undefine
     if (value !== undefined) merged[key] = value;
   }
   return merged as EditParams;
+}
+
+// ---------------------------------------------------------------------------
+// Copying settings between photos
+// ---------------------------------------------------------------------------
+
+/**
+ * A group of develop settings, as Lightroom's Copy/Sync Settings dialog shows
+ * them. Every `EditParams` field belongs to exactly one group; the test in
+ * `test/develop.test.ts` fails when a new field is not assigned.
+ */
+export interface DevelopSettingGroup {
+  id: string;
+  label: string;
+  fields: readonly (keyof EditParams)[];
+}
+
+/** The groups, in the order the Copy Settings dialog shows them. */
+export const DEVELOP_SETTING_GROUPS = [
+  {
+    id: 'whiteBalance',
+    label: 'White Balance',
+    fields: ['WhiteBalance', 'Temperature', 'Tint'],
+  },
+  {
+    id: 'basicTone',
+    label: 'Basic Tone',
+    fields: [
+      'ProcessVersion',
+      'Exposure2012',
+      'Contrast2012',
+      'Highlights2012',
+      'Shadows2012',
+      'Whites2012',
+      'Blacks2012',
+    ],
+  },
+  {
+    id: 'presence',
+    label: 'Presence',
+    fields: ['Texture', 'Clarity2012', 'Dehaze', 'Vibrance', 'Saturation'],
+  },
+  {
+    id: 'toneCurve',
+    label: 'Tone Curve',
+    fields: [
+      'ToneCurvePV2012',
+      'ToneCurvePV2012Red',
+      'ToneCurvePV2012Green',
+      'ToneCurvePV2012Blue',
+      'ParametricShadows',
+      'ParametricDarks',
+      'ParametricLights',
+      'ParametricHighlights',
+      'ParametricShadowSplit',
+      'ParametricMidtoneSplit',
+      'ParametricHighlightSplit',
+    ],
+  },
+  {
+    id: 'colorMixer',
+    label: 'Color Mixer',
+    fields: [
+      'HueAdjustmentRed',
+      'SaturationAdjustmentRed',
+      'LuminanceAdjustmentRed',
+      'HueAdjustmentOrange',
+      'SaturationAdjustmentOrange',
+      'LuminanceAdjustmentOrange',
+      'HueAdjustmentYellow',
+      'SaturationAdjustmentYellow',
+      'LuminanceAdjustmentYellow',
+      'HueAdjustmentGreen',
+      'SaturationAdjustmentGreen',
+      'LuminanceAdjustmentGreen',
+      'HueAdjustmentAqua',
+      'SaturationAdjustmentAqua',
+      'LuminanceAdjustmentAqua',
+      'HueAdjustmentBlue',
+      'SaturationAdjustmentBlue',
+      'LuminanceAdjustmentBlue',
+      'HueAdjustmentPurple',
+      'SaturationAdjustmentPurple',
+      'LuminanceAdjustmentPurple',
+      'HueAdjustmentMagenta',
+      'SaturationAdjustmentMagenta',
+      'LuminanceAdjustmentMagenta',
+    ],
+  },
+  {
+    id: 'colorGrading',
+    label: 'Color Grading',
+    fields: [
+      'ColorGradeShadowHue',
+      'ColorGradeShadowSat',
+      'ColorGradeShadowLum',
+      'ColorGradeMidtoneHue',
+      'ColorGradeMidtoneSat',
+      'ColorGradeMidtoneLum',
+      'ColorGradeHighlightHue',
+      'ColorGradeHighlightSat',
+      'ColorGradeHighlightLum',
+      'ColorGradeGlobalHue',
+      'ColorGradeGlobalSat',
+      'ColorGradeGlobalLum',
+      'ColorGradeBlending',
+      'ColorGradeBalance',
+      'SplitToningShadowHue',
+      'SplitToningShadowSaturation',
+      'SplitToningHighlightHue',
+      'SplitToningHighlightSaturation',
+      'SplitToningBalance',
+    ],
+  },
+  {
+    id: 'detail',
+    label: 'Detail',
+    fields: [
+      'Sharpness',
+      'SharpenRadius',
+      'SharpenDetail',
+      'SharpenEdgeMasking',
+      'LuminanceSmoothing',
+      'LuminanceNoiseReductionDetail',
+      'LuminanceNoiseReductionContrast',
+      'ColorNoiseReduction',
+      'ColorNoiseReductionDetail',
+      'ColorNoiseReductionSmoothness',
+    ],
+  },
+  {
+    id: 'lensCorrections',
+    label: 'Lens Corrections',
+    fields: [
+      'LensProfileEnable',
+      'LensProfileName',
+      'LensProfileFilename',
+      'LensProfileDistortionScale',
+      'LensProfileVignettingScale',
+      'AutoLateralCA',
+      'LensManualDistortionAmount',
+      'VignetteAmount',
+      'VignetteMidpoint',
+      'DefringePurpleAmount',
+      'DefringePurpleHueLo',
+      'DefringePurpleHueHi',
+      'DefringeGreenAmount',
+      'DefringeGreenHueLo',
+      'DefringeGreenHueHi',
+      'LensProfileChoice',
+    ],
+  },
+  {
+    id: 'effects',
+    label: 'Effects',
+    fields: [
+      'PostCropVignetteAmount',
+      'PostCropVignetteMidpoint',
+      'PostCropVignetteRoundness',
+      'PostCropVignetteFeather',
+      'PostCropVignetteHighlights',
+      'PostCropVignetteStyle',
+      'GrainAmount',
+      'GrainSize',
+      'GrainFrequency',
+    ],
+  },
+  {
+    id: 'calibration',
+    label: 'Calibration',
+    fields: [
+      'ShadowTint',
+      'RedHue',
+      'RedSaturation',
+      'GreenHue',
+      'GreenSaturation',
+      'BlueHue',
+      'BlueSaturation',
+    ],
+  },
+  {
+    id: 'crop',
+    label: 'Crop',
+    fields: ['crop'],
+  },
+] as const satisfies readonly DevelopSettingGroup[];
+
+/** Id of one group in {@link DEVELOP_SETTING_GROUPS}. */
+export type DevelopSettingGroupId = (typeof DEVELOP_SETTING_GROUPS)[number]['id'];
+
+/** Groups copied by default: everything except Crop. */
+export const DEFAULT_COPY_SETTING_GROUPS: readonly DevelopSettingGroupId[] =
+  DEVELOP_SETTING_GROUPS.filter((group) => group.id !== 'crop').map((group) => group.id);
+
+/**
+ * Every `EditParams` field, in declaration order. The type below fails to
+ * compile when a field is added to `EditParams` without being listed here, and
+ * the test fails when a listed field is not assigned to a group.
+ */
+export const EDIT_PARAM_KEYS = [
+  'ProcessVersion',
+  'WhiteBalance',
+  'Temperature',
+  'Tint',
+  'Exposure2012',
+  'Contrast2012',
+  'Highlights2012',
+  'Shadows2012',
+  'Whites2012',
+  'Blacks2012',
+  'Vibrance',
+  'Saturation',
+  'Texture',
+  'Clarity2012',
+  'Dehaze',
+  'Sharpness',
+  'SharpenRadius',
+  'SharpenDetail',
+  'SharpenEdgeMasking',
+  'LuminanceSmoothing',
+  'LuminanceNoiseReductionDetail',
+  'LuminanceNoiseReductionContrast',
+  'ColorNoiseReduction',
+  'ColorNoiseReductionDetail',
+  'ColorNoiseReductionSmoothness',
+  'ToneCurvePV2012',
+  'ToneCurvePV2012Red',
+  'ToneCurvePV2012Green',
+  'ToneCurvePV2012Blue',
+  'HueAdjustmentRed',
+  'SaturationAdjustmentRed',
+  'LuminanceAdjustmentRed',
+  'HueAdjustmentOrange',
+  'SaturationAdjustmentOrange',
+  'LuminanceAdjustmentOrange',
+  'HueAdjustmentYellow',
+  'SaturationAdjustmentYellow',
+  'LuminanceAdjustmentYellow',
+  'HueAdjustmentGreen',
+  'SaturationAdjustmentGreen',
+  'LuminanceAdjustmentGreen',
+  'HueAdjustmentAqua',
+  'SaturationAdjustmentAqua',
+  'LuminanceAdjustmentAqua',
+  'HueAdjustmentBlue',
+  'SaturationAdjustmentBlue',
+  'LuminanceAdjustmentBlue',
+  'HueAdjustmentPurple',
+  'SaturationAdjustmentPurple',
+  'LuminanceAdjustmentPurple',
+  'HueAdjustmentMagenta',
+  'SaturationAdjustmentMagenta',
+  'LuminanceAdjustmentMagenta',
+  'ColorGradeShadowHue',
+  'ColorGradeShadowSat',
+  'ColorGradeShadowLum',
+  'ColorGradeMidtoneHue',
+  'ColorGradeMidtoneSat',
+  'ColorGradeMidtoneLum',
+  'ColorGradeHighlightHue',
+  'ColorGradeHighlightSat',
+  'ColorGradeHighlightLum',
+  'ColorGradeGlobalHue',
+  'ColorGradeGlobalSat',
+  'ColorGradeGlobalLum',
+  'ColorGradeBlending',
+  'ColorGradeBalance',
+  'SplitToningShadowHue',
+  'SplitToningShadowSaturation',
+  'SplitToningHighlightHue',
+  'SplitToningHighlightSaturation',
+  'SplitToningBalance',
+  'ShadowTint',
+  'RedHue',
+  'RedSaturation',
+  'GreenHue',
+  'GreenSaturation',
+  'BlueHue',
+  'BlueSaturation',
+  'ParametricShadows',
+  'ParametricDarks',
+  'ParametricLights',
+  'ParametricHighlights',
+  'ParametricShadowSplit',
+  'ParametricMidtoneSplit',
+  'ParametricHighlightSplit',
+  'PostCropVignetteAmount',
+  'PostCropVignetteMidpoint',
+  'PostCropVignetteRoundness',
+  'PostCropVignetteFeather',
+  'PostCropVignetteHighlights',
+  'PostCropVignetteStyle',
+  'GrainAmount',
+  'GrainSize',
+  'GrainFrequency',
+  'LensProfileEnable',
+  'LensProfileName',
+  'LensProfileFilename',
+  'LensProfileDistortionScale',
+  'LensProfileVignettingScale',
+  'AutoLateralCA',
+  'LensManualDistortionAmount',
+  'VignetteAmount',
+  'VignetteMidpoint',
+  'DefringePurpleAmount',
+  'DefringePurpleHueLo',
+  'DefringePurpleHueHi',
+  'DefringeGreenAmount',
+  'DefringeGreenHueLo',
+  'DefringeGreenHueHi',
+  'LensProfileChoice',
+  'crop',
+] as const satisfies readonly (keyof EditParams)[];
+
+/** Compile-time guard: every `EditParams` field must appear in `EDIT_PARAM_KEYS`. */
+export type UnlistedEditParam = Exclude<keyof EditParams, (typeof EDIT_PARAM_KEYS)[number]>;
+export const ALL_EDIT_PARAMS_ARE_LISTED: [UnlistedEditParam] extends [never] ? true : never = true;
+
+/** The group with this id, or `undefined` for an unknown id. */
+export function developSettingGroup(id: string): DevelopSettingGroup | undefined {
+  return DEVELOP_SETTING_GROUPS.find((group) => group.id === id);
+}
+
+/** Every field covered by the given groups, in group order. */
+export function developSettingFields(
+  groupIds: readonly DevelopSettingGroupId[],
+): (keyof EditParams)[] {
+  const fields: (keyof EditParams)[] = [];
+  for (const id of groupIds) {
+    const group = developSettingGroup(id);
+    if (group) fields.push(...group.fields);
+  }
+  return fields;
+}
+
+/**
+ * Copy the selected groups from `source` onto `target`. A field the source does
+ * not set is removed from the target, so pasting a neutral group resets it
+ * rather than leaving the target's old value in place. Unselected groups are
+ * left untouched.
+ */
+export function applyDevelopSettingGroups(
+  target: EditParams,
+  source: EditParams,
+  groupIds: readonly DevelopSettingGroupId[],
+): EditParams {
+  const next: Record<string, unknown> = { ...target };
+  for (const field of developSettingFields(groupIds)) {
+    const value = source[field];
+    if (value === undefined) delete next[field];
+    else next[field] = value;
+  }
+  return next as EditParams;
+}
+
+/** Arguments of `develop:applySettings`. */
+export interface ApplyDevelopSettingsArgs {
+  photoIds: PhotoId[];
+  /** The source photo's settings (as shown, including raw defaults). */
+  params: EditParams;
+  /** Groups to take from `params`; every other field stays as the photo has it. */
+  groups: DevelopSettingGroupId[];
 }
 
 /** A develop preset imported from a Lightroom/Camera Raw `.xmp` file. */

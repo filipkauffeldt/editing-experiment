@@ -1,4 +1,5 @@
 import {
+  applyDevelopSettingGroups,
   asPresetId,
   asVersionId,
   createBridge,
@@ -253,6 +254,27 @@ export function createFakeBridge(
         params: EditParams;
       };
       params.set(versionKey(photoId, versionId), next);
+    },
+    'develop:applySettings': async (...args) => {
+      const {
+        photoIds,
+        params: source,
+        groups,
+      } = args[0] as {
+        photoIds: PhotoId[];
+        params: EditParams;
+        groups: Parameters<typeof applyDevelopSettingGroups>[2];
+      };
+      return photoIds.map((photoId) => {
+        const photo = findPhoto(photoId);
+        const develop = photo.versions.find((version) => version.kind === 'develop');
+        const key = versionKey(photoId, develop?.id);
+        const next = applyDevelopSettingGroups(params.get(key) ?? {}, source, groups);
+        params.set(key, next);
+        if (develop?.kind === 'develop') develop.ops = next;
+        photo.status.edited = Object.keys(next).some((name) => name !== 'ProcessVersion');
+        return photo;
+      });
     },
     'develop:listPresets': async () => presets,
     'develop:importPreset': async (...args) => {
