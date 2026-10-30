@@ -69,6 +69,17 @@ describe('encodeJpeg', () => {
     expect(small.height).toBe(40);
   });
 
+  it('does not resize a render that is already the output size', async () => {
+    for (const resize of [
+      { mode: 'longEdge' as const, pixels: 800 },
+      { mode: 'shortEdge' as const, pixels: 600 },
+      { mode: 'megapixels' as const, megapixels: 0.48 },
+    ]) {
+      const encoded = await encodeJpeg(testImage(800, 600), testPreset({ quality: 90, resize }));
+      expect([encoded.width, encoded.height]).toEqual([800, 600]);
+    }
+  });
+
   it('rejects invalid resize values', async () => {
     await expect(
       encodeJpeg(

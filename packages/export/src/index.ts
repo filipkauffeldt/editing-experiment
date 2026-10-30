@@ -1,4 +1,5 @@
-export { encodeJpeg, resizeMaxEdge, type EncodedJpeg } from './jpeg/encode';
+export { encodeJpeg, type EncodedJpeg } from './jpeg/encode';
+export { outputSizeForResize, resizeMaxEdge, type PixelSize } from './output-size';
 export { sharpenRgba } from './jpeg/sharpen';
 export {
   assertNoEmbeddedPreviews,
