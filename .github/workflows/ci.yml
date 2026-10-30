@@ -10,89 +10,231 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  check:
-    # Linux only for now. Nothing below is Linux specific beyond the apt/xvfb steps,
-    # so mac/windows jobs can be added as a matrix later.
+  lint-typecheck:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 5
     steps:
       - uses: actions/checkout@v7
-
       # Version comes from "packageManager" in package.json.
       - uses: pnpm/action-setup@v6
-
       - uses: actions/setup-node@v7
         with:
           node-version: 24
           cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Lint
+        run: pnpm lint
+      - name: Typecheck
+        run: pnpm typecheck
 
+  rust:
+    # Linux only for now. Nothing below is Linux specific beyond the apt/xvfb steps,
+    # so mac/windows jobs can be added as a matrix later.
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy, rustfmt
-
       - uses: Swatinem/rust-cache@v2
-
-      - run: pnpm install --frozen-lockfile
-
       # CC0 Nikon NEF samples used by the raw core tests (about 90 MB). The
       # cache key follows the fixture list, so changing it refetches.
       - uses: actions/cache@v6
         with:
           path: fixtures/raw
           key: fixtures-raw-${{ hashFiles('scripts/fetch-fixtures.ts') }}
-
-      - run: pnpm fetch-fixtures
-
-      # YuNet model and the public-domain face-detection photos. Small, but
-      # cached so a PR does not depend on Wikimedia/GitHub availability.
-      - uses: actions/cache@v6
-        with:
-          path: |
-            fixtures/models
-            fixtures/retouch
-          key: fixtures-retouch-${{ hashFiles('scripts/fetch-retouch.ts') }}
-
-      - run: pnpm fetch-retouch
-
-      - name: Lint
-        run: pnpm lint
-
-      - name: Typecheck
-        run: pnpm typecheck
-
+      - run: node scripts/fetch-fixtures.ts
       - name: Rust format, clippy, tests
         run: |
           cargo fmt --check
           cargo clippy --all-targets -- -D warnings
           cargo test
 
+  native:
+    # Built once and handed to the jobs that import @ee/core.
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: pnpm
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm build:native
+      - uses: actions/upload-artifact@v7
+        with:
+          name: native-addon
+          path: crates/core/*.node
+          if-no-files-found: error
+          retention-days: 1
+
+  unit:
+    needs: native
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v7
+      # Version comes from "packageManager" in package.json.
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - uses: actions/download-artifact@v8
+        with:
+          name: native-addon
+          path: crates/core
+      - uses: actions/cache@v6
+        with:
+          path: fixtures/raw
+          key: fixtures-raw-${{ hashFiles('scripts/fetch-fixtures.ts') }}
+      - run: pnpm fetch-fixtures
+      - uses: actions/cache@v6
+        with:
+          path: |
+            fixtures/models
+            fixtures/retouch
+          key: fixtures-retouch-${{ hashFiles('scripts/fetch-retouch.ts') }}
+      - run: pnpm fetch-retouch
       # The develop-gl WebGL parity tests run in headless Chromium (software GL via SwiftShader).
       - name: Install Playwright Chromium
         run: pnpm --filter @ee/develop-gl exec playwright install --with-deps chromium
+      - name: Unit tests
+        run: pnpm test:unit
 
-      # The Electron smoke test (apps/desktop) starts Xvfb itself when there is no display.
+  # The PoC demo and the crop-overlay interactions each launch their own app, so
+  # they run as two jobs instead of one long serial file (CI bails on failure).
+  e2e-demo:
+    needs: native
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+      # Version comes from "packageManager" in package.json.
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - uses: actions/download-artifact@v8
+        with:
+          name: native-addon
+          path: crates/core
+      - uses: actions/cache@v6
+        with:
+          path: fixtures/raw
+          key: fixtures-raw-${{ hashFiles('scripts/fetch-fixtures.ts') }}
+      - run: pnpm fetch-fixtures
+      - uses: actions/cache@v6
+        with:
+          path: |
+            fixtures/models
+            fixtures/retouch
+          key: fixtures-retouch-${{ hashFiles('scripts/fetch-retouch.ts') }}
+      - run: pnpm fetch-retouch
+      # The Electron smoke test starts Xvfb itself when there is no display.
       - name: Install Xvfb
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends xvfb xauth
-
-      # Builds the native addon first (see root package.json), then runs vitest.
       # Electron downloads its binary on first use. Do that once, before any
       # test can launch it, so concurrent test files cannot race (ETXTBSY).
       - name: Install Electron binary
         run: node scripts/ensure-electron.mjs
+      - name: Electron e2e (demo, real window and WebGL under Xvfb)
+        run: xvfb-run -a --server-args='-screen 0 1920x1080x24' pnpm test:e2e:demo
 
-      # Electron e2e (the PoC demo) uses a real window and WebGL, so the whole
-      # suite runs under one Xvfb server in CI.
-      - name: Test
-        run: xvfb-run -a --server-args='-screen 0 1920x1080x24' pnpm test
+  e2e-crop:
+    needs: native
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v7
+      # Version comes from "packageManager" in package.json.
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - uses: actions/download-artifact@v8
+        with:
+          name: native-addon
+          path: crates/core
+      - uses: actions/cache@v6
+        with:
+          path: fixtures/raw
+          key: fixtures-raw-${{ hashFiles('scripts/fetch-fixtures.ts') }}
+      - run: pnpm fetch-fixtures
+      - uses: actions/cache@v6
+        with:
+          path: |
+            fixtures/models
+            fixtures/retouch
+          key: fixtures-retouch-${{ hashFiles('scripts/fetch-retouch.ts') }}
+      - run: pnpm fetch-retouch
+      # The Electron smoke test starts Xvfb itself when there is no display.
+      - name: Install Xvfb
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends xvfb xauth
+      # Electron downloads its binary on first use. Do that once, before any
+      # test can launch it, so concurrent test files cannot race (ETXTBSY).
+      - name: Install Electron binary
+        run: node scripts/ensure-electron.mjs
+      - name: Electron e2e (crop overlay + smoke, under Xvfb)
+        run: xvfb-run -a --server-args='-screen 0 1920x1080x24' pnpm test:e2e:crop
 
+  build-screenshots:
+    needs: native
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v7
+      # Version comes from "packageManager" in package.json.
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - uses: actions/download-artifact@v8
+        with:
+          name: native-addon
+          path: crates/core
+      - uses: actions/cache@v6
+        with:
+          path: fixtures/raw
+          key: fixtures-raw-${{ hashFiles('scripts/fetch-fixtures.ts') }}
+      - run: pnpm fetch-fixtures
+      - uses: actions/cache@v6
+        with:
+          path: |
+            fixtures/models
+            fixtures/retouch
+          key: fixtures-retouch-${{ hashFiles('scripts/fetch-retouch.ts') }}
+      - run: pnpm fetch-retouch
+      - name: Install Xvfb
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends xvfb xauth
+      - name: Install Electron binary
+        run: node scripts/ensure-electron.mjs
       - name: Build
-        run: pnpm build
-
+        # The native addon came from the artifact; only the app is built here.
+        run: pnpm --filter @ee/desktop run build
       - name: Screenshot (Electron under Xvfb)
-        run: pnpm screenshot
-
+        run: xvfb-run -a --server-args='-screen 0 1920x1080x24' node scripts/screenshot.ts
       - uses: actions/upload-artifact@v7
         with:
           name: screenshots
