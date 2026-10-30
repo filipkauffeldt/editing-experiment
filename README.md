@@ -3,7 +3,7 @@
 ## What it is
 
 A desktop app for sports photographers and photojournalists: Photo Mechanic
-style ingest, captioning and FTP, Lightroom/Camera Raw style basic develop with
+style ingest, captioning and FTP/SFTP, Lightroom/Camera Raw style develop with
 preset compatibility, and a minimal mosaic/pixelate retouch mode. Electron,
 React and TypeScript with a Rust native core through napi-rs; licensed
 GPL-3.0-or-later.
@@ -15,27 +15,47 @@ It is a proof of concept, not production software. The PoC demo in
 
 - Ingest from folder and card sources and from polled FTP/FTPS/SFTP servers, in
   parallel. Each source copies in filename order, with rename and subfolder
-  templates, hash verification, an optional backup destination, and no writes
-  to the originals.
-- Photo Mechanic `.XMP` metadata templates, `=code=` replacement tables, and
-  `{variables}` in captions and path templates.
+  templates, SHA-256 verification, an optional backup destination, and no
+  writes to the originals; deleting from a server is opt-in and off by
+  default.
+- Photo Mechanic `.XMP` metadata templates with Replace (the default) or Fill
+  empty, `=code=` replacement tables, and `{variables}` in captions and path
+  templates. Ingest can apply a develop preset to every imported photo.
 - IPTC metadata in XMP sidecars for raws and embedded IIM + XMP for JPEGs.
-  Tagged/colour class is mirrored to `xmp:Label`.
-- WebGL2 develop preview and full-resolution rendering with Lightroom-compatible
-  `crs:` parameters (exposure, temperature/tint, contrast, highlights, shadows,
-  whites, blacks, tone curves, vibrance, saturation, texture, clarity,
-  dehaze, sharpening, luminance and colour noise reduction) and imported `.xmp`
-  presets. Legacy `.lrtemplate` presets are parsed too.
-- **Camera profiles**: Lightroom-style profile select (Adobe Standard, Adobe Color and the
-  other Adobe Raw looks, Camera Matching) from the DNG camera profiles (`.dcp`) and XMP
-  profiles you provide; see "Camera profiles".
-- Retouch mosaic, with YuNet face detection inside a dragged region.
-- **Export presets**: JPEG into a local folder with the selected metadata, resize
-  and output sharpening (rendered directly at the preset's output size), and no
-  embedded preview of the unretouched image; Export & send / Next & send then upload the exported files
-  through the folder/FTP/FTPS/SFTP queue.
-- Anonymous FTP for sources and destinations when no credential reference is
-  set.
+  Tagged state and colour class use Photo Mechanic's `Tagged` and `ColorClass`
+  fields and the combined `Prefs` string; the class is mirrored to `xmp:Label`
+  (with label syncing on, the default) and the rating is written to
+  `xmp:Rating` and `Prefs`.
+- Library: virtualised grid and loupe, multi-select (click, Shift range,
+  Ctrl/⌘ toggle, Ctrl/⌘+A), quick and colour-class filters. Folders are the
+  local ingest copies only, so cards and servers never appear there.
+- Batch caption for the selection: replace or append selected IPTC fields,
+  with codes and `{variables}` expanded per photo.
+- Star ratings `1`-`5` (`0` clears), colour classes `Ctrl/⌘`+`1`-`8`
+  (`Ctrl/⌘`+`0` clears) and tag `T`. They apply to the Library selection or
+  the open photo.
+- Edited thumbnails and previews: develop settings, crop/straighten and the
+  newest mosaic are drawn into the film strip and previews, not just the
+  camera's embedded preview.
+- Develop panel with WebGL2 preview and export rendering: Basic (White
+  balance, Tone), Presence, Tone Curve (parametric, point RGB and R/G/B),
+  Color Mixer, Color Grading wheels, Detail (sharpening and noise reduction),
+  Lens Corrections (Nikon's embedded data or Lensfun, manual
+  distortion/vignette, Remove chromatic aberration and Defringe), Effects
+  (post-crop vignette and grain), Calibration, camera profiles and imported
+  `.xmp` presets.
+- Histogram read from the rendered frame, clipping `J`, before/after `Y`,
+  white balance picker `W`, Auto tone and Auto WB.
+- Lightroom-style crop and straighten `C`, applied in the preview and the
+  export.
+- Copy, paste and sync develop settings by group.
+- Retouch mosaic (rectangle, lasso, magic wand) with YuNet face detection
+  inside a dragged region.
+- Export presets (folder and file name templates, resize, output sharpening,
+  metadata and send targets) and Export / Export & send / Next & send. Exports
+  render at the preset's output size and contain no embedded preview of the
+  unretouched image.
+- Anonymous FTP for sources and destinations when no credentials are set.
 
 ## Camera profiles
 
@@ -61,31 +81,37 @@ is copied into the app or the repository).
 
 The Profile select at the top of the Develop panel offers the profiles made for the photo's
 camera, grouped Adobe Raw / Camera Matching / Other. The choice is written to the sidecar as
-`crs:CameraProfile` (and `crs:Look` for an XMP profile), so Lightroom reads it too. A photo
+`crs:CameraProfile` (and `crs:Look` for an XMP profile), using Lightroom's keys. A photo
 whose sidecar names a profile this machine does not have keeps the name, says so in the
 panel and is drawn with the camera matrix. For a development test against real profiles, set
 `EE_PROFILE_DIR` to the profile folder and `EE_SAMPLE_NEF_DIR` to a folder of NEFs.
 
 ## Known gaps
 
-- Colour matches Lightroom only when you give the app Adobe's camera profiles (see
-  "Camera profiles" below). Without one, colour comes from LibRaw's camera matrix and a
-  simple highlight shoulder, which is not Lightroom's rendering. Profiles with an RGB
-  table (Artistic, Vintage, Modern looks), monochrome looks and `DefaultBlackRender` are not
-  rendered, and the camera's own baseline exposure is not applied.
+- Without Adobe's camera profiles, colour comes from LibRaw's camera matrix
+  and a simple highlight shoulder, which is not Lightroom's rendering. With
+  profiles the maths follows the DNG SDK, but the result has not been compared
+  with a Lightroom export. Profiles with an RGB table (Artistic, Vintage,
+  Modern looks), monochrome looks and three-illuminant profiles are not
+  rendered; `DefaultBlackRender` and the camera's own baseline exposure are
+  not applied.
 - Texture, Clarity, Dehaze, sharpening and noise reduction follow RAWmakase's
   fits of Camera Raw, not Camera Raw itself. Raws start with Lightroom's
   sharpening and colour noise reduction (or the camera's own `crd:` values), shown
-  on the sliders but never written to the sidecar. Their preview speed has only been
-  measured on software GL.
+  on the sliders but never written to the sidecar.
 - Nikon HE/HE* NEFs (TicoRAW) are not supported by the vendored LibRaw 0.22.3.
-- Crop and straighten round-trip through `crs:` sidecars but are not applied in
-  the preview or export yet; that work is in progress.
-- Full-resolution export sends the rendered RGBA buffer over IPC (about 180 MB
-  for a 45 MP frame). It works, but the copy is a known cost.
+- Full-size exports (`resize: none`) send the rendered RGBA buffer over IPC
+  (about 180 MB for a 45 MP frame). Smaller exports render at the preset's
+  output size and avoid that copy; the full-size path is a known cost.
+- GPU performance is unmeasured: the tests and screenshots use software GL
+  (SwiftShader), so preview and export speed on a real GPU has not been
+  benchmarked.
 - macOS and Windows are untested; CI runs on Linux only.
-- Photo Mechanic label compatibility (`Tagged`/`ColorClass` ↔ `xmp:Label`) is
-  implemented but has not been verified against a real Photo Mechanic install.
+- Photo Mechanic and Lightroom compatibility has not been verified against real
+  reference files: sidecar labels and ratings, develop settings and profile
+  renders are tested internally (and the profile maths against the DNG SDK),
+  not against files produced by those apps.
+- There is no installer or packaging; run the app from source.
 
 ## Getting started
 
@@ -93,11 +119,13 @@ Linux/Ubuntu 24.04 is the primary development platform.
 
 ### System dependencies
 
-- Node 24 and pnpm. The pnpm version (12.15.0) is pinned by `packageManager` in
-  `package.json`; `corepack enable` uses it.
-- Rust stable via rustup (edition 2024) and a C/C++ compiler (`g++` or
-  `clang++`). LibRaw is vendored in `crates/core/vendor/libraw` and compiled by
-  `build.rs`; no system LibRaw, cmake or pkg-config is needed.
+- Node 24 and pnpm. Install Node 24, then run `corepack enable` once; the pnpm
+  version (12.15.0) is pinned by `packageManager` in `package.json`.
+- Rust stable via rustup (edition 2024); install it with
+  `curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh`. A C/C++
+  compiler (`g++` or `clang++`) is also needed. LibRaw is vendored in
+  `crates/core/vendor/libraw` and compiled by `build.rs`; no system LibRaw,
+  cmake or pkg-config is needed.
 - Electron runtime libraries. On Debian/Ubuntu:
   `sudo apt install libgtk-3-0t64 libpango-1.0-0` (older releases call the first
   package `libgtk-3-0`).
@@ -122,8 +150,12 @@ EE_NO_SANDBOX=1 pnpm dev
 On Ubuntu 24.04, AppArmor restricts unprivileged user namespaces and the SUID
 `chrome-sandbox` helper shipped in `node_modules` is not configured, so Electron
 aborts at startup. `EE_NO_SANDBOX=1` passes `--no-sandbox` to the dev launch.
-This is for development and tests only; packaged builds always run sandboxed.
-Do not chown or chmod the sandbox binary.
+The flag is only passed by the dev launcher; app code never disables the
+sandbox. Do not chown or chmod the sandbox binary.
+
+`pnpm dev` opens an Electron window and needs a graphical desktop session; it
+will not start on a headless machine. Use `xvfb-run` for the tests and
+screenshots there.
 
 `EE_MOCK=1 pnpm dev` serves generated placeholder photos over the normal IPC
 API, so you can exercise the UI without a camera, disk or server.
@@ -144,6 +176,10 @@ unset. The PoC e2e test and `pnpm screenshot` enable SwiftShader
 (`EE_SOFTWARE_GL=1`) so WebGL works without a GPU; the develop-gl parity tests
 run in headless Chromium with the same fallback.
 
+CI (`.github/workflows/ci.yml`) runs lint/typecheck, Rust fmt/clippy/tests,
+unit tests, the WebGL parity tests, the Electron e2e suites and the screenshot
+build on Ubuntu.
+
 If you touch `crates/`:
 
 ```sh
@@ -153,6 +189,61 @@ cargo fmt --check && cargo clippy --all-targets -- -D warnings && cargo test
 The raw tests use `fixtures/raw`; `EE_SAMPLE_NEF_DIR=~/nefs pnpm test` also runs
 them against your own NEFs (read only). Tests skip cleanly when the fixtures or
 the variable are absent.
+
+## First use
+
+Set things up in this order:
+
+1. **Settings → Ingest.** Choose the destination folder and rename template
+   (and optionally a subfolder template and backup folder). Pick the metadata
+   template `.XMP` and its mode, `Replace existing values` (the default) or
+   `Fill empty fields`, add code replacement files, and choose the develop
+   preset to apply on import. Import presets with **Develop → Presets →
+   Import** first.
+2. **Settings → Sources.** Add a folder, card, FTP or SFTP source, then
+   **Test** and **Save source**. Anonymous FTP needs no password.
+3. **Settings → Destinations** for upload targets, and **Export… → New
+   preset** for export presets (Location, File, Content, Then send), then
+   **Save preset** and **Set as active**.
+4. Optional: **Settings → Profiles → Add folder…** for `.dcp`/`.xmp` camera
+   profiles. Adobe's own folders are found automatically on macOS and Windows.
+5. Start with **Ingest → Ingest**, then **Library** → **Develop** →
+   **Export…** or **Export & send** (or **Next & send**, Ctrl/⌘+Enter).
+
+## Keyboard shortcuts
+
+`Ctrl/⌘` means Ctrl, or Cmd on macOS. Letters and digits match the character
+the key prints, so the shortcuts work on a Swedish layout; AltGr combinations
+are treated as text. `F1` opens the in-app list; `?` does too, as does
+`Ctrl/⌘` plus the physical Slash key. In Ingest only `G` and `D` switch
+modules.
+
+| Key                            | Action                                                                                                 |
+| ------------------------------ | ------------------------------------------------------------------------------------------------------ |
+| `G` / `D` / `E`                | Library grid / Develop / Library loupe (with a photo selected)                                         |
+| `←` `→`                        | Previous / next photo; Shift extends the selection                                                     |
+| `↑` `↓`                        | Previous / next grid row in the Library; Shift extends                                                 |
+| `T`                            | Tag / untag                                                                                            |
+| `1`-`5`, `0`                   | Star rating; `0` clears                                                                                |
+| `Ctrl/⌘`+`1`-`8`, `Ctrl/⌘`+`0` | Colour class; `Ctrl/⌘`+`0` clears                                                                      |
+| `C`                            | Enter crop mode / apply the crop                                                                       |
+| `Enter`                        | Apply the crop (crop mode)                                                                             |
+| `R`                            | Retouch; in crop mode, the crop frame tool                                                             |
+| `A` / `O` / `X`                | Straighten tool / cycle overlay / swap orientation (crop mode)                                         |
+| `Ctrl/⌘`+`Alt`+`R`             | Reset the crop                                                                                         |
+| `Esc`                          | Cancel crop, WB picker or retouch; close the shortcut list; leave a field; clear the Library selection |
+| `Y` or the physical `\` key    | Before / after (Develop)                                                                               |
+| `J` / `W`                      | Clipping overlay / white balance picker (Develop)                                                      |
+| `Ctrl/⌘`+`Z`                   | Undo the last retouch shape                                                                            |
+| `Ctrl/⌘`+`I`                   | Batch caption (Library); focus the caption field (Develop)                                             |
+| `Ctrl/⌘`+`A`                   | Select all in the Library                                                                              |
+| `Shift`+`Ctrl/⌘`+`C`           | Copy settings…                                                                                         |
+| `Shift`+`Ctrl/⌘`+`V`           | Paste settings to the selection                                                                        |
+| `Ctrl/⌘`+`Alt`+`V`             | Paste the previous photo's settings                                                                    |
+| `Shift`+`Ctrl/⌘`+`E`           | Export…                                                                                                |
+| `Shift`+`Ctrl/⌘`+`Enter`       | Export & send                                                                                          |
+| `Ctrl/⌘`+`Enter`               | Next & send (Develop)                                                                                  |
+| `?` / `F1` / `Ctrl/⌘`+`/`      | Show the in-app shortcut list                                                                          |
 
 ## Credentials
 
