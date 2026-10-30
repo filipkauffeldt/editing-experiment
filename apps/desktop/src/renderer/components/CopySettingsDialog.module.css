@@ -1,0 +1,51 @@
+.groups {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 2px 20px;
+}
+
+.group {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 7px 8px;
+  border: 1px solid transparent;
+}
+
+.group:hover {
+  background: var(--raised);
+}
+
+.group input {
+  margin-top: 2px;
+  accent-color: var(--text);
+}
+
+.text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.label {
+  color: var(--text);
+  font-size: var(--fs-small);
+}
+
+.count {
+  color: var(--dim);
+  font-size: var(--fs-label);
+}
+
+.note {
+  margin: 14px 0 0;
+  padding-top: 10px;
+  border-top: 1px solid var(--line);
+  color: var(--muted);
+  font-size: var(--fs-small);
+}
+
+.spacer {
+  flex: 1;
+}

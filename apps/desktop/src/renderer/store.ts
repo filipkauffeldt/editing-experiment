@@ -19,11 +19,13 @@ import {
   type CropHandle,
 } from '@ee/develop-gl';
 import {
+  DEFAULT_COPY_SETTING_GROUPS,
   SLIDER_SPECS,
   type AppSettings,
   type CredentialSecret,
   type CropParams,
   type Destination,
+  type DevelopSettingGroupId,
   type EditParams,
   type EditPreset,
   type EeBridge,
@@ -264,6 +266,21 @@ export interface IngestRun {
   error?: string;
 }
 
+/** The settings last copied from a photo, and the groups the user chose. */
+export interface CopiedSettings {
+  sourcePhotoId: PhotoId;
+  sourceName: string;
+  groups: DevelopSettingGroupId[];
+  /** The source photo's settings as shown (including raw defaults). */
+  params: EditParams;
+}
+
+/** The last photo that was edited, for Previous (`Ctrl/Cmd+Alt+V`). */
+export interface PreviousEdit {
+  photoId: PhotoId;
+  params: EditParams;
+}
+
 export interface AppState {
   module: AppModule;
   library: LibraryState;
@@ -291,6 +308,12 @@ export interface AppState {
   sectionStash: Record<string, EditParams>;
   retouch?: RetouchSession;
   crop?: CropSession;
+  /** The open Copy/Sync Settings dialog; absent when closed. */
+  copySettings?: { mode: 'copy' | 'sync' };
+  /** What Paste (`Ctrl/Cmd+Shift+V`) applies. */
+  copiedSettings?: CopiedSettings;
+  /** What Previous (`Ctrl/Cmd+Alt+V`) applies. */
+  previousEdit?: PreviousEdit;
   exportPresets: ExportPreset[];
   exportJobs: ExportJob[];
   exportOpen: boolean;
@@ -588,6 +611,8 @@ export class AppStore {
   private readonly paramSequence = new Map<string, number>();
   private readonly labelWrites = new Map<PhotoId, Promise<void>>();
   private retouchCommit: Promise<Photo | undefined> | undefined;
+  /** Photos whose develop settings were changed in this session (for Previous). */
+  private readonly editedPhotoIds = new Set<PhotoId>();
   private readonly photoById = new Map<PhotoId, Photo>();
   private readonly photoPositions = new Map<PhotoId, number>();
   private readonly pendingPhotos = new Map<PhotoId, Photo>();
@@ -906,10 +931,17 @@ export class AppStore {
     ) {
       return;
     }
+    const leavingId = this.state.selectedId;
     // Leaving a photo with an edit still settling: render it now, not when it is forgotten.
-    if (this.state.selectedId) this.editedPreviews?.promote(this.state.selectedId);
+    if (leavingId) this.editedPreviews?.promote(leavingId);
+    const previousEdit = this.capturePreviousEdit(leavingId, photoId);
     if (!photoId) {
-      this.set({ selectedId: undefined, selection: [], selectionAnchor: undefined });
+      this.set({
+        selectedId: undefined,
+        selection: [],
+        selectionAnchor: undefined,
+        ...(previousEdit ? { previousEdit } : {}),
+      });
       this.editedPreviews?.setSelected(undefined);
       return;
     }
@@ -934,7 +966,12 @@ export class AppStore {
 
     const selectedId =
       mode === 'toggle' && !selection.includes(photoId) ? selection.at(-1) : photoId;
-    this.set({ selectedId, selection, selectionAnchor: anchor });
+    this.set({
+      selectedId,
+      selection,
+      selectionAnchor: anchor,
+      ...(previousEdit ? { previousEdit } : {}),
+    });
     if (!selectedId) {
       this.editedPreviews?.setSelected(undefined);
       return;
@@ -942,6 +979,22 @@ export class AppStore {
     void this.loadMetadata(selectedId);
     void this.loadParams(selectedId);
     this.editedPreviews?.setSelected(selectedId);
+  }
+
+  /** Snapshot a photo the user leaves when it has edits, so Previous can reuse them. */
+  private capturePreviousEdit(
+    leavingId: PhotoId | undefined,
+    nextId: PhotoId | undefined,
+  ): PreviousEdit | undefined {
+    if (!leavingId || leavingId === nextId) return undefined;
+    const photo = this.photoById.get(leavingId);
+    if (!photo) return undefined;
+    if (!this.editedPhotoIds.has(leavingId) && !photo.status.edited) return undefined;
+    const versionId = activeDevelopVersion(photo)?.id;
+    const params = this.state.editParams[editParamsKey(photo.id, versionId)];
+    // Not loaded yet: better no Previous than applying an empty snapshot.
+    if (params === undefined) return undefined;
+    return { photoId: leavingId, params: withDefaults(params, this.state.editDefaults[photo.id]) };
   }
 
   /**
@@ -2028,6 +2081,7 @@ export class AppStore {
     const versionId = activeDevelopVersion(photo)?.id;
     const key = editParamsKey(photo.id, versionId);
     const next = updater(this.state.editParams[key] ?? {});
+    this.editedPhotoIds.add(photo.id);
     this.paramEditVersion.set(key, (this.paramEditVersion.get(key) ?? 0) + 1);
     this.set({ editParams: { ...this.state.editParams, [key]: next } });
     this.scheduleDevelopSave(photo.id, versionId, next);
@@ -2185,6 +2239,130 @@ export class AppStore {
   };
 
   readonly clearPresetNotice = (): void => this.set({ presetNotice: undefined });
+
+  // ------------------------------------------------------- copy/paste settings
+
+  /** Photos a copy/paste/sync action applies to: the selection, else the open photo. */
+  private settingsTargets(): PhotoId[] {
+    const { module, selection, selectedId } = this.state;
+    if (module !== 'library' && module !== 'develop') return [];
+    if (selection.length > 0) return [...selection];
+    return selectedId ? [selectedId] : [];
+  }
+
+  /**
+   * Apply the selected groups of `params` to every photo in one backend call,
+   * then refresh the local params and ask the edited-preview scheduler to redraw
+   * the thumbnails. Pending slider writes are flushed first so unselected groups
+   * keep the values the user sees.
+   */
+  private async applySettingsToPhotos(
+    photoIds: readonly PhotoId[],
+    params: EditParams,
+    groups: readonly DevelopSettingGroupId[],
+    verb: 'Pasted' | 'Synced',
+  ): Promise<number> {
+    const ids = [...new Set(photoIds)].filter((id) => this.photoById.has(id));
+    if (ids.length === 0) {
+      this.toast('error', 'Select at least one photo');
+      return 0;
+    }
+    try {
+      await this.flushPendingEdits();
+      const photos = await this.bridge.invoke('develop:applySettings', {
+        photoIds: ids,
+        params,
+        groups: [...groups],
+      });
+      const editParams = { ...this.state.editParams };
+      for (const photo of photos) {
+        const develop = photo.versions.find((version) => version.kind === 'develop');
+        if (develop?.kind === 'develop') {
+          const key = editParamsKey(photo.id, develop.id);
+          this.paramEditVersion.set(key, (this.paramEditVersion.get(key) ?? 0) + 1);
+          editParams[key] = develop.ops;
+        }
+        this.editedPhotoIds.add(photo.id);
+        this.upsertPhoto(photo);
+        // A paste is a deliberate batch action: draw the new thumbnails ahead of the debounce.
+        this.editedPreviews?.scheduleNow(photo.id);
+      }
+      this.set({ editParams });
+      this.toast(
+        'success',
+        `${verb} settings to ${photos.length} photo${photos.length === 1 ? '' : 's'}`,
+      );
+      return photos.length;
+    } catch (cause) {
+      this.toast('error', `Could not ${verb.toLowerCase()} settings: ${messageOf(cause)}`);
+      return 0;
+    }
+  }
+
+  /** Open Lightroom's Copy Settings (or Sync Settings) dialog for the open photo. */
+  readonly openCopySettings = (mode: 'copy' | 'sync'): void => {
+    if (!activePhoto(this.state)) {
+      this.toast('error', 'Select a photo first');
+      return;
+    }
+    this.set({
+      copySettings: { mode },
+      dialog: undefined,
+      exportOpen: false,
+      batchCaptionOpen: false,
+      shortcutsOpen: false,
+    });
+  };
+
+  readonly closeCopySettings = (): void => this.set({ copySettings: undefined });
+
+  /** Confirm the dialog: remember the settings, or apply them to the whole selection. */
+  readonly confirmCopySettings = (groups: readonly DevelopSettingGroupId[]): void => {
+    const dialog = this.state.copySettings;
+    const source = activePhoto(this.state);
+    if (!dialog || !source) return;
+    const params = paramsForPhoto(this.state, source);
+    if (dialog.mode === 'copy') {
+      this.set({
+        copiedSettings: {
+          sourcePhotoId: source.id,
+          sourceName: source.fileName,
+          groups: [...groups],
+          params,
+        },
+        copySettings: undefined,
+      });
+      this.toast('success', `Copied settings from ${source.fileName}`);
+      return;
+    }
+    this.set({ copySettings: undefined });
+    void this.applySettingsToPhotos(this.settingsTargets(), params, groups, 'Synced');
+  };
+
+  /** Paste the last copied settings onto the selection (Library or Develop). */
+  readonly pasteSettings = (): void => {
+    const copied = this.state.copiedSettings;
+    if (!copied) {
+      this.toast('error', 'Copy develop settings first');
+      return;
+    }
+    void this.applySettingsToPhotos(this.settingsTargets(), copied.params, copied.groups, 'Pasted');
+  };
+
+  /** Paste the settings of the last photo edited before this one (Lightroom's Previous). */
+  readonly pastePreviousSettings = (): void => {
+    const previous = this.state.previousEdit;
+    if (!previous) {
+      this.toast('error', 'No previously edited photo');
+      return;
+    }
+    void this.applySettingsToPhotos(
+      this.settingsTargets(),
+      previous.params,
+      DEFAULT_COPY_SETTING_GROUPS,
+      'Pasted',
+    );
+  };
 
   // ------------------------------------------------------------------- upload
 

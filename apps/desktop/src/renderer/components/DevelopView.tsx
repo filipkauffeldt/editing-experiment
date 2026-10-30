@@ -73,6 +73,13 @@ export function DevelopView() {
           right={
             <>
               <Button
+                data-testid="open-copy-settings"
+                hint={`⇧${mod}+C`}
+                onClick={() => store.openCopySettings('copy')}
+              >
+                Copy settings…
+              </Button>
+              <Button
                 data-testid="open-export"
                 hint={`⇧${mod}+E`}
                 onClick={() => store.openExportDialog()}

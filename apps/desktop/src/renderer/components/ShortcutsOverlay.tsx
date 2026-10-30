@@ -20,6 +20,14 @@ const GROUPS: { title: string; rows: [string, string][] }[] = [
     ],
   },
   {
+    title: 'Develop settings',
+    rows: [
+      ['Shift + Ctrl/⌘ + C', 'Copy settings…'],
+      ['Shift + Ctrl/⌘ + V', 'Paste settings to the selection'],
+      ['Ctrl/⌘ + Alt/⌥ + V', "Paste the previous photo's settings"],
+    ],
+  },
+  {
     title: 'Crop and straighten',
     rows: [
       ['C', 'Enter crop mode / apply the crop'],

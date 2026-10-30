@@ -92,6 +92,12 @@ async function runMock(outDir: string): Promise<void> {
     );
     await shoot('01-main-1440.png');
 
+    // Copy Settings: Lightroom-style groups, Crop off by default.
+    await window.getByTestId('open-copy-settings').click();
+    await window.getByTestId('copy-settings-dialog').waitFor();
+    await shoot('01b-copy-settings.png');
+    await window.keyboard.press('Escape');
+
     // A retouched photo shows the stacked-frame badge and an active upload.
     await window.locator('[title^="_DSC8332.NEF"]').click();
     await window.waitForFunction(
