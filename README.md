@@ -118,11 +118,13 @@ Linux/Ubuntu 24.04 is the primary development platform.
 
 ### System dependencies
 
-- Node 24 and pnpm. The pnpm version (12.15.0) is pinned by `packageManager` in
-  `package.json`; `corepack enable` uses it.
-- Rust stable via rustup (edition 2024) and a C/C++ compiler (`g++` or
-  `clang++`). LibRaw is vendored in `crates/core/vendor/libraw` and compiled by
-  `build.rs`; no system LibRaw, cmake or pkg-config is needed.
+- Node 24 and pnpm. Install Node 24, then run `corepack enable` once; the pnpm
+  version (12.15.0) is pinned by `packageManager` in `package.json`.
+- Rust stable via rustup (edition 2024); install it with
+  `curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh`. A C/C++
+  compiler (`g++` or `clang++`) is also needed. LibRaw is vendored in
+  `crates/core/vendor/libraw` and compiled by `build.rs`; no system LibRaw,
+  cmake or pkg-config is needed.
 - Electron runtime libraries. On Debian/Ubuntu:
   `sudo apt install libgtk-3-0t64 libpango-1.0-0` (older releases call the first
   package `libgtk-3-0`).
@@ -147,8 +149,12 @@ EE_NO_SANDBOX=1 pnpm dev
 On Ubuntu 24.04, AppArmor restricts unprivileged user namespaces and the SUID
 `chrome-sandbox` helper shipped in `node_modules` is not configured, so Electron
 aborts at startup. `EE_NO_SANDBOX=1` passes `--no-sandbox` to the dev launch.
-This is for development and tests only; packaged builds always run sandboxed.
-Do not chown or chmod the sandbox binary.
+The flag is only passed by the dev launcher; app code never disables the
+sandbox. Do not chown or chmod the sandbox binary.
+
+`pnpm dev` opens an Electron window and needs a graphical desktop session; it
+will not start on a headless machine. Use `xvfb-run` for the tests and
+screenshots there.
 
 `EE_MOCK=1 pnpm dev` serves generated placeholder photos over the normal IPC
 API, so you can exercise the UI without a camera, disk or server.
@@ -168,6 +174,10 @@ installed. `pnpm screenshot` re-runs itself under `xvfb-run` when `DISPLAY` is
 unset. The PoC e2e test and `pnpm screenshot` enable SwiftShader
 (`EE_SOFTWARE_GL=1`) so WebGL works without a GPU; the develop-gl parity tests
 run in headless Chromium with the same fallback.
+
+CI (`.github/workflows/ci.yml`) runs lint/typecheck, Rust fmt/clippy/tests,
+unit tests, the WebGL parity tests, the Electron e2e suites and the screenshot
+build on Ubuntu.
 
 If you touch `crates/`:
 
