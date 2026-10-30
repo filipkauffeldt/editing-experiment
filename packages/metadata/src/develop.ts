@@ -430,11 +430,14 @@ export async function writeEditParams(
   }
 
   if (params.LookName !== undefined || params.LookUUID !== undefined) {
-    tags[LOOK_TAG] = {
+    const wanted = {
       ...(params.LookName !== undefined ? { Name: params.LookName } : {}),
       ...(params.LookUUID !== undefined ? { UUID: params.LookUUID } : {}),
       ...(params.LookAmount !== undefined ? { Amount: params.LookAmount } : {}),
     };
+    // Lightroom's own `crs:Look` also carries the look's table and flags; leave it alone while it
+    // already says what the settings say, and only replace it when the choice changed.
+    if (!(await lookUnchanged(path, wanted, service))) tags[LOOK_TAG] = wanted;
     anySetting = true;
   } else {
     tags[LOOK_TAG] = null;
@@ -463,6 +466,23 @@ export async function writeEditParams(
   if (!anySetting && isRawPath(path) && !(await fileExists(sidecarPathFor(path)))) return;
   const writePath = await ensureMetadataTarget(path);
   await service.write(writePath, tags);
+}
+
+/** Whether the file's `crs:Look` already names this look at this Amount (1 when it has none). */
+async function lookUnchanged(
+  path: string,
+  wanted: { Name?: string; UUID?: string; Amount?: number },
+  service: ExifToolService,
+): Promise<boolean> {
+  const tags = await readTargetTags(path, service).catch(() => undefined);
+  const existing = tags?.[LOOK_TAG];
+  if (typeof existing !== 'object' || existing === null || Array.isArray(existing)) return false;
+  const fields = existing as Record<string, unknown>;
+  return (
+    (asString(fields['Name'])?.trim() ?? undefined) === wanted.Name &&
+    (asString(fields['UUID'])?.trim() ?? undefined) === wanted.UUID &&
+    (asNumber(fields['Amount']) ?? 1) === (wanted.Amount ?? 1)
+  );
 }
 
 function writeCrop(tags: Record<string, ExifToolTagValue>, crop: CropParams): void {

@@ -408,6 +408,25 @@ describe('develop and retouch XMP', () => {
       Amount: 0.75,
     });
 
+    // Lightroom's own Look struct carries more than we model (here its flags); it is not rewritten
+    // while the settings still name the same look at the same Amount.
+    await service.write(jpeg, {
+      'XMP-crs:Look': {
+        Name: 'Adobe Color',
+        UUID: 'B952C231111CD8E0ECCF14B86BAA7077',
+        Amount: 0.75,
+        SupportsAmount: 'True',
+      },
+    });
+    await writeEditParams(jpeg, { ...profile, Exposure2012: 0.5 }, { service });
+    expect(
+      ((await service.read(jpeg))['XMP-crs:Look'] as Record<string, unknown>)['SupportsAmount'],
+    ).toBe(true);
+    expect(await readEditParams(jpeg, service)).toMatchObject({
+      LookName: 'Adobe Color',
+      Exposure2012: 0.5,
+    });
+
     // Choosing a plain camera profile removes the look; a profile alone round-trips.
     // (`crs:Look` is a struct in Lightroom's sidecars, written as a nested description.)
     await writeEditParams(
