@@ -23,7 +23,7 @@ import type { JobEvent, IngestJobInfo } from './jobs';
 import type { Photo, PhotoVersion } from './photo';
 import type { Rect } from './geometry';
 import type { FaceDetection, RetouchOp } from './retouch';
-import type { DetectedCard, IngestConfig, SourceConfig } from './sources';
+import type { DetectedCard, IngestConfig, SourceConfig, TemplateApplyMode } from './sources';
 
 // ---------------------------------------------------------------------------
 // Request / response payloads
@@ -68,9 +68,6 @@ export interface WriteMetadataArgs {
   /** Fields to set; fields not listed are left as they are. */
   fields: Partial<IptcFields>;
 }
-
-/** How a metadata template merges into existing metadata. */
-export type TemplateApplyMode = 'replace' | 'fillEmpty';
 
 /** Arguments of `metadata:applyTemplate`. */
 export interface ApplyTemplateArgs {

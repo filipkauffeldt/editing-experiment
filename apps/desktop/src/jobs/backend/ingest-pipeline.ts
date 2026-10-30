@@ -1,9 +1,10 @@
 import {
   type CameraInfo,
+  type EditPreset,
   type IngestConfig,
   type JobEvent,
   type Photo,
-  type TemplateApplyMode,
+  type PresetId,
 } from '@ee/contracts';
 import { readRawInfo, extractPreview } from '@ee/core';
 import type { IngestedFileInfo, OnFileIngested } from '@ee/ingest';
@@ -30,6 +31,8 @@ export interface IngestPipelineDeps {
   metadata: MetadataService;
   edits: EditService;
   exiftool: ExifToolService;
+  /** Find an imported develop preset; `undefined` when it was deleted. */
+  developPreset?: (presetId: PresetId) => Promise<EditPreset | undefined>;
   /** Report a problem that does not stop the file from being indexed. */
   report(event: Omit<Extract<JobEvent, { type: 'job.error' }>, 'type' | 'at'>): void;
 }
@@ -139,19 +142,22 @@ async function readImage(path: string, exiftool: ExifToolService): Promise<Basic
 
 /**
  * What happens to each file after ingest has copied and verified it, in order:
- * read camera data, cache preview and thumbnail, apply the metadata template,
- * index it, announce it. Ingest awaits this per source, so photos reach the
- * index (and the film strip) in the order the files were copied.
+ * read camera data, cache preview and thumbnail, apply the metadata template and
+ * develop preset, index it, announce it. Ingest awaits this per source, so
+ * photos reach the index (and the film strip) in the order the files were copied.
  *
- * Failures of the optional steps (preview, template) are reported and the photo
- * is still indexed: the copy on disk is good and must not vanish from the UI.
+ * Failures of the optional steps (preview, template, preset) are reported and
+ * the photo is still indexed: the copy on disk is good and must not vanish from
+ * the UI.
  */
 export function createOnFileIngested(
   deps: IngestPipelineDeps,
-  config: Pick<IngestConfig, 'metadataTemplatePath'>,
-  mode: TemplateApplyMode,
+  config: Pick<IngestConfig, 'metadataTemplatePath' | 'metadataTemplateMode' | 'developPresetId'>,
 ): OnFileIngested {
-  const { photos, previews, metadata, edits, exiftool, report } = deps;
+  const { photos, previews, metadata, edits, exiftool, report, developPreset } = deps;
+  const mode = config.metadataTemplateMode ?? 'replace';
+  const warned = new Set<string>();
+  let presetPromise: Promise<EditPreset | undefined> | undefined;
 
   return async (info: IngestedFileInfo): Promise<void> => {
     if (photos.hasPath(info.path)) return;
@@ -162,6 +168,12 @@ export function createOnFileIngested(
         scope,
         message: `${info.fileName}: ${error instanceof Error ? error.message : String(error)}`,
       });
+    const warnOnce = (key: string, scope: string, message: string): void => {
+      const id = `${info.jobId}:${key}`;
+      if (warned.has(id)) return;
+      warned.add(id);
+      report({ jobId: info.jobId, scope, message });
+    };
 
     let basics: Basics;
     try {
@@ -184,11 +196,55 @@ export function createOnFileIngested(
       }
     }
 
+    const cropSpace = {
+      ...(basics.orientation === undefined ? {} : { orientation: basics.orientation }),
+      ...(basics.width === undefined ? {} : { width: basics.width }),
+      ...(basics.height === undefined ? {} : { height: basics.height }),
+    };
     let differs = false;
     const templatePath = config.metadataTemplatePath;
     if (templatePath) {
       try {
         ({ differs } = await metadata.applyToFile(info.path, templatePath, mode));
+      } catch (error) {
+        problem('metadata', error);
+      }
+    }
+
+    let presetApplied = false;
+    const presetId = config.developPresetId;
+    if (presetId !== undefined) {
+      presetPromise ??= developPreset?.(presetId) ?? Promise.resolve(undefined);
+      const preset = await presetPromise.catch((error: unknown) => {
+        problem('develop preset', error);
+        return undefined;
+      });
+      if (preset === undefined) {
+        warnOnce(
+          'preset-missing',
+          'develop preset',
+          `Develop preset "${presetId}" no longer exists; ingest continues without it.`,
+        );
+      } else {
+        try {
+          const result = await edits.applyPresetToFile(info.path, preset, cropSpace);
+          presetApplied = result.applied;
+          if (!result.applied) {
+            warnOnce(
+              'preset-existing',
+              'develop preset',
+              `Photos that already have develop settings were left untouched; "${preset.name}" was not applied to them.`,
+            );
+          }
+        } catch (error) {
+          problem('develop preset', error);
+        }
+      }
+    }
+
+    // The backup copy follows both writes: the template's metadata and the preset's crs: block.
+    if (templatePath || presetApplied) {
+      try {
         await mirrorToBackup(info);
       } catch (error) {
         problem('metadata', error);
@@ -200,19 +256,14 @@ export function createOnFileIngested(
       tagged: false,
       colorClass: 0,
     }));
-    // A sidecar that came with the file may already hold edits.
-    const versions = info.sidecarPath
-      ? await edits
-          .readVersions(info.path, info.photoId, {
-            ...(basics.orientation === undefined ? {} : { orientation: basics.orientation }),
-            ...(basics.width === undefined ? {} : { width: basics.width }),
-            ...(basics.height === undefined ? {} : { height: basics.height }),
-          })
-          .catch((error: unknown) => {
+    // A sidecar that came with the file may already hold edits; a preset just made one.
+    const versions =
+      info.sidecarPath !== undefined || presetApplied
+        ? await edits.readVersions(info.path, info.photoId, cropSpace).catch((error: unknown) => {
             problem('metadata', error);
             return undefined;
           })
-      : undefined;
+        : undefined;
     const edited = versions !== undefined && versionsEdited(versions);
     const photo: Photo = {
       id: info.photoId,

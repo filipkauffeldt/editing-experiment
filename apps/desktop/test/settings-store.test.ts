@@ -56,6 +56,38 @@ describe('SettingsStore', () => {
     expect(reopened.listDestinations()).toEqual([desk]);
   });
 
+  it('defaults the ingest template mode to replace and round-trips the other mode', async () => {
+    const file = join(await tempDir(), 'settings.json');
+    const store = new SettingsStore(file, defaults);
+    expect(store.get().ingest.metadataTemplateMode).toBe('replace');
+
+    store.set({ ingest: { ...defaults.ingest, metadataTemplateMode: 'fillEmpty' } });
+    const reopened = new SettingsStore(file, defaults);
+    expect(reopened.get().ingest.metadataTemplateMode).toBe('fillEmpty');
+  });
+
+  it('migrates settings written before the template mode existed to replace', async () => {
+    const dir = await tempDir();
+    const file = join(dir, 'settings.json');
+    await writeFile(
+      file,
+      JSON.stringify({
+        version: 2,
+        ingest: {
+          destination: { path: '/ingest' },
+          renameTemplate: '{date}',
+          codeReplacementPaths: [],
+        },
+        sources: [],
+        destinations: [],
+      }),
+    );
+
+    const store = new SettingsStore(file, defaults);
+    expect(store.get().ingest.metadataTemplateMode).toBe('replace');
+    expect(JSON.parse(await readFile(file, 'utf8')).ingest.metadataTemplateMode).toBe('replace');
+  });
+
   it('migrates a legacy finishAction into a default preset on first load', async () => {
     const dir = await tempDir();
     const file = join(dir, 'settings.json');

@@ -50,8 +50,7 @@ describe('ingest hook when the index write fails', () => {
           exiftool,
           report: (event) => reports.push(event),
         },
-        {},
-        'fillEmpty',
+        { metadataTemplateMode: 'fillEmpty' },
       );
       const info: IngestedFileInfo = {
         photoId: asPhotoId('p1'),
@@ -103,8 +102,7 @@ describe('ingest hook for JPEG files', () => {
             throw new Error(event.message);
           },
         },
-        {},
-        'fillEmpty',
+        { metadataTemplateMode: 'fillEmpty' },
       );
       await hook({
         photoId: asPhotoId('turned'),

@@ -1,14 +1,10 @@
-import type { IpcHandlers, JobEvent, JobId, TemplateApplyMode } from '@ee/contracts';
+import type { IpcHandlers, JobEvent, JobId, PresetId } from '@ee/contracts';
 import { SqliteSeenStore, type GetSecret } from '@ee/ingest';
 import { UploadQueue, type UploadQueueOptions } from '@ee/export';
 import { ExifToolService, readLensShot } from '@ee/metadata';
 import { homedir } from 'node:os';
 import { mkdirSync } from 'node:fs';
-import {
-  defaultSettings,
-  DEFAULT_TEMPLATE_MODE,
-  type BackendIngestSettings,
-} from '../../shared/settings';
+import { defaultSettings } from '../../shared/settings';
 import type { AppBackendResponse } from '../../shared/jobs-protocol';
 import { AppResources } from './app-resources';
 import { EditService } from './edit-service';
@@ -102,8 +98,8 @@ export async function createBackend(options: BackendOptions): Promise<Backend> {
 
   const reportJobError = (event: { jobId?: JobId; scope: string; message: string }): void =>
     emitJob({ type: 'job.error', at: Date.now(), ...event });
-  const templateMode = (): TemplateApplyMode =>
-    (settings.get().ingest as BackendIngestSettings).metadataTemplateMode ?? DEFAULT_TEMPLATE_MODE;
+  const developPreset = async (presetId: PresetId) =>
+    (await presets.list()).find((preset) => preset.id === presetId);
 
   const ingest = new IngestService({
     seenStore,
@@ -117,11 +113,10 @@ export async function createBackend(options: BackendOptions): Promise<Backend> {
           metadata,
           edits,
           exiftool,
+          developPreset,
           report: (event) => emitJob({ type: 'job.error', at: Date.now(), ...event }),
         },
         config,
-        (settings.get().ingest as BackendIngestSettings).metadataTemplateMode ??
-          DEFAULT_TEMPLATE_MODE,
       ),
   });
 
@@ -167,9 +162,16 @@ export async function createBackend(options: BackendOptions): Promise<Backend> {
   const reconcile = async (): Promise<number> => {
     const { ingest: ingestSettings } = settings.get();
     const hook = createOnFileIngested(
-      { photos, previews, metadata, edits, exiftool, report: reportJobError },
-      { metadataTemplatePath: ingestSettings.metadataTemplatePath },
-      templateMode(),
+      {
+        photos,
+        previews,
+        metadata,
+        edits,
+        exiftool,
+        developPreset,
+        report: reportJobError,
+      },
+      ingestSettings,
     );
     return reconcileDestination({
       directory: ingestSettings.destination.path,

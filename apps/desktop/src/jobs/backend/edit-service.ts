@@ -6,6 +6,7 @@ import {
   type CreateVersionArgs,
   type DeleteVersionArgs,
   type EditParams,
+  type EditPreset,
   type Photo,
   type PhotoId,
   type PhotoVersion,
@@ -23,6 +24,7 @@ import {
   type CropSpace,
   type ExifToolService,
 } from '@ee/metadata';
+import { applyPreset } from '@ee/develop-gl/preset';
 import { randomUUID } from 'node:crypto';
 import type { EditedPreviews } from './edited-previews';
 import type { PhotoLibrary } from './photo-library';
@@ -93,6 +95,26 @@ export class EditService {
     const photo = this.photos.get(ref.photoId);
     this.assertDevelopVersion(ref);
     return readEditParams(photo.path, this.exiftool, cropSpaceFor(photo));
+  }
+
+  /**
+   * Ingest-time preset application: the photo is not indexed yet, so this works
+   * on the file. A photo that already has develop settings keeps them (it was
+   * edited before ingest); only the fields the preset sets are merged, and the
+   * raw's own defaults are never written.
+   */
+  async applyPresetToFile(
+    path: string,
+    preset: EditPreset,
+    cropSpace?: CropSpace,
+  ): Promise<{ applied: boolean }> {
+    const current = await readEditParams(path, this.exiftool, cropSpace);
+    if (hasDevelopEdits(current)) return { applied: false };
+    await writeEditParams(path, applyPreset(current, preset), {
+      service: this.exiftool,
+      ...(cropSpace === undefined ? {} : { cropSpace }),
+    });
+    return { applied: true };
   }
 
   async setParams(ref: VersionRef & { params: EditParams }): Promise<void> {
