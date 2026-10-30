@@ -1,4 +1,4 @@
-import type { EditParams } from '@ee/contracts';
+import type { BuiltinLensCorrection, EditParams } from '@ee/contracts';
 import { afterEach, describe, expect, it } from 'vitest';
 import { cropFromGeometry } from '../src/crop';
 import { renderCpu } from '../src/cpu';
@@ -89,6 +89,38 @@ function downscale(rgba: Uint8Array, width: number, height: number, factor: numb
           }
         }
         out[(y * w + x) * 4 + c] = Math.round(sum / (factor * factor));
+      }
+    }
+  }
+  return out;
+}
+
+/** Area-average downsample to an arbitrary size, for comparing two resamplings. */
+function areaDownscale(
+  rgba: Uint8Array,
+  width: number,
+  height: number,
+  size: { width: number; height: number },
+): Uint8Array {
+  const out = new Uint8Array(size.width * size.height * 4);
+  const scaleX = width / size.width;
+  const scaleY = height / size.height;
+  for (let y = 0; y < size.height; y++) {
+    const y0 = Math.floor(y * scaleY);
+    const y1 = Math.min(height, Math.ceil((y + 1) * scaleY));
+    for (let x = 0; x < size.width; x++) {
+      const x0 = Math.floor(x * scaleX);
+      const x1 = Math.min(width, Math.ceil((x + 1) * scaleX));
+      for (let channel = 0; channel < 4; channel++) {
+        let sum = 0;
+        let taps = 0;
+        for (let sy = y0; sy < y1; sy++) {
+          for (let sx = x0; sx < x1; sx++) {
+            sum += rgba[(sy * width + sx) * 4 + channel] ?? 0;
+            taps += 1;
+          }
+        }
+        out[(y * size.width + x) * 4 + channel] = Math.round(sum / taps);
       }
     }
   }
@@ -422,6 +454,49 @@ describe('tiles', () => {
     expect(maxAbsDiff(r.actual, r.expected)).toBeLessThanOrEqual(MAX_LEVELS);
     expect(r.seam).toBeLessThanOrEqual(MAX_LEVELS);
     expect(maxAbsDiff(r.fromSplit, r.expected)).toBeLessThanOrEqual(MAX_LEVELS);
+  }, 120_000);
+});
+
+describe('export-size rendering', () => {
+  it('a 2048 px direct export render looks like a full-resolution render downscaled', () => {
+    const FULL = { width: 3072, height: 2048 };
+    const EXPORT = { width: 2048, height: 1365 };
+    const scene = makeScene(FULL.width, FULL.height, { noise: 0.03, chromaNoise: 0.02 });
+    // A strong built-in barrel profile: the lens map is part of every render, as on a raw.
+    const barrel: BuiltinLensCorrection = {
+      source: 'Nikon built-in',
+      required: true,
+      centre: { x: 0, y: 0 },
+      unit: 1,
+      distortion: [1, 0, -0.2],
+    };
+    scene.header.lens = {
+      cameraModel: 'NIKON Z 6',
+      lensModel: 'NIKKOR Z 24-70mm f/4 S',
+      builtin: barrel,
+    };
+    const params: EditParams = {
+      Clarity2012: 60,
+      Texture: 60,
+      LuminanceSmoothing: 50,
+      ColorNoiseReduction: 40,
+      Sharpness: 70,
+    };
+    const full = createDevelopRenderer(canvasOf(FULL.width, FULL.height));
+    full.setImage(scene.header, scene.data);
+    const direct = createDevelopRenderer(canvasOf(EXPORT.width, EXPORT.height));
+    direct.setImage(scene.header, scene.data);
+    const fullOut = full.renderToRGBA(params, FULL);
+    const directOut = direct.renderToRGBA(params, EXPORT);
+    const plainOut = direct.renderToRGBA({}, EXPORT);
+    full.dispose();
+    direct.dispose();
+
+    const downscaled = areaDownscale(fullOut, FULL.width, FULL.height, EXPORT);
+    const diff = meanAbsDiff(directOut, downscaled);
+    expect(diff).toBeLessThan(2.5);
+    // The neighbourhood ops are far larger than the resampling disagreement.
+    expect(meanAbsDiff(directOut, plainOut)).toBeGreaterThan(diff * 2);
   }, 120_000);
 });
 
