@@ -158,21 +158,31 @@ describe('filters and culling', () => {
     expect(visible(store).every((photo) => photo.sourceId === source.id)).toBe(true);
   });
 
-  it('persists a tag and colour class on the photo', async () => {
+  it('persists a tag, colour class and rating on the photo', async () => {
     const { store, fake } = await setup();
     const photo = activePhoto(store.getState());
     if (!photo) throw new Error('no selection');
 
     store.toggleTag(photo.id);
     store.setColorClass(3, photo.id);
-    expect(photoFlags(store.getState(), photo.id)).toEqual({ tagged: true, colorClass: 3 });
+    store.setRating(4, photo.id);
+    expect(photoFlags(store.getState(), photo.id)).toEqual({
+      tagged: true,
+      colorClass: 3,
+      rating: 4,
+    });
     await vi.waitFor(() =>
       expect(fake.calls.some((call) => call.channel === 'photos:setLabels')).toBe(true),
     );
 
     store.toggleTag(photo.id);
     store.setColorClass(0, photo.id);
-    expect(photoFlags(store.getState(), photo.id)).toEqual({ tagged: false, colorClass: 0 });
+    store.setRating(0, photo.id);
+    expect(photoFlags(store.getState(), photo.id)).toEqual({
+      tagged: false,
+      colorClass: 0,
+      rating: 0,
+    });
   });
 });
 

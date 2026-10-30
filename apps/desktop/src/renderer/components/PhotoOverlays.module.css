@@ -48,3 +48,12 @@
 .labelDim {
   color: var(--muted);
 }
+
+/* Star rating: small, muted, filled stars. */
+.stars {
+  color: var(--muted);
+  font-size: 9px;
+  letter-spacing: 1px;
+  line-height: 1;
+  white-space: nowrap;
+}

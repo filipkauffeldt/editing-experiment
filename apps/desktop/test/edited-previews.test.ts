@@ -92,6 +92,7 @@ describe('edited thumbnails and previews (jobs side)', () => {
       sourceId: asSourceId('s'),
       tagged: false,
       colorClass: 0,
+      rating: 0,
       status: {
         ingest: 'done',
         edited: false,

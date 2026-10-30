@@ -82,6 +82,8 @@ export interface Photo {
   tagged: boolean;
   /** Colour class, 0 = none, 1..8 (Photo Mechanic `ColorClass`, mirrored to `xmp:Label`). */
   colorClass: number;
+  /** Star rating, 0 = none, 1..5 (`xmp:Rating` and Photo Mechanic's `Prefs`). */
+  rating: number;
   versions: PhotoVersion[];
   /**
    * Bumps whenever the cached thumbnail/preview bytes change (an edited

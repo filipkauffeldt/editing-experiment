@@ -46,7 +46,7 @@ const captionField = (): HTMLTextAreaElement => {
 };
 
 describe('keyboard-first shell', () => {
-  it('moves the selection, tags and assigns a colour class', async () => {
+  it('moves the selection, tags, rates and assigns a colour class', async () => {
     const { store } = await renderApp();
     const user = userEvent.setup();
     expect(activePhoto(store.getState())?.fileName).toBe('_DSC8330.NEF');
@@ -62,6 +62,9 @@ describe('keyboard-first shell', () => {
     expect(photoFlags(store.getState(), first.id).tagged).toBe(true);
 
     await user.keyboard('4');
+    expect(photoFlags(store.getState(), first.id).rating).toBe(4);
+
+    fireEvent.keyDown(window, { key: '4', code: 'Digit4', ctrlKey: true });
     expect(photoFlags(store.getState(), first.id).colorClass).toBe(4);
   });
 
@@ -70,12 +73,16 @@ describe('keyboard-first shell', () => {
     const user = userEvent.setup();
     const photo = activePhoto(store.getState());
     if (!photo) throw new Error('no selection');
+    const before = photoFlags(store.getState(), photo.id);
 
     const caption = captionField();
     caption.focus();
     await user.keyboard('t');
     await user.keyboard('7');
-    expect(photoFlags(store.getState(), photo.id)).toEqual({ tagged: false, colorClass: 0 });
+    fireEvent.keyDown(caption, { key: '5', code: 'Digit5' });
+    fireEvent.keyDown(caption, { key: '2', code: 'Digit2', ctrlKey: true });
+    expect(photoFlags(store.getState(), photo.id)).toEqual(before);
+    expect(before).toMatchObject({ tagged: false, colorClass: 0 });
 
     fireEvent.keyDown(caption, { key: 'Escape' });
     expect(document.activeElement).toBe(document.body);

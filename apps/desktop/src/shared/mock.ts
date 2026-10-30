@@ -226,6 +226,7 @@ export function mockPhotos(): Photo[] {
       sourceId: fromCard ? SOURCE_A : SOURCE_B,
       tagged: [4, 9, 22, 31].includes(n),
       colorClass: n === 2 ? 1 : n === 12 ? 4 : n === 23 ? 6 : 0,
+      rating: n === 1 ? 5 : n === 2 ? 3 : n === 4 ? 4 : n === 12 ? 2 : n === 23 ? 5 : 0,
       status: {
         ingest: 'done',
         edited: EDITED.has(n),

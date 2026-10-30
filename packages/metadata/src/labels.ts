@@ -9,11 +9,13 @@ import {
 } from './paths';
 import { asString } from './values';
 
-/** Tag and colour class as Photo Mechanic stores them. */
+/** Tag, colour class and rating as Photo Mechanic stores them. */
 export interface PhotoLabels {
   tagged: boolean;
   /** 0 = none, 1..8. */
   colorClass: number;
+  /** 0 = none, 1..5. */
+  rating: number;
 }
 
 /**
@@ -51,11 +53,15 @@ const TAGS = {
 } as const;
 
 export function emptyLabels(): PhotoLabels {
-  return { tagged: false, colorClass: 0 };
+  return { tagged: false, colorClass: 0, rating: 0 };
 }
 
 export function isValidColorClass(value: number): boolean {
   return Number.isInteger(value) && value >= 0 && value <= 8;
+}
+
+export function isValidRating(value: number): boolean {
+  return Number.isInteger(value) && value >= 0 && value <= 5;
 }
 
 const asBoolean = (value: unknown): boolean | undefined => {
@@ -132,11 +138,13 @@ function parsePrefs(value: unknown): PhotoMechanicPrefs | undefined {
   };
 }
 
-function ratingFromTag(value: unknown): string | undefined {
+function asRating(value: unknown): number | undefined {
   const text = asString(value);
   if (text === undefined) return undefined;
-  const match = /^\s*(\d+)/.exec(text);
-  return match?.[1];
+  const match = /^\s*(-?\d+)/.exec(text);
+  if (!match) return undefined;
+  const rating = Number(match[1]);
+  return isValidRating(rating) ? rating : undefined;
 }
 
 export interface ReadPhotoLabelsOptions {
@@ -168,6 +176,7 @@ export async function readPhotoLabels(
   return {
     tagged: prefs?.tagged ?? asBoolean(tags[TAGS.tagged]) ?? false,
     colorClass,
+    rating: asRating(prefs?.rating) ?? asRating(tags[TAGS.rating]) ?? 0,
   };
 }
 
@@ -187,6 +196,8 @@ export interface WritePhotoLabelsOptions extends ReadPhotoLabelsOptions {
  *
  * An existing Prefs value keeps its star rating and frame number. When there
  * is none, the rating comes from `xmp:Rating` (or 0) and the frame number is 0.
+ * The rating is mirrored to `xmp:Rating` (0 removes it, as Lightroom does), so
+ * the combined Prefs string and `xmp:Rating` never disagree.
  *
  * Raws are never written: labels go to `<basename>.xmp`. JPEG/TIFF labels are
  * embedded.
@@ -205,7 +216,11 @@ export async function writePhotoLabels(
       `colorClass must be 0..8, got ${String(labels.colorClass)}`,
     );
   }
-  if (labels.tagged === undefined && labels.colorClass === undefined) return;
+  if (labels.rating !== undefined && !isValidRating(labels.rating)) {
+    throw new MetadataError('INVALID_XMP', `rating must be 0..5, got ${String(labels.rating)}`);
+  }
+  if (labels.tagged === undefined && labels.colorClass === undefined && labels.rating === undefined)
+    return;
 
   const service = options.service ?? getExifToolService();
   const names = options.colorClassNames ?? COLOR_CLASS_NAMES;
@@ -225,7 +240,8 @@ export async function writePhotoLabels(
     asColorClass(existing[TAGS.colorClass]) ??
     colorClassFromLabel(existing[TAGS.label], names) ??
     0;
-  const rating = existingPrefs?.rating ?? ratingFromTag(existing[TAGS.rating]) ?? '0';
+  const rating =
+    labels.rating ?? asRating(existingPrefs?.rating) ?? asRating(existing[TAGS.rating]) ?? 0;
   const frameNum = existingPrefs?.frameNum ?? '0';
 
   const tags: Record<string, ExifToolTagValue> = {
@@ -235,6 +251,8 @@ export async function writePhotoLabels(
       ? {}
       : { [TAGS.colorClass]: labels.colorClass === 0 ? null : labels.colorClass }),
     [TAGS.prefs]: `${tagged ? 1 : 0}:${colorClass}:${rating}:${frameNum}`,
+    // Lightroom's clear is no xmp:Rating at all; always mirror the effective value.
+    [TAGS.rating]: rating === 0 ? null : rating,
   };
 
   if (labels.colorClass !== undefined && syncLabel) {

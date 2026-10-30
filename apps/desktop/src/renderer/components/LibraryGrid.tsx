@@ -1,7 +1,14 @@
 import { appUrl, type Photo, type PhotoId } from '@ee/contracts';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useAppState, useAppStore } from '../store-context';
-import { ColorDot, StatusLabels, TagSquare, uploadPercent, uploadsByPhoto } from './PhotoOverlays';
+import {
+  ColorDot,
+  RatingStars,
+  StatusLabels,
+  TagSquare,
+  uploadPercent,
+  uploadsByPhoto,
+} from './PhotoOverlays';
 import styles from './LibraryGrid.module.css';
 
 const GAP = 14;
@@ -123,7 +130,10 @@ export function LibraryGrid({ photos }: { photos: Photo[] }) {
               </div>
               <div className={styles.info}>
                 <span className={`${styles.fileName} mono`}>{photo.fileName}</span>
-                <ColorDot colorClass={photo.colorClass} />
+                <span className={styles.flags}>
+                  <RatingStars rating={photo.rating} />
+                  <ColorDot colorClass={photo.colorClass} />
+                </span>
               </div>
             </div>
           );

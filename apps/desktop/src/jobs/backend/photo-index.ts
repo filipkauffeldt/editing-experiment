@@ -19,9 +19,6 @@ interface Row {
  * The photo index in `node:sqlite`. It is a cache: sidecars hold the metadata
  * and edits, so losing the file loses the film strip order and ingest status,
  * never a photo's data. Rows keep insertion order, which is ingest order.
- *
- * TODO: tagged / colour class. The contract has no field for them yet (the UI
- * keeps them in renderer state); add a column here once `Photo` grows one.
  */
 export class PhotoIndex {
   private readonly db: DatabaseSync;
@@ -116,6 +113,10 @@ function toRecord(row: Row): PhotoRecord {
     colorClass:
       Number.isInteger(stored.colorClass) && stored.colorClass >= 0 && stored.colorClass <= 8
         ? stored.colorClass
+        : 0,
+    rating:
+      Number.isInteger(stored.rating) && stored.rating >= 0 && stored.rating <= 5
+        ? stored.rating
         : 0,
   };
   return {

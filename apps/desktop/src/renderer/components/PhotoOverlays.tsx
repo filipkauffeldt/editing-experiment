@@ -35,6 +35,23 @@ export function ColorDot({ colorClass }: { colorClass: number }) {
   );
 }
 
+/** Filled stars in the muted text colour; nothing for an unrated photo. */
+export function RatingStars({ rating }: { rating: number }) {
+  const value = Math.min(5, Math.max(0, Math.trunc(rating)));
+  if (value === 0) return null;
+  return (
+    <span
+      className={styles.stars}
+      role="img"
+      aria-label={`Rating ${value} of 5`}
+      title={`Rating ${value} of 5`}
+      data-testid="rating-stars"
+    >
+      {'★'.repeat(value)}
+    </span>
+  );
+}
+
 /** The 11 px tag square. Pass `onToggle` to make it a button. */
 export function TagSquare({ tagged, onToggle }: { tagged: boolean; onToggle?(): void }) {
   const className = `${styles.tag} ${tagged ? styles.tagged : ''}`;

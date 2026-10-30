@@ -131,6 +131,8 @@ export interface SetPhotoLabelsArgs {
   tagged?: boolean;
   /** Colour class: 0 = none, 1..8. */
   colorClass?: number;
+  /** Star rating: 0 = none, 1..5. */
+  rating?: number;
 }
 
 /** Arguments of `photos:setEditedPreview`. */

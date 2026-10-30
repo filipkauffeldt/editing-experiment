@@ -199,6 +199,7 @@ export function createOnFileIngested(
     const labels = await readPhotoLabels(info.path, { service: exiftool }).catch(() => ({
       tagged: false,
       colorClass: 0,
+      rating: 0,
     }));
     // A sidecar that came with the file may already hold edits.
     const versions = info.sidecarPath
@@ -227,6 +228,7 @@ export function createOnFileIngested(
       sourceId: info.sourceId,
       tagged: labels.tagged,
       colorClass: labels.colorClass,
+      rating: labels.rating,
       status: {
         ingest: 'done',
         edited,
