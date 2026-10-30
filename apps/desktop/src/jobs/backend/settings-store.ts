@@ -37,6 +37,21 @@ const isObject = (value: unknown): value is Record<string, unknown> =>
 const isTemplateApplyMode = (value: unknown): value is TemplateApplyMode =>
   value === 'replace' || value === 'fillEmpty';
 
+/**
+ * Local sources used to have a single `lockedOnly` boolean. It maps to the
+ * lock filter now, and the old key is dropped so it is not persisted again.
+ */
+function migrateSource(value: unknown): SourceConfig {
+  if (!isObject(value) || (value.kind !== 'folder' && value.kind !== 'card')) {
+    return value as SourceConfig;
+  }
+  const { lockedOnly, ...rest } = value;
+  if (lockedOnly === true && rest.lockFilter === undefined) {
+    rest.lockFilter = 'locked';
+  }
+  return rest as unknown as SourceConfig;
+}
+
 function assertIngest(value: unknown): asserts value is AppSettings['ingest'] {
   if (
     !isObject(value) ||
@@ -201,6 +216,10 @@ export class SettingsStore {
       if (storedIngest !== undefined && !isTemplateApplyMode(storedIngest.metadataTemplateMode)) {
         migrated = true;
       }
+      const rawSources = Array.isArray(parsed.sources) ? parsed.sources : [];
+      if (rawSources.some((source) => isObject(source) && 'lockedOnly' in source)) {
+        migrated = true;
+      }
       this.state = {
         ingest,
         exportRoot:
@@ -216,7 +235,7 @@ export class SettingsStore {
               ),
             }
           : {}),
-        sources: Array.isArray(parsed.sources) ? (parsed.sources as SourceConfig[]) : [],
+        sources: rawSources.map(migrateSource),
         destinations: Array.isArray(parsed.destinations)
           ? (parsed.destinations as Destination[])
           : [],
