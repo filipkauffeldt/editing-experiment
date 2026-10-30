@@ -136,6 +136,7 @@ export function mockSettings(): AppSettings {
       backupDestination: { path: '/mock/backup' },
       renameTemplate: '{date}_{event}_{seq:4}',
       metadataTemplatePath: MOCK_TEMPLATE_PATH,
+      metadataTemplateMode: 'replace',
       codeReplacementPaths: [MOCK_CODE_REPLACEMENT_PATH],
     },
     exportRoot: '/mock/exports',

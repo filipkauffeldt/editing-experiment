@@ -46,6 +46,14 @@
   color: var(--dim);
 }
 
+.activeChoices {
+  margin: 0;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--line);
+  color: var(--muted);
+  font-size: var(--fs-small);
+}
+
 .list {
   margin: 0;
   padding: 0;
