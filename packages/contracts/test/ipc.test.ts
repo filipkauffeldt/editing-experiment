@@ -45,6 +45,7 @@ describe('channel registry', () => {
       | 'credentials'
       | 'metadata'
       | 'develop'
+      | 'profiles'
       | 'retouch'
       | 'export'
       | 'exportPresets'

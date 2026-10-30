@@ -9,8 +9,14 @@ import {
   scaledTable,
   tableData,
 } from '../src/profile/render';
-import { buildLookXmp } from './look-support';
-import { buildDcp, ILLUMINANT_A, ILLUMINANT_D65, identityTable, setNode } from './profile-support';
+import { buildLookXmp } from '../src/profile/testing-look';
+import {
+  buildDcp,
+  ILLUMINANT_A,
+  ILLUMINANT_D65,
+  identityTable,
+  setNode,
+} from '../src/profile/testing';
 
 const A = [1, 0, 0, 0, 1, 0, 0, 0, 1];
 const B = [2, 0, 0, 0, 3, 0, 0, 0, 4];

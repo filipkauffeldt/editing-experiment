@@ -243,6 +243,9 @@ export function createFakeBridge(
       return params.get(versionKey(photoId, versionId)) ?? {};
     },
     'develop:getDefaults': async () => ({}),
+    'profiles:list': async () => ({ camera: '', profiles: [] }),
+    'profiles:index': async () => ({ profiles: [], problems: [], folders: [] }),
+    'profiles:resolve': async () => ({ status: 'none' }),
     'develop:setParams': async (...args) => {
       const {
         photoId,

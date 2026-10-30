@@ -12,8 +12,8 @@ import {
 } from '../src/profile/render';
 import { multipliersFromTemperatureTint } from '../src/wb';
 import { parseLookXmp } from '../src/profile/look';
-import { buildLookXmp } from './look-support';
-import { identityTable, profileData, setNode } from './profile-support';
+import { buildLookXmp } from '../src/profile/testing-look';
+import { identityTable, profileData, setNode } from '../src/profile/testing';
 import { makeHeader, Z6_XYZ_TO_CAMERA } from './support';
 
 const D65: [number, number, number] = [0.9505, 1, 1.089];

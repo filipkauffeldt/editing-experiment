@@ -14,7 +14,9 @@ import {
   type IngestJobInfo,
   type IpcHandlers,
   type IptcFields,
+  type CameraProfileData,
   type JobEvent,
+  type ProfileListing,
   type Photo,
   type RetouchOp,
   type PhotoId,
@@ -58,6 +60,46 @@ export interface MockWorld {
   template: IptcFields;
   templatePath: string;
 }
+
+/** Mock mode has no Adobe files: a made-up camera profile (sRGB primaries, a mild S curve) and a few names. */
+const MOCK_CAMERA_PROFILE: CameraProfileData = {
+  name: 'Mock Standard',
+  camera: 'Sportfotografen Mock Camera',
+  copyright: '',
+  illuminants: [6504],
+  colorMatrices: [],
+  forwardMatrices: [
+    [
+      0.4360747, 0.3850649, 0.1430804, 0.2225045, 0.7168786, 0.0606169, 0.0139322, 0.0971045,
+      0.7141733,
+    ],
+  ],
+  hueSatMaps: [],
+  toneCurve: [0, 0, 0.25, 0.37, 0.5, 0.67, 0.75, 0.88, 1, 1],
+  baselineExposureOffset: 0,
+  defaultBlackRender: 'none',
+  embedPolicy: 0,
+};
+const mockListing = (
+  name: string,
+  group: ProfileListing['group'],
+  kind: ProfileListing['kind'],
+): ProfileListing => ({
+  id: `/mock/${name}`,
+  name,
+  kind,
+  group,
+  camera: kind === 'camera' ? 'Sportfotografen Mock Camera' : '',
+  ...(kind === 'look' ? { base: 'Adobe Standard', supportsAmount: true } : {}),
+  path: `/mock/${name}`,
+});
+const MOCK_PROFILES: ProfileListing[] = [
+  mockListing('Adobe Standard', 'adobe-raw', 'camera'),
+  mockListing('Adobe Color', 'adobe-raw', 'look'),
+  mockListing('Adobe Portrait', 'adobe-raw', 'look'),
+  mockListing('Camera Standard', 'camera-matching', 'camera'),
+  mockListing('Camera Flat', 'camera-matching', 'camera'),
+];
 
 const versionKey = (photoId: PhotoId, versionId: VersionId | undefined): string =>
   `${photoId}:${versionId ?? 'active'}`;
@@ -365,6 +407,25 @@ export function createMockHandlers(world: MockWorld, emit: Emit): Partial<IpcHan
         updated.push(photo);
       }
       return updated;
+    },
+
+    // --- camera profiles (mock mode has no profile files: a few made-up ones) ---
+    'profiles:list': async ({ photoId }) => {
+      findPhoto(photoId);
+      return { camera: 'Sportfotografen Mock Camera', profiles: MOCK_PROFILES };
+    },
+    'profiles:index': async () => ({
+      profiles: MOCK_PROFILES,
+      problems: [],
+      folders: ['/mock/Adobe/CameraRaw/CameraProfiles'],
+    }),
+    'profiles:resolve': async ({ photoId, profile, lookName, lookAmount }) => {
+      findPhoto(photoId);
+      if (!profile && !lookName) return { status: 'none' };
+      return {
+        status: 'ok',
+        profile: { camera: MOCK_CAMERA_PROFILE, amount: lookAmount ?? 1 },
+      };
     },
     'develop:listPresets': async () => world.presets,
     'develop:importPreset': async ({ path }) => {

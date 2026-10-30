@@ -356,21 +356,56 @@ function lookCurveTable(points: readonly number[], amount: number): Float32Array
   return out;
 }
 
-/** Converts a profile choice into what the pipeline reads. Cached per object, so keep the object stable. */
+/** The parts of a camera profile that never change with the look or its amount; shared by every choice over it. */
+interface CameraPart {
+  hueSat: PreparedProfile['hueSat'];
+  look: TableData | null;
+  tone: Float32Array;
+  baselineGain: number;
+}
+
+const cameraParts = new WeakMap<CameraProfileData, CameraPart>();
+const lookTables = new WeakMap<LookProfileData, TableData>();
+
+function cameraPart(camera: CameraProfileData): CameraPart {
+  const cached = cameraParts.get(camera);
+  if (cached) return cached;
+  const maps = camera.hueSatMaps.map(tableData);
+  const first = maps[0];
+  const part: CameraPart = {
+    hueSat: first ? { first, second: maps[1] ?? null } : null,
+    look: camera.look ? tableData(camera.look) : null,
+    tone: camera.toneCurve ? sampleToneCurve(camera.toneCurve) : defaultToneTable(),
+    baselineGain: Math.pow(2, camera.baselineExposureOffset),
+  };
+  cameraParts.set(camera, part);
+  return part;
+}
+
+/**
+ * Converts a profile choice into what the pipeline reads. Cached per object, and the camera's tables
+ * per camera profile, so changing only the look's amount uploads only what depends on it.
+ */
 export function prepareProfile(profile: ResolvedProfile): PreparedProfile {
   const cached = prepared.get(profile);
   if (cached) return cached;
-  const camera = profile.camera;
+  const camera = cameraPart(profile.camera);
   const look = profile.look;
   const amount = effectiveAmount(profile);
 
-  const maps = camera.hueSatMaps.map(tableData);
-  const first = maps[0];
   const tone = new Float32Array(TONE_TABLE_SIZE * 2);
-  tone.set(camera.toneCurve ? sampleToneCurve(camera.toneCurve) : defaultToneTable(), 0);
+  tone.set(camera.tone, 0);
   if (look?.curve) tone.set(lookCurveTable(look.curve, amount), TONE_TABLE_SIZE);
 
-  const strength = look ? Math.min(look.tableBounds[1], Math.max(look.tableBounds[0], amount)) : 1;
+  let lookXmp: TableData | null = null;
+  if (look?.table) {
+    let base = lookTables.get(look);
+    if (!base) lookTables.set(look, (base = tableData(look.table)));
+    lookXmp = scaledTable(
+      base,
+      Math.min(look.tableBounds[1], Math.max(look.tableBounds[0], amount)),
+    );
+  }
   const settings: PreparedProfile['settings'] = {};
   if (look) {
     for (const [key, value] of Object.entries(look.settings)) {
@@ -380,13 +415,13 @@ export function prepareProfile(profile: ResolvedProfile): PreparedProfile {
 
   const result: PreparedProfile = {
     key: `${nextKey++}`,
-    camera,
-    hueSat: first ? { first, second: maps[1] ?? null } : null,
-    look: camera.look ? tableData(camera.look) : null,
-    lookXmp: look?.table ? scaledTable(tableData(look.table), strength) : null,
+    camera: profile.camera,
+    hueSat: camera.hueSat,
+    look: camera.look,
+    lookXmp,
     tone,
     hasLookCurve: look?.curve !== undefined,
-    baselineGain: Math.pow(2, camera.baselineExposureOffset),
+    baselineGain: camera.baselineGain,
     settings,
   };
   prepared.set(profile, result);

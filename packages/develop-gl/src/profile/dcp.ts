@@ -128,7 +128,8 @@ class Ifd {
   private readonly entries = new Map<number, Entry>();
   private readonly bytes: Uint8Array;
 
-  constructor(bytes: Uint8Array) {
+  /** `partial`: `bytes` is only the start of the file; tags whose value lies beyond it are left out. */
+  constructor(bytes: Uint8Array, partial = false) {
     if (bytes.length < 8 || bytes.length > MAX_FILE_BYTES) {
       throw new ProfileParseError('Not a DNG camera profile (bad size)');
     }
@@ -159,6 +160,7 @@ class Ifd {
       const size = n * unit;
       if (!Number.isSafeInteger(size)) throw new ProfileParseError('Tag size overflow');
       const offset = size <= 4 ? at + 8 : this.view.getUint32(at + 8, this.little);
+      if (partial && offset + size > bytes.length) continue;
       this.require(offset, size);
       this.entries.set(tag, { type, count: n, offset });
     }
@@ -358,4 +360,14 @@ export function parseDcp(bytes: Uint8Array): CameraProfileData {
     defaultBlackRender: ifd.scalar(TAG.defaultBlackRender, 0) === 1 ? 'none' : 'auto',
     embedPolicy: ifd.scalar(TAG.embedPolicy, 0),
   };
+}
+
+/** The name and camera of a profile, read from the start of the file (`partial`) or all of it. */
+export function identifyDcp(
+  bytes: Uint8Array,
+  partial = false,
+): { name: string; camera: string } | undefined {
+  const ifd = new Ifd(bytes, partial);
+  if (!ifd.has(TAG.profileName) || !ifd.has(TAG.uniqueCameraModel)) return undefined;
+  return { name: ifd.text(TAG.profileName), camera: ifd.text(TAG.uniqueCameraModel) };
 }

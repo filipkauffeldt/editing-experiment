@@ -11,6 +11,7 @@ import type { IngestService } from './ingest-service';
 import type { LabelService } from './label-service';
 import type { MetadataService } from './metadata-service';
 import type { PresetStore } from './presets';
+import type { ProfileLibrary } from './profiles';
 import type { SettingsStore } from './settings-store';
 
 export interface HandlerDeps {
@@ -25,6 +26,7 @@ export interface HandlerDeps {
   labels: LabelService;
   faces: FaceService;
   presets: PresetStore;
+  profiles: ProfileLibrary;
   ingest: IngestService;
   queue: UploadQueue;
   exports: ExportQueue;
@@ -34,6 +36,7 @@ export interface HandlerDeps {
 export function createBackendHandlers(deps: HandlerDeps): IpcHandlers {
   const { photos, settings, metadata, edits, editedPreviews, labels, faces, presets, ingest } =
     deps;
+  const { profiles } = deps;
   const { queue, exports } = deps;
   const servedByMain = (channel: string) => async (): Promise<never> => {
     throw new IpcError('internal', `${channel} is served by the main process`);
@@ -83,6 +86,10 @@ export function createBackendHandlers(deps: HandlerDeps): IpcHandlers {
     'develop:applySettings': (args) => edits.applySettings(args),
     'develop:listPresets': () => presets.list(),
     'develop:importPreset': ({ path }) => presets.import(path),
+
+    'profiles:list': async ({ photoId }) => profiles.list(photos.get(photoId).camera),
+    'profiles:index': async (args) => profiles.index(args?.rescan === true),
+    'profiles:resolve': async (args) => profiles.resolve(args, photos.get(args.photoId).camera),
 
     'retouch:get': (ref) => edits.getRetouch(ref),
     'retouch:set': (args) => edits.setRetouch(args),

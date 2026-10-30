@@ -1,5 +1,5 @@
 import type { ProfileTable } from '@ee/contracts';
-import { compressBigTable } from '../src/profile/look';
+import { compressBigTable } from './look';
 
 /** Synthetic XMP looks for the tests (node only: the table encoding uses zlib). */
 

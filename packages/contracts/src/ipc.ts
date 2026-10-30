@@ -21,6 +21,7 @@ import type {
 import type { IptcFields } from './iptc';
 import type { JobEvent, IngestJobInfo } from './jobs';
 import type { Photo, PhotoVersion } from './photo';
+import type { PhotoProfiles, ProfileIndex, ProfileRequest, ProfileResolution } from './profile';
 import type { Rect } from './geometry';
 import type { FaceDetection, RetouchOp } from './retouch';
 import type { DetectedCard, IngestConfig, SourceConfig } from './sources';
@@ -176,6 +177,11 @@ export interface AppSettings {
   exportPresets: ExportPreset[];
   /** Preset used by Next & send. */
   activePresetId?: PresetId;
+  /**
+   * Folders the user added to the camera profile search (DNG `.dcp` and XMP profiles), besides
+   * Adobe's own folders where they exist on this machine. Scanned recursively.
+   */
+  profileFolders?: string[];
 }
 
 /** Arguments of `dialog:pick`. */
@@ -282,6 +288,14 @@ export interface IpcApi {
   /** Parse a Lightroom/Camera Raw `.xmp` preset and remember it. */
   'develop:importPreset': (args: { path: string }) => Promise<EditPreset>;
 
+  // --- camera profiles (the user's DCP and XMP files; see `docs/ARCHITECTURE.md`) ---
+  /** The profiles that fit a photo's camera, for the Develop panel's profile select. */
+  'profiles:list': (args: { photoId: PhotoId }) => Promise<PhotoProfiles>;
+  /** Everything found in the profile folders, files that could not be read, and the folders scanned. */
+  'profiles:index': (args?: { rescan?: boolean }) => Promise<ProfileIndex>;
+  /** Loads the profile (and look) a sidecar names for a photo, or says why it cannot. */
+  'profiles:resolve': (args: ProfileRequest) => Promise<ProfileResolution>;
+
   // --- retouch ---
   'retouch:get': (args: VersionRef) => Promise<RetouchOp[]>;
   /** Replaces the whole op list of the version. */
@@ -362,6 +376,9 @@ export const INVOKE_CHANNELS = [
   'develop:applySettings',
   'develop:listPresets',
   'develop:importPreset',
+  'profiles:list',
+  'profiles:index',
+  'profiles:resolve',
   'retouch:get',
   'retouch:set',
   'retouch:detectFaces',

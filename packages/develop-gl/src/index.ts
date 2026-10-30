@@ -117,6 +117,9 @@ export {
 } from './analysis';
 export type { AutoToneSettings, Histogram } from './analysis';
 
+// Camera profiles (the parsers are in `@ee/develop-gl/profile`)
+export { withLookSettings } from './profile/render';
+
 // CPU reference (tests, export fallback)
 export { developPixel, renderCpu, renderCpuFloat } from './cpu';
 export type { RenderSize } from './cpu';

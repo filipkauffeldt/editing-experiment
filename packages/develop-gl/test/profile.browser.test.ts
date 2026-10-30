@@ -4,7 +4,7 @@ import { renderCpu } from '../src/cpu';
 import { invert, mulMat, mulMatVec } from '../src/mat3';
 import { bradfordAdaptation } from '../src/profile/render';
 import { createDevelopRenderer, type DevelopRenderer } from '../src/renderer';
-import { identityTable, profileData, setNode } from './profile-support';
+import { identityTable, profileData, setNode } from '../src/profile/testing';
 import { makeChart, maxAbsDiff, Z6_XYZ_TO_CAMERA } from './support';
 
 /**

@@ -1,7 +1,7 @@
 import type { CameraProfileData, ProfileTable } from '@ee/contracts';
 
 /**
- * Synthetic camera profiles for the tests. Nothing here is, or is derived from, an Adobe profile:
+ * Synthetic camera profiles for the tests (develop-gl's and the desktop app's). Nothing here is, or is derived from, an Adobe profile:
  * the DCPs are written byte by byte from numbers chosen in the test.
  */
 
