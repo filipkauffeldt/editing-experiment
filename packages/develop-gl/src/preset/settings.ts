@@ -209,6 +209,19 @@ export function settingsToPreset(
       if (text === '1' || text === 'true') params[key] = true;
       else if (text === '0' || text === 'false') params[key] = false;
       else unsupported.push(key);
+    } else if (
+      (key === 'CameraProfile' ||
+        key === 'CameraProfileDigest' ||
+        key === 'LookName' ||
+        key === 'LookUUID') &&
+      setting.kind === 'scalar'
+    ) {
+      // Names a profile; whether this machine has it is decided when it is applied.
+      if (setting.value.trim() !== '') params[key] = setting.value.trim();
+    } else if (key === 'LookAmount' && setting.kind === 'scalar') {
+      const amount = Number(setting.value);
+      if (Number.isFinite(amount)) params.LookAmount = Math.min(2, Math.max(0, amount));
+      else unsupported.push(key);
     } else if (key === 'WhiteBalance' && setting.kind === 'scalar') {
       const mode = WHITE_BALANCE_MODES.find(
         (m) => m.toLowerCase() === setting.value.trim().toLowerCase(),
@@ -286,6 +299,16 @@ export function applyPreset(current: EditParams, preset: EditPreset): EditParams
   if (preset.params.WhiteBalance === 'As Shot' || preset.params.WhiteBalance === 'Auto') {
     if (preset.params.Temperature === undefined) delete next.Temperature;
     if (preset.params.Tint === undefined) delete next.Tint;
+  }
+  // A preset's profile replaces the current one whole: no look of the old choice survives a new
+  // camera profile, and a look without an Amount means 100 %.
+  if (preset.params.CameraProfile !== undefined || preset.params.LookName !== undefined) {
+    if (preset.params.CameraProfileDigest === undefined) delete next.CameraProfileDigest;
+    if (preset.params.LookName === undefined) {
+      delete next.LookName;
+      delete next.LookUUID;
+    }
+    if (preset.params.LookAmount === undefined) delete next.LookAmount;
   }
   return next;
 }

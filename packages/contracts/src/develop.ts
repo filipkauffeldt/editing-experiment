@@ -217,6 +217,21 @@ export interface EditParams {
    */
   LensProfileChoice?: string;
 
+  /**
+   * Camera profile (`crs:CameraProfile`): the name of a DNG camera profile (`Adobe Standard`,
+   * `Camera Standard`, ...). Absent means no profile: colour comes from the decoder's camera matrix.
+   * The name is kept when the file is not on this machine (the panel says so).
+   */
+  CameraProfile?: string;
+  /** `crs:CameraProfileDigest`; kept for round trips, never computed. */
+  CameraProfileDigest?: string;
+  /** Lightroom 7+ look over the camera profile (`crs:Look`): its name (flattened `crs:LookName`) ... */
+  LookName?: string;
+  /** ... its UUID (`crs:LookUUID`) ... */
+  LookUUID?: string;
+  /** ... and its Amount, 1 = 100 % (`crs:LookAmount`, 0..2). Absent means 1. */
+  LookAmount?: number;
+
   crop?: CropParams;
 }
 
@@ -490,6 +505,11 @@ export interface DevelopSettingGroup {
 
 /** The groups, in the order the Copy Settings dialog shows them. */
 export const DEVELOP_SETTING_GROUPS = [
+  {
+    id: 'profile',
+    label: 'Treatment & Profile',
+    fields: ['CameraProfile', 'CameraProfileDigest', 'LookName', 'LookUUID', 'LookAmount'],
+  },
   {
     id: 'whiteBalance',
     label: 'White Balance',
@@ -782,6 +802,11 @@ export const EDIT_PARAM_KEYS = [
   'DefringeGreenHueLo',
   'DefringeGreenHueHi',
   'LensProfileChoice',
+  'CameraProfile',
+  'CameraProfileDigest',
+  'LookName',
+  'LookUUID',
+  'LookAmount',
   'crop',
 ] as const satisfies readonly (keyof EditParams)[];
 

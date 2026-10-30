@@ -24,6 +24,7 @@ import { MetadataService } from './metadata-service';
 import { PhotoIndex } from './photo-index';
 import { PhotoLibrary, type Emit } from './photo-library';
 import { PresetStore } from './presets';
+import { ProfileLibrary } from './profiles';
 import { PreviewCache } from './previews';
 import { ExportQueue } from './export-queue';
 import { ExportService } from './export-service';
@@ -88,6 +89,11 @@ export async function createBackend(options: BackendOptions): Promise<Backend> {
   const labels = new LabelService(photos, exiftool);
   const seenStore = new SqliteSeenStore(layout.seenDb);
   const presets = new PresetStore(layout.presetsDir);
+  const profiles = new ProfileLibrary({
+    folders: () => settings.get().profileFolders ?? [],
+  });
+  // Scan in the background so the first Develop panel does not wait for it.
+  void profiles.index().catch((error: unknown) => console.warn('profile scan failed', error));
   const faces = new FaceService(
     photos,
     options.yunetModelPath ?? findYuNetModel(import.meta.dirname),
@@ -205,6 +211,7 @@ export async function createBackend(options: BackendOptions): Promise<Backend> {
       labels,
       faces,
       presets,
+      profiles,
       ingest,
       queue,
       exports,

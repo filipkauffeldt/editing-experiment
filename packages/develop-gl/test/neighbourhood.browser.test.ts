@@ -233,7 +233,9 @@ describe('WebGL2 vs CPU reference: neighbourhood ops', () => {
       const cached = renderer.renderToRGBA(next, size);
       expect(maxAbsDiff(cached, fresh(next))).toBe(0);
     }
-  });
+    // Five renderers are built (every one compiles the develop programs, which software GL does
+    // slowly); the check is the exact equality above, so the time limit only has to be generous.
+  }, 45_000);
 });
 
 describe('without float render targets', () => {

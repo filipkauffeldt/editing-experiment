@@ -13,6 +13,7 @@ import type { DialogTab } from '../store';
 import { useAppState, useAppStore } from '../store-context';
 import { FolderIcon, PlusIcon, ServerIcon } from './icons';
 import { Modal } from './Modal';
+import { ProfilesSettings } from './ProfilesSettings';
 import styles from './SettingsDialog.module.css';
 
 const newId = (prefix: string): string =>
@@ -1101,6 +1102,7 @@ export function SettingsDialog() {
     { id: 'sources', label: 'Sources' },
     { id: 'destinations', label: 'Destinations' },
     { id: 'ingest', label: 'Ingest' },
+    { id: 'profiles', label: 'Profiles' },
   ];
 
   return (
@@ -1134,6 +1136,7 @@ export function SettingsDialog() {
         {tab === 'sources' && <SourcesSection />}
         {tab === 'destinations' && <DestinationsSection />}
         {tab === 'ingest' && <IngestSection />}
+        {tab === 'profiles' && <ProfilesSettings />}
       </div>
     </Modal>
   );

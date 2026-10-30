@@ -56,6 +56,7 @@ describe('copy settings groups', () => {
 
   it('shows the Lightroom groups in order and leaves Crop out of the defaults', () => {
     expect(DEVELOP_SETTING_GROUPS.map((group) => group.label)).toEqual([
+      'Treatment & Profile',
       'White Balance',
       'Basic Tone',
       'Presence',

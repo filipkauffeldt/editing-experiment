@@ -21,6 +21,7 @@ export const NAMESPACE_HOST: Record<IpcNamespace, ChannelHost> = {
   credentials: 'main',
   metadata: 'jobs',
   develop: 'jobs',
+  profiles: 'jobs',
   retouch: 'jobs',
   export: 'jobs',
   exportPresets: 'jobs',

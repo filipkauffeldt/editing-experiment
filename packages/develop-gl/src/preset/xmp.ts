@@ -65,6 +65,19 @@ function altText(value: unknown): string | undefined {
   return textOf(preferred);
 }
 
+/** A field of a `crs:Look` struct, written as attributes, child elements or inside an `rdf:Description`. */
+function lookField(look: Node, tag: string, field: string): string | undefined {
+  const nested = isNode(look['rdf:Description']) ? look['rdf:Description'] : look;
+  for (const holder of [look, nested]) {
+    const attribute = holder[`@_${tag}${field}`];
+    if (typeof attribute === 'string') return attribute;
+    const element = holder[`${tag}${field}`];
+    const text = field === 'Name' ? altText(element) : textOf(element);
+    if (text !== undefined) return text;
+  }
+  return undefined;
+}
+
 function parseCurve(items: unknown[]): ToneCurvePoint[] {
   const points: ToneCurvePoint[] = [];
   for (const item of items) {
@@ -115,6 +128,14 @@ export function parsePresetXmp(xml: string, options: ParseOptions = {}): ParsedP
       sawCrs = true;
       const name = qualified.slice(tag.length);
 
+      if (name === 'Look' && isNode(value)) {
+        // Lightroom 7+ names the profile look as a `crs:Look` struct: Name, Amount and UUID.
+        for (const field of ['Name', 'Amount', 'UUID'] as const) {
+          const found = lookField(value, tag, field);
+          if (found !== undefined) settings.set(`Look${field}`, { kind: 'scalar', value: found });
+        }
+        continue;
+      }
       if (name === 'UUID') meta.uuid = textOf(value);
       if (name === 'Name') meta.name = altText(value);
 

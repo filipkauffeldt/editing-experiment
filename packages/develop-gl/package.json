@@ -9,6 +9,9 @@
     ".": "./src/index.ts",
     "./crop": "./src/crop.ts",
     "./preset": "./src/preset/index.ts",
+    "./profile": "./src/profile/index.ts",
+    "./profile/testing": "./src/profile/testing.ts",
+    "./profile/testing-look": "./src/profile/testing-look.ts",
     "./react": "./src/react.ts"
   },
   "scripts": {

@@ -24,6 +24,7 @@ scope.addEventListener('message', (event) => {
       width: request.width,
       height: request.height,
       grainSeed: request.grainSeed,
+      profile: request.profile ?? null,
     });
     const rgba = transferableBuffer(result.rgba);
     scope.postMessage(

@@ -8,4 +8,5 @@ export * from './sources';
 export * from './export';
 export * from './jobs';
 export * from './linear';
+export * from './profile';
 export * from './ipc';

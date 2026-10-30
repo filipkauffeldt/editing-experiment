@@ -6,6 +6,7 @@ import {
   type LinearImageHeader,
   type Photo,
   type RenderedImage,
+  type ResolvedProfile,
   type RetouchOp,
 } from '@ee/contracts';
 import { cropOutputPixels, grainSeedFromId } from '@ee/develop-gl';
@@ -22,6 +23,8 @@ export interface FullResolutionRenderRequest {
   ops: RetouchOp[];
   /** The export preset's resize; the renderer draws directly at that size. */
   resize: ExportResize;
+  /** The camera profile (and look) the settings name, when it is on this machine. */
+  profile?: ResolvedProfile | null;
   onProgress?: (progress: { label: string; percent?: number }) => void;
 }
 
@@ -92,6 +95,7 @@ export function renderInWorker(
   width: number,
   height: number,
   grainSeed: number,
+  profile: ResolvedProfile | null = null,
 ): Promise<RenderedImage> {
   return new Promise((resolve, reject) => {
     let worker: Worker;
@@ -140,6 +144,7 @@ export function renderInWorker(
       width,
       height,
       grainSeed,
+      profile,
     };
     worker.postMessage(request, [data]);
   });
@@ -158,6 +163,7 @@ export async function renderFullResolution({
   params,
   ops,
   resize,
+  profile = null,
   onProgress,
 }: FullResolutionRenderRequest): Promise<RenderedImage> {
   // No `maxEdge`: export always starts from the full-resolution source, so a
@@ -177,6 +183,7 @@ export async function renderFullResolution({
       output.width,
       output.height,
       grainSeed,
+      profile,
     );
     onProgress?.({ label: 'Rendering at export size…', percent: 90 });
     return rendered;
@@ -196,6 +203,7 @@ export async function renderFullResolution({
       width: output.width,
       height: output.height,
       grainSeed,
+      profile,
     });
     onProgress?.({ label: 'Rendering at export size…', percent: 90 });
     await yieldToUi();

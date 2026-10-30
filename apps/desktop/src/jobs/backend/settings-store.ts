@@ -108,6 +108,13 @@ function assertSettingsPatch(patch: Partial<AppSettings>): void {
   if (patch.activePresetId !== undefined && typeof patch.activePresetId !== 'string') {
     throw new IpcError('invalid_argument', 'activePresetId must be a preset id');
   }
+  if (
+    patch.profileFolders !== undefined &&
+    (!Array.isArray(patch.profileFolders) ||
+      patch.profileFolders.some((folder) => typeof folder !== 'string' || folder === ''))
+  ) {
+    throw new IpcError('invalid_argument', 'profileFolders must be a list of folder paths');
+  }
 }
 
 /** Turn the old FinishAction into a preset, keeping its destinations and size limit. */
@@ -182,6 +189,13 @@ export class SettingsStore {
             : defaults.exportRoot,
         exportPresets: presets,
         ...(activePresetId === undefined ? {} : { activePresetId }),
+        ...(Array.isArray(parsed.profileFolders)
+          ? {
+              profileFolders: parsed.profileFolders.filter(
+                (folder): folder is string => typeof folder === 'string' && folder !== '',
+              ),
+            }
+          : {}),
         sources: Array.isArray(parsed.sources) ? (parsed.sources as SourceConfig[]) : [],
         destinations: Array.isArray(parsed.destinations)
           ? (parsed.destinations as Destination[])
@@ -205,6 +219,9 @@ export class SettingsStore {
       ...(this.state.activePresetId === undefined
         ? {}
         : { activePresetId: this.state.activePresetId }),
+      ...(this.state.profileFolders === undefined
+        ? {}
+        : { profileFolders: this.state.profileFolders }),
     };
   }
 
@@ -216,6 +233,9 @@ export class SettingsStore {
       ...(patch.exportRoot !== undefined ? { exportRoot: patch.exportRoot } : {}),
       ...(patch.exportPresets !== undefined ? { exportPresets: patch.exportPresets } : {}),
       ...(patch.activePresetId !== undefined ? { activePresetId: patch.activePresetId } : {}),
+      ...(patch.profileFolders !== undefined
+        ? { profileFolders: [...new Set(patch.profileFolders)] }
+        : {}),
     };
     this.save();
     return this.get();

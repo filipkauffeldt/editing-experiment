@@ -14,6 +14,14 @@ import { TUNING } from './tuning';
 import { resolveLens, type LensImage, type MeasuredCa } from './lens/resolve';
 import type { LensUniforms } from './lens/model';
 import { resolveWhiteBalance, type ResolvedWhiteBalance, type WhiteBalanceCamera } from './wb';
+import {
+  cameraToProPhoto,
+  prepareProfile,
+  resolveProfileUniforms,
+  resolveProfileWhiteBalance,
+  type ProfileUniforms,
+} from './profile/render';
+import type { ResolvedProfile } from '@ee/contracts';
 
 /** The header fields the develop pipeline reads. */
 export type DevelopCamera = Pick<LinearImageHeader, 'cameraToSrgb' | 'width' | 'height'> &
@@ -51,6 +59,12 @@ export interface DevelopUniforms {
   defringe: Defringe | null;
   /** Lens corrections: where the corrected frame is recorded, lateral CA, vignetting gain. */
   lens: LensUniforms;
+  /**
+   * The camera profile, or null for the decoder's camera matrix. With one, `colorMatrix` takes
+   * white-balanced camera RGB to linear ProPhoto (not Rec.709), and the stages in `profile/render.ts`
+   * run around the develop chain (see ARCHITECTURE.md, "Camera profiles").
+   */
+  profile: ProfileUniforms | null;
 }
 
 const sliderValue = (params: EditParams, name: SliderParam): number => {
@@ -120,6 +134,8 @@ export interface ResolveOptions {
   grainSeed?: number;
   /** The measured lateral CA, when `AutoLateralCA` is on (see `lens/auto-ca.ts`). */
   measuredCa?: MeasuredCa | null;
+  /** The camera profile (and look) to render through; absent renders with the decoder's camera matrix. */
+  profile?: ResolvedProfile | null;
 }
 
 /** The crop's full-resolution output size, which the vignette is relative to. */
@@ -143,8 +159,12 @@ export function resolveUniforms(
   params: EditParams,
   options: ResolveOptions = {},
 ): DevelopUniforms {
-  const whiteBalance = resolveWhiteBalance(camera, params);
+  const profile = options.profile ? prepareProfile(options.profile) : null;
+  const whiteBalance = profile
+    ? resolveProfileWhiteBalance(profile, camera, params)
+    : resolveWhiteBalance(camera, params);
   const m = whiteBalance.multipliers;
+  const profileMatrix = profile ? cameraToProPhoto(profile, whiteBalance) : null;
 
   const contrast = sliderValue(params, 'Contrast2012') / 100;
   const tone: ToneParams = {
@@ -165,7 +185,9 @@ export function resolveUniforms(
     defringe: resolveDefringe(params),
     lens: resolveLens(camera as LensImage, params, options.measuredCa).uniforms,
     multipliers: [m.r, m.g, m.b],
-    colorMatrix: camera.cameraToSrgb,
+    colorMatrix: profileMatrix ? profileMatrix.matrix : camera.cameraToSrgb,
+    profile:
+      profile && profileMatrix ? resolveProfileUniforms(profile, profileMatrix.weight) : null,
     exposureGain: exposureGain(sliderValue(params, 'Exposure2012')),
     toneActive:
       contrast !== 0 ||

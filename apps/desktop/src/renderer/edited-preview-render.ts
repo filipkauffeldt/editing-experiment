@@ -1,5 +1,5 @@
 import { cropOutputPixels, grainSeedFromId } from '@ee/develop-gl';
-import type { EditParams, Photo, RenderedImage, RetouchOp } from '@ee/contracts';
+import type { EditParams, Photo, RenderedImage, ResolvedProfile, RetouchOp } from '@ee/contracts';
 import { renderDevelopRgba } from './develop-render';
 import { fetchLinear, renderInWorker } from './export-render';
 
@@ -8,6 +8,8 @@ export interface EditedPreviewOptions {
   maxEdge?: number;
   /** Long edge of the film strip thumbnail. Default 320. */
   thumbEdge?: number;
+  /** The camera profile (and look) the photo's settings name, when it is on this machine. */
+  profile?: ResolvedProfile | null;
 }
 
 export interface EditedPreviewImages {
@@ -69,15 +71,33 @@ export async function renderEditedPreview(
         previewSize.width,
         previewSize.height,
         grainSeed,
+        options.profile ?? null,
       ),
-      renderInWorker(header, data, params, ops, thumbSize.width, thumbSize.height, grainSeed),
+      renderInWorker(
+        header,
+        data,
+        params,
+        ops,
+        thumbSize.width,
+        thumbSize.height,
+        grainSeed,
+        options.profile ?? null,
+      ),
     ]);
     return { preview, thumb };
   } catch {
     // No worker/OffscreenCanvas support, or the worker failed: draw here.
     const again = (await fetchLinear(photo.id, {}, maxEdge)).data;
     const render = (size: Size, buffer: ArrayBuffer): RenderedImage =>
-      renderDevelopRgba({ header, data: buffer, params, ops, grainSeed, ...size });
+      renderDevelopRgba({
+        header,
+        data: buffer,
+        params,
+        ops,
+        grainSeed,
+        profile: options.profile ?? null,
+        ...size,
+      });
     return { preview: render(previewSize, again.slice(0)), thumb: render(thumbSize, again) };
   }
 }

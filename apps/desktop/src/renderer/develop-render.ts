@@ -4,9 +4,16 @@ import {
   cropMosaicOp,
   needsNeighbourhood,
   renderCpu,
+  withLookSettings,
 } from '@ee/develop-gl';
 import { applyMosaic } from '@ee/retouch';
-import type { EditParams, LinearImageHeader, RetouchOp, Shape } from '@ee/contracts';
+import type {
+  EditParams,
+  LinearImageHeader,
+  ResolvedProfile,
+  RetouchOp,
+  Shape,
+} from '@ee/contracts';
 
 export interface RenderRequest {
   header: LinearImageHeader;
@@ -18,6 +25,8 @@ export interface RenderRequest {
   height: number;
   /** Stable per-photo grain seed, so preview and export render the same grain. */
   grainSeed?: number;
+  /** The camera profile (and look) to render through; absent renders with the decoder's camera matrix. */
+  profile?: ResolvedProfile | null;
   onProgress?: (fraction: number) => void;
 }
 
@@ -112,8 +121,10 @@ export function renderWithFallback(
   params: EditParams,
   size: { width: number; height: number },
   grainSeed?: number,
+  profile: ResolvedProfile | null = null,
 ): Uint8Array {
-  if (renderer.supportsNeighbourhood || !needsNeighbourhood(params)) {
+  // A look carries settings of its own (Clarity), which the GPU's neighbourhood support gates too.
+  if (renderer.supportsNeighbourhood || !needsNeighbourhood(withLookSettings(params, profile))) {
     return renderer.renderToRGBA(params, size);
   }
   // The CPU reference works at the output size; the source is only sampled.
@@ -125,15 +136,19 @@ export function renderWithFallback(
         'render them on the CPU. Set those sliders to 0 or export a smaller size.',
     );
   }
-  return renderCpu(header, data, params, size, grainSeed === undefined ? {} : { grainSeed });
+  return renderCpu(header, data, params, size, {
+    ...(grainSeed === undefined ? {} : { grainSeed }),
+    profile,
+  });
 }
 
 export function renderDevelopRgba(request: RenderRequest): RenderResult {
-  const { header, data, params, ops, width, height, grainSeed } = request;
+  const { header, data, params, ops, width, height, grainSeed, profile = null } = request;
   const canvas = createCanvas();
   const renderer = createDevelopRenderer(canvas, { grainSeed });
   try {
     renderer.setImage(header, data);
+    renderer.setProfile(profile);
     request.onProgress?.(0.3);
     const rgba = composeDevelopedRgba({
       params,
@@ -143,7 +158,7 @@ export function renderDevelopRgba(request: RenderRequest): RenderResult {
       source: { width: header.width, height: header.height },
       mapShapes: (shapes) => correctedShapes(shapes, header, params),
       render: (renderParams, size) =>
-        renderWithFallback(renderer, header, data, renderParams, size, grainSeed),
+        renderWithFallback(renderer, header, data, renderParams, size, grainSeed, profile),
     });
     request.onProgress?.(0.95);
     return { width, height, rgba };
@@ -162,6 +177,7 @@ export interface DevelopWorkerRequest {
   width: number;
   height: number;
   grainSeed?: number;
+  profile?: ResolvedProfile | null;
 }
 
 export type DevelopWorkerResponse =

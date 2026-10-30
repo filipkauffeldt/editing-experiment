@@ -17,6 +17,7 @@ import { Histogram } from './Histogram';
 import { Panel } from './Panel';
 import { ColorGradingWheels, GRADING_VIEWS, type GradingView } from './ColorGradingWheels';
 import { ToneCurveEditor } from './ToneCurveEditor';
+import { ProfileSection } from './ProfileSection';
 import { Button } from './ui/Button';
 import { Select } from './ui/Field';
 import { PanelSection } from './ui/PanelSection';
@@ -688,6 +689,7 @@ export function DevelopPanel({ className }: { className?: string }) {
       </PanelSection>
 
       <div data-testid="sliders">
+        <ProfileSection />
         {BASIC_GROUPS.map((group) => (
           <Group key={group.title} title={group.title} params={group.params} />
         ))}

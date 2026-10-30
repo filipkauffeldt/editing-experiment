@@ -252,6 +252,24 @@ async function runMock(outDir: string): Promise<void> {
     await window.locator('[data-testid="wb-loupe"]').waitFor();
     await window.waitForTimeout(200);
     await shoot('30-wb-picker-loupe.png');
+
+    // Camera profiles. Mock mode has no Adobe files, so the names are made up.
+    await window.keyboard.press('d');
+    await window.locator('[data-testid="film-strip"]').waitFor();
+    const profile = window.getByRole('combobox', { name: 'Camera profile' });
+    await profile.waitFor();
+    await window.waitForFunction(
+      () =>
+        ((document.querySelector('select[aria-label="Camera profile"]') as HTMLSelectElement | null)
+          ?.options.length ?? 0) > 1,
+    );
+    await profile.selectOption({ label: 'Adobe Color' });
+    await window.waitForTimeout(600);
+    await window.locator('[data-testid="camera-profile"]').scrollIntoViewIfNeeded();
+    await shoot('23-camera-profile.png', '[data-testid="camera-profile"]');
+    await window.getByRole('button', { name: /Browse profile folders/ }).click();
+    await window.getByTestId('profiles-settings').waitFor();
+    await shoot('23b-profile-folders.png');
     await window.keyboard.press('Escape');
 
     await window.getByRole('tab', { name: 'Ingest' }).click();

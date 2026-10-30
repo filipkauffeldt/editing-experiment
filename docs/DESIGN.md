@@ -70,6 +70,10 @@ Built in `components/ui/`:
 - **Dot**: 6-7 px status and colour-class dots.
 - Tabs and modes are text with a 1 px underline for the active one.
 - **Selection** in the grid and film strip: a 2 px white outline with a 2 px offset.
+- **Profile** (top of Basic in Develop): an underline Select grouped *Adobe Raw / Camera Matching /
+  Other*, an Amount slider only for looks that have one, a muted note, and a text button *Browse
+  profile folders…*. A profile that is not on this machine is a plain muted line with an `--error`
+  status dot, not a coloured box.
 - **Tag**: an 11 px square, filled white when tagged.
 - **Status overlays** on thumbnails: tiny mono text labels on `#000a` (`sent`,
   `sending 64%`, `queued`, `failed`, `edited`, `retouched`, `meta ≠`).

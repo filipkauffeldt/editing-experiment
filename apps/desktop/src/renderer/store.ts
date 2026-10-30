@@ -41,7 +41,12 @@ import {
   type LensShotInfo,
   type Photo,
   type PhotoId,
+  type PhotoProfiles,
   type Point,
+  type ProfileIndex,
+  type ProfileListing,
+  type ProfileResolution,
+  type ResolvedProfile,
   type MosaicOp,
   type Rect,
   type Shape,
@@ -85,7 +90,25 @@ export type SortMode = 'filename' | 'capture-time';
 export type SelectionMode = 'replace' | 'toggle' | 'range';
 /** The four modules of the top bar; Retouch is `AppState.retouch` on the Develop view. */
 export type AppModule = 'ingest' | 'library' | 'develop';
-export type DialogTab = 'sources' | 'destinations' | 'ingest';
+export type DialogTab = 'sources' | 'destinations' | 'ingest' | 'profiles';
+
+/** A photo's camera profile as the renderer uses it. */
+export interface PhotoProfile {
+  /** What was asked for (`profileKey`); a result for another key is stale. */
+  key: string;
+  status: 'loading' | 'none' | 'ok' | 'missing';
+  profile?: ResolvedProfile;
+  /** Why a named profile is not used. */
+  reason?: string;
+}
+
+/** The part of the develop settings that picks the profile; the key of the profile cache. */
+export function profileKey(params: EditParams): string {
+  return JSON.stringify([params.CameraProfile ?? '', params.LookName ?? '', params.LookUUID ?? '']);
+}
+
+export const namesProfile = (params: EditParams): boolean =>
+  params.CameraProfile !== undefined || params.LookName !== undefined;
 
 export interface FilterState {
   quick: QuickFilter;
@@ -303,6 +326,12 @@ export interface AppState {
   editDefaults: Record<string, EditParams>;
   /** Lens facts of the photos opened in the develop view (from the linear image header). */
   photoLens: Record<string, PhotoLensContext>;
+  /** The camera profile each opened photo's sidecar names, once loaded (or why it could not be). */
+  photoProfiles: Record<string, PhotoProfile>;
+  /** The profiles that fit each opened photo's camera: the Profile select's options. */
+  profileChoices: Record<string, PhotoProfiles>;
+  /** What the profile folders hold, for the Settings tab; loaded when it is opened. */
+  profileIndex?: ProfileIndex;
   /**
    * Values of develop sections that are switched off, by `<photoId>:<section>`. Switching a section
    * off resets its sliders (so the render drops it) and parks the values here; switching it on
@@ -587,6 +616,8 @@ const emptyState = (): AppState => ({
   editParams: {},
   editDefaults: {},
   photoLens: {},
+  photoProfiles: {},
+  profileChoices: {},
   sectionStash: {},
   filter: { quick: 'all' },
   sort: 'filename',
@@ -647,7 +678,9 @@ export class AppStore {
         // The scheduler works on the photo's own settings (what is saved, and whether it
         // is edited at all); the picture is drawn with the raw defaults under them.
         render: async (photo, params, ops) =>
-          renderEditedPreview(photo, withDefaults(params, await this.loadDefaults(photo.id)), ops),
+          renderEditedPreview(photo, withDefaults(params, await this.loadDefaults(photo.id)), ops, {
+            profile: await this.profileForRender(photo.id, params),
+          }),
         getPhoto: (photoId) => this.photoById.get(photoId),
         settle: (photoId) =>
           this.flushDevelopParams(photoId, activeDevelopVersion(this.photoById.get(photoId))?.id),
@@ -2215,6 +2248,155 @@ export class AppStore {
     this.set({ photoLens: { ...this.state.photoLens, [photoId]: context } });
   };
 
+  // ------------------------------------------------------------ camera profiles
+
+  private readonly profileResolutions = new Map<string, Promise<ProfileResolution>>();
+
+  private resolveProfile(photoId: PhotoId, params: EditParams): Promise<ProfileResolution> {
+    const key = `${photoId}|${profileKey(params)}`;
+    let pending = this.profileResolutions.get(key);
+    if (!pending) {
+      pending = this.bridge.invoke('profiles:resolve', {
+        photoId,
+        ...(params.CameraProfile !== undefined ? { profile: params.CameraProfile } : {}),
+        ...(params.LookName !== undefined ? { lookName: params.LookName } : {}),
+        ...(params.LookUUID !== undefined ? { lookUuid: params.LookUUID } : {}),
+      });
+      this.profileResolutions.set(key, pending);
+      // A failed lookup is asked again next time.
+      pending.catch(() => this.profileResolutions.delete(key));
+    }
+    return pending;
+  }
+
+  /**
+   * The profile a render of `photoId` with `params` goes through, or null (none named, or not on
+   * this machine, which the Develop panel says). Exports and thumbnails draw what the canvas shows.
+   */
+  async profileForRender(photoId: PhotoId, params: EditParams): Promise<ResolvedProfile | null> {
+    if (!namesProfile(params)) return null;
+    try {
+      const resolution = await this.resolveProfile(photoId, params);
+      return resolution.status === 'ok'
+        ? { ...resolution.profile, amount: params.LookAmount ?? 1 }
+        : null;
+    } catch {
+      return null;
+    }
+  }
+
+  /** Loads the profile the settings name for the photo on screen (the canvas draws once it is known). */
+  readonly loadPhotoProfile = (photoId: PhotoId, params: EditParams): void => {
+    const key = profileKey(params);
+    const known = this.state.photoProfiles[photoId];
+    if (known?.key === key) return;
+    const put = (profile: PhotoProfile): void =>
+      this.set({ photoProfiles: { ...this.state.photoProfiles, [photoId]: profile } });
+    if (!namesProfile(params)) {
+      put({ key, status: 'none' });
+      return;
+    }
+    put({ key, status: 'loading' });
+    this.resolveProfile(photoId, params).then(
+      (resolution) => {
+        if (this.state.photoProfiles[photoId]?.key !== key) return;
+        put(
+          resolution.status === 'ok'
+            ? { key, status: 'ok', profile: resolution.profile }
+            : resolution.status === 'missing'
+              ? { key, status: 'missing', reason: resolution.reason }
+              : { key, status: 'none' },
+        );
+      },
+      (cause: unknown) => {
+        if (this.state.photoProfiles[photoId]?.key !== key) return;
+        put({ key, status: 'missing', reason: messageOf(cause) });
+      },
+    );
+  };
+
+  /** Loads the Profile select's options for a photo. */
+  readonly loadProfileChoices = (photoId: PhotoId): void => {
+    if (this.state.profileChoices[photoId]) return;
+    this.bridge.invoke('profiles:list', { photoId }).then(
+      (choices) =>
+        this.set({ profileChoices: { ...this.state.profileChoices, [photoId]: choices } }),
+      () => undefined,
+    );
+  };
+
+  /** The Profile select: a camera profile, a look over one, or none (the decoder's camera matrix). */
+  readonly setCameraProfile = (choice: ProfileListing | null): void => {
+    this.patchParams((current) => {
+      const next = { ...current };
+      delete next.CameraProfile;
+      delete next.CameraProfileDigest;
+      delete next.LookName;
+      delete next.LookUUID;
+      delete next.LookAmount;
+      if (choice?.kind === 'camera') next.CameraProfile = choice.name;
+      if (choice?.kind === 'look') {
+        next.CameraProfile = choice.base ?? '';
+        next.LookName = choice.name;
+        if (choice.uuid) next.LookUUID = choice.uuid;
+      }
+      if (next.CameraProfile === '') delete next.CameraProfile;
+      return next;
+    });
+  };
+
+  /** The look's Amount, as a fraction (1 = 100 %). */
+  readonly setLookAmount = (amount: number | undefined): void => {
+    this.patchParams((current) => {
+      const next = { ...current };
+      if (amount === undefined || amount === 1) delete next.LookAmount;
+      else next.LookAmount = Math.min(2, Math.max(0, amount));
+      return next;
+    });
+  };
+
+  /** What the profile folders hold; `rescan` reads them again (and every open photo's profile with them). */
+  readonly loadProfileIndex = async (rescan = false): Promise<void> => {
+    try {
+      const profileIndex = await this.bridge.invoke('profiles:index', { rescan });
+      if (rescan) {
+        this.profileResolutions.clear();
+        this.set({ profileIndex, photoProfiles: {}, profileChoices: {} });
+      } else {
+        this.set({ profileIndex });
+      }
+    } catch (cause) {
+      this.toast('error', `Could not read the profile folders: ${messageOf(cause)}`);
+    }
+  };
+
+  /** Adds a folder to the profile search (the Settings tab). */
+  readonly addProfileFolder = async (): Promise<void> => {
+    try {
+      const [path] = await this.bridge.invoke('dialog:pick', {
+        kind: 'folder',
+        title: 'Folder with camera profiles (.dcp, .xmp)',
+      });
+      if (!path) return;
+      const folders = this.state.settings?.profileFolders ?? [];
+      if (folders.includes(path)) return;
+      await this.saveSettings({ profileFolders: [...folders, path] });
+      await this.loadProfileIndex(true);
+    } catch (cause) {
+      this.toast('error', `Could not add the folder: ${messageOf(cause)}`);
+    }
+  };
+
+  readonly removeProfileFolder = async (path: string): Promise<void> => {
+    try {
+      const folders = (this.state.settings?.profileFolders ?? []).filter((f) => f !== path);
+      await this.saveSettings({ profileFolders: folders });
+      await this.loadProfileIndex(true);
+    } catch (cause) {
+      this.toast('error', `Could not remove the folder: ${messageOf(cause)}`);
+    }
+  };
+
   /** The Lens Corrections switches: stored explicitly, so a lens the camera requires can be turned off. */
   readonly setLensFlag = (name: 'LensProfileEnable' | 'AutoLateralCA', value: boolean): void => {
     this.patchParams((current) => ({ ...current, [name]: value }));
@@ -2590,11 +2772,13 @@ export class AppStore {
         (candidate) => candidate.id === request.presetId,
       );
       if (!preset) throw new Error(`no export preset ${request.presetId}`);
+      const profile = await this.profileForRender(latest.id, params);
       const rendered = await this.renderForExport({
         photo: latest,
         params,
         ops,
         resize: preset.resize,
+        profile,
       });
       await this.bridge.invoke('export:render', {
         jobId: request.jobId,

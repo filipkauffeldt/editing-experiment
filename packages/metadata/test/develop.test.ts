@@ -385,6 +385,61 @@ describe('develop and retouch XMP', () => {
     expect(off.AutoLateralCA).toBe(false);
   });
 
+  it('round-trips the camera profile and the look over it through the sidecar properties', async () => {
+    const dir = await makeTempDir();
+    const jpeg = join(dir, 'photo.jpg');
+    await makeJpeg(jpeg);
+    const profile: EditParams = {
+      ProcessVersion: '11.0',
+      CameraProfile: 'Adobe Standard',
+      CameraProfileDigest: '0123456789ABCDEF0123456789ABCDEF',
+      LookName: 'Adobe Color',
+      LookUUID: 'B952C231111CD8E0ECCF14B86BAA7077',
+      LookAmount: 0.75,
+    };
+    await writeEditParams(jpeg, profile, { service });
+    expect(await readEditParams(jpeg, service)).toEqual(profile);
+    // Lightroom's own names for them.
+    const tags = await service.read(jpeg);
+    expect(tags['XMP-crs:CameraProfile']).toBe('Adobe Standard');
+    expect(tags['XMP-crs:Look']).toEqual({
+      Name: 'Adobe Color',
+      UUID: 'B952C231111CD8E0ECCF14B86BAA7077',
+      Amount: 0.75,
+    });
+
+    // Lightroom's own Look struct carries more than we model (here its flags); it is not rewritten
+    // while the settings still name the same look at the same Amount.
+    await service.write(jpeg, {
+      'XMP-crs:Look': {
+        Name: 'Adobe Color',
+        UUID: 'B952C231111CD8E0ECCF14B86BAA7077',
+        Amount: 0.75,
+        SupportsAmount: 'True',
+      },
+    });
+    await writeEditParams(jpeg, { ...profile, Exposure2012: 0.5 }, { service });
+    expect(
+      ((await service.read(jpeg))['XMP-crs:Look'] as Record<string, unknown>)['SupportsAmount'],
+    ).toBe(true);
+    expect(await readEditParams(jpeg, service)).toMatchObject({
+      LookName: 'Adobe Color',
+      Exposure2012: 0.5,
+    });
+
+    // Choosing a plain camera profile removes the look; a profile alone round-trips.
+    // (`crs:Look` is a struct in Lightroom's sidecars, written as a nested description.)
+    await writeEditParams(
+      jpeg,
+      { ProcessVersion: '11.0', CameraProfile: 'Camera Standard' },
+      { service },
+    );
+    expect(await readEditParams(jpeg, service)).toEqual({
+      ProcessVersion: '11.0',
+      CameraProfile: 'Camera Standard',
+    });
+  });
+
   it('clears modelled settings but leaves unrelated crs: properties', async () => {
     const dir = await makeTempDir();
     const jpeg = join(dir, 'photo.jpg');

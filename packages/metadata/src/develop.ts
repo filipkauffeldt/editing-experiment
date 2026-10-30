@@ -128,7 +128,12 @@ const SCALAR_TAGS: Readonly<Record<ScalarKey, string>> = {
   DefringeGreenHueLo: 'XMP-crs:DefringeGreenHueLo',
   DefringeGreenHueHi: 'XMP-crs:DefringeGreenHueHi',
   LensProfileChoice: 'XMP-ee:LensProfile',
+  CameraProfile: 'XMP-crs:CameraProfile',
+  CameraProfileDigest: 'XMP-crs:CameraProfileDigest',
 };
+
+/** Lightroom 7+ writes the look over the camera profile as a `crs:Look` struct (Name, UUID, Amount). */
+const LOOK_TAG = 'XMP-crs:Look';
 
 /** Settings Lightroom stores as 0/1. */
 const BOOLEAN_KEYS = ['LensProfileEnable', 'AutoLateralCA'] as const;
@@ -137,7 +142,13 @@ const isBooleanKey = (key: ScalarKey): key is BooleanKey =>
   (BOOLEAN_KEYS as readonly string[]).includes(key);
 
 /** Free text settings. */
-const TEXT_KEYS = ['LensProfileName', 'LensProfileFilename', 'LensProfileChoice'] as const;
+const TEXT_KEYS = [
+  'LensProfileName',
+  'LensProfileFilename',
+  'LensProfileChoice',
+  'CameraProfile',
+  'CameraProfileDigest',
+] as const;
 type TextKey = (typeof TEXT_KEYS)[number];
 const isTextKey = (key: ScalarKey): key is TextKey =>
   (TEXT_KEYS as readonly string[]).includes(key);
@@ -150,7 +161,10 @@ type LegacySplitToningKey =
   | 'SplitToningBalance';
 
 /** Model keys written as `crs:` scalars (legacy split toning is folded into Color Grade). */
-type ScalarKey = Exclude<keyof EditParams, 'crop' | ToneCurveKey | LegacySplitToningKey>;
+type ScalarKey = Exclude<
+  keyof EditParams,
+  'crop' | ToneCurveKey | LegacySplitToningKey | 'LookName' | 'LookUUID' | 'LookAmount'
+>;
 
 type ToneCurveKey =
   'ToneCurvePV2012' | 'ToneCurvePV2012Red' | 'ToneCurvePV2012Green' | 'ToneCurvePV2012Blue';
@@ -300,6 +314,17 @@ export async function readEditParams(
     if (points.length > 0) params[key] = points;
   }
 
+  const look = tags[LOOK_TAG];
+  if (typeof look === 'object' && look !== null && !Array.isArray(look)) {
+    const fields = look as Record<string, unknown>;
+    const name = asString(fields['Name'])?.trim();
+    const uuid = asString(fields['UUID'])?.trim();
+    const amount = asNumber(fields['Amount']);
+    if (name) params.LookName = name;
+    if (uuid) params.LookUUID = uuid;
+    if (amount !== undefined) params.LookAmount = amount;
+  }
+
   // A sidecar with split-toning tags but no modern ColorGrade tags is a legacy
   // split-tone edit, which Lightroom renders as grading at Blending 100.
   const hasSplitToning = Object.values(SCALAR_TAGS).some(
@@ -404,6 +429,20 @@ export async function writeEditParams(
     tags['XMP-crs:ProcessVersion'] = DEFAULT_PROCESS_VERSION;
   }
 
+  if (params.LookName !== undefined || params.LookUUID !== undefined) {
+    const wanted = {
+      ...(params.LookName !== undefined ? { Name: params.LookName } : {}),
+      ...(params.LookUUID !== undefined ? { UUID: params.LookUUID } : {}),
+      ...(params.LookAmount !== undefined ? { Amount: params.LookAmount } : {}),
+    };
+    // Lightroom's own `crs:Look` also carries the look's table and flags; leave it alone while it
+    // already says what the settings say, and only replace it when the choice changed.
+    if (!(await lookUnchanged(path, wanted, service))) tags[LOOK_TAG] = wanted;
+    anySetting = true;
+  } else {
+    tags[LOOK_TAG] = null;
+  }
+
   for (const [key, tag] of Object.entries(TONE_CURVE_TAGS) as Array<[ToneCurveKey, string]>) {
     const curve = params[key];
     if (curve === undefined || curve.length === 0) {
@@ -427,6 +466,23 @@ export async function writeEditParams(
   if (!anySetting && isRawPath(path) && !(await fileExists(sidecarPathFor(path)))) return;
   const writePath = await ensureMetadataTarget(path);
   await service.write(writePath, tags);
+}
+
+/** Whether the file's `crs:Look` already names this look at this Amount (1 when it has none). */
+async function lookUnchanged(
+  path: string,
+  wanted: { Name?: string; UUID?: string; Amount?: number },
+  service: ExifToolService,
+): Promise<boolean> {
+  const tags = await readTargetTags(path, service).catch(() => undefined);
+  const existing = tags?.[LOOK_TAG];
+  if (typeof existing !== 'object' || existing === null || Array.isArray(existing)) return false;
+  const fields = existing as Record<string, unknown>;
+  return (
+    (asString(fields['Name'])?.trim() ?? undefined) === wanted.Name &&
+    (asString(fields['UUID'])?.trim() ?? undefined) === wanted.UUID &&
+    (asNumber(fields['Amount']) ?? 1) === (wanted.Amount ?? 1)
+  );
 }
 
 function writeCrop(tags: Record<string, ExifToolTagValue>, crop: CropParams): void {
