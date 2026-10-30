@@ -3,7 +3,7 @@
 ## What it is
 
 A desktop app for sports photographers and photojournalists: Photo Mechanic
-style ingest, captioning and FTP, Lightroom/Camera Raw style basic develop with
+style ingest, captioning and FTP/SFTP, Lightroom/Camera Raw style develop with
 preset compatibility, and a minimal mosaic/pixelate retouch mode. Electron,
 React and TypeScript with a Rust native core through napi-rs; licensed
 GPL-3.0-or-later.
@@ -31,9 +31,9 @@ It is a proof of concept, not production software. The PoC demo in
   local ingest copies only, so cards and servers never appear there.
 - Batch caption for the selection: replace or append selected IPTC fields,
   with codes and `{variables}` expanded per photo.
-- Star ratings `1`-`5` (`0` clears), colour classes Ctrl+`1`-`8` (Cmd on macOS;
-  `0` clears) and tag `T`. They apply to the Library selection or the open
-  photo.
+- Star ratings `1`-`5` (`0` clears), colour classes `Ctrl/⌘`+`1`-`8`
+  (`Ctrl/⌘`+`0` clears) and tag `T`. They apply to the Library selection or
+  the open photo.
 - Edited thumbnails and previews: develop settings, crop/straighten and the
   newest mosaic are drawn into the film strip and previews, not just the
   camera's embedded preview.
@@ -51,10 +51,10 @@ It is a proof of concept, not production software. The PoC demo in
 - Copy, paste and sync develop settings by group.
 - Retouch mosaic (rectangle, lasso, magic wand) with YuNet face detection
   inside a dragged region.
-- Export presets (JPEG location, resize, output sharpening, metadata and send
-  targets) and Export / Export & send / Next & send. Exports render at the
-  preset's output size and contain no embedded preview of the unretouched
-  image.
+- Export presets (folder and file name templates, resize, output sharpening,
+  metadata and send targets) and Export / Export & send / Next & send. Exports
+  render at the preset's output size and contain no embedded preview of the
+  unretouched image.
 - Anonymous FTP for sources and destinations when no credentials are set.
 
 ## Camera profiles
@@ -81,19 +81,20 @@ is copied into the app or the repository).
 
 The Profile select at the top of the Develop panel offers the profiles made for the photo's
 camera, grouped Adobe Raw / Camera Matching / Other. The choice is written to the sidecar as
-`crs:CameraProfile` (and `crs:Look` for an XMP profile), so Lightroom reads it too. A photo
+`crs:CameraProfile` (and `crs:Look` for an XMP profile), using Lightroom's keys. A photo
 whose sidecar names a profile this machine does not have keeps the name, says so in the
 panel and is drawn with the camera matrix. For a development test against real profiles, set
 `EE_PROFILE_DIR` to the profile folder and `EE_SAMPLE_NEF_DIR` to a folder of NEFs.
 
 ## Known gaps
 
-- Colour matches Lightroom only when you give the app Adobe's camera profiles (see
-  "Camera profiles" below). Without one, colour comes from LibRaw's camera matrix and a
-  simple highlight shoulder, which is not Lightroom's rendering. Profiles with an RGB
-  table (Artistic, Vintage, Modern looks), monochrome looks and three-illuminant
-  profiles are not rendered; `DefaultBlackRender` and the camera's own baseline
-  exposure are not applied.
+- Without Adobe's camera profiles, colour comes from LibRaw's camera matrix
+  and a simple highlight shoulder, which is not Lightroom's rendering. With
+  profiles the maths follows the DNG SDK, but the result has not been compared
+  with a Lightroom export. Profiles with an RGB table (Artistic, Vintage,
+  Modern looks), monochrome looks and three-illuminant profiles are not
+  rendered; `DefaultBlackRender` and the camera's own baseline exposure are
+  not applied.
 - Texture, Clarity, Dehaze, sharpening and noise reduction follow RAWmakase's
   fits of Camera Raw, not Camera Raw itself. Raws start with Lightroom's
   sharpening and colour noise reduction (or the camera's own `crd:` values), shown
@@ -213,13 +214,13 @@ Set things up in this order:
 
 `Ctrl/⌘` means Ctrl, or Cmd on macOS. Letters and digits match the character
 the key prints, so the shortcuts work on a Swedish layout; AltGr combinations
-are treated as text. `F1` always opens the in-app list; `?` does too, as does
+are treated as text. `F1` opens the in-app list; `?` does too, as does
 `Ctrl/⌘` plus the physical Slash key. In Ingest only `G` and `D` switch
 modules.
 
 | Key                            | Action                                                                                                 |
 | ------------------------------ | ------------------------------------------------------------------------------------------------------ |
-| `G` / `D` / `E`                | Library grid / Develop / Library loupe                                                                 |
+| `G` / `D` / `E`                | Library grid / Develop / Library loupe (with a photo selected)                                         |
 | `←` `→`                        | Previous / next photo; Shift extends the selection                                                     |
 | `↑` `↓`                        | Previous / next grid row in the Library; Shift extends                                                 |
 | `T`                            | Tag / untag                                                                                            |
