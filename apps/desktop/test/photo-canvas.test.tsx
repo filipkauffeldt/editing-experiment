@@ -8,6 +8,7 @@ import { createFakeBridge, type FakeBridge } from './fake-bridge';
 
 const renderer = vi.hoisted(() => ({
   setImage: vi.fn(),
+  setProfile: vi.fn(),
   render: vi.fn(),
   renderView: vi.fn(),
   renderSplit: vi.fn(),
