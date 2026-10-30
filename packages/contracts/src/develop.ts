@@ -506,6 +506,11 @@ export interface DevelopSettingGroup {
 /** The groups, in the order the Copy Settings dialog shows them. */
 export const DEVELOP_SETTING_GROUPS = [
   {
+    id: 'profile',
+    label: 'Treatment & Profile',
+    fields: ['CameraProfile', 'CameraProfileDigest', 'LookName', 'LookUUID', 'LookAmount'],
+  },
+  {
     id: 'whiteBalance',
     label: 'White Balance',
     fields: ['WhiteBalance', 'Temperature', 'Tint'],
@@ -797,6 +802,11 @@ export const EDIT_PARAM_KEYS = [
   'DefringeGreenHueLo',
   'DefringeGreenHueHi',
   'LensProfileChoice',
+  'CameraProfile',
+  'CameraProfileDigest',
+  'LookName',
+  'LookUUID',
+  'LookAmount',
   'crop',
 ] as const satisfies readonly (keyof EditParams)[];
 

@@ -3,6 +3,7 @@ import { fireEvent, render, screen, waitFor, within } from '@testing-library/rea
 import { afterEach, describe, expect, it } from 'vitest';
 import { App } from '../src/renderer/App';
 import { createAppStore, paramsForPhoto, activePhoto, type AppStore } from '../src/renderer/store';
+import type { FullResolutionRenderRequest } from '../src/renderer/export-render';
 import { createFakeBridge } from './fake-bridge';
 
 const listing = (
@@ -120,5 +121,58 @@ describe('the Profile select', () => {
     fireEvent.click(await screen.findByRole('button', { name: /Browse profile folders/ }));
     expect(store.getState().dialog).toBe('profiles');
     expect(await screen.findByTestId('profiles-settings')).toBeDefined();
+  });
+});
+
+describe('exports render through the profile', () => {
+  it('hands the resolved profile and the preset size to the export render', async () => {
+    const camera = {
+      name: 'Camera Flat',
+      camera: 'Nikon Z 6_2',
+      copyright: '',
+      illuminants: [6504],
+      colorMatrices: [],
+      forwardMatrices: [[1, 0, 0, 0, 1, 0, 0, 0, 1]],
+      hueSatMaps: [],
+      baselineExposureOffset: 0,
+      defaultBlackRender: 'none' as const,
+      embedPolicy: 0,
+    };
+    const requests: FullResolutionRenderRequest[] = [];
+    const fake = createFakeBridge({
+      handlers: {
+        'profiles:resolve': async () => ({ status: 'ok', profile: { camera, amount: 1 } }),
+      },
+    });
+    window.eeTransport = fake.transport;
+    const store = createAppStore(fake.bridge, {
+      renderForExport: async (request) => {
+        requests.push(request);
+        return { width: 1, height: 1, rgba: new Uint8Array(4) };
+      },
+    });
+    stores.push(store);
+    render(<App store={store} />);
+    await screen.findByTestId('film-strip');
+    await waitFor(() => expect(store.getState().selectedId).toBeDefined());
+    const photo = activePhoto(store.getState());
+    store.setCameraProfile({ ...PROFILES[2]! });
+    store.setLookAmount(undefined);
+    const preset = store.getState().exportPresets[0];
+    expect(photo && preset).toBeTruthy();
+    fake.emit('jobs:event', {
+      type: 'export.render',
+      at: 0,
+      jobId: 'job-1' as never,
+      requestId: 'r1',
+      photoId: photo!.id,
+      presetId: preset!.id,
+      version: 'develop',
+      opsKey: '',
+    });
+    await waitFor(() => expect(requests).toHaveLength(1));
+    expect(requests[0]?.profile?.camera.name).toBe('Camera Flat');
+    expect(requests[0]?.resize).toEqual(preset!.resize);
+    expect(requests[0]?.params.CameraProfile).toBe('Camera Flat');
   });
 });
