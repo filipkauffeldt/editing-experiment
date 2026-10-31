@@ -1,33 +1,10 @@
-import type {
-  InputHTMLAttributes,
-  ReactNode,
-  SelectHTMLAttributes,
-  TextareaHTMLAttributes,
-} from 'react';
+import type { InputHTMLAttributes, SelectHTMLAttributes, TextareaHTMLAttributes } from 'react';
 import styles from './Field.module.css';
 
 type Variant = 'underline' | 'boxed';
 
 const inputClass = (variant: Variant, extra?: string): string =>
   [styles.input, variant === 'boxed' ? styles.boxed : '', extra ?? ''].filter(Boolean).join(' ');
-
-/** Label above a control. Wrap an input from this module in it. */
-export function Field({
-  label,
-  className,
-  children,
-}: {
-  label: ReactNode;
-  className?: string;
-  children: ReactNode;
-}) {
-  return (
-    <label className={`${styles.field} ${className ?? ''}`}>
-      <span className={styles.label}>{label}</span>
-      {children}
-    </label>
-  );
-}
 
 type InputProps = Omit<InputHTMLAttributes<HTMLInputElement>, 'className'> & {
   variant?: Variant;
