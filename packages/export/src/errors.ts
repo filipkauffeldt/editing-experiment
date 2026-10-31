@@ -67,13 +67,3 @@ export class UploadCancelledError extends Error {
     this.name = 'UploadCancelledError';
   }
 }
-
-/** True for errors caused by cancelling an in-flight transfer. */
-export function isAbortError(error: unknown): boolean {
-  if (error instanceof UploadCancelledError) return true;
-  if (error instanceof Error) {
-    if (error.name === 'AbortError') return true;
-    return /\babort(ed)?\b/i.test(error.message);
-  }
-  return false;
-}

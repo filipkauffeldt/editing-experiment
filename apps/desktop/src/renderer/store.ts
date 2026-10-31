@@ -403,10 +403,6 @@ export function cameraOptions(photos: Photo[]): { key: string; label: string }[]
     .sort((a, b) => a.label.localeCompare(b.label));
 }
 
-export function sourceLabel(sources: SourceConfig[], sourceId: SourceId): string {
-  return sources.find((source) => source.id === sourceId)?.name ?? sourceId;
-}
-
 export function activePhoto(state: AppState): Photo | undefined {
   return state.photos.find((photo) => photo.id === state.selectedId);
 }

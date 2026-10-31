@@ -158,13 +158,3 @@ export const clearDevelopAction = (sequence: number): void => {
     current.request?.sequence === sequence ? { ...current, request: undefined } : current,
   );
 };
-
-/** Leaving the Develop view drops the transient modes but keeps the clipping preference. */
-export const leaveDevelopView = (): void => {
-  developViewStore.update((current) => ({
-    ...current,
-    beforeAfter: 'off',
-    wbPicker: false,
-    request: undefined,
-  }));
-};

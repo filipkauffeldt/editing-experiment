@@ -178,13 +178,3 @@ export function applyColorGrading(
   }
   return out;
 }
-
-/** Exposed for tests: the weight a region has at an encoded luminance. */
-export function gradingWeightAt(
-  grading: ColorGrading,
-  e: number,
-  region: 'shadows' | 'midtones' | 'highlights',
-): number {
-  const width = C.gradeWidth + grading.blending * C.gradeWidthPerBlending;
-  return regionWeight(e, C.gradeCentres[region], width, grading.balance, region === 'shadows');
-}
