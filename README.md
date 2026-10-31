@@ -2,14 +2,20 @@
 
 ## What it is
 
+An AI-developed proof of concept: the code was written by AI coding agents
+(Claude and DeepSeek models), orchestrated and reviewed by an AI orchestrator,
+with direction and decisions from the repository owner. It is not production
+software.
+
 A desktop app for sports photographers and photojournalists: Photo Mechanic
 style ingest, captioning and FTP/SFTP, Lightroom/Camera Raw style develop with
 preset compatibility, and a minimal mosaic/pixelate retouch mode. Electron,
 React and TypeScript with a Rust native core through napi-rs; licensed
 GPL-3.0-or-later.
 
-It is a proof of concept, not production software. The PoC demo in
-`docs/ARCHITECTURE.md` is the current definition of done.
+The proof of concept covers the workflow in "Proof of concept: scope and demo"
+in `docs/ARCHITECTURE.md`: ingest with filters, Library, Develop, retouch and
+Export / Export & send.
 
 ## What works today
 
@@ -18,6 +24,8 @@ It is a proof of concept, not production software. The PoC demo in
   templates, SHA-256 verification, an optional backup destination, and no
   writes to the originals; deleting from a server is opt-in and off by
   default.
+- Per-source local ingest filters: file types RAW / JPEG / Both, lock state
+  Locked / Unlocked / All, and incremental ingest (on by default).
 - Photo Mechanic `.XMP` metadata templates with Replace (the default) or Fill
   empty, `=code=` replacement tables, and `{variables}` in captions and path
   templates. Ingest can apply a develop preset to every imported photo.
@@ -56,35 +64,6 @@ It is a proof of concept, not production software. The PoC demo in
   render at the preset's output size and contain no embedded preview of the
   unretouched image.
 - Anonymous FTP for sources and destinations when no credentials are set.
-
-## Camera profiles
-
-Lightroom renders a raw through a _profile_. Adobe's profiles are Adobe's files, so this app
-does not ship them: you point it at your own copies and it reads them where they are (nothing
-is copied into the app or the repository).
-
-- **macOS and Windows.** Install the free [Adobe DNG
-  Converter](https://helpx.adobe.com/camera-raw/using/adobe-dng-converter.html) (Lightroom
-  Classic and Photoshop's Camera Raw install the same files). The profiles are in
-  `/Library/Application Support/Adobe/CameraRaw/CameraProfiles` (macOS) and
-  `C:\ProgramData\Adobe\CameraRaw\CameraProfiles` (Windows); the app searches those folders and
-  the per-user `CameraProfiles` folder (`~/Library/Application Support/Adobe/CameraRaw/CameraProfiles`,
-  `%APPDATA%\Adobe\CameraRaw\CameraProfiles`) by itself. Adobe Standard and the Camera Matching
-  profiles are `.dcp` files in subfolders there.
-- **Linux.** Adobe has no Linux installer. Copy the `CameraProfiles` folder from a Mac or
-  Windows machine, then add it in _Settings → Profiles → Add folder…_ (or from _Browse profile
-  folders…_ under Profile in the Develop panel). Folders are scanned recursively for `.dcp`
-  and `.xmp` files.
-- XMP profiles such as Adobe Color, Landscape, Portrait, Vivid and Neutral are `.xmp` files with
-  an HSV table. They are found in any folder you add; if Adobe's installer puts them
-  elsewhere on your machine, add that folder too.
-
-The Profile select at the top of the Develop panel offers the profiles made for the photo's
-camera, grouped Adobe Raw / Camera Matching / Other. The choice is written to the sidecar as
-`crs:CameraProfile` (and `crs:Look` for an XMP profile), using Lightroom's keys. A photo
-whose sidecar names a profile this machine does not have keeps the name, says so in the
-panel and is drawn with the camera matrix. For a development test against real profiles, set
-`EE_PROFILE_DIR` to the profile folder and `EE_SAMPLE_NEF_DIR` to a folder of NEFs.
 
 ## Known gaps
 
@@ -201,12 +180,15 @@ Set things up in this order:
    preset to apply on import. Import presets with **Develop → Presets →
    Import** first.
 2. **Settings → Sources.** Add a folder, card, FTP or SFTP source, then
-   **Test** and **Save source**. Anonymous FTP needs no password.
+   **Test** and **Save source**. For a local source, set its filters: file
+   types RAW / JPEG / Both, lock state Locked / Unlocked / All, and Incremental
+   (on by default). Anonymous FTP needs no password.
 3. **Settings → Destinations** for upload targets, and **Export… → New
    preset** for export presets (Location, File, Content, Then send), then
    **Save preset** and **Set as active**.
 4. Optional: **Settings → Profiles → Add folder…** for `.dcp`/`.xmp` camera
    profiles. Adobe's own folders are found automatically on macOS and Windows.
+   See [Camera profiles](docs/camera-profiles.md) for the platform details.
 5. Start with **Ingest → Ingest**, then **Library** → **Develop** →
    **Export…** or **Export & send** (or **Next & send**, Ctrl/⌘+Enter).
 
