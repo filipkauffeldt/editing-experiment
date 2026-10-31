@@ -1,19 +1,30 @@
 # Architecture
 
-## PoC demo (definition of done)
+## Proof of concept: scope and demo
 
-1. Two local folders (simulating cards) and one FTP server (simulating a hosted
-   server) are ingested **in parallel**, each in filename order, with rename
-   and a Photo Mechanic metadata template applied; XMP sidecars are written and
-   thumbnails appear live in the film strip.
-2. Caption a photo using code replacements and `{variables}`.
-3. Apply a Lightroom preset (`.xmp`) and adjust exposure, white balance
-   (temp/tint), contrast, highlights, shadows, whites, blacks, vibrance and
-   saturation with live GPU preview.
-4. Select an area, run face detection inside it, mosaic the detected faces.
-5. **Next & send** renders a JPEG at the active export preset's output size with
-   metadata and no leaked original thumbnail into the preset's local folder,
-   uploads the exported file to a target FTP/SFTP server, and advances to the
+This is an AI-developed proof of concept: the code was written and reviewed by AI
+agents, with direction and decisions from the repository owner. It is not production
+software.
+
+The proof of concept covers one end-to-end workflow:
+
+1. **Ingest.** Local folders, cards and polled FTP/FTPS/SFTP sources are ingested in
+   parallel, each in filename order, with rename and subfolder templates, SHA-256
+   verification, an optional backup destination, a Photo Mechanic metadata template
+   (Replace by default, or Fill empty) and an optional develop preset. Local sources
+   filter by file type (RAW / JPEG / Both), lock state (Locked / Unlocked / All) and
+   incremental ingest (on by default). XMP sidecars are written and thumbnails appear
+   live in the film strip.
+2. **Library.** A virtualised grid and loupe, multi-selection, quick and colour-class
+   filters, ratings, colour classes, tagging and batch captioning.
+3. **Develop.** A `crs:` parameter set that follows Lightroom's names, imported `.xmp` presets,
+   camera profiles, lens corrections, crop/straighten, copy/paste/sync of settings and a
+   live WebGL2 preview.
+4. **Retouch.** Rectangle, lasso and magic-wand selections, YuNet face detection inside
+   a region, and mosaic/pixelate of the selected faces.
+5. **Export / Export & send.** Render a JPEG at the active export preset's output size
+   with metadata and no leaked original thumbnail into the preset's local folder, then
+   upload the exported file to a target FTP/FTPS/SFTP server. Next & send advances to the
    next photo.
 
 ## Layout
@@ -29,6 +40,12 @@ packages/develop-gl   WebGL2 develop pipeline, crs: parameter model, LR preset p
 packages/retouch      Selections, mosaic op, YuNet face detection (onnxruntime)
 scripts/              fetch-fixtures, screenshot helpers
 ```
+
+## Decision records
+
+- [0001 Camera profiles](decisions/0001-camera-profiles.md)
+- [0002 Lens corrections](decisions/0002-lens-corrections.md)
+- [0003 Neighbourhood operations](decisions/0003-neighbourhood-ops.md)
 
 ## Processes
 
@@ -46,11 +63,21 @@ Renderer (React)  ── typed IPC (contracts) ──>  Main (thin: windows, rou
 - `app://thumb/<photoId>`, `app://preview/<photoId>` serve cached JPEGs;
   `app://linear/<photoId>?maxEdge=N` serves the decoded linear image
   (see "Linear image format"). JPEGs are served as linear sRGB with an identity
-  camera matrix so develop preview and export renders work for them too.
+  camera matrix so the develop preview and export path is used for them too.
 - SQLite (built-in `node:sqlite`, `DatabaseSync`; no native module to rebuild per
   Electron ABI) in the utility process: photo index, source state
   (seen remote files), upload queue. It is a cache: XMP sidecars are the
   source of truth for metadata and edits.
+
+## Dependency declarations
+
+`apps/desktop` declares `basic-ftp`, `exiftool-vendored`, `fast-xml-parser`,
+`onnxruntime-node` and `ssh2-sftp-client` directly even though the workspace packages
+that import them also depend on them. electron-vite externalises the app's
+`dependencies`, so declaring them keeps them out of the main/jobs bundle and resolves
+them at runtime; the native packages (`exiftool-vendored`, `onnxruntime-node`) must not
+be bundled. Keep these declarations. The `@fontsource-variable/*` packages are imported
+from `renderer/fonts.css` and are bundler inputs, not runtime externals.
 
 ## Backend (jobs process)
 
@@ -201,17 +228,17 @@ Key types (names are binding, fields can grow):
   for `resize: none`: about 180 MB for a 45 MP Z9 frame). That is fine for the PoC
   but a known cost to optimise later (e.g. MessagePort transfer or a shared temp file).
 
-## Image ops (no sharp)
+## Image operations (no sharp)
 
 `sharp` (libvips) ships its own glib, which clashes with the glib/GTK that Electron
 loads on Linux and segfaults the jobs process. App code therefore never imports it
-(ESLint enforces this for `packages/*/src` and `crates/core/src`; tests may use it as
-a devDependency). Image work goes through `@ee/core`, which is pure Rust (`zune-jpeg`,
+(ESLint enforces this for `packages/*/src`, `crates/core/src` and `apps/*/src`; tests
+may use it as a devDependency). Image work goes through `@ee/core`, which is pure Rust (`zune-jpeg`,
 `fast_image_resize`, `jpeg-encoder`): `decodeJpeg` (EXIF orientation applied),
 `resizeRgba` (Lanczos3 on sRGB-encoded values, not gamma-correct, never upscales),
 `encodeJpeg` (4:4:4 or 4:2:0, optional compact sRGB ICC, JFIF only otherwise) and
-`makePreviews` (decode once, thumbnail and preview). Input is JPEG only; TIFF and PNG
-are not decoded.
+`makePreviews` (decode once, thumbnail and preview). The core decodes JPEG (and raw via
+LibRaw) only; TIFF, PNG, HEIF and WebP are ingested but have no decoded preview.
 
 ## Metadata conventions
 
@@ -259,14 +286,14 @@ develop pipeline needs:
 - optional `asShotTemperature` / `asShotTint`.
 
 Pipeline order: `camera RGB * multipliers → cameraToSrgb → develop ops → sRGB OETF`. With a camera
-profile the matrix and the highlight shoulder are replaced, see "Camera profiles".
+profile the matrix and the highlight shoulder are replaced, see [ADR 0001](decisions/0001-camera-profiles.md).
 
 ## Develop pipeline
 
 One WebGL2 fragment shader (`packages/develop-gl`), per pixel, in this order (the
-neighbourhood ops, see below, run in passes around it):
+neighbourhood ops run in passes around it; see [ADR 0003](decisions/0003-neighbourhood-ops.md)):
 
-0. lens corrections, in the source fetch (see "Lens corrections: implementation"): the
+0. lens corrections, in the source fetch (see [ADR 0002](decisions/0002-lens-corrections.md)): the
    corrected-frame position the crop/straighten map produces is moved to where the lens
    recorded it, red and blue are fetched at their own (lateral CA) positions, and the
    vignetting gain multiplies the camera RGB;
@@ -274,7 +301,7 @@ neighbourhood ops, see below, run in passes around it):
    clamped to the lowest white point and blown pixels fade to neutral, so clipped
    areas go white, not pink), then `cameraToSrgb` to linear Rec.709 (with a camera profile:
    its forward matrix to ProPhoto, the HueSatMap and the baseline offset, then to Rec.709, see
-   "Camera profiles");
+   [ADR 0001](decisions/0001-camera-profiles.md));
 2. Camera Calibration (`ShadowTint`, `RedHue/Saturation`, `GreenHue/Saturation`,
    `BlueHue/Saturation`) next to the camera matrix, as in Lightroom and RAWmakase:
    the measured primary matrices preserve neutrals, so greys stay grey;
@@ -320,74 +347,12 @@ exceeds GPU limits. All tunable constants are in `src/tuning.ts`.
 
 ### Neighbourhood ops
 
-Texture, Clarity, Dehaze, sharpening and noise reduction look at a pixel's
-neighbours, so they are separate passes around that chain (`src/neighbourhood`).
-Their maths is ported from RAWmakase (MIT; see the README notice) and its fits of
-Camera Raw; constants are in `src/neighbourhood/tuning.ts`. Order:
+Texture, Clarity, Dehaze, sharpening and noise reduction run as separate passes around
+the per-pixel chain. Their order, pyramid, tiling, caching and CPU parity are in
+[ADR 0003](decisions/0003-neighbourhood-ops.md).
 
-```
-source -> white balance, matrix, calibration (Exposure 0)   base pass
-       -> noise reduction  (luminance, colour)                sqrt-space pyramid
-       -> Texture, Clarity (gain on log luminance), Dehaze    analysis pyramid + fields
-       -> exposure                                            (applied with the local gain)
-       -> tone, shoulder, OETF, curves, mixer, grading        the per-pixel chain above
-       -> sharpening                                          unsharp mask of encoded luma
-       -> post-crop vignette, grain                           last, so they are not sharpened
-```
+### Raw defaults and GPU fallback
 
-Why this order, as in Lightroom and RAWmakase: noise reduction works on the
-linear image before anything amplifies the noise; Texture, Clarity and Dehaze are
-scene-referred (they are gains on linear light, before the tone curve and the
-shoulder); sharpening is on the encoded image, so it sharpens what is
-displayed and halos are not tone-mapped, but before vignette and grain so the
-grain is not sharpened. A photo with none of these set uses the
-single develop pass exactly as before.
-
-- **Pyramid.** Level `k+1` is the 2x2 box mean of level `k`; levels are sampled
-  bilinearly at fractional levels (a "blur" of any size). The analysis plane is
-  log2 luminance. Texture is six band-passes `G(l) - G(l+1)` compressed where
-  strong; Clarity is four edge-aware blurs (a five-tap, range-weighted sample of the
-  pyramid, standing in for RAWmakase's bilateral grid) combined with weights read at
-  the local base level relative to the photo's key; noise reduction thresholds the
-  bands of a five-level pyramid of `sqrt(Y), c1, c2`.
-- **Resolution consistency.** Radii are in pixels of the full-resolution photo
-  (`sourceWidth` in the linear header). With `s` output pixels per full-resolution
-  pixel, Texture's band `l` sits at pyramid level `log2(s) + l`, sharpening's sigma is
-  `sigma * s`, and Clarity's scales are fractions of the frame's long edge. A 2560 px
-  preview and a 6048 px export therefore look the same (a browser test compares
-  them). Noise reduction thresholds come from the noise measured in the image
-  itself (the RMS of the finest band in the smoothest 10% of 8x8 blocks), so they
-  adapt to the size.
-- **Dehaze** needs the photo as a whole: a 512 px measurement copy at Exposure 0 is
-  rendered once per image and white balance and read back; the CPU computes the dark
-  channel airlight and the guided-filter haze density (RAWmakase's model) and the
-  density is sampled by source position. Negative Dehaze blends towards the airlight
-  (RAWmakase fits a per-photo veil; this is a plain one).
-- **Tiles.** Each export tile is rendered with a halo around its core
-  (`HALO` in `pipeline.ts`: 160 px for noise reduction, 32 for local contrast,
-  16 for sharpening, summed and rounded up to a multiple of 32) that is thrown away.
-  Cores start on multiples of 32, so a tile's pyramid grid is the whole image's.
-  Pyramid levels above 3 and the noise measurement are global: one extra render of
-  the output at 1/8 size (64 taps per pixel) and one probe pass per tile, so no tile
-  sees a different blur or noise level than its neighbour. Tests compare a tiled and
-  an untiled render, also with a split source texture, including a check within two
-  pixels of every tile edge.
-- **Caching for live preview.** The base image, noise reduction, pyramid and the
-  Texture/Clarity fields (which depend on neither the slider amounts nor the
-  exposure, since the stages work on ratios and log values) are kept between
-  `render()` calls with the same image, crop, output size, white balance and noise
-  reduction settings. Dragging Texture, Clarity, Dehaze, exposure, tone or
-  sharpening runs only the combine, develop and sharpening passes.
-- **CPU parity.** `renderCpu` runs the same stages whole-image. The GPU differs
-  by half-float intermediates and 8-bit bilinear weights: at most 1 level of 255 on
-  the test scenes (the test allows 3). The measurement copy is sampled with the same
-  4x4 taps on both sides.
-- **Crop mode** (`renderView`) runs the same pipeline and cached stages as the normal
-  view; only the mapping (the image turned under the frame) and the last step (empty
-  canvas, dimmed outside the frame, vignette and grain relative to the frame) differ. The
-  cache only holds while the mapping does not move, so panning or rotating re-runs the
-  stages, as a crop change does in the normal view. Noise is measured on blocks that lie
-  on the photo, not on the empty canvas around it.
 - **Raw defaults.** Lightroom starts a raw with Sharpness 40 / Radius 1.0 / Detail 25 /
   Masking 0 and Color Noise Reduction 25 / 50 / 50, and a Nikon NEF's own `crd:` block
   (camera-raw-defaults) replaces them with the camera's values (`readRawDefaults` in
@@ -407,242 +372,20 @@ single develop pass exactly as before.
 
 ## Camera profiles
 
-Lightroom renders a raw through a *profile*; the biggest remaining colour difference to Lightroom
-was that this app used LibRaw's camera matrix and its own highlight shoulder. A profile gives the
-Adobe rendering: the camera's matrices, a hue/saturation/value table, a look table and the tone
-curve. **Adobe's profile files are not shipped**: the user supplies them (see the README), the
-app reads them where they are and never copies them into the repo, userData or fixtures.
+A raw is rendered through a camera profile when one is available: DNG `.dcp` files and
+Adobe XMP looks provide the camera matrices, hue/saturation tables, look table and tone
+curve. The formats, parsers, matching, pipeline order, white balance, current limitations
+and tests are in [ADR 0001](decisions/0001-camera-profiles.md).
 
-- **Formats.** DNG camera profiles (`.dcp`, DNG specification 1.6) and Adobe's XMP profiles
-  (`.xmp` with `crs:PresetType="Look"`, e.g. Adobe Color/Landscape/Portrait/Vivid/Neutral), whose
-  table is a DNG SDK "big table" (zlib, Adobe's base 85) in a `crs:Table_<md5>` attribute named by
-  `crs:LookTable`, plus a `ToneCurvePV2012` and a few develop values. The format and the rendering
-  order follow the Adobe DNG SDK and RAWmakase (MIT; `docs/lightroom-profiles.md`,
-  `crates/rawmakase-model/src/camera_profiles`), ported to TypeScript with attribution in the README.
-- **Parsers** (`packages/develop-gl/src/profile`, `@ee/develop-gl/profile`, Node only): `dcp.ts`
-  reads the IFD (tags `ColorMatrix1/2`, `ForwardMatrix1/2`, `CalibrationIlluminant1/2`,
-  `ProfileHueSatMapDims/Data1/Data2/Encoding`, `ProfileLookTableDims/Data/Encoding`,
-  `ProfileToneCurve`, `BaselineExposureOffset`, `DefaultBlackRender`, `ProfileName`,
-  `ProfileEmbedPolicy`, `UniqueCameraModel`, `ProfileCopyright`); `look.ts` reads XMP looks.
-  They throw `ProfileParseError` with the reason for what they cannot render: a third calibration
-  illuminant (those tag numbers could not be verified without a real file), HDR profiles, RGB tables
-  (Adobe's Artistic/Vintage/Modern looks), monochrome looks, looks without a base profile, and any
-  develop setting in a look other than Highlights, Shadows, Contrast, Blacks and Clarity.
-- **Backend** (`ProfileLibrary`, `jobs/backend/profiles.ts`): scans Adobe's folders where they
-  exist (macOS `/Library/Application Support/Adobe/CameraRaw/CameraProfiles` and the per-user one,
-  Windows `%ProgramData%\Adobe\CameraRaw\CameraProfiles` and `%APPDATA%\...`; none on Linux, where
-  the user copies the folder over) plus `AppSettings.profileFolders`, recursively. A DCP is
-  identified from the first 64 kB; XMP files without `PresetType="Look"` (presets) are ignored. A
-  profile is matched to a photo by `UniqueCameraModel` against EXIF make and model, compared without
-  case, spaces and underscores (`Nikon Z 6_2` = `Z 6 2`). Another camera's profile is never used.
-  Groups are Lightroom's: *Adobe Raw* (names starting `Adobe `, looks in the `Profiles` group),
-  *Camera Matching* (`Camera ...`, or under a `Camera Matching` folder) and *Other*. IPC:
-  `profiles:list` (what fits a photo; empty for JPEG/TIFF), `profiles:index` (Settings), and
-  `profiles:resolve` (the parsed profile a sidecar names, or `missing` with the reason).
-- **Parameters.** `crs:CameraProfile` (the DCP name; for an XMP look, its base profile) and
-  `crs:CameraProfileDigest` (kept, never computed) are scalars; `crs:Look` is a struct
-  (`Name`, `UUID`, `Amount`) as Lightroom 7+ writes it, and is `EditParams.LookName/LookUUID/LookAmount`
-  (Amount 1 = 100 %, 0..2). Presets read the same keys (`parsePresetXmp` reads the `crs:Look` struct);
-  `applyPreset` replaces the profile whole, so a camera profile drops the previous look. A preset
-  that names a profile this machine does not have still sets the name: the panel says "not in the
-  profile folders" and the picture is drawn with the camera matrix (the sidecar keeps the name for
-  Lightroom). Exports (rendered directly at the preset's output size) and thumbnails draw what
-  the canvas shows. Copy/Paste/Sync Settings has a first group, *Treatment & Profile*, holding
-  `CameraProfile`, `CameraProfileDigest` and the look fields.
-- **Pipeline order** (CPU: `profile/render.ts`, shader: `glsl/profile.ts`; the stages are their own
-  files, the shaders have two insertion points `baseColor` and `profileFinish`):
+## Lens corrections
 
-  ```
-  camera RGB * multipliers (+ highlight clip, lens gain)
-    -> ForwardMatrix(T) -> XYZ D50 -> linear ProPhoto            u_color  (replaces cameraToSrgb)
-    -> HueSatMap (HSV table, trilinear, blended by T)             in ProPhoto, before exposure
-    -> * 2^BaselineExposureOffset -> linear Rec.709               base pass ends here
-    -> calibration, Exposure, tone (Highlights/Shadows/Contrast/Whites/Blacks)   unchanged
-    -> ProPhoto: LookTable -> XMP look table -> ProfileToneCurve -> XMP look curve  replaces the shoulder
-    -> Rec.709 -> sRGB OETF -> point curves, vibrance, mixer, grading ...      unchanged
-  ```
+Distortion, lateral CA and vignetting come from the camera's own records in Nikon Z NEFs,
+with Lensfun as the fallback and manual override. They are applied in the source fetch,
+before everything else, in the corrected frame. The research, decision, radial model,
+profile choice, tiling, retouch mapping and verification steps are in
+[ADR 0002](decisions/0002-lens-corrections.md).
 
-  The neighbourhood stages (Texture, Clarity, Dehaze, noise reduction) work on the base pass, so
-  they see the HueSatMap but not the look tables and tone curve, as they see the shoulder-less
-  linear image today. `u_color` holds the profile's camera-to-ProPhoto matrix, so the base pass
-  changes in one place. Without a profile nothing changes: `cameraToSrgb`, the shoulder, the same
-  shader branches off.
-- **White balance** through the profile, like the DNG SDK's `dng_color_spec`: the profile's
-  `ColorMatrix` (interpolated between the two calibration illuminants, linearly in inverse
-  temperature of the white, clamped to the illuminants: `(1/T - 1/T1) / (1/T2 - 1/T1)`) turns a
-  chosen temperature and tint into multipliers, and the as-shot multipliers into the as-shot
-  temperature (by the SDK's fixed-point iteration, since the matrix depends on the answer). The
-  ForwardMatrix and the HueSatMaps use the white's temperature the same way. A profile with only
-  a ColorMatrix is adapted from the white to D50 with Bradford, as the SDK does. The forward
-  matrix is scaled by `1 / min(multipliers)`, because the SDK normalises the neutral so its largest
-  channel is 1 and this app normalises green to 1.
-- **Develop tools.** The white balance picker and Auto white balance solve camera gains for a
-  neutral and turn them into a temperature and tint; with a profile active they use the profile's
-  interpolated ColorMatrix (`profileColorModel`, the SDK's iteration) instead of LibRaw's matrix, so
-  the slider values the render turns back into gains give the picked neutral. The histogram, the
-  clipping overlay and Auto tone read the canvas / a render of the same renderer, so they measure the
-  profile render. The before side of the before/after split is drawn through the profile only when its
-  settings name the profile in use.
-- **HueSatMap and LookTable** are the SDK's `dng_hue_sat_map`: HSV of the linear ProPhoto colour
-  (the value axis sRGB encoded when the table says so), hue 0..1 wrapping, trilinear in
-  (hue, saturation, value), node = (hue shift in degrees, saturation scale, value scale), node
-  order value, hue, saturation. Negative channels count as 0; the value keeps its headroom above 1
-  (the lookup clamps, the scale applies). On the GPU they are 3D RGBA32F textures read with
-  `texelFetch` and interpolated in the shader, so no float-filtering extension is needed and the
-  arithmetic is the CPU's. Texture units: image 0, curve 1, profile tone 2, tables 3..6; every
-  program that includes the profile samplers gets all of them set, because two sampler types on one
-  unit are a draw error.
-- **Tone curve.** `ProfileToneCurve` (or the DNG default ACR 3 curve, from the SDK's published 1025
-  samples, when the tag is absent) is sampled into a 4097-entry table (monotone cubic spline through
-  the points; the SDK's own spline solver differs by far less than a table step on Adobe's dense
-  curves) and applied as the SDK's RGB tone: it maps the lowest and highest channel and the middle one
-  keeps its relative position, so hue is kept. Channels are clamped to 0..1 first, which is the
-  highlight clip that the shoulder avoided. The user's Exposure and tone sliders act before it,
-  in scene-referred light, which is where Lightroom puts them relative to the profile curve.
-- **XMP looks.** The look's HSV table goes right after the profile's LookTable, its tone curve after
-  the profile's (in sRGB-encoded values, hue preserving). Amount (0..200 %) scales the table
-  between the bounds a version-2 table stores (a version-1 table stays at 100 %), blends the curve
-  (above 100 % the curve is applied again at the excess) and scales the look's develop values
-  (Highlights, Shadows, Contrast, Blacks, Clarity) added to the user's sliders in proportion up to 100 % and
-  at half the rate above, as Camera Raw 18.7 was measured by RAWmakase. A look that does not support
-  an Amount ignores it.
-- **Not done**: `DefaultBlackRender` (parsed; the SDK's "auto" black subtraction is not applied,
-  and Adobe's Camera Matching profiles say none anyway); the camera's own `BaselineExposure` (the
-  profile's `BaselineExposureOffset` is applied; LibRaw's header carries no per-camera baseline);
-  RGB-table looks; three-illuminant profiles; embedding profiles in the sidecar (`ProfileEmbedPolicy`
-  is parsed and nothing is ever embedded or copied); `crs:CameraProfileDigest` is kept, not checked.
-  The result has not been compared with a Lightroom export (no real profile was available while
-  building it): the tests prove the maths against the DNG SDK formulas and the GPU against the CPU,
-  and `EE_PROFILE_DIR` / `EE_SAMPLE_NEF_DIR` enable a render of a Z 6 NEF with Adobe Standard for a
-  visual check.
-- **Tests**: `packages/develop-gl/test/profile*.test.ts` (parser round trip, SDK interpolation, table
-  lookup with hue wrap, identity profile = no profile, white balance, look amount),
-  `profile.browser.test.ts` (GPU vs CPU, 33 cases with two illuminants, tables and a look),
-  `apps/desktop/test/profiles.test.ts` (folders, matching, resolve), `packages/metadata` (sidecar
-  round trip). All use profiles written by the tests (`src/profile/testing.ts`); none is an Adobe file.
-
-## Lens corrections: research and decision
-
-Question: where do distortion, lateral CA and vignetting data for Nikon Z lenses come from, with
-GPL-3.0-compatible licensing and the best result?
-
-- **RAWmakase** (MIT) reads the correction the camera stores in every Nikon Z NEF and applies
-  it by default, and treats the Lensfun database as an optional download that is never applied
-  unasked. Its docs (`docs/lens-corrections.md`) compare the Nikon records with Adobe's own
-  DNG output on 101 samples: the geometry agrees within 0.4 px, so Adobe is not needed.
-- **Nikon embedded data.** Tag `0xC7D5` of the raw SubIFD (ExifTool's `NikonNEFInfo`, a small
-  TIFF after a `Nikon\0` header) holds, in its entries 5 to 8, the distortion polynomial, the
-  vignetting polynomial, red/blue lateral CA and the optical centre of the exact lens, focal
-  length and focus of the shot. ExifTool only exposes entries 7 to 9 as unknown binary tags and
-  never decodes the rest, so `@ee/metadata` reads the SubIFD itself. ExifTool's
-  `DistortionCorrection` (`On (Required)` / `On (Optional)` / `Off`) is the same mode byte.
-  Z bodies and the lenses Nikon corrects in software (e.g. 24-70mm f/4 S, 24-200mm, DX 16-50mm)
-  are marked *Required*: Camera Raw always applies the correction to those.
-- **Lensfun** (database CC BY-SA 3.0, library LGPL-3): the XML calibrations are community
-  measurements of lens models in focal length steps: poly3/poly5/ptlens distortion, TCA and
-  `pa` vignetting at focal length, aperture and distance. 36 Nikon Z lenses and about 230 Nikon
-  F lenses are in it, so it covers lenses and adapters (FTZ) with no embedded data and gives the
-  user a choice. It cannot be better than the camera's own per-shot data where that exists.
-- **Decision.** Two sources share one radial model, evaluated in the shader:
-  1. *Built-in* (Nikon NEF) is the automatic choice. It needs no database, it is exact for the
-     shot, and it follows the camera's Required/Optional flag (Required is on without the user
-     asking; Optional waits for *Enable Profile Corrections*).
-  2. *Lensfun* is the profile for everything else and the manual override in the profile select.
-     A pruned copy (Nikon Z mount with every maker, and Nikon's own F-mount lenses; 0.3 MB, 74 kB
-     gzipped) is vendored as `packages/develop-gl/data/lensfun.json` with the licence text and
-     regenerated with `pnpm update-lensfun`. Only the *model maths* is ported (written from the
-     documented formulas; no Lensfun code and no library). It is shipped as separate data under its
-     own licence, not linked or merged into GPL code; the README attributes it.
-  Adobe `.lcp` profiles are not read. `crs:LensProfileName` / `LensProfileFilename` are parsed
-  and preserved but never applied or written for our own choice (our choice is `ee:LensProfile`),
-  so Lightroom does not try to find an Adobe profile of a Lensfun name.
-
-### Lens corrections: implementation
-
-Code is in `packages/develop-gl/src/lens` (maths, matching, measurement), `src/glsl/lens.ts`
-(shader mirror) and `packages/metadata/src/lens.ts` (the lens facts and the Nikon records).
-
-- **Where in the order.** Geometry is a resampling step, so it is the first thing the pipeline
-  does and everything after it works in the corrected frame: the crop, straighten and
-  `renderView` mappings produce a corrected-frame position, the lens map takes it to the recorded
-  position, and that is what the base pass (and the single develop pass) fetches. Noise
-  reduction, Texture, Clarity, Dehaze (including its 512 px measurement copy, rendered through the
-  same fetch), sharpening, the post-crop vignette and grain all see the corrected picture, so
-  none of them needs to know about the lens. A lens correction keeps the picture's size and
-  coordinate frame, which is why the stored crop (`crs:Crop*`) stays valid: it is a rectangle in
-  the corrected frame, as in Lightroom. The out-of-frame rule is unchanged (the edge repeats), and
-  profile corrections zoom in just enough (`fitScale`) never to pull in empty canvas.
-- **One radial model.** Everything is reduced to polynomials about an optical centre
-  (`lens/model.ts`): green's recorded radius over the corrected radius, red's and blue's radius
-  over green's, and a vignetting gain `numerator(v) / denominator(v)`. Nikon's records and
-  Lensfun's poly3, poly5, ptlens, TCA and `pa` models all convert to it (Lensfun with the
-  documented normalisation to half the short edge of the calibrated frame, scaled by the crop
-  factor; the focal length interpolation is Lensfun's cubic Hermite step, vignetting its
-  inverse-distance weighting over focal length, 4/f-number and 1/distance). The manual Distortion
-  (about the image centre, `r (1 + k (1 - r^2))`, k = 0.4/0.5 x amount) and the manual lens
-  vignette (`ln gain = amount c r^p / (1 + k r^p)`, Midpoint moving c, p and k) are RAWmakase's
-  fits of Camera Raw 18.7 and apply before and after the profile respectively. The profile
-  Distortion amount blends `1 + A (g - 1)`, the Vignetting amount is an exponent on the gain.
-- **Profile choice.** `LensProfileEnable` absent means on only for a lens whose NEF says the
-  correction is required (Camera Raw applies those whatever the user chose); `false` turns it off.
-  `LensProfileChoice` (`ee:LensProfile`) is empty for automatic (built-in data, else the best
-  Lensfun match for `LensModel` on the camera's mount and format), `builtin`, or
-  `lensfun:<maker>|<model>|<crop>`. `crs:LensProfileName`/`Filename` are read and kept but never
-  applied.
-- **Lens facts travel in the linear image header** (`LinearImageHeader.lens`, filled by
-  `AppResources` with `readLensShot`), so the canvas, the edited previews and the export workers
-  resolve the same lens with no further lookups. `resolveUniforms` resolves it with the settings.
-- **Tiles.** Source textures get an 8 px border (`LENS_TILE_BORDER`) so a displaced red or blue
-  sample stays inside its tile; a tile draws the fragments whose green recorded position it owns.
-- **Remove Chromatic Aberration** (`lens/auto-ca.ts`) measures the photo, replaces the profile's
-  CA, and is cached per buffer. About 800 edge tiles of 1/90 of the long edge, radial shift search
-  and Gauss-Newton on z-scored samples, a Tukey-weighted fit of `1 + a + b q + c q^2`; nothing is
-  applied below 0.08 px at the corner (on 6000 px). The renderer keeps a reference to the sample
-  buffer for it.
-- **Defringe** is the RAWmakase fit of Camera Raw: Oklab chroma reduction in the purple (0.875)
-  and green (0.46) hue windows; the spatial part (more next to edges) is not reproduced.
-- **Retouch.** Mosaic shapes are stored in the recorded (uncorrected) picture. The mosaic is
-  applied to the rendered pixels, after the lens geometry and the crop, with the shapes moved first
-  into the corrected frame by `correctedShapes` (each outline cut into <= 8 px pieces, mapped
-  through the exact inverse of the lens map, pushed out 1.5 px; points the corrected frame no longer
-  shows are clamped along their ray) and then into the cropped output by `cropMosaicOp` (a
-  straightened rectangle becomes a polygon). `composeDevelopedRgba` does this for the export, the
-  edited previews and the canvas preview alike. No resampling happens after the mosaic, so blocks
-  stay exactly constant. While a retouch session is open the canvas shows
-  the picture without the lens geometry (`withoutLensGeometry`), so a drawn selection is already
-  in the stored frame. A test on pixels proves a 3 px checker "face" in a corner, where a strong
-  barrel correction moves it by 20 px, is fully covered, and shows that the unmapped shape would
-  not be.
-
-- **Detected faces.** Detection reads the camera's embedded preview, which Nikon corrects
-  in-camera whenever its distortion control was on, which is exactly when the file has a built-in
-  profile (`previewGeometry`). A box found there is in the *corrected* frame, so before it is stored
-  it is padded and taken, as a densified outline, through the lens map (corrected to recorded,
-  `previewShapesToRecorded`); the search region drawn on the recorded picture goes the other way
-  (`recordedRegionToPreview`). Both are applied where a face becomes a shape
-  (`faceStoredShape` / `detectionRegion` in `renderer/retouch-geometry.ts`), so the overlay, the live
-  preview and the commit agree. A pixel test with a strong barrel lens and a corner face covers the
-  chain box, stored shape and export, with a control showing that the unmapped box leaves the face
-  visible; `camera-preview-geometry.test.ts` checks on the Z 6II and Z 30 fixtures that the
-  preview really is the corrected picture (corner edge correlation rises by more than 0.05 with the
-  camera's correction on).
-
-**Verifying against Lightroom** (no Lightroom render is committed yet): shoot a straight-line
-architectural scene (a building front, a door frame, a tiled wall) with the NIKKOR Z 24-70mm f/4 S
-at 24 mm; export a full-size JPEG from Lightroom Classic with *Enable Profile Corrections* on (and
-*Remove Chromatic Aberration* if wanted), and one from this app with the same file (the camera's
-profile is automatic, and on for this lens). Overlay the two (difference blend) or compare the
-positions of a long straight edge near a corner; the Nikon records match Adobe's own conversion to
-within about 0.4 px at full size in RAWmakase's comparison. A crop fixture like the existing one can
-be added from that pair.
-
-Known limitations: fisheye and other non-rectilinear Lensfun lenses are not offered; Adobe
-`.lcp` profiles are not read; the focus distance for Lensfun vignetting is taken from the file
-or 1000 m; manual positive distortion repeats the picture's edge where it pulls in canvas
-instead of showing white; the Nikon records were checked on three CC0 NEFs (a lens the camera
-requires, one it makes optional, a DX zoom) for plausibility, not against Adobe's output.
-
-### Histogram, clipping and one-click tools
+## Histogram, clipping and one-click tools
 
 The histogram at the top of Develop is measured from the frame just drawn into the canvas:
 `readHistogram` blits the drawing buffer into a small RGBA8 target (`blitFramebuffer`, long
@@ -673,7 +416,7 @@ digit under the modifier.
 
 ## Crop mode
 
-Crop mode works like Lightroom Classic's Crop Overlay. The crop frame is always an
+Crop mode follows Lightroom Classic's Crop Overlay model. The crop frame is always an
 axis-aligned rectangle on screen and the *image* turns underneath it; straightening
 rotates the photo, not the frame. The stored crop (`EditParams.crop`, `crs:Crop*`) is
 unchanged: the rotated rectangle in source space, whose output is the leveled frame.

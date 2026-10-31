@@ -1,17 +1,24 @@
 # Agent instructions
 
+This project is developed by AI coding agents under the workflow rules below.
+
 Read this file fully before starting. Then read `docs/ARCHITECTURE.md`.
 
 ## What this is
 
 A lightweight desktop app for sports photographers and photojournalists:
 Photo Mechanic style ingest, captioning and FTP, Lightroom/Camera Raw style
-basic develop (preset compatible), and a minimal retouch mode (mosaic/pixelate
+basic develop (Lightroom preset import), and a minimal retouch mode (mosaic/pixelate
 faces). Electron + React + TypeScript, with a Rust native core (napi-rs).
 Licensed GPL-3.0-or-later.
 
-Current goal: a working **proof of concept** (see "PoC demo" in
-`docs/ARCHITECTURE.md`). Prefer simple, working, tested code over generality.
+Current goal: a working **proof of concept** covering ingest with filters,
+Library, Develop, retouch and Export / Export & send (see "Proof of concept:
+scope and demo" in `docs/ARCHITECTURE.md`). Prefer simple, working, tested code
+over generality.
+
+Example and demo data use the `sportfotografen.se` domain. Build only the
+functionality that the task agrees; do not add unrequested features.
 
 ## Toolchain
 
@@ -51,6 +58,15 @@ Linux is the dev platform, but code must stay macOS/Windows compatible:
 - no shelling out to Linux-only tools,
 - platform-specific code (e.g. card detection) behind an interface with a
   Linux implementation and a clear TODO for the others.
+
+## Keyboard
+
+Shortcuts must work on a Swedish keyboard:
+
+- match letters and digits with `event.key`, never a physical key position;
+- never bind an AltGr-only symbol (`@`, `$`, `{`, …) as a shortcut;
+- AltGr must never trigger a Ctrl+Alt shortcut;
+- `å`, `ä`, `ö` and dead keys must never trigger a command.
 
 ## Safety rules (hard)
 

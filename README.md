@@ -2,38 +2,46 @@
 
 ## What it is
 
+An AI-developed proof of concept: the code was written and reviewed by AI
+agents, with direction and decisions from the repository owner. It is not
+production software.
+
 A desktop app for sports photographers and photojournalists: Photo Mechanic
 style ingest, captioning and FTP/SFTP, Lightroom/Camera Raw style develop with
-preset compatibility, and a minimal mosaic/pixelate retouch mode. Electron,
+Lightroom preset import, and a minimal mosaic/pixelate retouch mode. Electron,
 React and TypeScript with a Rust native core through napi-rs; licensed
 GPL-3.0-or-later.
 
-It is a proof of concept, not production software. The PoC demo in
-`docs/ARCHITECTURE.md` is the current definition of done.
+The proof of concept covers the workflow in "Proof of concept: scope and demo"
+in `docs/ARCHITECTURE.md`: ingest with filters, Library, Develop, retouch and
+Export / Export & send.
 
-## What works today
+## Implemented
 
 - Ingest from folder and card sources and from polled FTP/FTPS/SFTP servers, in
   parallel. Each source copies in filename order, with rename and subfolder
   templates, SHA-256 verification, an optional backup destination, and no
   writes to the originals; deleting from a server is opt-in and off by
   default.
+- Per-source local ingest filters: file types RAW / JPEG / Both, lock state
+  Locked / Unlocked / All, and incremental ingest (on by default).
 - Photo Mechanic `.XMP` metadata templates with Replace (the default) or Fill
   empty, `=code=` replacement tables, and `{variables}` in captions and path
-  templates. Ingest can apply a develop preset to every imported photo.
+  templates. A develop preset can be applied to every imported photo.
 - IPTC metadata in XMP sidecars for raws and embedded IIM + XMP for JPEGs.
   Tagged state and colour class use Photo Mechanic's `Tagged` and `ColorClass`
   fields and the combined `Prefs` string; the class is mirrored to `xmp:Label`
   (with label syncing on, the default) and the rating is written to
   `xmp:Rating` and `Prefs`.
 - Library: virtualised grid and loupe, multi-select (click, Shift range,
-  Ctrl/⌘ toggle, Ctrl/⌘+A), quick and colour-class filters. Folders are the
-  local ingest copies only, so cards and servers never appear there.
+  Ctrl/⌘ toggle, Ctrl/⌘+A), quick and colour-class filters. Folders are derived
+  from the local ingest copies only; cards and servers are intentionally not
+  shown there.
 - Batch caption for the selection: replace or append selected IPTC fields,
   with codes and `{variables}` expanded per photo.
 - Star ratings `1`-`5` (`0` clears), colour classes `Ctrl/⌘`+`1`-`8`
-  (`Ctrl/⌘`+`0` clears) and tag `T`. They apply to the Library selection or
-  the open photo.
+  (`Ctrl/⌘`+`0` clears) and tag `T`, applied to the Library selection or the
+  open photo.
 - Edited thumbnails and previews: develop settings, crop/straighten and the
   newest mosaic are drawn into the film strip and previews, not just the
   camera's embedded preview.
@@ -52,39 +60,10 @@ It is a proof of concept, not production software. The PoC demo in
 - Retouch mosaic (rectangle, lasso, magic wand) with YuNet face detection
   inside a dragged region.
 - Export presets (folder and file name templates, resize, output sharpening,
-  metadata and send targets) and Export / Export & send / Next & send. Exports
-  render at the preset's output size and contain no embedded preview of the
-  unretouched image.
+  metadata and send targets) and Export / Export & send / Next & send. Export
+  rendering targets the preset's output size and rejects an embedded preview of
+  the unretouched image.
 - Anonymous FTP for sources and destinations when no credentials are set.
-
-## Camera profiles
-
-Lightroom renders a raw through a _profile_. Adobe's profiles are Adobe's files, so this app
-does not ship them: you point it at your own copies and it reads them where they are (nothing
-is copied into the app or the repository).
-
-- **macOS and Windows.** Install the free [Adobe DNG
-  Converter](https://helpx.adobe.com/camera-raw/using/adobe-dng-converter.html) (Lightroom
-  Classic and Photoshop's Camera Raw install the same files). The profiles are in
-  `/Library/Application Support/Adobe/CameraRaw/CameraProfiles` (macOS) and
-  `C:\ProgramData\Adobe\CameraRaw\CameraProfiles` (Windows); the app searches those folders and
-  the per-user `CameraProfiles` folder (`~/Library/Application Support/Adobe/CameraRaw/CameraProfiles`,
-  `%APPDATA%\Adobe\CameraRaw\CameraProfiles`) by itself. Adobe Standard and the Camera Matching
-  profiles are `.dcp` files in subfolders there.
-- **Linux.** Adobe has no Linux installer. Copy the `CameraProfiles` folder from a Mac or
-  Windows machine, then add it in _Settings → Profiles → Add folder…_ (or from _Browse profile
-  folders…_ under Profile in the Develop panel). Folders are scanned recursively for `.dcp`
-  and `.xmp` files.
-- XMP profiles such as Adobe Color, Landscape, Portrait, Vivid and Neutral are `.xmp` files with
-  an HSV table. They are found in any folder you add; if Adobe's installer puts them
-  elsewhere on your machine, add that folder too.
-
-The Profile select at the top of the Develop panel offers the profiles made for the photo's
-camera, grouped Adobe Raw / Camera Matching / Other. The choice is written to the sidecar as
-`crs:CameraProfile` (and `crs:Look` for an XMP profile), using Lightroom's keys. A photo
-whose sidecar names a profile this machine does not have keeps the name, says so in the
-panel and is drawn with the camera matrix. For a development test against real profiles, set
-`EE_PROFILE_DIR` to the profile folder and `EE_SAMPLE_NEF_DIR` to a folder of NEFs.
 
 ## Known gaps
 
@@ -173,7 +152,7 @@ PoC end-to-end demo and the real-mode smoke test that drive Electron. Without a
 `DISPLAY` those tests start Xvfb themselves, but `Xvfb` and `xauth` must be
 installed. `pnpm screenshot` re-runs itself under `xvfb-run` when `DISPLAY` is
 unset. The PoC e2e test and `pnpm screenshot` enable SwiftShader
-(`EE_SOFTWARE_GL=1`) so WebGL works without a GPU; the develop-gl parity tests
+(`EE_SOFTWARE_GL=1`) so WebGL is available without a GPU; the develop-gl parity tests
 run in headless Chromium with the same fallback.
 
 CI (`.github/workflows/ci.yml`) runs lint/typecheck, Rust fmt/clippy/tests,
@@ -201,19 +180,22 @@ Set things up in this order:
    preset to apply on import. Import presets with **Develop → Presets →
    Import** first.
 2. **Settings → Sources.** Add a folder, card, FTP or SFTP source, then
-   **Test** and **Save source**. Anonymous FTP needs no password.
+   **Test** and **Save source**. For a local source, set its filters: file
+   types RAW / JPEG / Both, lock state Locked / Unlocked / All, and Incremental
+   (on by default). Anonymous FTP needs no password.
 3. **Settings → Destinations** for upload targets, and **Export… → New
    preset** for export presets (Location, File, Content, Then send), then
    **Save preset** and **Set as active**.
 4. Optional: **Settings → Profiles → Add folder…** for `.dcp`/`.xmp` camera
    profiles. Adobe's own folders are found automatically on macOS and Windows.
+   See [Camera profiles](docs/camera-profiles.md) for the platform details.
 5. Start with **Ingest → Ingest**, then **Library** → **Develop** →
    **Export…** or **Export & send** (or **Next & send**, Ctrl/⌘+Enter).
 
 ## Keyboard shortcuts
 
 `Ctrl/⌘` means Ctrl, or Cmd on macOS. Letters and digits match the character
-the key prints, so the shortcuts work on a Swedish layout; AltGr combinations
+the key prints, so the shortcuts are designed for a Swedish layout; AltGr combinations
 are treated as text. `F1` opens the in-app list; `?` does too, as does
 `Ctrl/⌘` plus the physical Slash key. In Ingest only `G` and `D` switch
 modules.
@@ -251,7 +233,7 @@ Passwords and SFTP key material are stored only through Electron `safeStorage`,
 encrypted, in `userData/credentials.json`. Without an OS keyring (Secret
 Service, e.g. `gnome-keyring`, or KWallet) the app refuses to store them and
 says so; there is no plaintext fallback. Anonymous FTP needs no keyring, and
-folder sources and destinations work without one.
+folder sources and destinations do not need one.
 
 ## Repository layout
 
