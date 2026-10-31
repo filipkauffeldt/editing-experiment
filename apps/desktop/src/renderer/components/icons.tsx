@@ -49,16 +49,6 @@ export function StackIcon(props: IconProps) {
   );
 }
 
-export function MetaDiffIcon(props: IconProps) {
-  return (
-    <Icon {...props}>
-      <path d="M4 1.8h5l3 3v9.4H4z" />
-      <path d="M9 1.8v3h3" />
-      <path d="M8 7v3.2M8 11.8v.4" />
-    </Icon>
-  );
-}
-
 export function CheckIcon(props: IconProps) {
   return (
     <Icon {...props}>
@@ -93,15 +83,6 @@ export function UploadIcon(props: IconProps) {
   );
 }
 
-export function TagIcon(props: IconProps) {
-  return (
-    <Icon {...props}>
-      <path d="M3 2.5v11" />
-      <path d="M3 3h8.5l-1.8 2.6L11.5 8H3" />
-    </Icon>
-  );
-}
-
 export function GearIcon(props: IconProps) {
   return (
     <Icon {...props}>
@@ -123,14 +104,6 @@ export function PlusIcon(props: IconProps) {
   return (
     <Icon {...props}>
       <path d="M8 3v10M3 8h10" />
-    </Icon>
-  );
-}
-
-export function ChevronIcon(props: IconProps) {
-  return (
-    <Icon {...props}>
-      <path d="m4 6 4 4 4-4" />
     </Icon>
   );
 }

@@ -14,9 +14,3 @@ export function testImage(width: number, height: number): RenderedImage {
   }
   return { width, height, rgba };
 }
-
-export function solidImage(width: number, height: number, value = 128): RenderedImage {
-  const rgba = new Uint8Array(width * height * 4).fill(value);
-  for (let at = 3; at < rgba.length; at += 4) rgba[at] = 255;
-  return { width, height, rgba };
-}

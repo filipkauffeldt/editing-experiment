@@ -9,18 +9,6 @@ import sharp from 'sharp';
 export const REPO_ROOT = fileURLToPath(new URL('../../../', import.meta.url));
 export const FIXTURE_DIR = join(REPO_ROOT, 'fixtures', 'raw');
 
-export interface RawFixture {
-  name: string;
-  path: string;
-}
-
-/** CC0 fixtures fetched by `pnpm fetch-fixtures`. */
-export const RAW_FIXTURES: readonly RawFixture[] = [
-  { name: 'z30_14bit.NEF', path: join(FIXTURE_DIR, 'z30_14bit.NEF') },
-  { name: 'z50_DSC_0441.NEF', path: join(FIXTURE_DIR, 'z50_DSC_0441.NEF') },
-  { name: 'z6ii_CZP_0299.NEF', path: join(FIXTURE_DIR, 'z6ii_CZP_0299.NEF') },
-];
-
 export function fixtureAvailable(name: string): boolean {
   return existsSync(join(FIXTURE_DIR, name));
 }
