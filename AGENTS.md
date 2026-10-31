@@ -8,7 +8,7 @@ Read this file fully before starting. Then read `docs/ARCHITECTURE.md`.
 
 A lightweight desktop app for sports photographers and photojournalists:
 Photo Mechanic style ingest, captioning and FTP, Lightroom/Camera Raw style
-basic develop (preset compatible), and a minimal retouch mode (mosaic/pixelate
+basic develop (Lightroom preset import), and a minimal retouch mode (mosaic/pixelate
 faces). Electron + React + TypeScript, with a Rust native core (napi-rs).
 Licensed GPL-3.0-or-later.
 

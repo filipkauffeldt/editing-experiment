@@ -20,7 +20,7 @@ source -> white balance, matrix, calibration (Exposure 0)   base pass
        -> post-crop vignette, grain                           last, so they are not sharpened
 ```
 
-Why this order, as in Lightroom and RAWmakase: noise reduction works on the
+Why this order, as in Lightroom and RAWmakase: noise reduction runs on the
 linear image before anything amplifies the noise; Texture, Clarity and Dehaze are
 scene-referred (they are gains on linear light, before the tone curve and the
 shoulder); sharpening is on the encoded image, so it sharpens what is
@@ -62,7 +62,7 @@ single develop pass exactly as before.
   pixels of every tile edge.
 - **Caching for live preview.** The base image, noise reduction, pyramid and the
   Texture/Clarity fields (which depend on neither the slider amounts nor the
-  exposure, since the stages work on ratios and log values) are kept between
+  exposure, since the stages operate on ratios and log values) are kept between
   `render()` calls with the same image, crop, output size, white balance and noise
   reduction settings. Dragging Texture, Clarity, Dehaze, exposure, tone or
   sharpening runs only the combine, develop and sharpening passes.

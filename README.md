@@ -2,14 +2,13 @@
 
 ## What it is
 
-An AI-developed proof of concept: the code was written by AI coding agents
-(Claude and DeepSeek models), orchestrated and reviewed by an AI orchestrator,
-with direction and decisions from the repository owner. It is not production
-software.
+An AI-developed proof of concept: the code was written and reviewed by AI
+agents, with direction and decisions from the repository owner. It is not
+production software.
 
 A desktop app for sports photographers and photojournalists: Photo Mechanic
 style ingest, captioning and FTP/SFTP, Lightroom/Camera Raw style develop with
-preset compatibility, and a minimal mosaic/pixelate retouch mode. Electron,
+Lightroom preset import, and a minimal mosaic/pixelate retouch mode. Electron,
 React and TypeScript with a Rust native core through napi-rs; licensed
 GPL-3.0-or-later.
 
@@ -17,7 +16,7 @@ The proof of concept covers the workflow in "Proof of concept: scope and demo"
 in `docs/ARCHITECTURE.md`: ingest with filters, Library, Develop, retouch and
 Export / Export & send.
 
-## What works today
+## Implemented
 
 - Ingest from folder and card sources and from polled FTP/FTPS/SFTP servers, in
   parallel. Each source copies in filename order, with rename and subfolder
@@ -28,20 +27,21 @@ Export / Export & send.
   Locked / Unlocked / All, and incremental ingest (on by default).
 - Photo Mechanic `.XMP` metadata templates with Replace (the default) or Fill
   empty, `=code=` replacement tables, and `{variables}` in captions and path
-  templates. Ingest can apply a develop preset to every imported photo.
+  templates. A develop preset can be applied to every imported photo.
 - IPTC metadata in XMP sidecars for raws and embedded IIM + XMP for JPEGs.
   Tagged state and colour class use Photo Mechanic's `Tagged` and `ColorClass`
   fields and the combined `Prefs` string; the class is mirrored to `xmp:Label`
   (with label syncing on, the default) and the rating is written to
   `xmp:Rating` and `Prefs`.
 - Library: virtualised grid and loupe, multi-select (click, Shift range,
-  Ctrl/⌘ toggle, Ctrl/⌘+A), quick and colour-class filters. Folders are the
-  local ingest copies only, so cards and servers never appear there.
+  Ctrl/⌘ toggle, Ctrl/⌘+A), quick and colour-class filters. Folders are derived
+  from the local ingest copies only; cards and servers are intentionally not
+  shown there.
 - Batch caption for the selection: replace or append selected IPTC fields,
   with codes and `{variables}` expanded per photo.
 - Star ratings `1`-`5` (`0` clears), colour classes `Ctrl/⌘`+`1`-`8`
-  (`Ctrl/⌘`+`0` clears) and tag `T`. They apply to the Library selection or
-  the open photo.
+  (`Ctrl/⌘`+`0` clears) and tag `T`, applied to the Library selection or the
+  open photo.
 - Edited thumbnails and previews: develop settings, crop/straighten and the
   newest mosaic are drawn into the film strip and previews, not just the
   camera's embedded preview.
@@ -60,9 +60,9 @@ Export / Export & send.
 - Retouch mosaic (rectangle, lasso, magic wand) with YuNet face detection
   inside a dragged region.
 - Export presets (folder and file name templates, resize, output sharpening,
-  metadata and send targets) and Export / Export & send / Next & send. Exports
-  render at the preset's output size and contain no embedded preview of the
-  unretouched image.
+  metadata and send targets) and Export / Export & send / Next & send. Export
+  rendering targets the preset's output size and rejects an embedded preview of
+  the unretouched image.
 - Anonymous FTP for sources and destinations when no credentials are set.
 
 ## Known gaps
@@ -152,7 +152,7 @@ PoC end-to-end demo and the real-mode smoke test that drive Electron. Without a
 `DISPLAY` those tests start Xvfb themselves, but `Xvfb` and `xauth` must be
 installed. `pnpm screenshot` re-runs itself under `xvfb-run` when `DISPLAY` is
 unset. The PoC e2e test and `pnpm screenshot` enable SwiftShader
-(`EE_SOFTWARE_GL=1`) so WebGL works without a GPU; the develop-gl parity tests
+(`EE_SOFTWARE_GL=1`) so WebGL is available without a GPU; the develop-gl parity tests
 run in headless Chromium with the same fallback.
 
 CI (`.github/workflows/ci.yml`) runs lint/typecheck, Rust fmt/clippy/tests,
@@ -195,7 +195,7 @@ Set things up in this order:
 ## Keyboard shortcuts
 
 `Ctrl/⌘` means Ctrl, or Cmd on macOS. Letters and digits match the character
-the key prints, so the shortcuts work on a Swedish layout; AltGr combinations
+the key prints, so the shortcuts are designed for a Swedish layout; AltGr combinations
 are treated as text. `F1` opens the in-app list; `?` does too, as does
 `Ctrl/⌘` plus the physical Slash key. In Ingest only `G` and `D` switch
 modules.
@@ -233,7 +233,7 @@ Passwords and SFTP key material are stored only through Electron `safeStorage`,
 encrypted, in `userData/credentials.json`. Without an OS keyring (Secret
 Service, e.g. `gnome-keyring`, or KWallet) the app refuses to store them and
 says so; there is no plaintext fallback. Anonymous FTP needs no keyring, and
-folder sources and destinations work without one.
+folder sources and destinations do not need one.
 
 ## Repository layout
 

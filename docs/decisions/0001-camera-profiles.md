@@ -65,7 +65,7 @@ copies them into the repo, userData or fixtures.
     -> Rec.709 -> sRGB OETF -> point curves, vibrance, mixer, grading ...      unchanged
   ```
 
-  The neighbourhood stages (Texture, Clarity, Dehaze, noise reduction) work on the base pass, so
+  The neighbourhood stages (Texture, Clarity, Dehaze, noise reduction) run on the base pass, so
   they see the HueSatMap but not the look tables and tone curve, as they see the shoulder-less
   linear image today. `u_color` holds the profile's camera-to-ProPhoto matrix, so the base pass
   changes in one place. Without a profile nothing changes: `cameraToSrgb`, the shoulder, the same

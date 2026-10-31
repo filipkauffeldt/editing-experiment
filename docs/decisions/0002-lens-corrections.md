@@ -54,7 +54,7 @@ Code is in `packages/develop-gl/src/lens` (maths, matching, measurement), `src/g
 (shader mirror) and `packages/metadata/src/lens.ts` (the lens facts and the Nikon records).
 
 - **Where in the order.** Geometry is a resampling step, so it is the first thing the pipeline
-  does and everything after it works in the corrected frame: the crop, straighten and
+  does and everything after it operates in the corrected frame: the crop, straighten and
   `renderView` mappings produce a corrected-frame position, the lens map takes it to the recorded
   position, and that is what the base pass (and the single develop pass) fetches. Noise
   reduction, Texture, Clarity, Dehaze (including its 512 px measurement copy, rendered through the

@@ -2,9 +2,9 @@
 
 ## Proof of concept: scope and demo
 
-This is an AI-developed proof of concept: AI coding agents wrote the code, an AI
-orchestrator directed and reviewed it, and the repository owner set the direction and
-decisions. It is not production software.
+This is an AI-developed proof of concept: the code was written and reviewed by AI
+agents, with direction and decisions from the repository owner. It is not production
+software.
 
 The proof of concept covers one end-to-end workflow:
 
@@ -17,7 +17,7 @@ The proof of concept covers one end-to-end workflow:
    live in the film strip.
 2. **Library.** A virtualised grid and loupe, multi-selection, quick and colour-class
    filters, ratings, colour classes, tagging and batch captioning.
-3. **Develop.** A Lightroom-compatible `crs:` parameter set, imported `.xmp` presets,
+3. **Develop.** A `crs:` parameter set that follows Lightroom's names, imported `.xmp` presets,
    camera profiles, lens corrections, crop/straighten, copy/paste/sync of settings and a
    live WebGL2 preview.
 4. **Retouch.** Rectangle, lasso and magic-wand selections, YuNet face detection inside
@@ -63,7 +63,7 @@ Renderer (React)  ── typed IPC (contracts) ──>  Main (thin: windows, rou
 - `app://thumb/<photoId>`, `app://preview/<photoId>` serve cached JPEGs;
   `app://linear/<photoId>?maxEdge=N` serves the decoded linear image
   (see "Linear image format"). JPEGs are served as linear sRGB with an identity
-  camera matrix so develop preview and export renders work for them too.
+  camera matrix so the develop preview and export path is used for them too.
 - SQLite (built-in `node:sqlite`, `DatabaseSync`; no native module to rebuild per
   Electron ABI) in the utility process: photo index, source state
   (seen remote files), upload queue. It is a cache: XMP sidecars are the
@@ -416,7 +416,7 @@ digit under the modifier.
 
 ## Crop mode
 
-Crop mode works like Lightroom Classic's Crop Overlay. The crop frame is always an
+Crop mode follows Lightroom Classic's Crop Overlay model. The crop frame is always an
 axis-aligned rectangle on screen and the *image* turns underneath it; straightening
 rotates the photo, not the frame. The stored crop (`EditParams.crop`, `crs:Crop*`) is
 unchanged: the rotated rectangle in source space, whose output is the leveled frame.
