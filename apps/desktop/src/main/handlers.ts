@@ -10,8 +10,9 @@ const mock = process.env.EE_MOCK === '1';
 let settings: AppSettings = mock ? mockSettings() : defaultSettings(homedir());
 
 /**
- * Settings live in memory for now.
- * TODO(wave 2): persist to the user data directory; XMP sidecars stay the source of truth for photos.
+ * Mock mode keeps settings in memory here; the real backend persists them in the
+ * jobs process (see `jobs/backend/settings-store.ts`). XMP sidecars stay the source
+ * of truth for photos.
  */
 export const settingsHandlers: NamespaceHandlers<'settings'> = {
   'settings:get': async () => settings,
