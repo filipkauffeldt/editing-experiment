@@ -1,4 +1,4 @@
-import { basename, extname, join, normalize, sep } from 'node:path';
+import { extname, join, normalize, sep } from 'node:path';
 import { PathTraversalError } from './errors';
 
 const DIGITS = /\d+/;
@@ -51,15 +51,6 @@ export function naturalCompare(a: string, b: string): number {
     indexB += 1;
   }
   return a.length - b.length;
-}
-
-export function comparePathsByFolderThenName(
-  folderA: string,
-  nameA: string,
-  folderB: string,
-  nameB: string,
-): number {
-  return naturalCompare(folderA, folderB) || naturalCompare(nameA, nameB);
 }
 
 const TEMP_SUFFIXES = ['.tmp', '.part', '.partial', '.crdownload'];
@@ -145,10 +136,6 @@ export function safeSubfolder(value: string): string {
 /** `IMG_0001.NEF` with suffix 2 becomes `IMG_0001_2.NEF`. */
 export function withCollisionSuffix(base: string, suffix: number): string {
   return suffix === 0 ? base : `${base}_${suffix}`;
-}
-
-export function fileNameOf(path: string): string {
-  return basename(path);
 }
 
 const WINDOWS_RESERVED = /^(con|prn|aux|nul|com[1-9]|lpt[1-9])(\..*)?$/i;

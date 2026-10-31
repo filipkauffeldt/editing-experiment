@@ -1,5 +1,5 @@
 import type { Point, Rect, Shape } from '@ee/contracts';
-import { rectToPixels, rectToPolygon } from './geometry';
+import { rectToPixels } from './geometry';
 
 /**
  * A selection mask: one byte per pixel, 1 = selected, 0 = not selected.
@@ -165,9 +165,4 @@ export function maskBounds(
   }
   if (x1 < x0 || y1 < y0) return undefined;
   return { x: x0, y: y0, w: x1 - x0 + 1, h: y1 - y0 + 1 };
-}
-
-/** `rect` as a polygon, for callers that only work with polygons. */
-export function shapeToPolygon(shape: Shape) {
-  return shape.type === 'rect' ? rectToPolygon(shape) : shape;
 }

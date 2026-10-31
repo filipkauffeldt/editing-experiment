@@ -1,7 +1,5 @@
 import { readFile, writeFile } from 'node:fs/promises';
 
-const SOI = Buffer.from([0xff, 0xd8]);
-
 /** Inserts a metadata segment immediately after the JPEG SOI marker. */
 export function withSegment(jpeg: Buffer, marker: number, payload: Buffer): Buffer {
   const header = Buffer.from([0xff, marker, 0, 0]);
@@ -114,8 +112,6 @@ export function insertPhotoshopThumbnail(jpeg: Buffer): Buffer {
   const segment = photoshopThumbnailSegment();
   return withSegment(jpeg, segment.marker, segment.payload);
 }
-
-export { SOI };
 
 export function jfifThumbnailSegment(): { marker: number; payload: Buffer } {
   const thumbnailWidth = 8;

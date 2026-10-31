@@ -65,10 +65,3 @@ export function invert(m: Mat3): number[] {
     (a * e - b * d) * inv,
   ];
 }
-
-/** `m * diag(s)`: scales the columns of `m`, i.e. applies the per-channel gain `s` first. */
-export function scaleColumns(m: Mat3, s: Vec3): number[] {
-  return m.map((value, index) => value * (s[index % 3] ?? 1));
-}
-
-export const IDENTITY: readonly number[] = [1, 0, 0, 0, 1, 0, 0, 0, 1];

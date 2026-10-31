@@ -1,0 +1,15 @@
+{
+  "$schema": "https://unpkg.com/knip@6/schema.json",
+  "ignoreExportsUsedInFile": true,
+  "ignore": ["crates/core/index.cjs"],
+  "ignoreBinaries": ["Xvfb"],
+  "ignoreDependencies": [
+    "@fontsource-variable/inter",
+    "@fontsource-variable/jetbrains-mono",
+    "basic-ftp",
+    "exiftool-vendored",
+    "fast-xml-parser",
+    "onnxruntime-node",
+    "ssh2-sftp-client"
+  ]
+}

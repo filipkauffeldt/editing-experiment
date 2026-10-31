@@ -2,8 +2,6 @@ import type {
   ConnectionTestResult,
   CredentialSecret,
   Destination,
-  DestinationId,
-  PhotoId,
   UploadId,
   UploadItem,
 } from '@ee/contracts';
@@ -47,19 +45,3 @@ export interface StoredUploadItem extends UploadItem {
   /** Identifies the current run, so a cancelled run cannot touch its successor. */
   claimToken?: string;
 }
-
-export interface EnqueueContext {
-  photoId: PhotoId;
-  localPath: string;
-  destinations: Destination[];
-  /** Injected template expander; defaults to the built-in one. */
-  expandPathTemplate?: (template: string, context: unknown) => string;
-}
-
-/** Internal identity type used when creating rows. */
-export type UploadRowId = UploadId;
-
-export type DestinationKind = Destination['kind'];
-
-/** Re-exported for convenience in host code. */
-export type { Destination, DestinationId, UploadItem };
