@@ -42,7 +42,8 @@ export function defaultProfileFolders(
     if (env['APPDATA']) folders.push(join(env['APPDATA'], 'Adobe', 'CameraRaw', 'CameraProfiles'));
     return folders;
   }
-  // TODO(linux): Adobe has no Linux installer; the user copies the folder over and adds it in Settings.
+  // TODO(linux): Adobe has no Linux installer, so there is no default folder to scan;
+  // the user copies the folder over and adds it in Settings.
   return [];
 }
 
