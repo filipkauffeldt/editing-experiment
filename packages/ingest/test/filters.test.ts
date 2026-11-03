@@ -44,7 +44,6 @@ function config(one: FolderSource, destination: string): IngestConfig {
     sources: [one],
     destination: { path: destination },
     renameTemplate: '{filenamebase}',
-    codeReplacementPaths: [],
   };
 }
 

@@ -27,7 +27,9 @@ Export / Export & send.
   Locked / Unlocked / All, and incremental ingest (on by default).
 - Photo Mechanic `.XMP` metadata templates with Replace (the default) or Fill
   empty, `=code=` replacement tables, and `{variables}` in captions and path
-  templates. A develop preset can be applied to every imported photo.
+  templates. Templates and code replacement files live in Settings → Metadata
+  and are shared by ingest, the Metadata panel and batch caption. A develop
+  preset can be applied to every imported photo.
 - IPTC metadata in XMP sidecars for raws and embedded IIM + XMP for JPEGs.
   Tagged state and colour class use Photo Mechanic's `Tagged` and `ColorClass`
   fields and the combined `Prefs` string; the class is mirrored to `xmp:Label`
@@ -184,23 +186,25 @@ the variable are absent.
 
 Set things up in this order:
 
-1. **Settings → Ingest.** Choose the destination folder and rename template
+1. **Settings → Metadata.** Add the Photo Mechanic metadata template `.XMP` files
+   and tab-delimited code replacement files. This global list feeds the
+   Metadata panel and ingest.
+2. **Settings → Ingest.** Choose the destination folder and rename template
    (and optionally a subfolder template and backup folder). Pick the metadata
-   template `.XMP` and its mode, `Replace existing values` (the default) or
-   `Fill empty fields`, add code replacement files, and choose the develop
-   preset to apply on import. Import presets with **Develop → Presets →
-   Import** first.
-2. **Settings → Sources.** Add a folder, card, FTP or SFTP source, then
+   template from the global list and its mode, `Replace existing values` (the
+   default) or `Fill empty fields`, and choose the develop preset to apply on
+   import. Import presets with **Develop → Presets → Import** first.
+3. **Settings → Sources.** Add a folder, card, FTP or SFTP source, then
    **Test** and **Save source**. For a local source, set its filters: file
    types RAW / JPEG / Both, lock state Locked / Unlocked / All, and Incremental
    (on by default). Anonymous FTP needs no password.
-3. **Settings → Destinations** for upload targets, and **Export… → New
+4. **Settings → Destinations** for upload targets, and **Export… → New
    preset** for export presets (Location, File, Content, Then send), then
    **Save preset** and **Set as active**.
-4. Optional: **Settings → Profiles → Add folder…** for `.dcp`/`.xmp` camera
+5. Optional: **Settings → Profiles → Add folder…** for `.dcp`/`.xmp` camera
    profiles. Adobe's own folders are found automatically on macOS and Windows.
    See [Camera profiles](docs/camera-profiles.md) for the platform details.
-5. Start with **Ingest → Ingest**, then **Library** → **Develop** →
+6. Start with **Ingest → Ingest**, then **Library** → **Develop** →
    **Export…** or **Export & send** (or **Next & send**, Ctrl/⌘+Enter).
 
 ## Keyboard shortcuts

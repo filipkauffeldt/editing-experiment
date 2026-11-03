@@ -42,6 +42,64 @@ describe('SettingsStore profile folders', () => {
   });
 });
 
+describe('SettingsStore metadata templates', () => {
+  it('round-trips the global template and code replacement lists without repeats', async () => {
+    const file = join(await tempDir(), 'settings.json');
+    const store = new SettingsStore(file, defaults);
+    expect(store.get().metadataTemplates).toEqual([]);
+    expect(store.get().codeReplacementPaths).toEqual([]);
+
+    store.set({
+      metadataTemplates: ['/templates/a.XMP', '/templates/b.XMP', '/templates/a.XMP'],
+      codeReplacementPaths: ['/codes/a.txt', '/codes/b.txt', '/codes/a.txt'],
+    });
+    expect(store.get().metadataTemplates).toEqual(['/templates/a.XMP', '/templates/b.XMP']);
+    expect(store.get().codeReplacementPaths).toEqual(['/codes/a.txt', '/codes/b.txt']);
+    expect(new SettingsStore(file, defaults).get()).toMatchObject({
+      metadataTemplates: ['/templates/a.XMP', '/templates/b.XMP'],
+      codeReplacementPaths: ['/codes/a.txt', '/codes/b.txt'],
+    });
+    expect(() => store.set({ metadataTemplates: [''] })).toThrow(/metadataTemplates/);
+    expect(() => store.set({ codeReplacementPaths: [''] })).toThrow(/codeReplacementPaths/);
+  });
+
+  it('migrates the ingest template and code replacement files to the global lists', async () => {
+    const dir = await tempDir();
+    const file = join(dir, 'settings.json');
+    await writeFile(
+      file,
+      JSON.stringify({
+        version: 2,
+        ingest: {
+          destination: { path: '/ingest' },
+          renameTemplate: '{date}',
+          metadataTemplatePath: '/templates/ingest.XMP',
+          metadataTemplateMode: 'fillEmpty',
+          codeReplacementPaths: ['/codes/old.txt'],
+        },
+        sources: [],
+        destinations: [],
+      }),
+    );
+
+    const store = new SettingsStore(file, defaults);
+    expect(store.get().metadataTemplates).toEqual(['/templates/ingest.XMP']);
+    expect(store.get().codeReplacementPaths).toEqual(['/codes/old.txt']);
+    expect(store.get().ingest.metadataTemplatePath).toBe('/templates/ingest.XMP');
+    expect(store.get().ingest.metadataTemplateMode).toBe('fillEmpty');
+
+    const saved = JSON.parse(await readFile(file, 'utf8')) as {
+      ingest: Record<string, unknown>;
+      metadataTemplates: string[];
+      codeReplacementPaths: string[];
+    };
+    expect(saved.metadataTemplates).toEqual(['/templates/ingest.XMP']);
+    expect(saved.codeReplacementPaths).toEqual(['/codes/old.txt']);
+    expect(saved.ingest.codeReplacementPaths).toBeUndefined();
+    expect(saved.ingest.metadataTemplatePath).toBe('/templates/ingest.XMP');
+  });
+});
+
 describe('SettingsStore', () => {
   it('starts from defaults and survives a restart', async () => {
     const file = join(await tempDir(), 'settings.json');
@@ -120,7 +178,6 @@ describe('SettingsStore', () => {
         ingest: {
           destination: { path: '/ingest' },
           renameTemplate: '{date}',
-          codeReplacementPaths: [],
         },
         sources: [
           {
@@ -167,7 +224,6 @@ describe('SettingsStore', () => {
         ingest: {
           destination: { path: '/ingest' },
           renameTemplate: '{date}',
-          codeReplacementPaths: [],
         },
         sources: [],
         destinations: [],
@@ -189,7 +245,6 @@ describe('SettingsStore', () => {
         ingest: {
           destination: { path: '/ingest' },
           renameTemplate: '{date}',
-          codeReplacementPaths: [],
         },
         finishAction: {
           exportPreset: { maxEdge: 3000, quality: 76, metadata: 'iptc' },

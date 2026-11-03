@@ -25,7 +25,6 @@ function config(sources: FolderSource[], destination: string): IngestConfig {
     sources,
     destination: { path: destination },
     renameTemplate: '{filenamebase}_{seq:2}',
-    codeReplacementPaths: [],
   };
 }
 

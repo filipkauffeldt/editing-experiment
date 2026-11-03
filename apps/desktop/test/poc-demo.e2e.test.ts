@@ -529,11 +529,12 @@ describe.skipIf(nefs.length === 0 || !haveDisplay)(
           destination: { path: join(root, 'ingest') },
           renameTemplate: '{sourceName}_{seq:3}',
           metadataTemplatePath: templatePath,
-          codeReplacementPaths: [codesPath],
         },
         exportRoot,
         exportPresets: [mainPreset, batchPreset, sourceFolderPreset, fullPreset],
         activePresetId: mainPreset.id,
+        metadataTemplates: [templatePath],
+        codeReplacementPaths: [codesPath],
       };
       await invoke('settings:set', settings);
       await window.reload();

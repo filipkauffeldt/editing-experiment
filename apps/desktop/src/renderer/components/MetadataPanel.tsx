@@ -1,5 +1,6 @@
 import type { IptcFields, PhotoId } from '@ee/contracts';
 import { useState } from 'react';
+import { METADATA_SECTIONS, metadataValue, type MetadataFieldName } from '../metadata-fields';
 import { activePhoto } from '../store';
 import { useAppState, useAppStore } from '../store-context';
 import { CloseIcon } from './icons';
@@ -9,70 +10,17 @@ import { Select, TextArea, TextInput } from './ui/Field';
 import { PanelSection } from './ui/PanelSection';
 import styles from './MetadataPanel.module.css';
 
-type FieldName = keyof IptcFields;
+const baseName = (path: string): string => path.split(/[\\/]/).pop() ?? path;
 
-interface FieldSpec {
-  name: FieldName;
-  label: string;
-  placeholder?: string;
-  multiline?: boolean;
-}
-
-const SECTIONS: { title: string; fields: FieldSpec[] }[] = [
-  {
-    title: 'Caption',
-    fields: [
-      { name: 'headline', label: 'Headline' },
-      {
-        name: 'caption',
-        label: 'Caption',
-        multiline: true,
-        placeholder: '=code= and {variables} are expanded on blur',
-      },
-      { name: 'keywords', label: 'Keywords' },
-      { name: 'objectName', label: 'Object name' },
-    ],
-  },
-  {
-    title: 'Credits',
-    fields: [
-      { name: 'byline', label: 'Byline' },
-      { name: 'bylineTitle', label: 'Byline title' },
-      { name: 'credit', label: 'Credit' },
-      { name: 'source', label: 'Source' },
-      { name: 'copyright', label: 'Copyright' },
-      { name: 'captionWriter', label: 'Caption writer' },
-    ],
-  },
-  {
-    title: 'Location',
-    fields: [
-      { name: 'city', label: 'City' },
-      { name: 'state', label: 'State / province' },
-      { name: 'country', label: 'Country' },
-      { name: 'countryCode', label: 'Country code' },
-      { name: 'location', label: 'Location' },
-    ],
-  },
-  {
-    title: 'Event / job',
-    fields: [
-      { name: 'event', label: 'Event' },
-      { name: 'jobId', label: 'Job id' },
-      { name: 'instructions', label: 'Instructions' },
-      { name: 'dateCreated', label: 'Date created' },
-    ],
-  },
-];
-
-const valueOf = (value: IptcFields[FieldName] | undefined): string =>
-  Array.isArray(value) ? value.join(', ') : (value ?? '');
-
-function differs(field: FieldName, fields: IptcFields, template: IptcFields | undefined): boolean {
+function differs(
+  field: MetadataFieldName,
+  fields: IptcFields,
+  template: IptcFields | undefined,
+): boolean {
   if (!template) return false;
   const templateValue = template[field];
   if (templateValue === undefined) return false;
-  return valueOf(fields[field]) !== valueOf(templateValue);
+  return metadataValue(fields[field]) !== metadataValue(templateValue);
 }
 
 function KeywordsEditor({ photoId, keywords }: { photoId: PhotoId; keywords: string[] }) {
@@ -139,7 +87,19 @@ export function MetadataPanel({ className }: { className?: string }) {
   const template = state.template;
   const unresolved = photo ? (state.metadataUnresolved[photo.id] ?? []) : [];
   const [templateMode, setTemplateMode] = useState<'replace' | 'fillEmpty'>('fillEmpty');
-  const templatePath = state.settings?.ingest.metadataTemplatePath ?? state.templatePath;
+  const copied = state.copiedMetadata;
+  const copiedCount = copied ? Object.keys(copied.fields).length : 0;
+  const templateOptions = [
+    ...new Set(
+      [
+        ...(state.settings?.metadataTemplates ?? []),
+        state.settings?.ingest.metadataTemplatePath,
+        state.templatePath,
+      ].filter((path): path is string => path !== undefined && path !== ''),
+    ),
+  ];
+  const templatePath =
+    state.templatePath ?? state.settings?.ingest.metadataTemplatePath ?? templateOptions[0];
 
   return (
     <Panel title="Metadata" className={className} testId="metadata-panel">
@@ -159,12 +119,42 @@ export function MetadataPanel({ className }: { className?: string }) {
           </div>
 
           <div className={styles.templateBar}>
+            <Select
+              className={styles.templateSelect}
+              aria-label="Metadata template"
+              data-testid="metadata-template-select"
+              value={templatePath ?? ''}
+              onChange={(event) => void store.selectMetadataTemplate(event.target.value)}
+            >
+              {templateOptions.length === 0 && <option value="">No template</option>}
+              {templateOptions.map((path) => (
+                <option key={path} value={path} title={path}>
+                  {baseName(path)}
+                </option>
+              ))}
+            </Select>
             <Button
               size="small"
-              disabled={!templatePath}
-              onClick={() => void store.applyTemplate(templateMode, photo.id)}
+              data-testid="metadata-template-browse"
+              onClick={() => void store.browseMetadataTemplate()}
             >
-              Apply template…
+              Browse…
+            </Button>
+          </div>
+
+          <div className={styles.templateBar}>
+            <Button
+              size="small"
+              data-testid="metadata-template-apply"
+              disabled={!templatePath}
+              onClick={() => void store.applyTemplate({ mode: templateMode })}
+              title={
+                state.selection.length > 1
+                  ? `Apply to ${state.selection.length} selected photos`
+                  : 'Apply to the current photo'
+              }
+            >
+              Apply
             </Button>
             <Select
               className={styles.templateMode}
@@ -185,18 +175,46 @@ export function MetadataPanel({ className }: { className?: string }) {
             )}
           </div>
 
-          {SECTIONS.map((section) => (
+          <div className={styles.templateBar}>
+            <Button
+              size="small"
+              data-testid="metadata-copy"
+              onClick={() => store.openMetadataCopy()}
+            >
+              Copy…
+            </Button>
+            <Button
+              size="small"
+              data-testid="metadata-paste"
+              disabled={!copied}
+              title={
+                copied
+                  ? `Paste ${copiedCount} field${copiedCount === 1 ? '' : 's'} from ${copied.sourceName}`
+                  : 'Copy metadata first'
+              }
+              onClick={() => void store.pasteMetadata()}
+            >
+              Paste
+            </Button>
+            {copied && (
+              <span className={styles.clipboardNote}>
+                {copiedCount} field{copiedCount === 1 ? '' : 's'} copied
+              </span>
+            )}
+          </div>
+
+          {METADATA_SECTIONS.map((section) => (
             <PanelSection key={section.title} title={section.title}>
               {section.fields.map((field) => {
                 const fieldDiffers = differs(field.name, fields, template);
-                const value = valueOf(fields[field.name]);
+                const value = metadataValue(fields[field.name]);
                 const label = (
                   <span className={`${styles.label} ${fieldDiffers ? styles.labelDiff : ''}`}>
                     {field.label}
                     {fieldDiffers && (
                       <span
                         className={styles.diffMark}
-                        title={`Template: ${valueOf(template?.[field.name])}`}
+                        title={`Template: ${metadataValue(template?.[field.name])}`}
                       >
                         ≠ template
                       </span>

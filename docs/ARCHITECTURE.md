@@ -87,7 +87,7 @@ Electron dependency (`createBackend({ userDataDir, emit, getSecret })`), so inte
 in plain Node. Files under Electron's `userData`:
 
 ```
-settings.json        sources, destinations, ingest options, export presets, active preset, profile folders
+settings.json        sources, destinations, ingest options, metadata templates, code replacements, export presets, active preset, profile folders
 index.sqlite         photo index (cache; sidecars are the source of truth)
 seen.sqlite          files already ingested per source
 uploads.sqlite       upload queue
@@ -199,8 +199,11 @@ Key types (names are binding, fields can grow):
   `lockFilter` (`all` default) and `incremental` (`true` default); remote sources
   have none of them.
 - `IngestConfig { sources, destination, backupDestination?, renameTemplate,
-  metadataTemplatePath?, metadataTemplateMode?, developPresetId?, codeReplacementPaths[] }`;
-  the template mode is `replace` (default) or `fillEmpty`.
+  metadataTemplatePath?, metadataTemplateMode?, developPresetId? }`;
+  the template mode is `replace` (default) or `fillEmpty`. The global
+  `AppSettings.metadataTemplates` and `AppSettings.codeReplacementPaths` lists
+  supply the template picker and code replacement files for ingest and the
+  Metadata panel.
 - `IptcFields` (IPTC Core + common Ext: headline, caption, keywords, byline,
   bylineTitle, credit, source, copyright, city, state, country, countryCode,
   location, event, objectName, jobId, instructions, captionWriter, dateCreated)
@@ -263,7 +266,9 @@ LibRaw) only; TIFF, PNG, HEIF and WebP are ingested but have no decoded preview.
 - Develop settings: `crs:` namespace in the same sidecar.
 - Retouch versions: namespace `ee:` (`http://ns.editing-experiment/1.0/`).
 - PM metadata templates are `.XMP` files; code replacement files are
-  tab-delimited text; variables use `{name}` syntax. Ingest replaces existing
+  tab-delimited text; variables use `{name}` syntax. The paths live in the
+  global `AppSettings.metadataTemplates` and `AppSettings.codeReplacementPaths`
+  lists (Settings → Metadata); the app never copies the files. Ingest replaces existing
   values by default (cameras write their own copyright/artist); "fill empty"
   is the opt-in alternative. For embedded JPEG/TIFF metadata the template's
   `copyright`/`byline` are also written to EXIF `Copyright`/`Artist`, as MWG
@@ -491,6 +496,30 @@ stay with each photo.
   (`scheduleNow`, ahead of the debounce).
 - There is no general undo stack in the app, so a batch paste is one write but not an
   undoable step yet.
+
+## Metadata templates and Copy/Paste metadata
+
+Settings → Metadata is the global home of Photo Mechanic metadata templates and code
+replacement files, like Photo Mechanic itself. `AppSettings.metadataTemplates` is an
+ordered list of `.XMP` paths (the app never copies the files) and
+`AppSettings.codeReplacementPaths` is used everywhere captions expand: ingest, the
+caption/metadata fields and batch caption. Settings → Ingest keeps its own template
+choice (a dropdown over the global list, plus None and Browse…) and the Replace / Fill
+empty mode. Loading settings written before this split migrates
+`ingest.metadataTemplatePath` into the global list (keeping it selected for ingest) and
+moves `ingest.codeReplacementPaths` to the global list.
+
+The Metadata panel (Develop) has a template picker over the global list; **Browse…** adds
+the picked `.XMP` to the list. Applying a template targets the whole multi-selection in
+the film strip (or the open photo) and keeps the existing Fill empty / Replace all mode.
+
+**Copy…** opens a field picker grouped like the panel sections (Caption, Credits,
+Location, Event / job). It snapshots the checked fields from the active photo, including
+explicit empty values, in `AppState.copiedMetadata`. **Paste** writes exactly that partial
+field set to the selected photos through `metadata:writeFields` (the normal `writeIptc`
+path, so raws go to their XMP sidecar and are never written). Fields that were not copied
+stay untouched and code replacements are not re-expanded on paste. `metadata:writeFields`
+also refreshes each photo's `metadataDiffersFromTemplate` status.
 
 ## Export model
 

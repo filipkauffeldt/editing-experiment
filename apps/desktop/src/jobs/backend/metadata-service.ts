@@ -7,6 +7,8 @@ import type {
   Photo,
   PhotoId,
   WriteMetadataArgs,
+  WriteMetadataFieldsArgs,
+  WriteMetadataFieldsResult,
 } from '@ee/contracts';
 import {
   diffFromTemplate,
@@ -43,6 +45,29 @@ export class MetadataService {
       await writeIptc(photo.path, fields, { service: this.exiftool });
       return this.refreshStatus(photoId);
     });
+  }
+
+  /**
+   * Paste the same fields onto several photos. Only the given fields are
+   * written; every other field stays as it is. Raw files are never touched.
+   */
+  async writeFields({
+    photoIds,
+    fields,
+  }: WriteMetadataFieldsArgs): Promise<WriteMetadataFieldsResult> {
+    const result: WriteMetadataFieldsResult = { updated: [], failed: [] };
+    for (const photoId of new Set(photoIds)) {
+      try {
+        await this.write({ photoId, fields });
+        result.updated.push(photoId);
+      } catch (error) {
+        result.failed.push({
+          photoId,
+          message: error instanceof Error ? error.message : String(error),
+        });
+      }
+    }
+    return result;
   }
 
   /** Parse a template file; re-reads only when the file changed. */
@@ -93,7 +118,7 @@ export class MetadataService {
 
   async expandCaption(args: ExpandCaptionArgs): Promise<ExpandCaptionResult> {
     const photo = this.photos.get(args.photoId);
-    const paths = args.codeReplacementPaths ?? this.settings.get().ingest.codeReplacementPaths;
+    const paths = args.codeReplacementPaths ?? this.settings.get().codeReplacementPaths ?? [];
     const [fields, codeReplacementSet] = await Promise.all([
       readIptc(photo.path, this.exiftool),
       loadCodeReplacements(paths),

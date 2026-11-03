@@ -62,6 +62,7 @@ import {
 } from '@ee/contracts';
 import { EditedPreviewScheduler, type EditedPreviewRenderer } from './edited-preview-scheduler';
 import { renderFullResolution } from './export-render';
+import { copyMetadataFields, type MetadataFieldName } from './metadata-fields';
 import {
   initialLibrary,
   matchesLibrary,
@@ -98,7 +99,7 @@ export type SortMode = 'filename' | 'capture-time';
 export type SelectionMode = 'replace' | 'toggle' | 'range';
 /** The four modules of the top bar; Retouch is `AppState.retouch` on the Develop view. */
 export type AppModule = 'ingest' | 'library' | 'develop';
-export type DialogTab = 'sources' | 'destinations' | 'ingest' | 'profiles';
+export type DialogTab = 'sources' | 'destinations' | 'ingest' | 'metadata' | 'profiles';
 
 /** A photo's camera profile as the renderer uses it. */
 export interface PhotoProfile {
@@ -315,6 +316,13 @@ export interface CopiedSettings {
   params: EditParams;
 }
 
+/** The IPTC fields last copied from a photo; Paste writes exactly these. */
+export interface CopiedMetadata {
+  sourcePhotoId: PhotoId;
+  sourceName: string;
+  fields: Partial<IptcFields>;
+}
+
 /** The last photo that was edited, for Previous (`Ctrl/Cmd+Alt+V`). */
 export interface PreviousEdit {
   photoId: PhotoId;
@@ -360,6 +368,10 @@ export interface AppState {
   copySettings?: { mode: 'copy' | 'sync' };
   /** What Paste (`Ctrl/Cmd+Shift+V`) applies. */
   copiedSettings?: CopiedSettings;
+  /** The open Copy Metadata dialog; absent when closed. */
+  metadataCopyOpen?: boolean;
+  /** What the Metadata panel's Paste writes. */
+  copiedMetadata?: CopiedMetadata;
   /** What Previous (`Ctrl/Cmd+Alt+V`) applies. */
   previousEdit?: PreviousEdit;
   exportPresets: ExportPreset[];
@@ -863,7 +875,9 @@ export class AppStore {
       error: photos.status === 'rejected' ? messageOf(photos.reason) : undefined,
     });
 
-    const path = value(settings)?.ingest.metadataTemplatePath;
+    const loadedSettings = value(settings);
+    const path =
+      loadedSettings?.ingest.metadataTemplatePath ?? loadedSettings?.metadataTemplates?.[0];
     if (path) void this.loadTemplate(path);
 
     const first = this.getVisiblePhotos()[0];
@@ -1903,14 +1917,99 @@ export class AppStore {
     }
   }
 
-  readonly loadTemplate = async (path: string): Promise<void> => {
+  readonly loadTemplate = async (path: string): Promise<boolean> => {
     try {
       const template = await this.bridge.invoke('metadata:readTemplate', { path });
       this.set({ template, templatePath: path });
+      return true;
     } catch (cause) {
       this.toast('error', `Could not read template: ${messageOf(cause)}`);
+      return false;
     }
   };
+
+  /** Add template paths to the global list (Settings → Metadata and Browse…). */
+  readonly addMetadataTemplates = async (paths: readonly string[]): Promise<void> => {
+    const templates = this.state.settings?.metadataTemplates ?? [];
+    const next = [...templates];
+    for (const path of paths) {
+      if (path !== '' && !next.includes(path)) next.push(path);
+    }
+    if (next.length === templates.length) return;
+    await this.saveSettings({ metadataTemplates: next });
+  };
+
+  /** Remove a template from the global list, clearing the ingest choice if it was selected. */
+  readonly removeMetadataTemplate = async (path: string): Promise<void> => {
+    const settings = this.state.settings;
+    if (!settings) return;
+    const templates = (settings.metadataTemplates ?? []).filter((candidate) => candidate !== path);
+    const patch: Partial<AppSettings> = { metadataTemplates: templates };
+    if (settings.ingest.metadataTemplatePath === path) {
+      patch.ingest = { ...settings.ingest, metadataTemplatePath: undefined };
+    }
+    await this.saveSettings(patch);
+    if (this.state.templatePath === path) {
+      this.set({ template: undefined, templatePath: undefined });
+    }
+  };
+
+  /** Add code replacement files to the global list used by every caption expansion. */
+  readonly addCodeReplacementFiles = async (paths: readonly string[]): Promise<void> => {
+    const current = this.state.settings?.codeReplacementPaths ?? [];
+    const next = [...current];
+    for (const path of paths) {
+      if (path !== '' && !next.includes(path)) next.push(path);
+    }
+    if (next.length === current.length) return;
+    await this.saveSettings({ codeReplacementPaths: next });
+  };
+
+  readonly removeCodeReplacementFile = async (path: string): Promise<void> => {
+    const current = this.state.settings?.codeReplacementPaths ?? [];
+    await this.saveSettings({
+      codeReplacementPaths: current.filter((candidate) => candidate !== path),
+    });
+  };
+
+  /** Add a template path to the global list if it is new. */
+  private async rememberMetadataTemplate(path: string): Promise<void> {
+    try {
+      await this.addMetadataTemplates([path]);
+    } catch (cause) {
+      console.warn(`Could not remember metadata template: ${messageOf(cause)}`);
+    }
+  }
+
+  /** Load a template from the picker and remember it. */
+  readonly selectMetadataTemplate = async (path: string): Promise<void> => {
+    if (!path) return;
+    if (await this.loadTemplate(path)) await this.rememberMetadataTemplate(path);
+  };
+
+  /** Browse for another Photo Mechanic `.XMP` template and select it. */
+  readonly browseMetadataTemplate = async (): Promise<void> => {
+    try {
+      const [path] = await this.bridge.invoke('dialog:pick', {
+        kind: 'file',
+        title: 'Metadata template',
+        extensions: ['xmp'],
+      });
+      if (path) await this.selectMetadataTemplate(path);
+    } catch (cause) {
+      this.toast('error', `Could not open the template: ${messageOf(cause)}`);
+    }
+  };
+
+  /** Photos the Metadata panel's template and paste actions apply to. */
+  private metadataTargets(photoIds?: readonly PhotoId[]): PhotoId[] {
+    if (photoIds !== undefined) {
+      return [...new Set(photoIds)].filter((id) => this.photoById.has(id));
+    }
+    const { selection, selectedId } = this.state;
+    if (selection.length > 1) return [...new Set(selection)];
+    return selectedId ? [selectedId] : [];
+  }
 
   readonly updateMetadataField = (
     photoId: PhotoId,
@@ -2014,40 +2113,156 @@ export class AppStore {
     }
   };
 
-  readonly applyTemplate = async (
-    mode: TemplateApplyMode = 'replace',
-    photoId?: PhotoId,
-  ): Promise<void> => {
-    const id = photoId ?? this.state.selectedId;
-    if (!id) return;
-    const path = this.state.settings?.ingest.metadataTemplatePath ?? this.state.templatePath;
+  /**
+   * Apply the selected template to the current photo, or to every selected
+   * photo when more than one is selected. Defaults to the last loaded template.
+   */
+  readonly applyTemplate = async ({
+    mode = 'replace',
+    templatePath,
+    photoIds,
+  }: {
+    mode?: TemplateApplyMode;
+    templatePath?: string;
+    photoIds?: readonly PhotoId[];
+  } = {}): Promise<void> => {
+    const path =
+      templatePath ??
+      this.state.templatePath ??
+      this.state.settings?.ingest.metadataTemplatePath ??
+      this.state.settings?.metadataTemplates?.[0];
     if (!path) {
       this.toast('error', 'No metadata template is configured');
       return;
     }
+    const targets = this.metadataTargets(photoIds);
+    if (targets.length === 0) return;
     try {
       const result = await this.bridge.invoke('metadata:applyTemplate', {
-        photoIds: [id],
+        photoIds: targets,
         templatePath: path,
         mode,
       });
-      const [fields, template] = await Promise.all([
-        this.bridge.invoke('metadata:read', { photoId: id }),
+      const [fieldsByPhoto, template] = await Promise.all([
+        Promise.all(
+          result.updated.map(
+            async (photoId) =>
+              [photoId, await this.bridge.invoke('metadata:read', { photoId })] as const,
+          ),
+        ),
         this.bridge.invoke('metadata:readTemplate', { path }),
       ]);
-      this.set({
-        metadata: { ...this.state.metadata, [id]: fields },
-        template,
-        templatePath: path,
-        metadataUnresolved: { ...this.state.metadataUnresolved, [id]: [] },
-      });
+      const metadata = { ...this.state.metadata };
+      const metadataUnresolved = { ...this.state.metadataUnresolved };
+      for (const [photoId, fields] of fieldsByPhoto) {
+        metadata[photoId] = fields;
+        metadataUnresolved[photoId] = [];
+      }
+      this.set({ metadata, metadataUnresolved, template, templatePath: path });
+      await this.rememberMetadataTemplate(path);
       if (result.failed.length > 0) {
         this.toast('error', `Template failed for ${result.failed.length} photo(s)`);
       } else {
-        this.toast('success', mode === 'replace' ? 'Template applied' : 'Empty fields filled');
+        const count = result.updated.length;
+        this.toast(
+          'success',
+          mode === 'replace'
+            ? `Template applied to ${count} photo${count === 1 ? '' : 's'}`
+            : `Filled empty fields on ${count} photo${count === 1 ? '' : 's'}`,
+        );
       }
     } catch (cause) {
       this.toast('error', `Could not apply template: ${messageOf(cause)}`);
+    }
+  };
+
+  /** Open the Copy Metadata field picker for the active photo. */
+  readonly openMetadataCopy = (): void => {
+    if (!activePhoto(this.state)) {
+      this.toast('error', 'Select a photo first');
+      return;
+    }
+    this.set({
+      metadataCopyOpen: true,
+      copySettings: undefined,
+      dialog: undefined,
+      exportOpen: false,
+      batchCaptionOpen: false,
+      shortcutsOpen: false,
+    });
+  };
+
+  readonly closeMetadataCopy = (): void => this.set({ metadataCopyOpen: false });
+
+  /** Remember the checked fields, including empty ones, for Paste. */
+  readonly confirmMetadataCopy = (fields: readonly MetadataFieldName[]): void => {
+    const photo = activePhoto(this.state);
+    if (!photo || fields.length === 0) {
+      this.set({ metadataCopyOpen: false });
+      return;
+    }
+    this.set({
+      copiedMetadata: {
+        sourcePhotoId: photo.id,
+        sourceName: photo.fileName,
+        fields: copyMetadataFields(this.state.metadata[photo.id] ?? {}, fields),
+      },
+      metadataCopyOpen: false,
+    });
+    this.toast(
+      'success',
+      `Copied ${fields.length} field${fields.length === 1 ? '' : 's'} from ${photo.fileName}`,
+    );
+  };
+
+  /**
+   * Write exactly the copied fields onto the selection (or the open photo).
+   * Empty copied values clear the target field; nothing else is touched and
+   * code replacements are never re-expanded.
+   */
+  readonly pasteMetadata = async (): Promise<void> => {
+    const copied = this.state.copiedMetadata;
+    if (!copied) {
+      this.toast('error', 'Copy metadata first');
+      return;
+    }
+    const targets = this.metadataTargets();
+    if (targets.length === 0) return;
+    try {
+      // Flush debounced typing first so it cannot land after (and undo) the paste.
+      await Promise.all(targets.map((photoId) => this.saveMetadata(photoId)));
+      const result = await this.bridge.invoke('metadata:writeFields', {
+        photoIds: targets,
+        fields: copied.fields,
+      });
+      const fieldsByPhoto = await Promise.all(
+        result.updated.map(
+          async (photoId) =>
+            [photoId, await this.bridge.invoke('metadata:read', { photoId })] as const,
+        ),
+      );
+      const metadata = { ...this.state.metadata };
+      const metadataUnresolved = { ...this.state.metadataUnresolved };
+      for (const [photoId, fields] of fieldsByPhoto) {
+        metadata[photoId] = fields;
+        metadataUnresolved[photoId] = [];
+      }
+      this.set({ metadata, metadataUnresolved });
+      const count = Object.keys(copied.fields).length;
+      const written = result.updated.length;
+      if (result.failed.length > 0) {
+        this.toast(
+          'error',
+          `Pasted to ${written} photo${written === 1 ? '' : 's'}; ${result.failed.length} failed`,
+        );
+      } else {
+        this.toast(
+          'success',
+          `Pasted ${count} field${count === 1 ? '' : 's'} to ${written} photo${written === 1 ? '' : 's'}`,
+        );
+      }
+    } catch (cause) {
+      this.toast('error', `Could not paste metadata: ${messageOf(cause)}`);
     }
   };
 

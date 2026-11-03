@@ -84,6 +84,22 @@ export interface ApplyTemplateResult {
   failed: { photoId: PhotoId; message: string }[];
 }
 
+/** Arguments of `metadata:writeFields`. */
+export interface WriteMetadataFieldsArgs {
+  photoIds: PhotoId[];
+  /**
+   * Fields to set on every photo, overwriting their values. Fields not listed
+   * stay as they are, so this is the metadata paste path.
+   */
+  fields: Partial<IptcFields>;
+}
+
+/** Outcome of `metadata:writeFields`; partial failure does not reject. */
+export interface WriteMetadataFieldsResult {
+  updated: PhotoId[];
+  failed: { photoId: PhotoId; message: string }[];
+}
+
 /** Arguments of `metadata:expandCaption`. */
 export interface ExpandCaptionArgs {
   /** Photo whose metadata/EXIF feeds the `{variables}`. */
@@ -181,6 +197,18 @@ export interface AppSettings {
    * Adobe's own folders where they exist on this machine. Scanned recursively.
    */
   profileFolders?: string[];
+  /**
+   * Photo Mechanic `.XMP` metadata templates the app knows about, as paths.
+   * The app never copies the template files. The Metadata panel's picker and
+   * Settings → Ingest's template dropdown read this list.
+   */
+  metadataTemplates?: string[];
+  /**
+   * Tab-delimited Photo Mechanic code replacement files, later files override
+   * earlier ones. Used everywhere captions expand (`{variables}` and `=codes=`)
+   * and passed to ingest.
+   */
+  codeReplacementPaths?: string[];
 }
 
 /** Arguments of `dialog:pick`. */
@@ -264,6 +292,11 @@ export interface IpcApi {
   /** Parse a Photo Mechanic `.XMP` template without applying it. */
   'metadata:readTemplate': (args: { path: string }) => Promise<IptcFields>;
   'metadata:applyTemplate': (args: ApplyTemplateArgs) => Promise<ApplyTemplateResult>;
+  /**
+   * Write the same fields to every photo, overwriting only those fields. Used by
+   * Copy/Paste metadata; code replacements are not expanded.
+   */
+  'metadata:writeFields': (args: WriteMetadataFieldsArgs) => Promise<WriteMetadataFieldsResult>;
   'metadata:expandCaption': (args: ExpandCaptionArgs) => Promise<ExpandCaptionResult>;
 
   // --- develop ---
@@ -368,6 +401,7 @@ export const INVOKE_CHANNELS = [
   'metadata:write',
   'metadata:readTemplate',
   'metadata:applyTemplate',
+  'metadata:writeFields',
   'metadata:expandCaption',
   'develop:getParams',
   'develop:getDefaults',

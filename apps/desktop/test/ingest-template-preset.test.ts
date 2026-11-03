@@ -135,7 +135,6 @@ describe('ingest metadata template and develop preset', { timeout: 120_000 }, ()
               renameTemplate: '{filenamebase}',
               metadataTemplatePath: template,
               metadataTemplateMode: mode,
-              codeReplacementPaths: [],
             },
             1,
           );
@@ -181,7 +180,6 @@ describe('ingest metadata template and develop preset', { timeout: 120_000 }, ()
             renameTemplate: '{filenamebase}',
             metadataTemplatePath: template,
             metadataTemplateMode: 'replace',
-            codeReplacementPaths: [],
           },
           1,
         );
@@ -231,7 +229,6 @@ describe('ingest metadata template and develop preset', { timeout: 120_000 }, ()
             renameTemplate: '{filenamebase}',
             metadataTemplatePath: template,
             metadataTemplateMode: 'replace',
-            codeReplacementPaths: [],
           },
           1,
         );
@@ -269,7 +266,6 @@ describe('ingest metadata template and develop preset', { timeout: 120_000 }, ()
             destination: { path: harness.destination },
             renameTemplate: '{filenamebase}',
             developPresetId: preset.id,
-            codeReplacementPaths: [],
           },
           2,
         );
@@ -316,7 +312,6 @@ describe('ingest metadata template and develop preset', { timeout: 120_000 }, ()
             destination: { path: harness.destination },
             renameTemplate: '{filenamebase}',
             developPresetId: preset.id,
-            codeReplacementPaths: [],
           },
           1,
         );
@@ -357,7 +352,6 @@ describe('ingest metadata template and develop preset', { timeout: 120_000 }, ()
             destination: { path: harness.destination },
             renameTemplate: '{filenamebase}',
             developPresetId: asPresetId('deleted-preset'),
-            codeReplacementPaths: [],
           },
           2,
         );

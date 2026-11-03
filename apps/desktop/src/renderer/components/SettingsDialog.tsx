@@ -16,6 +16,7 @@ import { ee } from '../ee';
 import type { DialogTab } from '../store';
 import { useAppState, useAppStore } from '../store-context';
 import { FolderIcon, PlusIcon, ServerIcon } from './icons';
+import { MetadataSettings } from './MetadataSettings';
 import { Modal } from './Modal';
 import { ProfilesSettings } from './ProfilesSettings';
 import {
@@ -937,10 +938,18 @@ export function IngestSection() {
   const [metadataTemplatePath, setMetadataTemplatePath] = useState('');
   const [metadataTemplateMode, setMetadataTemplateMode] = useState<TemplateApplyMode>('replace');
   const [developPresetId, setDevelopPresetId] = useState('');
-  const [codeReplacementPaths, setCodeReplacementPaths] = useState<string[]>([]);
   const [status, setStatus] = useState<string>();
   const [error, setError] = useState<string>();
   const [busy, setBusy] = useState(false);
+  const templateOptions = [
+    ...new Set(
+      [
+        ...(state.settings?.metadataTemplates ?? []),
+        state.settings?.ingest.metadataTemplatePath,
+        metadataTemplatePath,
+      ].filter((path): path is string => path !== undefined && path !== ''),
+    ),
+  ];
 
   useEffect(() => {
     const ingest = state.settings?.ingest;
@@ -954,7 +963,6 @@ export function IngestSection() {
     setMetadataTemplatePath(ingest.metadataTemplatePath ?? '');
     setMetadataTemplateMode(ingest.metadataTemplateMode ?? 'replace');
     setDevelopPresetId(ingest.developPresetId ?? '');
-    setCodeReplacementPaths(ingest.codeReplacementPaths);
   }, [state.settings]);
 
   const build = (): IngestSettings => ({
@@ -967,7 +975,6 @@ export function IngestSection() {
     metadataTemplatePath: metadataTemplatePath.trim() || undefined,
     metadataTemplateMode,
     developPresetId: developPresetId ? asPresetId(developPresetId) : undefined,
-    codeReplacementPaths,
   });
 
   const save = async (andIngest = false): Promise<void> => {
@@ -1058,13 +1065,20 @@ export function IngestSection() {
 
       <div className={styles.gridTwo}>
         <label className={styles.field}>
-          <span className={styles.label}>Metadata template (.XMP)</span>
+          <span className={styles.label}>Metadata template</span>
           <span className={styles.inputRow}>
-            <input
+            <select
               className={styles.input}
               value={metadataTemplatePath}
               onChange={(event) => setMetadataTemplatePath(event.target.value)}
-            />
+            >
+              <option value="">None</option>
+              {templateOptions.map((path) => (
+                <option key={path} value={path}>
+                  {baseName(path)}
+                </option>
+              ))}
+            </select>
             <button
               type="button"
               className={styles.smallButton}
@@ -1074,10 +1088,13 @@ export function IngestSection() {
                   title: 'Metadata template',
                   extensions: ['xmp'],
                 });
-                if (path) setMetadataTemplatePath(path);
+                if (path) {
+                  await store.addMetadataTemplates([path]);
+                  setMetadataTemplatePath(path);
+                }
               }}
             >
-              Choose…
+              Browse…
             </button>
           </span>
         </label>
@@ -1110,47 +1127,10 @@ export function IngestSection() {
         </select>
       </label>
 
-      <div className={styles.field}>
-        <span className={styles.label}>Code replacement files</span>
-        <div className={styles.fileList}>
-          {codeReplacementPaths.map((path) => (
-            <div key={path} className={styles.fileRow}>
-              <span className={styles.fileName}>{baseName(path)}</span>
-              <span className={styles.filePath}>{path}</span>
-              <button
-                type="button"
-                className={styles.removeFile}
-                aria-label={`Remove ${baseName(path)}`}
-                onClick={() =>
-                  setCodeReplacementPaths(
-                    codeReplacementPaths.filter((candidate) => candidate !== path),
-                  )
-                }
-              >
-                ×
-              </button>
-            </div>
-          ))}
-          <button
-            type="button"
-            className={styles.addButton}
-            onClick={async () => {
-              const paths = await ee.invoke('dialog:pick', {
-                kind: 'file',
-                title: 'Code replacement file',
-                extensions: ['txt'],
-                multiple: true,
-              });
-              setCodeReplacementPaths((current) => [
-                ...current,
-                ...paths.filter((path) => !current.includes(path)),
-              ]);
-            }}
-          >
-            <PlusIcon size={9} /> Add code replacement file
-          </button>
-        </div>
-      </div>
+      <p className={styles.hint}>
+        Code replacement files are shared by every caption field and ingest. Manage them in Settings
+        → Metadata.
+      </p>
 
       {error && <p className={styles.error}>{error}</p>}
       {status && <p className={styles.status}>{status}</p>}
@@ -1185,6 +1165,7 @@ export function SettingsDialog() {
     { id: 'sources', label: 'Sources' },
     { id: 'destinations', label: 'Destinations' },
     { id: 'ingest', label: 'Ingest' },
+    { id: 'metadata', label: 'Metadata' },
     { id: 'profiles', label: 'Profiles' },
   ];
 
@@ -1219,6 +1200,7 @@ export function SettingsDialog() {
         {tab === 'sources' && <SourcesSection />}
         {tab === 'destinations' && <DestinationsSection />}
         {tab === 'ingest' && <IngestSection />}
+        {tab === 'metadata' && <MetadataSettings />}
         {tab === 'profiles' && <ProfilesSettings />}
       </div>
     </Modal>

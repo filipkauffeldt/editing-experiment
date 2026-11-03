@@ -9,7 +9,6 @@ export function ingestConfig(
     sources: Array.isArray(source) ? source : [source],
     destination: { path: destination },
     renameTemplate: '{filenamebase}_{seq:2}',
-    codeReplacementPaths: [],
   };
 }
 

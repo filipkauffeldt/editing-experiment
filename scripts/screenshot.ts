@@ -98,6 +98,12 @@ async function runMock(outDir: string): Promise<void> {
     await shoot('01b-copy-settings.png');
     await window.keyboard.press('Escape');
 
+    // Metadata copy dialog: grouped field picker.
+    await window.getByTestId('metadata-copy').click();
+    await window.getByTestId('copy-metadata-dialog').waitFor();
+    await shoot('01d-copy-metadata.png');
+    await window.keyboard.press('Escape');
+
     // A retouched photo shows the stacked-frame badge and an active upload.
     await window.locator('[title^="_DSC8332.NEF"]').click();
     await window.waitForFunction(
@@ -142,6 +148,9 @@ async function runMock(outDir: string): Promise<void> {
     await window.getByTestId('settings-dialog').getByRole('tab', { name: 'Ingest' }).click();
     await window.getByText('Develop preset', { exact: true }).waitFor();
     await shoot('05c-ingest-settings.png');
+    await window.getByTestId('settings-dialog').getByRole('tab', { name: 'Metadata' }).click();
+    await window.getByTestId('metadata-settings').waitFor();
+    await shoot('05d-metadata-settings.png');
 
     await window.getByRole('button', { name: 'Close', exact: true }).last().click();
     await window.getByTestId('open-export').click();
@@ -355,7 +364,6 @@ async function runReal(outDir: string): Promise<void> {
       ingest: {
         destination: { path: join(temp, 'ingest') },
         renameTemplate: '{sourceName}_{seq:3}',
-        codeReplacementPaths: [],
       },
       exportRoot: join(temp, 'exports'),
       exportPresets: [
@@ -386,7 +394,6 @@ async function runReal(outDir: string): Promise<void> {
         sources: [{ id: 'shots-card', kind: 'folder', name: 'shots', path: source }],
         destination: { path: join(temp, 'ingest') },
         renameTemplate: '{sourceName}_{seq:3}',
-        codeReplacementPaths: [],
       },
     });
     for (let i = 0; i < 200; i++) {
