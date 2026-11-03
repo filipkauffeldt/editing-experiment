@@ -16,6 +16,7 @@ import { ee } from '../ee';
 import type { DialogTab } from '../store';
 import { useAppState, useAppStore } from '../store-context';
 import { FolderIcon, PlusIcon, ServerIcon } from './icons';
+import { MetadataSettings } from './MetadataSettings';
 import { Modal } from './Modal';
 import { ProfilesSettings } from './ProfilesSettings';
 import {
@@ -1164,6 +1165,7 @@ export function SettingsDialog() {
     { id: 'sources', label: 'Sources' },
     { id: 'destinations', label: 'Destinations' },
     { id: 'ingest', label: 'Ingest' },
+    { id: 'metadata', label: 'Metadata' },
     { id: 'profiles', label: 'Profiles' },
   ];
 
@@ -1198,6 +1200,7 @@ export function SettingsDialog() {
         {tab === 'sources' && <SourcesSection />}
         {tab === 'destinations' && <DestinationsSection />}
         {tab === 'ingest' && <IngestSection />}
+        {tab === 'metadata' && <MetadataSettings />}
         {tab === 'profiles' && <ProfilesSettings />}
       </div>
     </Modal>

@@ -142,6 +142,9 @@ async function runMock(outDir: string): Promise<void> {
     await window.getByTestId('settings-dialog').getByRole('tab', { name: 'Ingest' }).click();
     await window.getByText('Develop preset', { exact: true }).waitFor();
     await shoot('05c-ingest-settings.png');
+    await window.getByTestId('settings-dialog').getByRole('tab', { name: 'Metadata' }).click();
+    await window.getByTestId('metadata-settings').waitFor();
+    await shoot('05d-metadata-settings.png');
 
     await window.getByRole('button', { name: 'Close', exact: true }).last().click();
     await window.getByTestId('open-export').click();
