@@ -169,6 +169,8 @@ embedded preview is only made once, at ingest.
   The strip reports its visible frames; queued background renders of frames that scrolled away are
   dropped, the selected photo goes first and then the newest frames, and finished jobs are forgotten.
   A retouched photo whose render failed is retried as soon as it is selected.
+  `AppStore.dispose` stops the scheduler for good and `init` builds a new one, so a store that is
+  mounted again (React StrictMode in `pnpm dev`) still draws thumbnails.
 - **Store (jobs).** `photos:setEditedPreview` carries the RGBA of both sizes, a `revision` and the
   `retouchOps` and develop `params` that were drawn. `EditedPreviews` encodes with `@ee/core`, writes
   `<id>.edited.jpg` beside the camera previews `<id>.jpg` (kept, so reset can revert) plus a

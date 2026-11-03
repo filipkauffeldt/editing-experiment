@@ -685,6 +685,7 @@ export class AppStore {
   private toastId = 0;
   private started = false;
   private finishing = false;
+  /** Replaced on `init` after a `dispose`, because a disposed scheduler ignores everything. */
   private editedPreviews: EditedPreviewScheduler | undefined;
   private readonly renderEditedPreview: EditedPreviewRenderer | undefined;
   private editedPreviewErrorShown = false;
@@ -776,6 +777,8 @@ export class AppStore {
   readonly init = async (): Promise<void> => {
     if (this.started) return;
     this.started = true;
+    // React StrictMode (`pnpm dev`) mounts, disposes and mounts the same store again.
+    if (this.editedPreviews?.isDisposed) this.editedPreviews = this.createEditedPreviews();
     this.unsubscribers.push(
       this.bridge.on('photos:added', (photo) => this.queuePhoto(photo)),
       this.bridge.on('photos:updated', (photo) => this.queuePhoto(photo)),

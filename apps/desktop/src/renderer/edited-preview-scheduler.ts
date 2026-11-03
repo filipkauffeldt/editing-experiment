@@ -103,6 +103,11 @@ export class EditedPreviewScheduler {
 
   constructor(private readonly deps: EditedPreviewDeps) {}
 
+  /** True after `dispose`; a disposed scheduler ignores every call for good. */
+  get isDisposed(): boolean {
+    return this.disposed;
+  }
+
   /** An edit happened: render once things have been quiet for the debounce. */
   schedule(photoId: PhotoId): void {
     if (this.disposed) return;
