@@ -958,6 +958,70 @@ describe.skipIf(nefs.length === 0 || !haveDisplay)(
       expect(await savedFaces()).toEqual(initial);
     }, 60_000);
 
+    it('Subtract with Detect faces deletes the faces inside the dragged area, and Undo brings them back', async () => {
+      await selectPhoto('cardB_001.jpg');
+      await canvasReady();
+      const toolbar = window.locator('[data-testid="retouch-toolbar"]');
+      const facesOnDisk = async (): Promise<number> => {
+        const photo = (await invoke<Photo[]>('photos:list')).find(
+          (candidate) => candidate.fileName === 'cardB_001.jpg',
+        )!;
+        const op = photo.versions.filter((version) => version.kind === 'retouch').at(-1)?.ops[0];
+        if (op?.type !== 'mosaic') throw new Error('no mosaic');
+        return (op.areas ?? []).filter((area) => area.face).length;
+      };
+      const onDisk = await facesOnDisk();
+      expect(onDisk).toBeGreaterThan(0);
+
+      await window.keyboard.press('r');
+      await toolbar.waitFor();
+      await window.locator('[data-tool="faces"][aria-pressed="true"]').waitFor();
+      const faceElements = window.locator('[data-area-kind="face"]');
+      expect(await faceElements.count()).toBe(onDisk);
+      await window.locator('[data-mode="subtract"]').click();
+
+      // Drag over the whole picture, below the toolbar, like the detection drag.
+      const dragOverPicture = async (): Promise<void> => {
+        const box = await window.locator('[data-testid="retouch-overlay"]').boundingBox();
+        if (!box) throw new Error('retouch overlay has no bounds');
+        const tool = await toolbar.boundingBox();
+        const top = Math.max(
+          box.y + box.height * 0.05,
+          (tool?.y ?? box.y) + (tool?.height ?? 0) + 6,
+        );
+        await window.mouse.move(box.x + box.width * 0.02, top);
+        await window.mouse.down();
+        await window.mouse.move(box.x + box.width * 0.98, box.y + box.height * 0.98, {
+          steps: 10,
+        });
+        await window.mouse.up();
+      };
+      await dragOverPicture();
+      await waitFor('the faces to be removed', async () =>
+        (await faceElements.count()) === 0 ? true : undefined,
+      );
+      // Gone from the counts too, and no detection result or subtract shape took their place.
+      expect(await window.getByTestId('face-count').count()).toBe(0);
+      expect(
+        await window.locator('[data-area-kind="rect"], [data-area-kind="lasso"]').count(),
+      ).toBe(0);
+
+      // One undo step brings every one of them back.
+      await window.getByRole('button', { name: 'Undo' }).click();
+      await waitFor('the faces to be restored', async () =>
+        (await faceElements.count()) === onDisk ? true : undefined,
+      );
+
+      // Remove them again, then discard: the saved version still has its faces.
+      await dragOverPicture();
+      await waitFor('the faces to be removed again', async () =>
+        (await faceElements.count()) === 0 ? true : undefined,
+      );
+      await window.getByTestId('discard-retouch').click();
+      await toolbar.waitFor({ state: 'detached' });
+      expect(await facesOnDisk()).toBe(onDisk);
+    }, 60_000);
+
     it('leaves retouch mode with Done, Escape and the footer toggle, keeping the saved version', async () => {
       await selectPhoto('cardB_001.jpg');
       await canvasReady();

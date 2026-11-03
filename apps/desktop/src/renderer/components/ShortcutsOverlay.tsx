@@ -50,6 +50,7 @@ const GROUPS: { title: string; rows: [string, string][] }[] = [
       ['Esc', 'Drop the shape being drawn; otherwise save and leave'],
       ['Click an area', 'Switch it on or off'],
       ['Alt/⌥ + drag', 'Flip Add and Subtract for that drawing'],
+      ['Subtract + Detect faces', 'Delete the faces inside the dragged area'],
       ['Ctrl/⌘ + Z', 'Undo the last change to the areas'],
     ],
   },
