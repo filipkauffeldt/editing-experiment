@@ -4,10 +4,15 @@
  * the width while 10 000–50 000 K is compressed at the right end.
  */
 export const AS_SHOT_TEMPERATURE = 5200;
+/** Lightroom's relative temperature/tint scale for files with no raw multipliers. */
+export const RELATIVE_WB_MIN = -100;
+export const RELATIVE_WB_MAX = 100;
 
 const MIN_MIRED = 20; // 50 000 K
 const MAX_MIRED = 500; // 2 000 K
 const TRACK_STEPS = 1000;
+/** One relative unit is one mired, so +100 is about as warm as Lightroom's JPEG scale. */
+const TRACK_PER_RELATIVE = TRACK_STEPS / (MAX_MIRED - MIN_MIRED);
 
 const clamp = (value: number, min: number, max: number): number =>
   Math.max(min, Math.min(max, value));
@@ -28,4 +33,17 @@ export function trackToTemperature(position: number): number {
 /** Track position used when the develop params do not set a temperature. */
 export function asShotTrackPosition(): number {
   return temperatureToTrack(AS_SHOT_TEMPERATURE);
+}
+
+/** Lightroom's relative temperature (0 at as shot) to the Kelvin value the pipeline stores. */
+export function relativeToTemperature(relative: number): number {
+  const track =
+    asShotTrackPosition() + clamp(relative, RELATIVE_WB_MIN, RELATIVE_WB_MAX) * TRACK_PER_RELATIVE;
+  return trackToTemperature(track);
+}
+
+/** Kelvin back to Lightroom's relative temperature scale. */
+export function temperatureToRelative(kelvin: number): number {
+  const relative = (temperatureToTrack(kelvin) - asShotTrackPosition()) / TRACK_PER_RELATIVE;
+  return Math.round(clamp(relative, RELATIVE_WB_MIN, RELATIVE_WB_MAX));
 }

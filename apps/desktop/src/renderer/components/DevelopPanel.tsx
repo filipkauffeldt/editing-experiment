@@ -1,8 +1,28 @@
-import { describeLens } from '@ee/develop-gl';
-import { SLIDER_SPECS, type EditParams, type SliderParam, type VignetteStyle } from '@ee/contracts';
+import {
+  asShotTemperatureTint,
+  describeLens,
+  profileColorModel,
+  type ColorModel,
+  type WhiteBalanceCamera,
+} from '@ee/develop-gl';
+import {
+  SLIDER_SPECS,
+  type EditParams,
+  type Photo,
+  type SliderParam,
+  type VignetteStyle,
+} from '@ee/contracts';
 import { useState, type ReactNode } from 'react';
-import { activePhoto, paramsForPhoto, sectionEnabled } from '../store';
-import { asShotTrackPosition, temperatureToTrack, trackToTemperature } from '../temperature-scale';
+import { activePhoto, paramsForPhoto, sectionEnabled, type AppState } from '../store';
+import {
+  AS_SHOT_TEMPERATURE,
+  RELATIVE_WB_MAX,
+  RELATIVE_WB_MIN,
+  asShotTrackPosition,
+  relativeToTemperature,
+  temperatureToTrack,
+  trackToTemperature,
+} from '../temperature-scale';
 import {
   requestDevelopAction,
   setBeforeAfter,
@@ -30,6 +50,7 @@ import {
   curveParamForChannel,
   type CurveChannel,
 } from '../tone-curve';
+import { whiteBalanceDisplay, type WhiteBalanceDisplay } from '../white-balance-display';
 import styles from './DevelopPanel.module.css';
 
 const LABELS: Record<SliderParam, string> = {
@@ -132,7 +153,6 @@ const LABELS: Record<SliderParam, string> = {
 const BANDS = ['Red', 'Orange', 'Yellow', 'Green', 'Aqua', 'Blue', 'Purple', 'Magenta'] as const;
 
 const BASIC_GROUPS: { title: string; params: SliderParam[] }[] = [
-  { title: 'White balance', params: ['Temperature', 'Tint'] },
   {
     title: 'Tone',
     params: [
@@ -155,6 +175,26 @@ const MIXER_PARAMS: Record<MixerTab, SliderParam[]> = {
   Luminance: BANDS.map((band) => `LuminanceAdjustment${band}` as SliderParam),
 };
 
+/** The white balance sliders' values, using the same conversion as the develop render. */
+function whiteBalanceFor(
+  state: AppState,
+  photo: Photo | undefined,
+  params: EditParams,
+): {
+  display: WhiteBalanceDisplay;
+  model: ColorModel | undefined;
+  camera: WhiteBalanceCamera | undefined;
+} {
+  const camera = cameraFor(state, photo);
+  const profileState = photo ? state.photoProfiles[photo.id] : undefined;
+  const profile = profileState?.status === 'ok' ? (profileState.profile ?? null) : null;
+  const model = camera ? profileColorModel(profile, camera.xyzToCamera) : undefined;
+  return { display: whiteBalanceDisplay(camera, params, model), model, camera };
+}
+
+const cameraFor = (state: AppState, photo: Photo | undefined) =>
+  photo ? state.photoWhiteBalance[photo.id] : undefined;
+
 function Slider({ name }: { name: SliderParam }) {
   const store = useAppStore();
   const state = useAppState();
@@ -165,33 +205,104 @@ function Slider({ name }: { name: SliderParam }) {
   // Raw files start at Lightroom's defaults (sharpening, colour noise reduction): that is the
   // slider's "untouched" position, where the tick sits and the fill starts.
   const start = (photo && state.editDefaults[photo.id]?.[name]) ?? spec.neutral ?? 0;
-  const asShot = spec.neutral === null && raw === undefined;
   const isTemperature = name === 'Temperature';
-  const position = isTemperature
-    ? raw === undefined
-      ? asShotTrackPosition()
-      : temperatureToTrack(raw)
-    : (raw ?? spec.neutral ?? 0);
+  const isTint = name === 'Tint';
+  const whiteBalance = isTemperature || isTint ? whiteBalanceFor(state, photo, params) : undefined;
+  const display = whiteBalance?.display;
+  const asShot = display?.asShot ?? false;
+  const relative = display?.relative ?? false;
+  const asShotValues =
+    whiteBalance?.camera && !relative
+      ? asShotTemperatureTint(whiteBalance.camera, whiteBalance.model)
+      : undefined;
+  const value = isTemperature
+    ? relative
+      ? (display?.temperature ?? 0)
+      : temperatureToTrack(display?.temperature ?? raw ?? AS_SHOT_TEMPERATURE)
+    : isTint
+      ? relative
+        ? (display?.tint ?? 0)
+        : (display?.tint ?? raw ?? 0)
+      : (raw ?? spec.neutral ?? 0);
+  const neutral = isTemperature
+    ? relative
+      ? 0
+      : asShotValues
+        ? temperatureToTrack(Math.round(asShotValues.temperature))
+        : asShotTrackPosition()
+    : isTint
+      ? relative
+        ? 0
+        : Math.round(asShotValues?.tint ?? 0)
+      : start;
+  const min = isTemperature
+    ? relative
+      ? RELATIVE_WB_MIN
+      : 0
+    : relative
+      ? RELATIVE_WB_MIN
+      : spec.min;
+  const max = isTemperature
+    ? relative
+      ? RELATIVE_WB_MAX
+      : 1000
+    : relative
+      ? RELATIVE_WB_MAX
+      : spec.max;
 
   return (
     <SliderControl
       label={LABELS[name]}
-      value={position}
-      min={isTemperature ? 0 : spec.min}
-      max={isTemperature ? 1000 : spec.max}
+      value={value}
+      min={min}
+      max={max}
       step={isTemperature ? 1 : spec.step}
-      neutral={isTemperature ? asShotTrackPosition() : start}
-      display={asShot ? '' : (raw ?? spec.neutral ?? 0)}
-      placeholder={asShot ? 'As shot' : undefined}
-      numberMin={spec.min}
-      numberMax={spec.max}
+      neutral={neutral}
+      display={
+        display ? (isTemperature ? display.temperature : display.tint) : (raw ?? spec.neutral ?? 0)
+      }
+      asShot={asShot}
+      numberMin={relative ? RELATIVE_WB_MIN : spec.min}
+      numberMax={relative ? RELATIVE_WB_MAX : spec.max}
       numberStep={spec.step}
-      tone={isTemperature ? 'temperature' : name === 'Tint' ? 'tint' : undefined}
+      tone={isTemperature ? 'temperature' : isTint ? 'tint' : undefined}
       disabled={!photo}
-      onRange={(value) => store.setSlider(name, isTemperature ? trackToTemperature(value) : value)}
-      onNumber={(value) => store.setSlider(name, value)}
+      onRange={(next) =>
+        store.setSlider(
+          name,
+          isTemperature && !relative
+            ? trackToTemperature(next)
+            : isTemperature
+              ? relativeToTemperature(next)
+              : next,
+        )
+      }
+      onNumber={(next) =>
+        store.setSlider(
+          name,
+          isTemperature && relative && next !== undefined ? relativeToTemperature(next) : next,
+        )
+      }
       onReset={() => store.resetSlider(name)}
     />
+  );
+}
+
+function WhiteBalanceSection() {
+  const state = useAppState();
+  const photo = activePhoto(state);
+  const params = paramsForPhoto(state, photo);
+  const { display } = whiteBalanceFor(state, photo, params);
+  return (
+    <Section
+      title="White balance"
+      params={['Temperature', 'Tint']}
+      testId="white-balance"
+      actions={display.asShot ? <span className={styles.wbMode}>As Shot</span> : undefined}
+    >
+      <Slider name="Temperature" />
+      <Slider name="Tint" />
+    </Section>
   );
 }
 
@@ -690,6 +801,7 @@ export function DevelopPanel({ className }: { className?: string }) {
 
       <div data-testid="sliders">
         <ProfileSection />
+        <WhiteBalanceSection />
         {BASIC_GROUPS.map((group) => (
           <Group key={group.title} title={group.title} params={group.params} />
         ))}

@@ -1,5 +1,10 @@
 import { asPhotoId, type LensShotInfo } from '@ee/contracts';
-import { cropAspect } from '@ee/develop-gl';
+import {
+  cropAspect,
+  multipliersFromTemperatureTint,
+  resolveWhiteBalance,
+  type WhiteBalanceCamera,
+} from '@ee/develop-gl';
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -11,6 +16,7 @@ import {
   photoFlags,
   type AppStore,
 } from '../src/renderer/store';
+import { temperatureToTrack, trackToTemperature } from '../src/renderer/temperature-scale';
 import { createFakeBridge, type FakeBridge } from './fake-bridge';
 
 const stores: AppStore[] = [];
@@ -444,15 +450,73 @@ describe('crop mode', () => {
 });
 
 describe('develop panel', () => {
-  it('shows As shot for unset white balance', async () => {
-    await renderApp();
+  const cameraMatrix = [0.821, -0.2534, -0.0683, -0.5355, 1.3338, 0.2212, -0.1143, 0.193, 0.6464];
+  const asShotCamera = (): WhiteBalanceCamera => ({
+    xyzToCamera: cameraMatrix,
+    asShotMultipliers: multipliersFromTemperatureTint(cameraMatrix, 5400, 8),
+  });
+
+  it('shows the as-shot temperature and tint without marking the photo edited', async () => {
+    const { store, fake } = await renderApp();
+    const photo = activePhoto(store.getState());
+    if (!photo) throw new Error('no selection');
+    const camera = asShotCamera();
+    const expected = resolveWhiteBalance(camera, {});
+    act(() => store.setPhotoWhiteBalance(photo.id, camera));
+
     const temperature = screen.getByLabelText('Temperature value') as HTMLInputElement;
-    await waitFor(() => expect(temperature.placeholder).toBe('As shot'));
-    expect(temperature.value).toBe('');
+    const tint = screen.getByLabelText('Tint value') as HTMLInputElement;
+    await waitFor(() => expect(temperature.value).toBe(String(Math.round(expected.temperature))));
+    expect(tint.value).toBe(String(Math.round(expected.tint)));
+    expect(screen.getByText('As Shot')).toBeTruthy();
 
     const track = screen.getByLabelText('Temperature') as HTMLInputElement;
-    expect(Number(track.value)).toBeGreaterThan(500);
-    expect(Number(track.value)).toBeLessThan(750);
+    expect(Number(track.value)).toBe(temperatureToTrack(Math.round(expected.temperature)));
+    expect(
+      store.getState().photos.find((candidate) => candidate.id === photo.id)?.status.edited,
+    ).toBe(false);
+    expect(fake.calls.filter((call) => call.channel === 'develop:setParams')).toHaveLength(0);
+  });
+
+  it('starts the first drag from the as-shot temperature', async () => {
+    const { store } = await renderApp();
+    const photo = activePhoto(store.getState());
+    if (!photo) throw new Error('no selection');
+    act(() => store.setPhotoWhiteBalance(photo.id, asShotCamera()));
+
+    const track = screen.getByLabelText('Temperature') as HTMLInputElement;
+    await waitFor(() =>
+      expect(Number(track.value)).toBe(
+        temperatureToTrack(Math.round(resolveWhiteBalance(asShotCamera(), {}).temperature)),
+      ),
+    );
+    const next = Number(track.value) + 10;
+    fireEvent.change(track, { target: { value: String(next) } });
+    await waitFor(() =>
+      expect(paramsForPhoto(store.getState(), activePhoto(store.getState())).Temperature).toBe(
+        trackToTemperature(next),
+      ),
+    );
+  });
+
+  it('shows Lightroom’s relative 0/0 scale for a file without raw multipliers', async () => {
+    const { store } = await renderApp();
+    const photo = activePhoto(store.getState());
+    if (!photo) throw new Error('no selection');
+    act(() =>
+      store.setPhotoWhiteBalance(photo.id, {
+        asShotMultipliers: { r: 1, g: 1, b: 1 },
+        xyzToCamera: [1, 0, 0, 0, 1, 0, 0, 0, 1],
+      }),
+    );
+
+    const temperature = screen.getByLabelText('Temperature value') as HTMLInputElement;
+    const tint = screen.getByLabelText('Tint value') as HTMLInputElement;
+    await waitFor(() => expect(temperature.value).toBe('0'));
+    expect(tint.value).toBe('0');
+    expect(temperature.min).toBe('-100');
+    expect(temperature.max).toBe('100');
+    expect(screen.getByLabelText('Temperature')).toHaveProperty('value', '0');
   });
 });
 

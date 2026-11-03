@@ -423,6 +423,8 @@ async function runReal(outDir: string): Promise<void> {
       );
     }
     await shoot('10-real-main-developed.png');
+    // The white balance sliders show the camera's as-shot Kelvin and tint.
+    await shoot('31-real-white-balance.png', '[data-testid="white-balance"]');
 
     // A slider change on the same raw.
     const exposure = window.locator('input[aria-label="Exposure value"]');
