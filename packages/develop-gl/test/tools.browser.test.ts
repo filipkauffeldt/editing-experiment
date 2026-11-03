@@ -161,4 +161,36 @@ describe('before/after split', () => {
     // The current edit is visibly brighter than the original on the right.
     expect(pixel(shown, W - 2, H / 2)[0] ?? 0).toBeGreaterThan(pixel(shown, 1, H / 2)[0] ?? 0);
   });
+
+  it('draws both sides through a zoomed view, so they zoom together', () => {
+    const scene = rampScene();
+    renderer = createDevelopRenderer(canvas);
+    renderer.setImage(scene.header, scene.data);
+    // Twice the size, the middle of the picture on the middle of the canvas.
+    const zoomed = {
+      crop: { left: 0, top: 0, right: 1, bottom: 1, angle: 0 },
+      pivot: { x: W / 2, y: H / 2 },
+      scale: 2,
+      frame: { x: W / 2 - W, y: H / 2 - H, w: W * 2, h: H * 2 },
+      dim: 0,
+      outside: [0, 0, 0] as [number, number, number],
+    };
+    renderer.renderView({}, zoomed);
+    const before = readCanvas(canvas);
+    renderer.renderView({ Exposure2012: 1 }, zoomed);
+    const after = readCanvas(canvas);
+
+    renderer.renderSplit({ Exposure2012: 1 }, {}, 0.5, undefined, zoomed);
+    const shown = readCanvas(canvas);
+    for (const x of [1, 10, 25]) {
+      expect(pixel(shown, x, H / 2)).toEqual(pixel(before, x, H / 2));
+    }
+    for (const x of [40, 50, W - 2]) {
+      expect(pixel(shown, x, H / 2)).toEqual(pixel(after, x, H / 2));
+    }
+    // It is the zoomed picture, not the whole one: the left edge of the canvas shows the ramp's
+    // quarter point, not its start.
+    const wholeLeft = pixel(before, 0, H / 2)[0] ?? 0;
+    expect(wholeLeft).toBeGreaterThan(40);
+  });
 });
