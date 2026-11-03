@@ -27,7 +27,7 @@ export interface HistogramSnapshot {
   histogram: Histogram;
 }
 
-function createStore<T>(initial: T): {
+export function createStore<T>(initial: T): {
   get(): T;
   set(next: T): void;
   update(updater: (current: T) => T): void;
