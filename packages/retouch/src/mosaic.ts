@@ -1,4 +1,4 @@
-import type { MosaicOp, Shape } from '@ee/contracts';
+import { mosaicAreas, type MosaicArea, type MosaicOp, type Shape } from '@ee/contracts';
 import { clamp, shapeBounds, shapesBounds } from './geometry';
 import { maskBounds, rasterizePolygonPixels, rasterizeRectPixels, type Mask } from './mask';
 
@@ -45,17 +45,20 @@ export function blockSizeForShape(
 
 /** Largest block required by any shape in the op (diagnostics/tests). */
 export function effectiveBlockSize(
-  op: Pick<MosaicOp, 'shapes' | 'blockSizeRel'>,
+  op: Pick<MosaicOp, 'shapes' | 'blockSizeRel' | 'areas'>,
   width: number,
   height: number,
 ): number {
   validateBlockSizeRel(op.blockSizeRel);
   let size = requestedBlockSize(op.blockSizeRel, width, height);
-  for (const shape of op.shapes) {
-    size = Math.max(size, blockSizeForShape(shape, op.blockSizeRel, width, height));
+  for (const area of mosaicAreas(op)) {
+    if (!isAdded(area)) continue;
+    size = Math.max(size, blockSizeForShape(area.shape, op.blockSizeRel, width, height));
   }
   return size;
 }
+
+const isAdded = (area: MosaicArea): boolean => area.enabled !== false && area.mode !== 'subtract';
 
 function readAverage(
   rgba: Uint8Array,
@@ -87,15 +90,57 @@ function readAverage(
   ];
 }
 
-function mosaicShapes(
+/** Rasterise one shape into `mask` (local pixel space at the given offset): set or clear it. */
+function paintShape(
+  mask: Mask,
+  localWidth: number,
+  localHeight: number,
+  offsetX: number,
+  offsetY: number,
+  shape: Shape,
+  width: number,
+  height: number,
+  clear: boolean,
+): void {
+  const target = clear ? new Uint8Array(mask.length) : mask;
+  if (shape.type === 'rect') {
+    rasterizeRectPixels(
+      { x: shape.x * width, y: shape.y * height, w: shape.w * width, h: shape.h * height },
+      localWidth,
+      localHeight,
+      target,
+      offsetX,
+      offsetY,
+    );
+  } else {
+    rasterizePolygonPixels(
+      shape.points.map((point) => ({ x: point.x * width, y: point.y * height })),
+      localWidth,
+      localHeight,
+      target,
+      offsetX,
+      offsetY,
+    );
+  }
+  if (!clear) return;
+  for (let i = 0; i < mask.length; i++) if (target[i]) mask[i] = 0;
+}
+
+/**
+ * Mosaic one block-size class. `ordered` is every enabled area in render order: the class's own
+ * add areas set pixels, any subtract area clears them (including pixels another class added
+ * before it), so a later add of this class covers a subtracted area again.
+ */
+function mosaicClass(
   source: Uint8Array,
   destination: Uint8Array,
   width: number,
   height: number,
-  shapes: readonly Shape[],
+  ordered: readonly { area: MosaicArea; blockSize: number }[],
   blockSize: number,
 ): void {
-  const bounds = shapesBounds(shapes);
+  const own = ordered.filter((entry) => isAdded(entry.area) && entry.blockSize === blockSize);
+  const bounds = shapesBounds(own.map((entry) => entry.area.shape));
   if (!bounds) return;
   const imageX0 = clamp(Math.floor(bounds.x * width), 0, width);
   const imageY0 = clamp(Math.floor(bounds.y * height), 0, height);
@@ -106,30 +151,23 @@ function mosaicShapes(
   const localWidth = imageX1 - imageX0;
   const localHeight = imageY1 - imageY0;
   const mask: Mask = new Uint8Array(localWidth * localHeight);
-  for (const shape of shapes) {
-    if (shape.type === 'rect') {
-      rasterizeRectPixels(
-        {
-          x: shape.x * width,
-          y: shape.y * height,
-          w: shape.w * width,
-          h: shape.h * height,
-        },
-        localWidth,
-        localHeight,
-        mask,
-        imageX0,
-        imageY0,
-      );
+  for (const { area, blockSize: size } of ordered) {
+    if (isAdded(area)) {
+      if (size === blockSize) {
+        paintShape(
+          mask,
+          localWidth,
+          localHeight,
+          imageX0,
+          imageY0,
+          area.shape,
+          width,
+          height,
+          false,
+        );
+      }
     } else {
-      rasterizePolygonPixels(
-        shape.points.map((point) => ({ x: point.x * width, y: point.y * height })),
-        localWidth,
-        localHeight,
-        mask,
-        imageX0,
-        imageY0,
-      );
+      paintShape(mask, localWidth, localHeight, imageX0, imageY0, area.shape, width, height, true);
     }
   }
 
@@ -177,7 +215,8 @@ function mosaicShapes(
 }
 
 /**
- * Pixelate the union of `op.shapes` in place or into a copy.
+ * Pixelate the op's areas in place or into a copy: its add areas, in order, minus what its
+ * subtract areas take away (see {@link mosaicAreas}); areas that are off do nothing.
  *
  * Blocks are aligned to the image grid, not to the shapes, so preview and
  * full-resolution renders have the same block layout. Each shape gets its own
@@ -212,16 +251,21 @@ export function applyMosaic(
   const source = options.inPlace ? rgba.slice() : rgba;
   const destination = options.inPlace ? rgba : rgba.slice();
 
-  const groups = new Map<number, Shape[]>();
-  for (const shape of op.shapes) {
-    const blockSize = blockSizeForShape(shape, op.blockSizeRel, width, height);
-    const group = groups.get(blockSize);
-    if (group) group.push(shape);
-    else groups.set(blockSize, [shape]);
-  }
-  const classes = [...groups.entries()].sort((a, b) => a[0] - b[0]);
-  for (const [blockSize, shapes] of classes) {
-    mosaicShapes(source, destination, width, height, shapes, blockSize);
+  // A subtract area has no block size of its own; only add areas are grouped into classes.
+  const ordered = mosaicAreas(op)
+    .filter((area) => area.enabled !== false)
+    .map((area) => ({
+      area,
+      blockSize:
+        area.mode === 'subtract'
+          ? 0
+          : blockSizeForShape(area.shape, op.blockSizeRel, width, height),
+    }));
+  const sizes = [
+    ...new Set(ordered.filter((entry) => entry.blockSize > 0).map((e) => e.blockSize)),
+  ];
+  for (const blockSize of sizes.sort((a, b) => a - b)) {
+    mosaicClass(source, destination, width, height, ordered, blockSize);
   }
   return destination;
 }

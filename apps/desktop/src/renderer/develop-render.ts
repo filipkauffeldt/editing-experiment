@@ -7,6 +7,7 @@ import {
   withLookSettings,
 } from '@ee/develop-gl';
 import { applyMosaic } from '@ee/retouch';
+import { mapMosaicShapes } from '@ee/contracts';
 import type {
   EditParams,
   LinearImageHeader,
@@ -91,7 +92,7 @@ export function composeDevelopedRgba({
   const rgba = render(params, { width, height });
   for (const op of ops) {
     if (op.type !== 'mosaic') continue;
-    const corrected = mapShapes ? { ...op, shapes: mapShapes(op.shapes) } : op;
+    const corrected = mapShapes ? mapMosaicShapes(op, mapShapes) : op;
     const mapped =
       params.crop === undefined
         ? corrected
