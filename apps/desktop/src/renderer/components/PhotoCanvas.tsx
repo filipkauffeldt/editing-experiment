@@ -24,7 +24,7 @@ import {
   type DevelopRenderer,
   withoutLensGeometry,
 } from '@ee/develop-gl';
-import { applyMosaic, magicWand, shapeBounds, simplifyPolygon } from '@ee/retouch';
+import { applyMosaic, magicWand, polygonBounds, shapeBounds, simplifyPolygon } from '@ee/retouch';
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { ee } from '../ee';
 import {
@@ -32,6 +32,7 @@ import {
   namesProfile,
   paramsForPhoto,
   topRetouchVersion,
+  type FaceSearchArea,
   type RetouchFace,
   type RetouchTool,
 } from '../store';
@@ -49,7 +50,7 @@ import {
   blockSizeRelToPx,
   photoLongEdge,
 } from '../retouch-block-size';
-import { detectionRegion, faceStoredShape } from '../retouch-geometry';
+import { detectionRegion, faceStoredShape, facesInLasso } from '../retouch-geometry';
 import { useAppState, useAppStore } from '../store-context';
 import { CropOverlay } from './CropOverlay';
 import { CropToolbar } from './CropToolbar';
@@ -106,6 +107,11 @@ const TOOL_LABELS: Record<RetouchTool, string> = {
   lasso: 'Lasso',
   wand: 'Magic wand',
   faces: 'Detect faces',
+};
+
+const FACE_AREA_LABELS: Record<FaceSearchArea, string> = {
+  rect: 'Rectangle',
+  lasso: 'Lasso',
 };
 
 function Toolbar({ photo }: { photo: Photo }) {
@@ -186,6 +192,22 @@ function Toolbar({ photo }: { photo: Photo }) {
           <CheckIcon size={11} /> Done
         </button>
       </div>
+      {session.tool === 'faces' && (
+        <div className={styles.tools} role="group" aria-label="Search area">
+          {(Object.keys(FACE_AREA_LABELS) as FaceSearchArea[]).map((area) => (
+            <button
+              key={area}
+              type="button"
+              className={`${styles.tool} ${session.faceArea === area ? styles.toolActive : ''}`}
+              onClick={() => store.setRetouchFaceArea(area)}
+              aria-pressed={session.faceArea === area}
+              data-face-area={area}
+            >
+              {FACE_AREA_LABELS[area]}
+            </button>
+          ))}
+        </div>
+      )}
       {session.tool === 'wand' && (
         <label className={styles.control}>
           <span>Tolerance {Math.round(session.tolerance)}</span>
@@ -222,7 +244,9 @@ function Toolbar({ photo }: { photo: Photo }) {
       )}
       <div className={styles.toolHint}>
         {session.tool === 'faces'
-          ? 'Drag a rough area around the faces.'
+          ? session.faceArea === 'lasso'
+            ? 'Draw a loose outline around the faces.'
+            : 'Drag a rough area around the faces.'
           : session.tool === 'wand'
             ? 'Click a colour region.'
             : session.tool === 'lasso'
@@ -803,13 +827,17 @@ function CanvasForPhoto({ photo }: { photo: Photo }) {
     bufferHeight,
   ]);
 
+  // Detect faces can take its search area as a lasso too; both lassos are drawn the same way.
+  const drawsLasso =
+    session?.tool === 'lasso' || (session?.tool === 'faces' && session.faceArea === 'lasso');
+
   const updateDraft = (event: React.PointerEvent): void => {
     const surface = overlayRef.current;
     if (!surface) return;
     const point = normalizedPoint(event, surface);
     if (!dragStart.current) return;
     dragMoved.current = true;
-    if (session?.tool === 'lasso') {
+    if (drawsLasso) {
       setDraftPoints((current) => {
         const last = current[current.length - 1];
         if (last && Math.hypot(last.x - point.x, last.y - point.y) < 0.004) return current;
@@ -835,12 +863,19 @@ function CanvasForPhoto({ photo }: { photo: Photo }) {
       }
       return;
     }
-    if (session.tool === 'lasso') {
+    if (drawsLasso) {
       const points = [...draftPoints, end];
       setDraftPoints([]);
       if (points.length >= 3) {
         const simplified = simplifyPolygon(points, 0.003);
-        if (simplified.length >= 3) store.addRetouchShape({ type: 'polygon', points: simplified });
+        if (simplified.length < 3) return;
+        if (session.tool === 'faces') {
+          // Search the lasso's bounding box; only faces centred inside the outline are kept.
+          const bounds = polygonBounds(simplified);
+          if (bounds.w >= 0.01 && bounds.h >= 0.01) await detectFaces(bounds, simplified);
+        } else {
+          store.addRetouchShape({ type: 'polygon', points: simplified });
+        }
       }
       return;
     }
@@ -875,7 +910,10 @@ function CanvasForPhoto({ photo }: { photo: Photo }) {
     }
   };
 
-  const detectFaces = async (region: Rect): Promise<void> => {
+  const detectFaces = async (
+    region: Rect,
+    lasso?: readonly { x: number; y: number }[],
+  ): Promise<void> => {
     if (!session) return;
     store.setRetouchBusy(true);
     try {
@@ -884,10 +922,11 @@ function CanvasForPhoto({ photo }: { photo: Photo }) {
         photoId: photo.id,
         region: detectionRegion(region, lensContext),
       });
-      if (detections.length === 0) {
+      const inside = lasso ? facesInLasso(detections, lasso, lensContext) : detections;
+      if (inside.length === 0) {
         store.notify('info', 'No faces found in that area');
       }
-      const detected: RetouchFace[] = detections.map((face) => ({
+      const detected: RetouchFace[] = inside.map((face) => ({
         box: face.box,
         score: face.score,
         enabled: true,
@@ -912,7 +951,7 @@ function CanvasForPhoto({ photo }: { photo: Photo }) {
     dragStart.current = normalizedPoint(event, surface);
     dragMoved.current = false;
     surface.setPointerCapture(event.pointerId);
-    if (session.tool === 'lasso') setDraftPoints([dragStart.current]);
+    if (drawsLasso) setDraftPoints([dragStart.current]);
   };
   const onPointerMove = (event: React.PointerEvent): void => {
     if (!dragStart.current) return;

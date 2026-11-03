@@ -127,6 +127,9 @@ export interface PhotoFlags {
 /** Which gesture the retouch overlay currently records. */
 export type RetouchTool = 'rect' | 'lasso' | 'wand' | 'faces';
 
+/** How the Detect faces tool takes its search area. */
+export type FaceSearchArea = 'rect' | 'lasso';
+
 /** A detected face, with the padded box that is actually mosaicked when enabled. */
 export interface RetouchFace {
   /** Raw detector box in normalized image coordinates; padding is applied when rendering. */
@@ -141,6 +144,8 @@ export interface RetouchSession {
   /** Existing retouch version being edited; absent until the first commit. */
   versionId?: VersionId;
   tool: RetouchTool;
+  /** Shape of the area drawn with Detect faces. */
+  faceArea: FaceSearchArea;
   /** Mosaic block edge relative to the longer image edge. */
   blockSizeRel: number;
   /** Magic-wand colour tolerance (CIE76, 0..100). */
@@ -1336,6 +1341,7 @@ export class AppStore {
         photoId: photo.id,
         ...(version ? { versionId: version.id } : {}),
         tool: 'rect',
+        faceArea: 'rect',
         blockSizeRel: op?.blockSizeRel ?? DEFAULT_BLOCK_SIZE_REL,
         tolerance: 24,
         facePadding: DEFAULT_FACE_PADDING,
@@ -1350,6 +1356,11 @@ export class AppStore {
   readonly setRetouchTool = (tool: RetouchTool): void => {
     if (!this.state.retouch) return;
     this.set({ retouch: { ...this.state.retouch, tool } });
+  };
+
+  readonly setRetouchFaceArea = (faceArea: FaceSearchArea): void => {
+    if (!this.state.retouch) return;
+    this.set({ retouch: { ...this.state.retouch, faceArea } });
   };
 
   readonly setRetouchBlockSize = (blockSizeRel: number): void => {

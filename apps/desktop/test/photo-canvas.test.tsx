@@ -214,6 +214,69 @@ describe('PhotoCanvas preview', () => {
     );
   });
 
+  it('detects faces inside a lasso: searches its bounding box and keeps the faces centred in it', async () => {
+    const regions: unknown[] = [];
+    await store.dispose();
+    fake = createFakeBridge({
+      handlers: {
+        'retouch:detectFaces': async (args) => {
+          regions.push((args as { region?: unknown }).region);
+          // One face inside the triangle drawn below, one in its bounding box but outside it.
+          return [
+            { box: { type: 'rect', x: 0.2, y: 0.5, w: 0.1, h: 0.1 }, score: 0.9 },
+            { box: { type: 'rect', x: 0.6, y: 0.1, w: 0.1, h: 0.1 }, score: 0.9 },
+          ];
+        },
+      },
+    });
+    window.eeTransport = fake.transport;
+    store = createAppStore(fake.bridge);
+    await store.init();
+    const photo = activePhoto(store.getState());
+    if (!photo) throw new Error('no selection');
+    pendingLinear();
+    render(
+      <AppStoreProvider store={store}>
+        <PhotoCanvas photo={photo} />
+      </AppStoreProvider>,
+    );
+    act(() => {
+      store.toggleRetouch();
+      store.setRetouchTool('faces');
+      store.setRetouchFaceArea('lasso');
+    });
+    const overlay = await screen.findByTestId('retouch-overlay');
+    vi.spyOn(overlay, 'getBoundingClientRect').mockReturnValue({
+      x: 0,
+      y: 0,
+      width: 400,
+      height: 300,
+      top: 0,
+      right: 400,
+      bottom: 300,
+      left: 0,
+      toJSON: () => ({}),
+    });
+    Object.assign(overlay, {
+      setPointerCapture: vi.fn(),
+      releasePointerCapture: vi.fn(),
+      hasPointerCapture: () => false,
+    });
+    // Lower-left triangle of the picture: (0.1, 0.1) (0.1, 0.9) (0.9, 0.9).
+    fireEvent.pointerDown(overlay, { clientX: 40, clientY: 30, pointerId: 1, button: 0 });
+    fireEvent.pointerMove(overlay, { clientX: 40, clientY: 270, pointerId: 1 });
+    fireEvent.pointerMove(overlay, { clientX: 200, clientY: 270, pointerId: 1 });
+    fireEvent.pointerMove(overlay, { clientX: 360, clientY: 270, pointerId: 1 });
+    fireEvent.pointerUp(overlay, { clientX: 360, clientY: 270, pointerId: 1, button: 0 });
+
+    await waitFor(() => expect(store.getState().retouch?.faces).toHaveLength(1));
+    expect(store.getState().retouch?.faces[0]?.box.x).toBeCloseTo(0.2);
+    expect(regions).toHaveLength(1);
+    expect(regions[0]).toMatchObject({ type: 'rect', x: 0.1, y: 0.1, w: 0.8, h: 0.8 });
+    // The lasso itself is not a mosaic shape.
+    expect(store.getState().retouch?.shapes).toHaveLength(0);
+  });
+
   it('Escape drops the shape being drawn and does not leave retouch', async () => {
     const photo = activePhoto(store.getState());
     if (!photo) throw new Error('no selection');
