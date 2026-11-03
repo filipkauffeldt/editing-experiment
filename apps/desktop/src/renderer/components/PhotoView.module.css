@@ -46,11 +46,35 @@
   white-space: nowrap;
 }
 
-.zoom {
+.zoomLevels {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  height: 100%;
+}
+
+/* Text with a 1 px underline for the current zoom, like the mode buttons. */
+.zoomLevel {
+  display: inline-flex;
+  align-items: center;
+  height: 100%;
+  padding: 0;
+  border: 0;
+  border-bottom: 1px solid transparent;
+  background: transparent;
   color: var(--dim);
   font-size: var(--fs-label);
   letter-spacing: var(--tracking-label);
   text-transform: uppercase;
+}
+
+button.zoomLevel:hover {
+  color: var(--text);
+}
+
+.zoomLevelActive {
+  border-bottom-color: var(--text);
+  color: var(--text);
 }
 
 /* Text with a 1 px underline while the mode is on. */
