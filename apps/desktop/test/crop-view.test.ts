@@ -81,6 +81,16 @@ describe('hitTestFrame', () => {
     expect(hitTestFrame(rect, { x: 80, y: 80 })).toBe('rotate');
   });
 
+  it('sends a press at the centre of a full-frame crop to the pan, and one just outside to the rotation', () => {
+    const stage = { width: 1480, height: 1010 };
+    const layout = cropLayout(stage, { width: 6064, height: 4040 });
+    const frame = frameRect(layout, { x: 3032, y: 2020 }, 6064, 4040);
+    const centre = { x: (frame.left + frame.right) / 2, y: (frame.top + frame.bottom) / 2 };
+    expect(hitTestFrame(frame, centre)).toBe('move');
+    expect(hitTestFrame(frame, { x: frame.left - 20, y: centre.y })).toBe('rotate');
+    expect(hitTestFrame(frame, { x: frame.right + 20, y: frame.bottom + 20 })).toBe('rotate');
+  });
+
   it('keeps the inside reachable on a tiny frame', () => {
     const tiny = { left: 100, top: 100, right: 118, bottom: 112 };
     expect(hitTestFrame(tiny, { x: 109, y: 106 })).toBe('move');

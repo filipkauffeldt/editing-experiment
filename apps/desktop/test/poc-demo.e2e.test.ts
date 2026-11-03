@@ -1436,6 +1436,187 @@ describe.skipIf(nefs.length === 0 || !haveDisplay)(
 
         await finishAndCheckCropUpload(photo, expected, 'pool_001.jpg');
       }, 180_000);
+
+      describe('dragging the frame (stored crop values)', () => {
+        /** Enter applies the crop; read back what was saved for the photo. */
+        const commitAndReadCrop = async (fileName: string): Promise<CropParams> => {
+          // Enter is ignored while the angle slider has focus.
+          await window.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
+          await window.keyboard.press('Enter');
+          await window.locator('[data-testid="crop-toolbar"]').waitFor({ state: 'detached' });
+          const photo = photos.find((candidate) => candidate.fileName === fileName)!;
+          const params = await waitFor('the saved crop', async () => {
+            const current = await invoke<{ crop?: CropParams }>('develop:getParams', {
+              photoId: photo.id,
+            });
+            return current.crop ? current : undefined;
+          });
+          return params.crop!;
+        };
+
+        /** Other tests may have left a crop on the photo: start from the whole frame. */
+        const openFreshCrop = async (fileName: string): Promise<void> => {
+          await openCrop(fileName);
+          await window.locator('[data-testid="crop-toolbar"] button', { hasText: 'Reset' }).click();
+          await settledCropState(
+            'the whole frame',
+            (state) =>
+              state.crop[0] === 0 &&
+              state.crop[1] === 0 &&
+              state.crop[2] === 1 &&
+              state.crop[3] === 1 &&
+              state.angle === 0,
+          );
+        };
+
+        /** The middle of the frame in page coordinates. */
+        const centreOf = (state: CropState) => ({
+          x: state.origin.x + state.frame.left + state.frame.width / 2,
+          y: state.origin.y + state.frame.top + state.frame.height / 2,
+        });
+
+        /** A point on the frame, as a fraction of its width and height from the top left. */
+        const onFrame = (state: CropState, x: number, y: number) => ({
+          x: state.origin.x + state.frame.left + state.frame.width * x,
+          y: state.origin.y + state.frame.top + state.frame.height * y,
+        });
+
+        const storedMatchesDraft = (saved: CropParams, draft: CropState): void =>
+          [saved.left, saved.top, saved.right, saved.bottom, saved.angle].forEach((value, index) =>
+            expect(value).toBeCloseTo(draft.crop[index]!, 5),
+          );
+
+        it('leaves a full-frame crop alone when dragging inside: the photo has nowhere to go', async () => {
+          await openFreshCrop('pool_002.NEF');
+          const before = await cropState();
+          expect(before.crop.slice(0, 4)).toEqual([0, 0, 1, 1]);
+          const centre = centreOf(before);
+          await dragTo(centre, [{ x: centre.x + 60, y: centre.y + 40 }], true);
+          // The press is a pan; there is just no room to slide the photo.
+          expect((await cropState()).gesture).toBe('pan');
+          await window.mouse.up();
+          const after = await settledCropState(
+            'the finished drag',
+            (state) => state.gesture === '',
+          );
+          expect(after.crop).toEqual(before.crop);
+          await cancelCrop();
+        }, 180_000);
+
+        it('moves the photo when dragging inside a reduced frame', async () => {
+          await openFreshCrop('pool_002.NEF');
+          const before = await chooseAspect(
+            '1:1',
+            (state) => Math.abs(state.frame.width - state.frame.height) < 0.5,
+          );
+          const centre = centreOf(before);
+          await dragTo(centre, [{ x: centre.x + 70, y: centre.y }]);
+          const after = await settledCropState(
+            'the moved photo',
+            (state) => state.gesture === '' && state.crop[0]! < before.crop[0]!,
+          );
+          // The frame stays put on screen; the photo slid right, so the crop moved left, same size.
+          nearly(after.frame.left, before.frame.left, 0.01);
+          expect(after.crop[2]! - after.crop[0]!).toBeCloseTo(before.crop[2]! - before.crop[0]!, 6);
+          expect(after.crop[1]!).toBeCloseTo(before.crop[1]!, 6);
+          expect(after.angle).toBe(0);
+
+          const saved = await commitAndReadCrop('pool_002.NEF');
+          storedMatchesDraft(saved, after);
+          expect(saved.left).toBeLessThan(before.crop[0]! - 0.001);
+        }, 180_000);
+
+        it('moves the photo inside a tilted frame too', async () => {
+          await openFreshCrop('cardB_002.NEF');
+          await window.locator('[data-aspect="16:9"]').click();
+          await settledCropState(
+            'the 16:9 frame',
+            (state) => state.frame.width / state.frame.height > 1.7,
+          );
+          // Tilt with the slider; the frame keeps its place and the photo turns under it.
+          await window.locator('[aria-label="Straighten angle"]').fill('-4');
+          const tilted = await settledCropState('the tilted photo', (state) => state.angle === -4);
+          // A 16:9 frame in a 3:2 photo has room above and below, so slide the photo down.
+          const centre = centreOf(tilted);
+          await dragTo(centre, [{ x: centre.x, y: centre.y + 30 }]);
+          const moved = await settledCropState(
+            'the moved tilted photo',
+            (state) => state.gesture === '' && state.crop[1]! < tilted.crop[1]! - 0.001,
+          );
+          expect(moved.angle).toBe(-4);
+          nearly(moved.frame.top, tilted.frame.top, 0.01);
+          nearly(moved.frame.width, tilted.frame.width, 0.01);
+
+          const saved = await commitAndReadCrop('cardB_002.NEF');
+          storedMatchesDraft(saved, moved);
+          expect(saved.angle).toBe(-4);
+        }, 180_000);
+
+        it('rotates the photo when dragging outside the frame', async () => {
+          await openFreshCrop('cardA_001.NEF');
+          const before = await cropState();
+          const corner = onFrame(before, 1, 1);
+          // Start 18 px outside the lower-right corner and sweep clockwise around the frame.
+          await dragTo({ x: corner.x + 18, y: corner.y + 18 }, [
+            { x: corner.x - before.frame.width * 0.2, y: corner.y + 30 },
+          ]);
+          const after = await settledCropState(
+            'the rotated photo',
+            (state) => state.gesture === '' && state.angle < -1,
+          );
+          // The frame is not rotated: same centre on screen, smaller so the photo still covers it.
+          nearly(
+            after.frame.left + after.frame.width / 2,
+            before.frame.left + before.frame.width / 2,
+          );
+          nearly(
+            after.frame.top + after.frame.height / 2,
+            before.frame.top + before.frame.height / 2,
+          );
+          expect(after.frame.width).toBeLessThan(before.frame.width);
+
+          const saved = await commitAndReadCrop('cardA_001.NEF');
+          storedMatchesDraft(saved, after);
+          expect(saved.angle).toBeLessThan(-1);
+          expect(saved.right - saved.left).toBeLessThan(1);
+        }, 180_000);
+
+        it('resizes from a corner and an edge with the opposite side held still', async () => {
+          await openFreshCrop('cardB_002.NEF');
+          await window.locator('[data-aspect="free"]').click();
+          const before = await cropState();
+          const [width, height] = [before.frame.width, before.frame.height];
+
+          // The right edge moves in 150 px: only `right` changes.
+          const east = onFrame(before, 1, 0.5);
+          await dragTo(east, [{ x: east.x - 150, y: east.y }]);
+          const edge = await settledCropState(
+            'the narrowed frame',
+            (state) => state.gesture === '' && state.crop[2]! < 1,
+          );
+          expect(edge.crop[0]).toBeCloseTo(0, 6);
+          expect(edge.crop[1]).toBeCloseTo(0, 6);
+          expect(edge.crop[3]).toBeCloseTo(1, 6);
+          expect(edge.crop[2]!).toBeCloseTo(1 - 150 / width, 2);
+          nearly(edge.frame.left, before.frame.left, 0.01);
+          nearly(edge.frame.width, width - 150, 1);
+
+          // The upper-left corner moves in by 100 and 60 px: `left` and `top` change.
+          const nw = onFrame(edge, 0, 0);
+          await dragTo(nw, [{ x: nw.x + 100, y: nw.y + 60 }]);
+          const corner = await settledCropState(
+            'the cornered frame',
+            (state) => state.gesture === '' && state.crop[0]! > 0.01,
+          );
+          expect(corner.crop[0]!).toBeCloseTo(100 / width, 2);
+          expect(corner.crop[1]!).toBeCloseTo(60 / height, 2);
+          expect(corner.crop[2]!).toBeCloseTo(edge.crop[2]!, 6);
+          expect(corner.crop[3]!).toBeCloseTo(1, 6);
+
+          const saved = await commitAndReadCrop('cardB_002.NEF');
+          storedMatchesDraft(saved, corner);
+        }, 180_000);
+      });
     });
   },
 );
