@@ -602,7 +602,7 @@ its shapes as editable adds, wand outlines from before that tool was removed inc
 
 - **Tools.** Retouch always opens on Detect faces with a Rectangle search area in Add mode; nothing is
   remembered from the last session. Detect faces searches a rectangle, or a lasso's bounding box and
-  keeps the faces centred inside the outline, and adds to the faces already there.
+  keeps the faces centred inside the outline, and adds to the faces already there. In Subtract mode the same area deletes the face areas centred inside it instead (one undo step, no detection, no subtract shape). Removing every area of a saved version removes the version.
 - **Gestures.** Drawing adds an area in the current mode; Alt held at the start of a drawing flips the
   mode for that drawing (AltGr never does). A click on an area switches the topmost one under it on or
   off. Undo steps back through drawing, detecting and switching. Esc drops a shape being drawn, or
