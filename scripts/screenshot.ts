@@ -7,7 +7,7 @@
 // face fixtures: developed raw, slider change, retouch face detection, mosaic
 // preview and the upload popover after export, plus (17, 18) crop mode
 // mid-rotation with the fine grid and the committed crop, and (23) the Library
-// over the ingested files.
+// over the ingested files, and (31) retouch with a face switched off and a subtracted area.
 import { _electron as electron, type ElectronApplication, type Page } from '@playwright/test';
 import { spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, copyFileSync } from 'node:fs';
@@ -527,7 +527,7 @@ async function runReal(outDir: string): Promise<void> {
     await window.locator('input[aria-label="Mosaic block size"]').evaluate((element) => {
       const input = element as HTMLInputElement;
       const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set;
-      setter?.call(input, '0.022');
+      setter?.call(input, '90');
       input.dispatchEvent(new Event('input', { bubbles: true }));
       input.dispatchEvent(new Event('change', { bubbles: true }));
     });
@@ -538,6 +538,29 @@ async function runReal(outDir: string): Promise<void> {
       ['[data-testid="mosaic-canvas"]', beforeBlocks] as const,
     );
     await shoot('13-real-mosaic-preview.png');
+
+    // Areas: switch one face off by clicking it, and subtract a rectangle from the mosaic.
+    const faceCentre = await window
+      .locator('[data-face-index]')
+      .last()
+      .evaluate((element) => {
+        const path = element as unknown as SVGGeometryElement;
+        const svg = path.ownerSVGElement!.getBoundingClientRect();
+        const bounds = path.getBBox();
+        return {
+          x: svg.left + (bounds.x + bounds.width / 2) * svg.width,
+          y: svg.top + (bounds.y + bounds.height / 2) * svg.height,
+        };
+      });
+    await window.mouse.click(faceCentre.x, faceCentre.y);
+    await window.locator('[data-tool="rect"]').click();
+    await window.locator('[data-mode="subtract"]').click();
+    await window.mouse.move(box.x + box.width * 0.42, box.y + box.height * 0.78);
+    await window.mouse.down();
+    await window.mouse.move(box.x + box.width * 0.58, box.y + box.height * 0.9, { steps: 8 });
+    await window.mouse.up();
+    await window.waitForTimeout(600);
+    await shoot('31-real-retouch-areas.png');
 
     // Committed version is the default view, with its indicator and film badge.
     await window.locator('[data-testid="commit-retouch"]').click();
