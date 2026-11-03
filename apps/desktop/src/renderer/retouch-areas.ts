@@ -6,8 +6,8 @@ import {
   type Rect,
   type Shape,
 } from '@ee/contracts';
-import { pointInPolygon } from '@ee/retouch';
-import { faceStoredShape, type PhotoLensContext } from './retouch-geometry';
+import { pointInPolygon, rectToPolygon } from '@ee/retouch';
+import { facesInLasso, faceStoredShape, type PhotoLensContext } from './retouch-geometry';
 
 /** Whether a new area adds mosaic or takes it away again (Lightroom's mask add/subtract). */
 export type RetouchMode = 'add' | 'subtract';
@@ -172,6 +172,22 @@ export function withDetectedFaces(
       face: { ...found },
     })),
   ];
+}
+
+/**
+ * The areas without the detected faces whose box centre lies inside `region`, a rectangle or a
+ * lasso (the rule the lasso search uses). Face areas go whether they are on or off, added or
+ * subtracted; drawn areas are never touched.
+ */
+export function withoutFacesInside(
+  areas: readonly RetouchArea[],
+  region: Shape,
+  lens: PhotoLensContext | undefined,
+): RetouchArea[] {
+  const outline = (region.type === 'rect' ? rectToPolygon(region) : region).points;
+  const faces = areas.flatMap((area) => (area.face ? [{ box: area.face.box, area }] : []));
+  const doomed = new Set(facesInLasso(faces, outline, lens).map((face) => face.area));
+  return areas.filter((area) => !doomed.has(area));
 }
 
 /**

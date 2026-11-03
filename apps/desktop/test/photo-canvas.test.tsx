@@ -377,6 +377,48 @@ describe('PhotoCanvas preview', () => {
       expect(store.getState().retouch?.areas).toHaveLength(2);
     });
 
+    it('Subtract with Detect faces removes the faces inside the dragged area and skips detection', async () => {
+      const overlay = await openOverlay();
+      const calls = fake.calls.filter((call) => call.channel === 'retouch:detectFaces').length;
+      act(() => {
+        store.addRetouchFaces([
+          { box: { type: 'rect', x: 0.2, y: 0.2, w: 0.1, h: 0.1 } },
+          { box: { type: 'rect', x: 0.7, y: 0.7, w: 0.1, h: 0.1 } },
+        ]);
+        store.setRetouchMode('subtract');
+      });
+      // Rectangle search area: (0.1, 0.1) to (0.5, 0.5) of the 400 x 300 surface.
+      drag(overlay, [40, 30], [200, 150]);
+      expect(store.getState().retouch?.areas.map((a) => a.face?.box.x)).toEqual([0.7]);
+
+      // Alt in Add mode does the same: flipping the mode removes instead of detecting.
+      act(() => {
+        store.setRetouchMode('add');
+        store.addRetouchFaces([{ box: { type: 'rect', x: 0.2, y: 0.2, w: 0.1, h: 0.1 } }]);
+      });
+      drag(overlay, [40, 30], [200, 150], { altKey: true });
+      expect(store.getState().retouch?.areas.map((a) => a.face?.box.x)).toEqual([0.7]);
+
+      // Lasso search area.
+      act(() => {
+        store.setRetouchFaceArea('lasso');
+        store.setRetouchMode('subtract');
+      });
+      fireEvent.pointerDown(overlay, { clientX: 240, clientY: 180, pointerId: 1, button: 0 });
+      for (const [x, y] of [
+        [240, 270],
+        [360, 270],
+        [360, 180],
+      ] as const) {
+        fireEvent.pointerMove(overlay, { clientX: x, clientY: y, pointerId: 1 });
+      }
+      fireEvent.pointerUp(overlay, { clientX: 360, clientY: 180, pointerId: 1, button: 0 });
+      expect(store.getState().retouch?.areas).toHaveLength(0);
+      expect(fake.calls.filter((call) => call.channel === 'retouch:detectFaces')).toHaveLength(
+        calls,
+      );
+    });
+
     it('Alt flips the mode for one drawing; AltGr (Ctrl+Alt) does not', async () => {
       const overlay = await openOverlay();
       act(() => store.setRetouchTool('rect'));

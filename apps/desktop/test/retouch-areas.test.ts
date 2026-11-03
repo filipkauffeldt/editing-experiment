@@ -8,6 +8,7 @@ import {
   opFromAreas,
   opHasAddedArea,
   withDetectedFaces,
+  withoutFacesInside,
   type RetouchArea,
 } from '../src/renderer/retouch-areas';
 
@@ -175,5 +176,41 @@ describe('Alt flips the mode, AltGr never does', () => {
     );
     expect(altFlipsMode(event({ altKey: true, ctrlKey: true }))).toBe(false);
     expect(altFlipsMode(event({ altKey: true, metaKey: true }))).toBe(false);
+  });
+});
+
+describe('withoutFacesInside', () => {
+  const inside = face(rect(0.2, 0.2, 0.1, 0.1));
+  const insideOff = face(rect(0.3, 0.3, 0.1, 0.1), false, 'subtract');
+  const outside = face(rect(0.7, 0.7, 0.1, 0.1));
+  const shape = drawn(rect(0.1, 0.1, 0.4, 0.4));
+
+  it('drops the faces centred inside a rectangle, on or off, and keeps the rest', () => {
+    const areas = [shape, inside, insideOff, outside];
+    const kept = withoutFacesInside(areas, rect(0.1, 0.1, 0.4, 0.4), undefined);
+    // The drawn area stays even though it lies in the region.
+    expect(kept).toEqual([shape, outside]);
+  });
+
+  it('judges a face by its centre, not by overlap', () => {
+    const straddling = face(rect(0.45, 0.2, 0.2, 0.1)); // centre x = 0.55
+    const kept = withoutFacesInside([straddling], rect(0.1, 0.1, 0.4, 0.4), undefined);
+    expect(kept).toEqual([straddling]);
+  });
+
+  it('uses the outline of a lasso, not its bounding box', () => {
+    const triangle = {
+      type: 'polygon' as const,
+      points: [
+        { x: 0.1, y: 0.1 },
+        { x: 0.9, y: 0.1 },
+        { x: 0.1, y: 0.9 },
+      ],
+    };
+    const inTriangle = face(rect(0.2, 0.2, 0.1, 0.1));
+    const inBoundsOutside = face(rect(0.7, 0.7, 0.1, 0.1));
+    expect(withoutFacesInside([inTriangle, inBoundsOutside], triangle, undefined)).toEqual([
+      inBoundsOutside,
+    ]);
   });
 });

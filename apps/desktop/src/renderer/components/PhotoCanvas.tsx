@@ -296,13 +296,15 @@ function Toolbar({ photo }: { photo: Photo }) {
         </div>
       )}
       <div className={styles.toolHint}>
-        {session.tool === 'faces'
-          ? session.faceArea === 'lasso'
-            ? 'Draw a loose outline around the faces.'
-            : 'Drag a rough area around the faces.'
-          : session.tool === 'lasso'
-            ? 'Draw a freehand outline.'
-            : 'Drag a rectangle around what to pixelate.'}{' '}
+        {session.tool === 'faces' && session.mode === 'subtract'
+          ? 'Draw an area: the faces inside it are removed.'
+          : session.tool === 'faces'
+            ? session.faceArea === 'lasso'
+              ? 'Draw a loose outline around the faces.'
+              : 'Drag a rough area around the faces.'
+            : session.tool === 'lasso'
+              ? 'Draw a freehand outline.'
+              : 'Drag a rectangle around what to pixelate.'}{' '}
         Click an area to switch it on or off. Esc saves and leaves.
       </div>
     </div>
@@ -1050,7 +1052,9 @@ function CanvasForPhoto({ photo }: { photo: Photo }) {
           // Search the lasso's bounding box; only faces centred inside the outline are kept.
           const bounds = polygonBounds(simplified);
           if (bounds.w >= MIN_AREA / zoomRatio && bounds.h >= MIN_AREA / zoomRatio) {
-            await detectFaces(bounds, mode, simplified);
+            if (mode === 'subtract')
+              store.removeRetouchFacesInside({ type: 'polygon', points: simplified });
+            else await detectFaces(bounds, mode, simplified);
           }
         } else {
           store.addRetouchShape({ type: 'polygon', points: simplified }, mode);
@@ -1061,8 +1065,11 @@ function CanvasForPhoto({ photo }: { photo: Photo }) {
     const rect = rectFromPoints(start, end);
     setDraftRect(undefined);
     if (rect.w < MIN_AREA / zoomRatio || rect.h < MIN_AREA / zoomRatio) return;
-    if (session.tool === 'faces') await detectFaces(rect, mode);
-    else store.addRetouchShape(rect, mode);
+    if (session.tool === 'faces') {
+      // Subtract removes the faces already found in the area; it never runs the detector.
+      if (mode === 'subtract') store.removeRetouchFacesInside(rect);
+      else await detectFaces(rect, mode);
+    } else store.addRetouchShape(rect, mode);
   };
 
   const detectFaces = async (

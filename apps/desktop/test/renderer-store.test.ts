@@ -23,6 +23,7 @@ import {
   cameraOptions,
   createAppStore,
   editParamsKey,
+  hasPendingRetouch,
   paramsForPhoto,
   photoFlags,
   selectVisiblePhotos,
@@ -995,6 +996,104 @@ describe('retouch sessions', () => {
     await vi.waitFor(() => expect(activePhoto(store.getState())?.id).toBe('mock-02'));
     expect(fake.calls.some((call) => call.channel === 'retouch:set')).toBe(true);
     expect(store.getState().retouch).toBeUndefined();
+  });
+
+  it('deletes the faces inside a rectangle or lasso in one undo step and keeps the others', async () => {
+    const { store, fake } = await setup();
+    store.toggleRetouch();
+    const box = (x: number, y: number) => ({
+      type: 'rect' as const,
+      x,
+      y,
+      w: 0.1,
+      h: 0.1,
+    });
+    store.addRetouchShape(rect);
+    store.addRetouchFaces([{ box: box(0.1, 0.1) }, { box: box(0.3, 0.1) }, { box: box(0.7, 0.7) }]);
+    store.toggleRetouchArea(2); // a face that is off still goes when it is inside
+    const before = store.getState().retouch!.areas;
+    const undoBefore = store.getState().retouch!.undo.length;
+    expect(before).toHaveLength(4);
+
+    store.removeRetouchFacesInside({ type: 'rect', x: 0, y: 0, w: 0.5, h: 0.3 });
+
+    const after = store.getState().retouch!.areas;
+    expect(after.map((a) => a.kind)).toEqual(['rect', 'face']);
+    expect(after[1]!.face?.box).toEqual(box(0.7, 0.7));
+    expect(store.getState().retouch!.undo).toHaveLength(undoBefore + 1);
+    // The deletion is one step: a single undo brings every face back.
+    store.undoRetouchShape();
+    expect(store.getState().retouch!.areas).toEqual(before);
+    // A lasso: only the face inside the outline goes, not the one in its bounding box (centre
+    // 0.35, 0.15 is beside the slanted edge).
+    store.removeRetouchFacesInside({
+      type: 'polygon',
+      points: [
+        { x: 0.05, y: 0.05 },
+        { x: 0.4, y: 0.05 },
+        { x: 0.05, y: 0.4 },
+      ],
+    });
+    expect(
+      store
+        .getState()
+        .retouch!.areas.filter((a) => a.face)
+        .map((a) => a.face!.box.x),
+    ).toEqual([0.3, 0.7]);
+    // It never runs the detector and never adds a shape.
+    expect(fake.calls.some((call) => call.channel === 'retouch:detectFaces')).toBe(false);
+  });
+
+  it('removes a saved version when every area of it was deleted, on Done', async () => {
+    const { store, fake } = await setup();
+    const photo = activePhoto(store.getState())!;
+    store.toggleRetouch();
+    store.addRetouchFaces([{ box: { type: 'rect', x: 0.1, y: 0.1, w: 0.1, h: 0.1 } }]);
+    await store.commitRetouch();
+    const saved = () =>
+      store
+        .getState()
+        .photos.find((p) => p.id === photo.id)!
+        .versions.filter((v) => v.kind === 'retouch');
+    expect(saved()).toHaveLength(1);
+
+    store.toggleRetouch();
+    expect(store.getState().retouch!.dirty).toBe(false);
+    store.removeRetouchFacesInside({ type: 'rect', x: 0, y: 0, w: 1, h: 1 });
+    expect(store.getState().retouch!.areas).toHaveLength(0);
+    expect(hasPendingRetouch(store.getState().retouch)).toBe(true);
+    await store.requestExitRetouch();
+
+    expect(fake.calls.some((call) => call.channel === 'photos:deleteVersion')).toBe(true);
+    expect(store.getState().retouch).toBeUndefined();
+    expect(saved()).toHaveLength(0);
+  });
+
+  it('does not treat an emptied session without a saved version as unsaved work', async () => {
+    const { store } = await setup();
+    store.toggleRetouch();
+    store.addRetouchFaces([{ box: { type: 'rect', x: 0.1, y: 0.1, w: 0.1, h: 0.1 } }]);
+    store.removeRetouchFacesInside({ type: 'rect', x: 0, y: 0, w: 1, h: 1 });
+    expect(hasPendingRetouch(store.getState().retouch)).toBe(false);
+    await store.requestExitRetouch();
+    expect(store.getState().retouch).toBeUndefined();
+  });
+
+  it('says so, and changes nothing, when no face is inside the area', async () => {
+    const { store } = await setup();
+    store.toggleRetouch();
+    store.addRetouchFaces([{ box: { type: 'rect', x: 0.7, y: 0.7, w: 0.1, h: 0.1 } }]);
+    const undoDepth = store.getState().retouch!.undo.length;
+
+    store.removeRetouchFacesInside({ type: 'rect', x: 0, y: 0, w: 0.3, h: 0.3 });
+
+    expect(store.getState().retouch!.areas).toHaveLength(1);
+    expect(store.getState().retouch!.undo).toHaveLength(undoDepth);
+    expect(
+      store
+        .getState()
+        .toasts.some((t) => t.kind === 'info' && t.message === 'No faces in that area'),
+    ).toBe(true);
   });
 
   it('saves on requestExitRetouch but keeps the session when Cancel discards', async () => {

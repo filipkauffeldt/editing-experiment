@@ -76,6 +76,7 @@ import {
   areasFromOp,
   opFromAreas,
   withDetectedFaces,
+  withoutFacesInside,
   type RetouchArea,
   type RetouchFaceBox,
   type RetouchMode,
@@ -604,10 +605,13 @@ const defaultConfirm = (message: string): boolean =>
 
 /**
  * Unsaved work in a retouch session. An untouched session that only shows the saved version is not
- * pending, so leaving it never rewrites the version (and never fails on a save).
+ * pending, so leaving it never rewrites the version (and never fails on a save). A saved version
+ * whose areas were all removed is pending too: saving it removes the version.
  */
 export const hasPendingRetouch = (session: RetouchSession | undefined): boolean =>
-  session !== undefined && session.dirty && session.areas.length > 0;
+  session !== undefined &&
+  session.dirty &&
+  (session.areas.length > 0 || session.versionId !== undefined);
 
 /** Throttle for develop writes: first change goes out at once, then at most every 80 ms. */
 const DEVELOP_THROTTLE_MS = 80;
@@ -1439,6 +1443,21 @@ export class AppStore {
     this.changeRetouchAreas(areas);
   };
 
+  /**
+   * Subtract mode with Detect faces: delete every face area whose centre is inside `region`. One
+   * undo step; nothing changes (and a toast says so) when no face is inside.
+   */
+  readonly removeRetouchFacesInside = (region: Shape): void => {
+    const session = this.state.retouch;
+    if (!session) return;
+    const areas = withoutFacesInside(session.areas, region, this.state.photoLens[session.photoId]);
+    if (areas.length === session.areas.length) {
+      this.toast('info', 'No faces in that area');
+      return;
+    }
+    this.changeRetouchAreas(areas);
+  };
+
   /** Switch one area (a drawn shape or a face) on or off. */
   readonly toggleRetouchArea = (index: number): void => {
     const session = this.state.retouch;
@@ -1514,6 +1533,8 @@ export class AppStore {
     const session = this.state.retouch;
     if (!session) return undefined;
     if (session.areas.length === 0) {
+      // Every area of a saved version was removed: the version is what goes.
+      if (session.versionId !== undefined) return this.removeRetouchVersion(session);
       this.toast('error', 'Draw a selection or detect a face first');
       return undefined;
     }
@@ -1561,6 +1582,12 @@ export class AppStore {
       this.exitRetouch();
       return;
     }
+    await this.removeRetouchVersion(session);
+  };
+
+  /** Delete the saved version the session edits and leave retouch; the session stays on failure. */
+  private async removeRetouchVersion(session: RetouchSession): Promise<Photo | undefined> {
+    if (session.versionId === undefined) return undefined;
     this.setRetouchBusy(true);
     try {
       const photo = await this.bridge.invoke('photos:deleteVersion', {
@@ -1571,11 +1598,13 @@ export class AppStore {
       this.exitRetouch();
       this.editedPreviews?.scheduleNow(photo.id);
       this.toast('success', 'Retouch version deleted');
+      return photo;
     } catch (cause) {
       this.toast('error', `Could not delete the version: ${messageOf(cause)}`);
       this.setRetouchBusy(false);
+      return undefined;
     }
-  };
+  }
 
   // -------------------------------------------------------------------- crop
 
