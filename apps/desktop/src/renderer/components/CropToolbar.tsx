@@ -1,6 +1,6 @@
 import { CROP_ASPECTS, cropAspectRatio, type CropOverlayKind, type CropSession } from '../store';
 import { useAppStore } from '../store-context';
-import { CheckIcon, CropIcon } from './icons';
+import { CheckIcon } from './icons';
 import styles from './PhotoCanvas.module.css';
 
 const OVERLAY_LABELS: Record<CropOverlayKind, string> = {
@@ -8,12 +8,6 @@ const OVERLAY_LABELS: Record<CropOverlayKind, string> = {
   grid: 'Grid',
   golden: 'Golden',
   none: 'None',
-};
-
-const TOOL_HINTS: Record<CropSession['tool'], string> = {
-  crop: 'Drag inside to move the photo, outside to rotate it, a handle to resize. Enter applies, Esc cancels.',
-  draw: 'Drag on the photo to draw a new crop frame.',
-  straighten: 'Drag a line along the horizon.',
 };
 
 /** Crop-mode controls: aspect presets, straighten angle and apply/cancel. */
@@ -114,9 +108,6 @@ export function CropToolbar({ session }: { session: CropSession }) {
             </button>
           </div>
         </div>
-      </div>
-      <div className={styles.cropHint} data-testid="crop-hint">
-        <CropIcon size={10} /> {TOOL_HINTS[session.tool]}
       </div>
     </>
   );
