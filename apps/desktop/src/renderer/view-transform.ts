@@ -40,8 +40,6 @@ export const ZOOM_STEP = 1.25;
 /** How much empty room panning may show past the picture's edge, in CSS pixels. */
 export const PAN_MARGIN = 64;
 
-export const isFit = (view: ZoomView): boolean => view.scale === null;
-
 /** The layout the view gives: Fit is `base` itself; otherwise the picture is scaled about its centre and panned. */
 export function viewLayout(view: ZoomView, base: ViewLayout, image: Size): ViewLayout {
   if (view.scale === null) return base;
