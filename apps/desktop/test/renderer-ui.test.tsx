@@ -244,6 +244,22 @@ describe('retouch version', () => {
     expect(fake.calls.some((call) => call.channel === 'retouch:set')).toBe(false);
   });
 
+  it('sets the block size in pixels of the full-resolution photo and stores a fraction', async () => {
+    const { store } = await renderApp();
+    const photo = activePhoto(store.getState());
+    if (!photo?.width || !photo.height) throw new Error('the mock photo has no size');
+    fireEvent.keyDown(window, { key: 'r' });
+    const slider = await screen.findByLabelText('Mosaic block size');
+    expect(screen.getByTestId('block-size-label').textContent).toMatch(/^Block size \d+ px$/);
+
+    fireEvent.change(slider, { target: { value: '48' } });
+
+    expect(screen.getByTestId('block-size-label').textContent).toBe('Block size 48 px');
+    expect(store.getState().retouch?.blockSizeRel).toBeCloseTo(
+      48 / Math.max(photo.width, photo.height),
+    );
+  });
+
   it('leaves with Escape even when a slider has focus', async () => {
     const { store } = await renderApp();
     fireEvent.keyDown(window, { key: 'r' });

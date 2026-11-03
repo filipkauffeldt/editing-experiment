@@ -43,6 +43,12 @@ import {
   useDevelopViewMode,
 } from '../develop-view';
 import { cropFit, cropLayout, fitWithin } from '../crop-view';
+import {
+  blockSizePxRange,
+  blockSizePxToRel,
+  blockSizeRelToPx,
+  photoLongEdge,
+} from '../retouch-block-size';
 import { detectionRegion, faceStoredShape } from '../retouch-geometry';
 import { useAppState, useAppStore } from '../store-context';
 import { CropOverlay } from './CropOverlay';
@@ -102,7 +108,7 @@ const TOOL_LABELS: Record<RetouchTool, string> = {
   faces: 'Detect faces',
 };
 
-function Toolbar() {
+function Toolbar({ photo }: { photo: Photo }) {
   const store = useAppStore();
   const state = useAppState();
   const session = state.retouch;
@@ -194,18 +200,7 @@ function Toolbar() {
           />
         </label>
       )}
-      <label className={styles.control}>
-        <span>Block size {(session.blockSizeRel * 100).toFixed(1)}%</span>
-        <input
-          type="range"
-          min={0.002}
-          max={0.04}
-          step={0.001}
-          value={session.blockSizeRel}
-          aria-label="Mosaic block size"
-          onChange={(event) => store.setRetouchBlockSize(Number(event.target.value))}
-        />
-      </label>
+      <BlockSizeControl photo={photo} />
       {(session.tool === 'faces' || session.faces.length > 0) && (
         <label className={styles.control}>
           <span>Face padding {Math.round(session.facePadding * 100)}%</span>
@@ -236,6 +231,51 @@ function Toolbar() {
         Esc saves and leaves.
       </div>
     </div>
+  );
+}
+
+/** Block size in pixels of the full-resolution photo; percent only while its size is unknown. */
+function BlockSizeControl({ photo }: { photo: Photo }) {
+  const store = useAppStore();
+  const session = useAppState().retouch;
+  if (!session) return null;
+  const longEdge = photoLongEdge(photo);
+  if (longEdge === undefined) {
+    return (
+      <label className={styles.control}>
+        <span>Block size {(session.blockSizeRel * 100).toFixed(1)}%</span>
+        <input
+          type="range"
+          min={0.002}
+          max={0.04}
+          step={0.001}
+          value={session.blockSizeRel}
+          aria-label="Mosaic block size"
+          onChange={(event) => store.setRetouchBlockSize(Number(event.target.value))}
+        />
+      </label>
+    );
+  }
+  const px = blockSizeRelToPx(session.blockSizeRel, longEdge);
+  const range = blockSizePxRange(px);
+  return (
+    <label
+      className={styles.control}
+      title="Block edge in pixels of the full-resolution photo. Small selections get larger blocks, so a face stays unrecognisable."
+    >
+      <span data-testid="block-size-label">Block size {px} px</span>
+      <input
+        type="range"
+        min={range.min}
+        max={range.max}
+        step={range.step}
+        value={px}
+        aria-label="Mosaic block size"
+        onChange={(event) =>
+          store.setRetouchBlockSize(blockSizePxToRel(Number(event.target.value), longEdge))
+        }
+      />
+    </label>
   );
 }
 
@@ -1084,7 +1124,7 @@ function CanvasForPhoto({ photo }: { photo: Photo }) {
         {error && <div className={`${styles.notice} ${styles.error}`}>{error}</div>}
       </div>
       {/* Outside the stage: the stage is only as wide as the photo, a portrait one would clip it. */}
-      <Toolbar />
+      <Toolbar photo={photo} />
     </div>
   );
 }
