@@ -83,12 +83,6 @@ export function linearEdgeFor(deviceScale: number, fullLongEdge: number): number
   return step === undefined || step >= fullLongEdge ? undefined : step;
 }
 
-/** Whether an uploaded image has the pixels a zoomed view asks for (it is never upscaled). */
-export function hasDetailFor(uploadedLongEdge: number, deviceScale: number, fullLongEdge: number) {
-  const wanted = linearEdgeFor(deviceScale, fullLongEdge) ?? fullLongEdge;
-  return uploadedLongEdge >= Math.min(wanted, fullLongEdge) - 1;
-}
-
 export interface ZoomedMosaicRequest {
   /** The op with its shapes already moved into the corrected picture (lens correction). */
   op: MosaicOp;
