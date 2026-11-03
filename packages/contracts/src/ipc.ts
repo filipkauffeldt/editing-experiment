@@ -181,6 +181,18 @@ export interface AppSettings {
    * Adobe's own folders where they exist on this machine. Scanned recursively.
    */
   profileFolders?: string[];
+  /**
+   * Photo Mechanic `.XMP` metadata templates the app knows about, as paths.
+   * The app never copies the template files. The Metadata panel's picker and
+   * Settings → Ingest's template dropdown read this list.
+   */
+  metadataTemplates?: string[];
+  /**
+   * Tab-delimited Photo Mechanic code replacement files, later files override
+   * earlier ones. Used everywhere captions expand (`{variables}` and `=codes=`)
+   * and passed to ingest.
+   */
+  codeReplacementPaths?: string[];
 }
 
 /** Arguments of `dialog:pick`. */

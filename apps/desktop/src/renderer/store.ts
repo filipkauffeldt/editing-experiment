@@ -863,7 +863,9 @@ export class AppStore {
       error: photos.status === 'rejected' ? messageOf(photos.reason) : undefined,
     });
 
-    const path = value(settings)?.ingest.metadataTemplatePath;
+    const loadedSettings = value(settings);
+    const path =
+      loadedSettings?.ingest.metadataTemplatePath ?? loadedSettings?.metadataTemplates?.[0];
     if (path) void this.loadTemplate(path);
 
     const first = this.getVisiblePhotos()[0];
@@ -1903,14 +1905,99 @@ export class AppStore {
     }
   }
 
-  readonly loadTemplate = async (path: string): Promise<void> => {
+  readonly loadTemplate = async (path: string): Promise<boolean> => {
     try {
       const template = await this.bridge.invoke('metadata:readTemplate', { path });
       this.set({ template, templatePath: path });
+      return true;
     } catch (cause) {
       this.toast('error', `Could not read template: ${messageOf(cause)}`);
+      return false;
     }
   };
+
+  /** Add template paths to the global list (Settings → Metadata and Browse…). */
+  readonly addMetadataTemplates = async (paths: readonly string[]): Promise<void> => {
+    const templates = this.state.settings?.metadataTemplates ?? [];
+    const next = [...templates];
+    for (const path of paths) {
+      if (path !== '' && !next.includes(path)) next.push(path);
+    }
+    if (next.length === templates.length) return;
+    await this.saveSettings({ metadataTemplates: next });
+  };
+
+  /** Remove a template from the global list, clearing the ingest choice if it was selected. */
+  readonly removeMetadataTemplate = async (path: string): Promise<void> => {
+    const settings = this.state.settings;
+    if (!settings) return;
+    const templates = (settings.metadataTemplates ?? []).filter((candidate) => candidate !== path);
+    const patch: Partial<AppSettings> = { metadataTemplates: templates };
+    if (settings.ingest.metadataTemplatePath === path) {
+      patch.ingest = { ...settings.ingest, metadataTemplatePath: undefined };
+    }
+    await this.saveSettings(patch);
+    if (this.state.templatePath === path) {
+      this.set({ template: undefined, templatePath: undefined });
+    }
+  };
+
+  /** Add code replacement files to the global list used by every caption expansion. */
+  readonly addCodeReplacementFiles = async (paths: readonly string[]): Promise<void> => {
+    const current = this.state.settings?.codeReplacementPaths ?? [];
+    const next = [...current];
+    for (const path of paths) {
+      if (path !== '' && !next.includes(path)) next.push(path);
+    }
+    if (next.length === current.length) return;
+    await this.saveSettings({ codeReplacementPaths: next });
+  };
+
+  readonly removeCodeReplacementFile = async (path: string): Promise<void> => {
+    const current = this.state.settings?.codeReplacementPaths ?? [];
+    await this.saveSettings({
+      codeReplacementPaths: current.filter((candidate) => candidate !== path),
+    });
+  };
+
+  /** Add a template path to the global list if it is new. */
+  private async rememberMetadataTemplate(path: string): Promise<void> {
+    try {
+      await this.addMetadataTemplates([path]);
+    } catch (cause) {
+      console.warn(`Could not remember metadata template: ${messageOf(cause)}`);
+    }
+  }
+
+  /** Load a template from the picker and remember it. */
+  readonly selectMetadataTemplate = async (path: string): Promise<void> => {
+    if (!path) return;
+    if (await this.loadTemplate(path)) await this.rememberMetadataTemplate(path);
+  };
+
+  /** Browse for another Photo Mechanic `.XMP` template and select it. */
+  readonly browseMetadataTemplate = async (): Promise<void> => {
+    try {
+      const [path] = await this.bridge.invoke('dialog:pick', {
+        kind: 'file',
+        title: 'Metadata template',
+        extensions: ['xmp'],
+      });
+      if (path) await this.selectMetadataTemplate(path);
+    } catch (cause) {
+      this.toast('error', `Could not open the template: ${messageOf(cause)}`);
+    }
+  };
+
+  /** Photos the Metadata panel's template and paste actions apply to. */
+  private metadataTargets(photoIds?: readonly PhotoId[]): PhotoId[] {
+    if (photoIds !== undefined) {
+      return [...new Set(photoIds)].filter((id) => this.photoById.has(id));
+    }
+    const { selection, selectedId } = this.state;
+    if (selection.length > 1) return [...new Set(selection)];
+    return selectedId ? [selectedId] : [];
+  }
 
   readonly updateMetadataField = (
     photoId: PhotoId,

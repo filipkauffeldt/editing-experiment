@@ -141,6 +141,4 @@ export interface IngestConfig {
   metadataTemplateMode?: TemplateApplyMode;
   /** Imported develop preset applied to every ingested photo; absent means none. */
   developPresetId?: PresetId;
-  /** Tab-delimited code replacement files, later files override earlier ones. */
-  codeReplacementPaths: string[];
 }

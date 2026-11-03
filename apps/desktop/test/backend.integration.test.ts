@@ -261,7 +261,6 @@ describe.skipIf(nefs.length === 0)(
         destination: { path: ingestDest!, subfolderTemplate: '{sourceName}' },
         renameTemplate: '{sourceName}_{seq:3}',
         metadataTemplatePath: templatePath,
-        codeReplacementPaths: [],
       };
       const jobs = await handlers['ingest:start']({ config: ingestConfig });
       expect(jobs.map((job) => job.sourceId).sort()).toEqual([cardA, cardB, ftp].sort());

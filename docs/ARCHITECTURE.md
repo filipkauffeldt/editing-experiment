@@ -87,7 +87,7 @@ Electron dependency (`createBackend({ userDataDir, emit, getSecret })`), so inte
 in plain Node. Files under Electron's `userData`:
 
 ```
-settings.json        sources, destinations, ingest options, export presets, active preset, profile folders
+settings.json        sources, destinations, ingest options, metadata templates, code replacements, export presets, active preset, profile folders
 index.sqlite         photo index (cache; sidecars are the source of truth)
 seen.sqlite          files already ingested per source
 uploads.sqlite       upload queue
@@ -199,8 +199,11 @@ Key types (names are binding, fields can grow):
   `lockFilter` (`all` default) and `incremental` (`true` default); remote sources
   have none of them.
 - `IngestConfig { sources, destination, backupDestination?, renameTemplate,
-  metadataTemplatePath?, metadataTemplateMode?, developPresetId?, codeReplacementPaths[] }`;
-  the template mode is `replace` (default) or `fillEmpty`.
+  metadataTemplatePath?, metadataTemplateMode?, developPresetId? }`;
+  the template mode is `replace` (default) or `fillEmpty`. The global
+  `AppSettings.metadataTemplates` and `AppSettings.codeReplacementPaths` lists
+  supply the template picker and code replacement files for ingest and the
+  Metadata panel.
 - `IptcFields` (IPTC Core + common Ext: headline, caption, keywords, byline,
   bylineTitle, credit, source, copyright, city, state, country, countryCode,
   location, event, objectName, jobId, instructions, captionWriter, dateCreated)
@@ -263,7 +266,9 @@ LibRaw) only; TIFF, PNG, HEIF and WebP are ingested but have no decoded preview.
 - Develop settings: `crs:` namespace in the same sidecar.
 - Retouch versions: namespace `ee:` (`http://ns.editing-experiment/1.0/`).
 - PM metadata templates are `.XMP` files; code replacement files are
-  tab-delimited text; variables use `{name}` syntax. Ingest replaces existing
+  tab-delimited text; variables use `{name}` syntax. The paths live in the
+  global `AppSettings.metadataTemplates` and `AppSettings.codeReplacementPaths`
+  lists (Settings → Metadata); the app never copies the files. Ingest replaces existing
   values by default (cameras write their own copyright/artist); "fill empty"
   is the opt-in alternative. For embedded JPEG/TIFF metadata the template's
   `copyright`/`byline` are also written to EXIF `Copyright`/`Artist`, as MWG

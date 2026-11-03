@@ -355,7 +355,6 @@ async function runReal(outDir: string): Promise<void> {
       ingest: {
         destination: { path: join(temp, 'ingest') },
         renameTemplate: '{sourceName}_{seq:3}',
-        codeReplacementPaths: [],
       },
       exportRoot: join(temp, 'exports'),
       exportPresets: [
@@ -386,7 +385,6 @@ async function runReal(outDir: string): Promise<void> {
         sources: [{ id: 'shots-card', kind: 'folder', name: 'shots', path: source }],
         destination: { path: join(temp, 'ingest') },
         renameTemplate: '{sourceName}_{seq:3}',
-        codeReplacementPaths: [],
       },
     });
     for (let i = 0; i < 200; i++) {

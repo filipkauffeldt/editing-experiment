@@ -93,7 +93,7 @@ export class MetadataService {
 
   async expandCaption(args: ExpandCaptionArgs): Promise<ExpandCaptionResult> {
     const photo = this.photos.get(args.photoId);
-    const paths = args.codeReplacementPaths ?? this.settings.get().ingest.codeReplacementPaths;
+    const paths = args.codeReplacementPaths ?? this.settings.get().codeReplacementPaths ?? [];
     const [fields, codeReplacementSet] = await Promise.all([
       readIptc(photo.path, this.exiftool),
       loadCodeReplacements(paths),

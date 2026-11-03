@@ -30,11 +30,12 @@ export function defaultSettings(homeDir: string): AppSettings {
       destination: { path: join(homeDir, 'Pictures', 'ee-ingest') },
       renameTemplate: '{date}_{seq:4}',
       metadataTemplateMode: 'replace',
-      codeReplacementPaths: [],
     },
     exportRoot: join(homeDir, 'Pictures', 'ee-exports'),
     exportPresets: [preset],
     activePresetId: preset.id,
+    metadataTemplates: [],
+    codeReplacementPaths: [],
   };
 }
 

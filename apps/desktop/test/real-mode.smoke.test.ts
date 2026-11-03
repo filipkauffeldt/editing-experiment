@@ -120,7 +120,6 @@ describe.skipIf(!nef || !haveDisplay)('real mode smoke test (Electron)', () => {
       sources: [{ id: asSourceId('card'), name: 'card', kind: 'folder', path: card }],
       destination: { path: join(root, 'ingest') },
       renameTemplate: '{sourceName}_{seq:3}',
-      codeReplacementPaths: [],
     };
     await invoke('ingest:start', { config });
     for (let i = 0; i < 300; i++) {

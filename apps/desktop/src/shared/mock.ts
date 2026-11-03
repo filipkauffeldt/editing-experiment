@@ -137,11 +137,16 @@ export function mockSettings(): AppSettings {
       renameTemplate: '{date}_{event}_{seq:4}',
       metadataTemplatePath: MOCK_TEMPLATE_PATH,
       metadataTemplateMode: 'replace',
-      codeReplacementPaths: [MOCK_CODE_REPLACEMENT_PATH],
     },
     exportRoot: '/mock/exports',
     exportPresets: mockExportPresets(),
     activePresetId: asPresetId('mock-export-preset'),
+    metadataTemplates: [
+      MOCK_TEMPLATE_PATH,
+      '/mock/templates/night-match.XMP',
+      '/mock/templates/archive.XMP',
+    ],
+    codeReplacementPaths: [MOCK_CODE_REPLACEMENT_PATH],
   };
 }
 

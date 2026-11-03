@@ -59,14 +59,13 @@ function assertIngest(value: unknown): asserts value is AppSettings['ingest'] {
     typeof value.destination.path !== 'string' ||
     value.destination.path === '' ||
     typeof value.renameTemplate !== 'string' ||
-    !Array.isArray(value.codeReplacementPaths) ||
     (value.metadataTemplateMode !== undefined &&
       !isTemplateApplyMode(value.metadataTemplateMode)) ||
     (value.developPresetId !== undefined && typeof value.developPresetId !== 'string')
   ) {
     throw new IpcError(
       'invalid_argument',
-      'ingest settings need destination.path, renameTemplate and codeReplacementPaths',
+      'ingest settings need destination.path and renameTemplate',
     );
   }
 }
@@ -114,6 +113,17 @@ function assertExportPreset(value: unknown): asserts value is ExportPreset {
   }
 }
 
+function isPathList(value: unknown): value is string[] {
+  return (
+    Array.isArray(value) && value.every((path) => typeof path === 'string' && path.trim() !== '')
+  );
+}
+
+function pathList(value: unknown): string[] | undefined {
+  if (!isPathList(value)) return undefined;
+  return [...new Set(value)];
+}
+
 function assertSettingsPatch(patch: Partial<AppSettings>): void {
   if (patch.ingest !== undefined) assertIngest(patch.ingest);
   if (
@@ -137,6 +147,12 @@ function assertSettingsPatch(patch: Partial<AppSettings>): void {
       patch.profileFolders.some((folder) => typeof folder !== 'string' || folder === ''))
   ) {
     throw new IpcError('invalid_argument', 'profileFolders must be a list of folder paths');
+  }
+  if (patch.metadataTemplates !== undefined && !isPathList(patch.metadataTemplates)) {
+    throw new IpcError('invalid_argument', 'metadataTemplates must be a list of file paths');
+  }
+  if (patch.codeReplacementPaths !== undefined && !isPathList(patch.codeReplacementPaths)) {
+    throw new IpcError('invalid_argument', 'codeReplacementPaths must be a list of file paths');
   }
 }
 
@@ -202,20 +218,52 @@ export class SettingsStore {
         typeof parsed.activePresetId === 'string'
           ? (parsed.activePresetId as PresetId)
           : (presets[0]?.id ?? defaults.activePresetId);
-      const storedIngest = isObject(parsed.ingest)
-        ? (parsed.ingest as unknown as AppSettings['ingest'])
-        : undefined;
-      // Settings written before the mode existed mean Replace: a camera-written
-      // copyright/artist must be corrected by the template, not kept.
-      const ingest =
-        storedIngest === undefined
-          ? defaults.ingest
-          : isTemplateApplyMode(storedIngest.metadataTemplateMode)
-            ? storedIngest
-            : { ...storedIngest, metadataTemplateMode: DEFAULT_TEMPLATE_MODE };
-      if (storedIngest !== undefined && !isTemplateApplyMode(storedIngest.metadataTemplateMode)) {
+      const storedIngest = isObject(parsed.ingest) ? parsed.ingest : undefined;
+      let ingest: AppSettings['ingest'];
+      let legacyTemplatePath: string | undefined;
+      let legacyCodePaths: string[] | undefined;
+      if (storedIngest === undefined) {
+        ingest = defaults.ingest;
+      } else {
+        // Code replacement files used to live under ingest. They are global now.
+        const { codeReplacementPaths: legacyPaths, ...rest } = storedIngest;
+        legacyCodePaths = pathList(legacyPaths);
+        if (legacyCodePaths !== undefined) migrated = true;
+        if (
+          typeof rest.metadataTemplatePath === 'string' &&
+          rest.metadataTemplatePath.trim() !== ''
+        ) {
+          legacyTemplatePath = rest.metadataTemplatePath.trim();
+        }
+        // Settings written before the mode existed mean Replace: a camera-written
+        // copyright/artist must be corrected by the template, not kept.
+        ingest = isTemplateApplyMode(rest.metadataTemplateMode)
+          ? (rest as unknown as AppSettings['ingest'])
+          : {
+              ...(rest as unknown as AppSettings['ingest']),
+              metadataTemplateMode: DEFAULT_TEMPLATE_MODE,
+            };
+        if (!isTemplateApplyMode(rest.metadataTemplateMode)) migrated = true;
+      }
+
+      // The single ingest template becomes part of the global template list, and
+      // stays selected for ingest.
+      const storedTemplates = pathList(parsed.metadataTemplates) ?? [];
+      const metadataTemplates = [
+        ...new Set([
+          ...storedTemplates,
+          ...(legacyTemplatePath === undefined ? [] : [legacyTemplatePath]),
+        ]),
+      ];
+      if (legacyTemplatePath !== undefined && !storedTemplates.includes(legacyTemplatePath)) {
         migrated = true;
       }
+      const codeReplacementPaths =
+        pathList(parsed.codeReplacementPaths) ??
+        legacyCodePaths ??
+        defaults.codeReplacementPaths ??
+        [];
+
       const rawSources = Array.isArray(parsed.sources) ? parsed.sources : [];
       if (rawSources.some((source) => isObject(source) && 'lockedOnly' in source)) {
         migrated = true;
@@ -235,6 +283,8 @@ export class SettingsStore {
               ),
             }
           : {}),
+        metadataTemplates,
+        codeReplacementPaths,
         sources: rawSources.map(migrateSource),
         destinations: Array.isArray(parsed.destinations)
           ? (parsed.destinations as Destination[])
@@ -261,6 +311,8 @@ export class SettingsStore {
       ...(this.state.profileFolders === undefined
         ? {}
         : { profileFolders: this.state.profileFolders }),
+      metadataTemplates: this.state.metadataTemplates ?? [],
+      codeReplacementPaths: this.state.codeReplacementPaths ?? [],
     };
   }
 
@@ -274,6 +326,12 @@ export class SettingsStore {
       ...(patch.activePresetId !== undefined ? { activePresetId: patch.activePresetId } : {}),
       ...(patch.profileFolders !== undefined
         ? { profileFolders: [...new Set(patch.profileFolders)] }
+        : {}),
+      ...(patch.metadataTemplates !== undefined
+        ? { metadataTemplates: [...new Set(patch.metadataTemplates)] }
+        : {}),
+      ...(patch.codeReplacementPaths !== undefined
+        ? { codeReplacementPaths: [...new Set(patch.codeReplacementPaths)] }
         : {}),
     };
     this.save();
