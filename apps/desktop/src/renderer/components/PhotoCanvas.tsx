@@ -1,6 +1,7 @@
 import {
   LINEAR_IMAGE_HEADER,
   appUrl,
+  mapMosaicShapes,
   type LinearImageHeader,
   type Photo,
   type Rect,
@@ -13,7 +14,6 @@ import {
   beforeParams,
   createDevelopRenderer,
   profileColorModel,
-  cropDevelopedRgba,
   cropGeometry,
   croppedToSourcePixels,
   grainSeedFromId,
@@ -24,7 +24,7 @@ import {
   type DevelopRenderer,
   withoutLensGeometry,
 } from '@ee/develop-gl';
-import { applyMosaic, polygonBounds, shapeBounds, simplifyPolygon } from '@ee/retouch';
+import { polygonBounds, shapeBounds, simplifyPolygon } from '@ee/retouch';
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { ee } from '../ee';
 import {
@@ -33,7 +33,6 @@ import {
   paramsForPhoto,
   topRetouchVersion,
   type FaceSearchArea,
-  type RetouchFace,
   type RetouchTool,
 } from '../store';
 import {
@@ -50,7 +49,17 @@ import {
   blockSizeRelToPx,
   photoLongEdge,
 } from '../retouch-block-size';
-import { detectionRegion, faceStoredShape, facesInLasso } from '../retouch-geometry';
+import {
+  altFlipsMode,
+  areaIndexAt,
+  areaShape,
+  countAreas,
+  opFromAreas,
+  opHasAddedArea,
+  type RetouchMode,
+} from '../retouch-areas';
+import { detectionRegion, facesInLasso } from '../retouch-geometry';
+import { renderMosaicPreview } from '../retouch-preview';
 import { useAppState, useAppStore } from '../store-context';
 import { CropOverlay } from './CropOverlay';
 import { CropToolbar } from './CropToolbar';
@@ -70,6 +79,9 @@ const EDGE_BUCKET = 64;
 const CROP_DIM = 0.42;
 /** The empty canvas outside the rotated image (sRGB), a touch lighter than the app background. */
 const CROP_OUTSIDE: [number, number, number] = [0.1, 0.1, 0.11];
+
+/** A press that moves less than this (of the picture's size) is a click, not a drawing. */
+const CLICK_DISTANCE = 0.006;
 
 const clamp01 = (value: number): number => Math.min(1, Math.max(0, value));
 
@@ -108,6 +120,11 @@ const TOOL_LABELS: Record<RetouchTool, string> = {
   faces: 'Detect faces',
 };
 
+const MODE_LABELS: Record<RetouchMode, string> = {
+  add: 'Add',
+  subtract: 'Subtract',
+};
+
 const FACE_AREA_LABELS: Record<FaceSearchArea, string> = {
   rect: 'Rectangle',
   lasso: 'Lasso',
@@ -118,9 +135,8 @@ function Toolbar({ photo }: { photo: Photo }) {
   const state = useAppState();
   const session = state.retouch;
   if (!session) return null;
-  const enabledFaces = session.faces.filter((face) => face.enabled).length;
+  const counts = countAreas(session.areas);
   const unsaved = hasPendingRetouch(session);
-  const unsavedCount = session.shapes.length + enabledFaces;
   return (
     <div className={styles.toolbar} data-testid="retouch-toolbar">
       <div className={styles.tools}>
@@ -142,8 +158,8 @@ function Toolbar({ photo }: { photo: Photo }) {
           type="button"
           className={styles.secondary}
           onClick={() => store.undoRetouchShape()}
-          disabled={session.shapes.length === 0}
-          title="Undo the last shape (Ctrl/⌘+Z)"
+          disabled={session.undo.length === 0}
+          title="Undo the last change to the areas (Ctrl/⌘+Z)"
         >
           Undo
         </button>
@@ -160,9 +176,7 @@ function Toolbar({ photo }: { photo: Photo }) {
             type="button"
             className={styles.secondary}
             onClick={() => store.exitRetouch()}
-            title={`Leave retouch mode and throw away ${unsavedCount} unsaved ${
-              unsavedCount === 1 ? 'selection' : 'selections'
-            }`}
+            title="Leave retouch mode and throw away the changes you have not saved"
             data-testid="discard-retouch"
           >
             Discard changes
@@ -191,6 +205,25 @@ function Toolbar({ photo }: { photo: Photo }) {
           <CheckIcon size={11} /> Done
         </button>
       </div>
+      <div className={styles.tools} role="group" aria-label="Mode" data-testid="retouch-mode">
+        {(Object.keys(MODE_LABELS) as RetouchMode[]).map((mode) => (
+          <button
+            key={mode}
+            type="button"
+            className={`${styles.tool} ${session.mode === mode ? styles.toolActive : ''}`}
+            onClick={() => store.setRetouchMode(mode)}
+            aria-pressed={session.mode === mode}
+            title={
+              mode === 'add'
+                ? 'New shapes and faces add mosaic'
+                : 'New shapes and faces take mosaic away (hold Alt while drawing to flip the mode)'
+            }
+            data-mode={mode}
+          >
+            {MODE_LABELS[mode]}
+          </button>
+        ))}
+      </div>
       {session.tool === 'faces' && (
         <div className={styles.tools} role="group" aria-label="Search area">
           {(Object.keys(FACE_AREA_LABELS) as FaceSearchArea[]).map((area) => (
@@ -208,7 +241,7 @@ function Toolbar({ photo }: { photo: Photo }) {
         </div>
       )}
       <BlockSizeControl photo={photo} />
-      {(session.tool === 'faces' || session.faces.length > 0) && (
+      {(session.tool === 'faces' || counts.faces.total > 0) && (
         <label className={styles.control}>
           <span>Face padding {Math.round(session.facePadding * 100)}%</span>
           <input
@@ -222,9 +255,21 @@ function Toolbar({ photo }: { photo: Photo }) {
           />
         </label>
       )}
-      {session.faces.length > 0 && (
-        <div className={styles.faceHint}>
-          <EyeIcon size={10} /> {enabledFaces}/{session.faces.length} faces selected
+      {(counts.faces.total > 0 || counts.drawn.total > 0) && (
+        <div className={styles.faceHint} data-testid="area-counts">
+          <EyeIcon size={10} />
+          {counts.faces.total > 0 && (
+            <span data-testid="face-count">
+              {' '}
+              {counts.faces.on}/{counts.faces.total} faces on
+            </span>
+          )}
+          {counts.drawn.total > 0 && (
+            <span data-testid="drawn-count">
+              {' '}
+              {counts.drawn.on}/{counts.drawn.total} areas on
+            </span>
+          )}
         </div>
       )}
       <div className={styles.toolHint}>
@@ -235,7 +280,7 @@ function Toolbar({ photo }: { photo: Photo }) {
           : session.tool === 'lasso'
             ? 'Draw a freehand outline.'
             : 'Drag a rectangle around what to pixelate.'}{' '}
-        Esc saves and leaves.
+        Click an area to switch it on or off. Esc saves and leaves.
       </div>
     </div>
   );
@@ -343,6 +388,7 @@ function CanvasForPhoto({ photo }: { photo: Photo }) {
   const dragStart = useRef<{ x: number; y: number } | null>(null);
   const dragMoved = useRef(false);
   const dragPointer = useRef<number | null>(null);
+  const drawMode = useRef<RetouchMode>('add');
   const [pickerPoint, setPickerPoint] = useState<{ x: number; y: number } | null>(null);
   const [splitting, setSplitting] = useState(false);
   const lastHistogramAt = useRef(0);
@@ -728,25 +774,19 @@ function CanvasForPhoto({ photo }: { photo: Photo }) {
     }
   };
 
-  // The committed retouch version is the default view; while editing, the
-  // pending shapes and enabled faces replace it.
+  // The committed retouch version is the default view; while editing, the session's areas
+  // (shapes and faces, added, subtracted or off) replace it.
   const committedMosaic = useMemo(() => {
     const version = topRetouchVersion(image);
     return version?.ops.find((op) => op.type === 'mosaic');
   }, [image]);
-  const mosaicShapes = useMemo(
+  const mosaicOp = useMemo(
     () =>
       session
-        ? [
-            ...session.shapes,
-            ...session.faces
-              .filter((face) => face.enabled)
-              .map((face) => faceStoredShape(face.box, session.facePadding, lensContext)),
-          ]
-        : (committedMosaic?.shapes ?? []),
+        ? opFromAreas(session.areas, session.blockSizeRel, session.facePadding, lensContext)
+        : committedMosaic,
     [session, committedMosaic, lensContext],
   );
-  const blockSizeRel = session?.blockSizeRel ?? committedMosaic?.blockSizeRel ?? 0.012;
 
   // Live mosaic preview: render at the view size, mosaic the pixels on the CPU,
   // and paint them over the canvas. Runs in the normal view too, so a committed
@@ -756,37 +796,23 @@ function CanvasForPhoto({ photo }: { photo: Photo }) {
     if (!mosaic) return;
     const context = mosaic.getContext('2d');
     if (!context) return;
-    if (cropping || mosaicShapes.length === 0 || !renderer || !loaded || contextLost) {
+    if (cropping || !mosaicOp || !opHasAddedArea(mosaicOp) || !renderer || !loaded || contextLost) {
       context.clearRect(0, 0, mosaic.width, mosaic.height);
       return;
     }
     // Shapes are stored on the recorded picture; a lens correction moves them with its pixels.
-    const op = {
-      type: 'mosaic' as const,
-      shapes: correctedShapes(mosaicShapes, loaded.header, renderParams),
-      blockSizeRel,
-    };
+    const op = mapMosaicShapes(mosaicOp, (shapes) =>
+      correctedShapes(shapes, loaded.header, renderParams),
+    );
     const frame = requestAnimationFrame(() => {
       try {
-        let rgba: Uint8Array;
-        if (renderParams.crop !== undefined) {
-          // Mosaic in source space, then crop/rotate, matching the export path.
-          const source = { width: loaded.header.width, height: loaded.header.height };
-          const uncropped = { ...renderParams };
-          delete uncropped.crop;
-          const sourceRgba = renderer.renderToRGBA(uncropped, source);
-          applyMosaic(sourceRgba, source.width, source.height, op, { inPlace: true });
-          rgba = cropDevelopedRgba(sourceRgba, source, renderParams.crop, {
-            width: mosaic.width,
-            height: mosaic.height,
-          });
-        } else {
-          rgba = renderer.renderToRGBA(renderParams, {
-            width: mosaic.width,
-            height: mosaic.height,
-          });
-          applyMosaic(rgba, mosaic.width, mosaic.height, op, { inPlace: true });
-        }
+        const rgba = renderMosaicPreview({
+          op,
+          params: renderParams,
+          source: { width: loaded.header.width, height: loaded.header.height },
+          output: { width: mosaic.width, height: mosaic.height },
+          render: (params, size) => renderer.renderToRGBA(params, size),
+        });
         context.putImageData(
           new ImageData(new Uint8ClampedArray(rgba), mosaic.width, mosaic.height),
           0,
@@ -798,17 +824,7 @@ function CanvasForPhoto({ photo }: { photo: Photo }) {
       }
     });
     return () => cancelAnimationFrame(frame);
-  }, [
-    mosaicShapes,
-    blockSizeRel,
-    renderer,
-    loaded,
-    contextLost,
-    renderParams,
-    cropping,
-    bufferWidth,
-    bufferHeight,
-  ]);
+  }, [mosaicOp, renderer, loaded, contextLost, renderParams, cropping, bufferWidth, bufferHeight]);
 
   // Detect faces can take its search area as a lasso too; both lassos are drawn the same way.
   const drawsLasso =
@@ -839,6 +855,19 @@ function CanvasForPhoto({ photo }: { photo: Photo }) {
     const start = dragStart.current;
     const end = normalizedPoint(event, surface);
     dragStart.current = null;
+    dragPointer.current = null;
+    const mode = drawMode.current;
+    // A click, not a drag, switches the topmost area under it on or off, wherever the tool is.
+    const clicked =
+      Math.hypot(end.x - start.x, end.y - start.y) < CLICK_DISTANCE &&
+      (!drawsLasso || draftPoints.length < 3 || !dragMoved.current);
+    if (clicked) {
+      setDraftPoints([]);
+      setDraftRect(undefined);
+      const index = areaIndexAt(session.areas, end, session.facePadding, lensContext);
+      if (index >= 0) store.toggleRetouchArea(index);
+      return;
+    }
     if (drawsLasso) {
       const points = [...draftPoints, end];
       setDraftPoints([]);
@@ -848,9 +877,9 @@ function CanvasForPhoto({ photo }: { photo: Photo }) {
         if (session.tool === 'faces') {
           // Search the lasso's bounding box; only faces centred inside the outline are kept.
           const bounds = polygonBounds(simplified);
-          if (bounds.w >= 0.01 && bounds.h >= 0.01) await detectFaces(bounds, simplified);
+          if (bounds.w >= 0.01 && bounds.h >= 0.01) await detectFaces(bounds, mode, simplified);
         } else {
-          store.addRetouchShape({ type: 'polygon', points: simplified });
+          store.addRetouchShape({ type: 'polygon', points: simplified }, mode);
         }
       }
       return;
@@ -858,12 +887,13 @@ function CanvasForPhoto({ photo }: { photo: Photo }) {
     const rect = rectFromPoints(start, end);
     setDraftRect(undefined);
     if (rect.w < 0.01 || rect.h < 0.01) return;
-    if (session.tool === 'faces') await detectFaces(rect);
-    else store.addRetouchShape(rect);
+    if (session.tool === 'faces') await detectFaces(rect, mode);
+    else store.addRetouchShape(rect, mode);
   };
 
   const detectFaces = async (
     region: Rect,
+    mode: RetouchMode,
     lasso?: readonly { x: number; y: number }[],
   ): Promise<void> => {
     if (!session) return;
@@ -874,16 +904,16 @@ function CanvasForPhoto({ photo }: { photo: Photo }) {
         photoId: photo.id,
         region: detectionRegion(region, lensContext),
       });
+      // Retouch was left (or moved to another photo) while the detector ran: drop the result.
+      if (store.getState().retouch?.photoId !== photo.id) return;
       const inside = lasso ? facesInLasso(detections, lasso, lensContext) : detections;
       if (inside.length === 0) {
         store.notify('info', 'No faces found in that area');
       }
-      const detected: RetouchFace[] = inside.map((face) => ({
-        box: face.box,
-        score: face.score,
-        enabled: true,
-      }));
-      store.setRetouchFaces(detected);
+      store.addRetouchFaces(
+        inside.map((face) => ({ box: face.box, score: face.score })),
+        mode,
+      );
     } catch (cause) {
       const message = cause instanceof Error ? cause.message : String(cause);
       setError(message);
@@ -900,6 +930,12 @@ function CanvasForPhoto({ photo }: { photo: Photo }) {
     if (!surface) return;
     event.preventDefault();
     dragPointer.current = event.pointerId;
+    // Alt flips Add and Subtract for this one gesture; AltGr never does.
+    drawMode.current = altFlipsMode(event)
+      ? session.mode === 'add'
+        ? 'subtract'
+        : 'add'
+      : session.mode;
     dragStart.current = normalizedPoint(event, surface);
     dragMoved.current = false;
     surface.setPointerCapture(event.pointerId);
@@ -1071,39 +1107,52 @@ function CanvasForPhoto({ photo }: { photo: Photo }) {
             onPointerCancel={onPointerUp}
             data-testid="retouch-overlay"
           >
-            {[...session.shapes, ...rectsInPreview].map((shape, index) => (
-              <path key={`shape-${index}`} d={shapePath(shape)} className={styles.shape} />
-            ))}
-            {draftPoints.length > 1 && (
-              <polyline
-                className={styles.shape}
-                points={draftPoints.map((point) => `${point.x},${point.y}`).join(' ')}
-              />
-            )}
-            {session.faces.map((face, index) => {
-              const shape = faceStoredShape(face.box, session.facePadding, lensContext);
+            {session.areas.map((area, index) => {
+              const shape = areaShape(area, session.facePadding, lensContext);
               const bounds = shapeBox(shape);
               return (
                 <path
-                  key={`face-${index}`}
+                  key={`area-${index}`}
                   d={shapePath(shape)}
-                  className={`${styles.face} ${face.enabled ? styles.faceOn : styles.faceOff}`}
-                  data-face-box={`${bounds.x},${bounds.y},${bounds.w},${bounds.h}`}
-                  data-face-index={index}
-                  onPointerDown={(event) => event.stopPropagation()}
-                  onClick={(event) => {
-                    event.stopPropagation();
-                    store.toggleRetouchFace(index);
-                  }}
+                  className={`${styles.area} ${area.enabled ? styles.areaOn : styles.areaOff} ${
+                    area.mode === 'subtract' ? styles.areaSubtract : ''
+                  } ${area.kind === 'face' ? styles.areaFace : ''}`}
+                  data-area-index={index}
+                  data-area-kind={area.kind}
+                  data-area-mode={area.mode}
+                  data-area-enabled={area.enabled ? 'true' : 'false'}
+                  {...(area.kind === 'face'
+                    ? {
+                        'data-face-index': index,
+                        'data-face-box': `${bounds.x},${bounds.y},${bounds.w},${bounds.h}`,
+                      }
+                    : {})}
                 >
                   <title>
-                    Face {index + 1}
-                    {face.score === undefined ? '' : ` · ${(face.score * 100).toFixed(0)}%`}
-                    {face.enabled ? ' · selected' : ' · off'}
+                    {area.kind === 'face'
+                      ? `Face${area.face?.score === undefined ? '' : ` · ${(area.face.score * 100).toFixed(0)}%`}`
+                      : area.kind === 'lasso'
+                        ? 'Lasso'
+                        : 'Rectangle'}
+                    {area.mode === 'subtract' ? ' · subtract' : ''}
+                    {area.enabled ? ' · on' : ' · off'}
                   </title>
                 </path>
               );
             })}
+            {rectsInPreview.map((shape, index) => (
+              <path
+                key={`draft-${index}`}
+                d={shapePath(shape)}
+                className={`${styles.shape} ${drawMode.current === 'subtract' ? styles.areaSubtract : ''}`}
+              />
+            ))}
+            {draftPoints.length > 1 && (
+              <polyline
+                className={`${styles.shape} ${drawMode.current === 'subtract' ? styles.areaSubtract : ''}`}
+                points={draftPoints.map((point) => `${point.x},${point.y}`).join(' ')}
+              />
+            )}
           </svg>
         )}
         {contextLost && <div className={styles.notice}>Restoring the graphics context…</div>}

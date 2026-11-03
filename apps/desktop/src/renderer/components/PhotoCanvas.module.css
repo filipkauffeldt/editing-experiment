@@ -66,21 +66,38 @@
   vector-effect: non-scaling-stroke;
 }
 
-.face {
-  cursor: pointer;
+/* Every area of a retouch session: a drawn shape or a detected face, added or subtracted. */
+.area {
   stroke-width: 2;
   vector-effect: non-scaling-stroke;
+  pointer-events: none;
 }
 
-.faceOn {
+.areaOn {
   fill: rgb(255 255 255 / 12%);
   stroke: var(--text);
+}
+
+.areaFace.areaOn {
   stroke-dasharray: 6 3;
 }
 
-.faceOff {
+/* Off: outlined only and dimmed, still there to click back on. */
+.areaOff {
   fill: none;
   stroke: rgb(255 255 255 / 45%);
+  stroke-dasharray: 2 4;
+}
+
+/* Subtract: a dashed outline in the error colour and no fill, so it reads as a hole. */
+.areaSubtract {
+  fill: none;
+  stroke: var(--error);
+  stroke-dasharray: 8 4;
+}
+
+.areaSubtract.areaOff {
+  stroke: rgb(255 120 120 / 45%);
   stroke-dasharray: 2 4;
 }
 

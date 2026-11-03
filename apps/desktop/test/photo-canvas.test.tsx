@@ -269,12 +269,12 @@ describe('PhotoCanvas preview', () => {
     fireEvent.pointerMove(overlay, { clientX: 360, clientY: 270, pointerId: 1 });
     fireEvent.pointerUp(overlay, { clientX: 360, clientY: 270, pointerId: 1, button: 0 });
 
-    await waitFor(() => expect(store.getState().retouch?.faces).toHaveLength(1));
-    expect(store.getState().retouch?.faces[0]?.box.x).toBeCloseTo(0.2);
+    await waitFor(() => expect(store.getState().retouch?.areas).toHaveLength(1));
+    expect(store.getState().retouch?.areas[0]?.face?.box.x).toBeCloseTo(0.2);
     expect(regions).toHaveLength(1);
     expect(regions[0]).toMatchObject({ type: 'rect', x: 0.1, y: 0.1, w: 0.8, h: 0.8 });
     // The lasso itself is not a mosaic shape.
-    expect(store.getState().retouch?.shapes).toHaveLength(0);
+    expect(store.getState().retouch?.areas.every((area) => area.kind === 'face')).toBe(true);
   });
 
   it('Escape drops the shape being drawn and does not leave retouch', async () => {
@@ -316,7 +316,7 @@ describe('PhotoCanvas preview', () => {
 
     expect(globalHandler).not.toHaveBeenCalled();
     expect(store.getState().retouch).toBeDefined();
-    expect(store.getState().retouch?.shapes).toHaveLength(0);
+    expect(store.getState().retouch?.areas).toHaveLength(0);
 
     // With nothing mid-draw the key reaches the app's handler.
     window.addEventListener('keydown', globalHandler);

@@ -990,7 +990,7 @@ describe('retouch sessions', () => {
     const { store, fake } = await setup();
     store.select(asPhotoId('mock-03'));
     store.toggleRetouch();
-    expect(store.getState().retouch?.shapes.length).toBeGreaterThan(0);
+    expect(store.getState().retouch?.areas.length).toBeGreaterThan(0);
     expect(store.getState().retouch?.dirty).toBe(false);
 
     await store.requestExitRetouch();

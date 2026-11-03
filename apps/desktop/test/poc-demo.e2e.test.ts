@@ -898,6 +898,66 @@ describe.skipIf(nefs.length === 0 || !haveDisplay)(
       expect(retouch[0]?.ops[0]).toMatchObject({ type: 'mosaic' });
     }, 60_000);
 
+    it('leaves retouch mode with Done, Escape and the footer toggle, keeping the saved version', async () => {
+      await selectPhoto('cardB_001.jpg');
+      await canvasReady();
+      const toolbar = window.locator('[data-testid="retouch-toolbar"]');
+      const versions = async (): Promise<number> =>
+        (
+          await invoke<Photo>('photos:get', {
+            photoId: photos.find((candidate) => candidate.fileName === 'cardB_001.jpg')!.id,
+          })
+        ).versions.filter((version) => version.kind === 'retouch').length;
+      const before = await versions();
+      expect(before).toBe(1);
+
+      // Re-entering a retouched photo, then Done: the saved version stays, nothing is added.
+      await window.keyboard.press('r');
+      await toolbar.waitFor();
+      await window.getByTestId('done-retouch').click();
+      await toolbar.waitFor({ state: 'detached' });
+      await window.getByTestId('retouch-version-indicator').waitFor();
+
+      // Escape with nothing mid-draw.
+      await window.keyboard.press('r');
+      await toolbar.waitFor();
+      await window.keyboard.press('Escape');
+      await toolbar.waitFor({ state: 'detached' });
+
+      // Escape while a slider has focus still leaves.
+      await window.keyboard.press('r');
+      await toolbar.waitFor();
+      await window.getByLabel('Mosaic block size').focus();
+      await window.keyboard.press('Escape');
+      await toolbar.waitFor({ state: 'detached' });
+
+      // Escape mid-draw drops the shape and stays; a second Escape leaves.
+      await window.keyboard.press('r');
+      await toolbar.waitFor();
+      await window.locator('[data-tool="rect"]').click();
+      const box = await window.locator('[data-testid="retouch-overlay"]').boundingBox();
+      if (!box) throw new Error('retouch overlay has no bounds');
+      const tool = await toolbar.boundingBox();
+      const top = Math.max(box.y + box.height * 0.3, (tool?.y ?? 0) + (tool?.height ?? 0) + 10);
+      await window.mouse.move(box.x + box.width * 0.2, top);
+      await window.mouse.down();
+      await window.mouse.move(box.x + box.width * 0.5, top + 40, { steps: 5 });
+      await window.keyboard.press('Escape');
+      await window.mouse.up();
+      await toolbar.waitFor();
+      expect(await window.getByTestId('discard-retouch').count()).toBe(0);
+      await window.keyboard.press('Escape');
+      await toolbar.waitFor({ state: 'detached' });
+
+      // The footer button toggles it off again.
+      await window.getByTestId('toggle-retouch').click();
+      await toolbar.waitFor();
+      await window.getByTestId('toggle-retouch').click();
+      await toolbar.waitFor({ state: 'detached' });
+
+      expect(await versions()).toBe(before);
+    }, 60_000);
+
     it('finishes at the export size, applies the mosaic and uploads anonymously to FTP', async () => {
       const exportedPhoto = (await invoke<Photo[]>('photos:list')).find(
         (photo) => photo.fileName === 'cardB_001.jpg',
