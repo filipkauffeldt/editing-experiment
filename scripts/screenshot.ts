@@ -7,7 +7,8 @@
 // face fixtures: developed raw, slider change, retouch face detection, mosaic
 // preview and the upload popover after export, plus (17, 18) crop mode
 // mid-rotation with the fine grid and the committed crop, and (23) the Library
-// over the ingested files, and (31) retouch with a face switched off and a subtracted area.
+// over the ingested files, (31) retouch with a face switched off and a subtracted area, and (32-34)
+// the photo at Fit, at 100% from the full-resolution decode, and retouch zoomed in on a face.
 import { _electron as electron, type ElectronApplication, type Page } from '@playwright/test';
 import { spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, copyFileSync } from 'node:fs';
@@ -489,6 +490,46 @@ async function runReal(outDir: string): Promise<void> {
     await window.waitForTimeout(500);
     await shoot('18-real-cropped.png');
 
+    // Zoom: Fit, then 100% about the pointer from the full-resolution decode (Z).
+    const zoomLevel = (): Promise<string | null> =>
+      window.locator('[data-testid="photo-canvas"] [data-photo-id]').getAttribute('data-zoom');
+    const developBox = await window
+      .locator('[data-testid="photo-canvas"] [data-photo-id]')
+      .boundingBox();
+    if (!developBox) throw new Error('no photo stage');
+    await window.mouse.move(
+      developBox.x + developBox.width * 0.55,
+      developBox.y + developBox.height * 0.45,
+    );
+    await shoot('32-real-fit.png');
+    // The shot parks the pointer; put it back over the photo, which is where Z zooms.
+    await window.mouse.move(
+      developBox.x + developBox.width * 0.42,
+      developBox.y + developBox.height * 0.68,
+    );
+    await window.keyboard.press('z');
+    await window.waitForFunction(
+      () =>
+        document
+          .querySelector('[data-testid="photo-canvas"] [data-photo-id]')
+          ?.getAttribute('data-zoom') === '100',
+    );
+    // The full-resolution decode follows the zoom; give it time to arrive and be drawn.
+    await window.waitForFunction(
+      () =>
+        Number(
+          document
+            .querySelector('[data-testid="develop-canvas"]')
+            ?.getAttribute('data-image-width'),
+        ) > 2560,
+      undefined,
+      { timeout: 120_000 },
+    );
+    await window.waitForTimeout(800);
+    await shoot('33-real-zoom-100.png');
+    await window.keyboard.press('z');
+    if ((await zoomLevel()) !== 'fit') await window.waitForTimeout(500);
+
     // Retouch the face fixture: detect faces in a dragged region.
     await window.locator('button[title^="shots_002.jpg"]').click();
     await window.waitForSelector('[data-testid="develop-canvas"][data-ready="true"]', {
@@ -570,6 +611,33 @@ async function runReal(outDir: string): Promise<void> {
     await window.mouse.up();
     await window.waitForTimeout(600);
     await shoot('31-real-retouch-areas.png');
+
+    // Zoomed in on a face that is switched on, in the same session: the mosaic and the areas stay
+    // on the faces at 100% (Z).
+    const firstFace = await window
+      .locator('[data-face-index]')
+      .first()
+      .evaluate((element) => {
+        const path = element as unknown as SVGGeometryElement;
+        const svg = path.ownerSVGElement!.getBoundingClientRect();
+        const bounds = path.getBBox();
+        return {
+          x: svg.left + (bounds.x + bounds.width / 2) * svg.width,
+          y: svg.top + (bounds.y + bounds.height / 2) * svg.height,
+        };
+      });
+    await window.mouse.move(firstFace.x, firstFace.y);
+    await window.keyboard.press('z');
+    await window.waitForFunction(
+      () =>
+        document
+          .querySelector('[data-testid="photo-canvas"] [data-photo-id]')
+          ?.getAttribute('data-zoom') === '100',
+    );
+    await window.waitForTimeout(2500);
+    await shoot('34-real-retouch-zoomed.png');
+    await window.keyboard.press('z');
+    await window.waitForTimeout(500);
 
     // Committed version is the default view, with its indicator and film badge.
     await window.locator('[data-testid="commit-retouch"]').click();

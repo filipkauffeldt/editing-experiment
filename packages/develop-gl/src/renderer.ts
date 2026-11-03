@@ -99,13 +99,15 @@ export interface DevelopRenderer {
   /**
    * Draws `params` on the right and the unedited `before` on the left of
    * `fraction` (0..1). The before side uses the per-pixel shader without the
-   * neighbourhood stages; it is a view aid, not an export.
+   * neighbourhood stages; it is a view aid, not an export. With `view` both sides are drawn
+   * through that {@link renderView} transform (a zoomed or panned picture), so they move together.
    */
   renderSplit(
     params: EditParams,
     before: EditParams,
     fraction: number,
     options?: DevelopViewOptions,
+    view?: CropViewTransform,
   ): void;
   /**
    * Histogram of the frame just drawn into the canvas: a GPU downsample
@@ -941,6 +943,7 @@ export function createDevelopRenderer(
     before: EditParams,
     fraction: number,
     viewOptions?: DevelopViewOptions,
+    view?: CropViewTransform,
   ): void {
     const src = requireSource();
     const out = { width: canvas.width, height: canvas.height };
@@ -949,13 +952,15 @@ export function createDevelopRenderer(
     // The before side is drawn through the camera profile only when its settings name the one in use.
     const beforeProfile = namesCurrentProfile(before) ? profile : null;
     const params = drawable(withLookSettings(before, beforeProfile));
-    const mapping = mappingFor(src.header, params, cropLogicalSize(src.header, params), out);
+    const mapping = view
+      ? viewMapping(src.header, view, out)
+      : mappingFor(src.header, params, cropLogicalSize(src.header, params), out);
     const u = uniformsFor(src, params, beforeProfile);
     gl.bindFramebuffer(gl.FRAMEBUFFER, null);
     gl.enable(gl.SCISSOR_TEST);
     gl.scissor(0, 0, width, out.height);
     setUniforms(res.direct, u, viewOptions);
-    setViewUniforms(undefined);
+    setViewUniforms(view);
     for (const entry of src.tiles) {
       drawTile(
         res.direct,
@@ -969,6 +974,7 @@ export function createDevelopRenderer(
       );
     }
     gl.disable(gl.SCISSOR_TEST);
+    setViewUniforms(undefined);
   }
 
   let histogramTarget:
@@ -1053,9 +1059,10 @@ export function createDevelopRenderer(
       drawCropView(requested, view, viewOptions);
     },
 
-    renderSplit(requested, before, fraction, viewOptions) {
-      drawDevelop(requested, viewOptions);
-      drawBefore(before, fraction, viewOptions);
+    renderSplit(requested, before, fraction, viewOptions, view) {
+      if (view) drawCropView(requested, view, viewOptions);
+      else drawDevelop(requested, viewOptions);
+      drawBefore(before, fraction, viewOptions, view);
     },
 
     readHistogram(bins = 256) {

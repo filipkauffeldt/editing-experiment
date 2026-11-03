@@ -419,7 +419,8 @@ six tone sliders plus Vibrance/Saturation. Auto tone measures a 1024 px render o
 with its tone, curves, presence, detail and effects removed.
 
 Keyboard shortcuts match `event.key` letters and digits, not US key positions. Symbol keys
-have letter/F-key primaries (`Y` before/after, `F1` or Ctrl/Cmd+`/` for shortcuts), and
+have letter/F-key primaries (`Y` before/after, `F1` or Ctrl/Cmd+`/` for shortcuts, except
+where that key prints `-`), and
 AltGr is treated as character input so Swedish `@`, `$`, `{`… and dead keys never fire a
 command. Ratings are plain `1`-`5` (0 clears); colour classes are the platform's primary
 modifier plus `1`-`8` (0 clears), falling back to `event.code` when a layout changes the
@@ -472,6 +473,54 @@ unchanged: the rotated rectangle in source space, whose output is the leveled fr
 - **Keys**: `C` enters (and applies), `Enter` or a double-click inside the frame
   applies, `Esc` cancels, `X` swaps orientation, `Ctrl/Cmd+Alt+R` resets, double-click on
   the angle slider resets the angle.
+## Zoom and pan
+
+The photo view is Fit until the user zooms. Zoom is view-only: it never reaches a sidecar, the
+edited previews or the export, and the develop shader is the same one.
+
+- **State** (`renderer/zoom-view.ts`, an external store like `develop-view.ts`): a `ZoomView`
+  (`scale` in CSS pixels per picture pixel, `null` for Fit, and a `pan` from where Fit puts the
+  picture) belonging to one photo *and* mode (`zoomKey`), so switching photos, or entering or
+  leaving crop and retouch, starts at Fit. The level `Z` goes to (50 / 100 / 200 %, 100 % to
+  start) and whether Space is held live there too.
+- **Maths** (`renderer/view-transform.ts`, pure, unit tested): `viewLayout` (picture to CSS pixels),
+  `zoomTo`/`zoomBy` about an anchor, `panBy`, `clampPan` and `wheelZoomFactor`. A picture smaller
+  than the canvas on an axis stays centred on it; a larger one pans until its edge is 64 px inside
+  the canvas. Zoom is limited to Fit (below) and 800 % (above), in device pixels.
+- **Picture.** The picture is what the view shows in full-resolution pixels: the committed crop's
+  output in Develop, the whole image in Crop and Retouch. 100 % is one of its pixels per device
+  pixel, so `Z` on a 2x display is a layout scale of 0.5.
+- **Drawing** (`PhotoCanvas`, `renderer/zoom-render.ts`): while zoomed the stage is the whole canvas
+  and the GL canvas is drawn with `renderer.renderView`, the transform crop mode already uses, with
+  the committed crop (or the whole image) as its frame (`pictureViewTransform`), so the shader,
+  lens corrections, vignette and neighbourhood passes are the develop render's own. Fit still
+  uses `render`. `renderSplit` takes the same optional view, so both sides of a before/after
+  split zoom together. Crop mode composes the zoom into its layout, so the frame and handles
+  (`CropOverlay` takes the layout) and the canvas agree at any zoom.
+- **Resolution.** At Fit the linear image is sized for the screen (up to 2560 px). Zoomed, the
+  canvas asks `app://linear` for `linearEdgeFor(device scale)`: steps of 2560, 4096, 6144 … then the
+  full-resolution decode (no `maxEdge`, the one the export reuses), and never more pixels than the
+  image has. The drawing buffer is the canvas (up to 4096 px), so 100 % is sharp.
+- **Overlays.** Pointer positions go through the layout (`pointOnPicture`); the retouch SVG's
+  viewBox is the part of the picture in view, so shapes, face boxes and lassos stay where they
+  are. The click, minimum-size and lasso-simplify tolerances are fractions of the picture at Fit
+  and shrink with the zoom, so they stay a few screen pixels. The mosaic over a zoomed view is
+  applied to the pixels just drawn (`mosaicZoomedView`): shapes are moved into buffer space and the
+  block size scaled with them, so a block covers what it covers in the export. The block grid is
+  anchored to the canvas, so blocks shift while panning. The histogram is not re-measured while
+  zoomed. The white balance picker maps through the layout like the retouch overlay.
+- **Keys** (`zoom-keys.ts`, `keyboard.ts`): `Z`, Ctrl/Cmd + `+`, `=` or numpad `+` and Ctrl/Cmd + `-`
+  or numpad `-` match `event.key`, never `code`, as on a Swedish keyboard `+` and `-` sit on the
+  physical Minus and Slash keys. That is why the shortcut list's Ctrl/Cmd+Slash does not fire where
+  the Slash key prints `-`. AltGr never zooms. Ctrl/Cmd+Wheel and a trackpad pinch (a Ctrl+wheel
+  to Chromium) zoom about the pointer. Space (never in a text field, Ctrl+Space excluded) puts a
+  pan layer over the active tool: a drag pans and nothing else sees the pointer, and Space is
+  released on key up or window blur. **Ctrl/Cmd+0 is not Fit**: it clears the colour class, which
+  has no other clear, so Fit is `Z` or the footer.
+- **Electron.** `main/menu-template.ts` is Electron's default menu minus the View menu's zoom roles
+  (they bind Ctrl/Cmd+0, `+` and `-` to page zoom), and `setVisualZoomLevelLimits(1, 1)` turns
+  off pinch page zoom.
+
 ## Copy, paste and sync develop settings
 
 Lightroom-style settings transfer. The groups are defined once in

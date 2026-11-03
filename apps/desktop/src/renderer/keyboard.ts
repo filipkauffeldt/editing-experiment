@@ -8,6 +8,8 @@ import {
 } from './develop-view';
 import { colorClassFromKey, isMacPlatform, ratingFromKey } from './rating-keys';
 import type { AppStore } from './store';
+import { setPanHeld, zoomCommands, zoomStore } from './zoom-view';
+import { zoomKeyAction } from './zoom-keys';
 
 /** Focus the caption editor without threading a ref through every panel. */
 export function focusCaptionField(): void {
@@ -157,8 +159,9 @@ export function useKeyboardShortcuts(store: AppStore): void {
         return;
 
       const library = state.module === 'library';
-      // The physical slash key, so the shortcut does not depend on where `/` sits.
-      if (command && event.code === 'Slash') {
+      // The physical slash key, so the shortcut does not depend on where `/` sits. Not where that
+      // key prints `-` (Swedish, German, ...): there Ctrl/Cmd+`-` zooms out, and F1 or `?` open the list.
+      if (command && event.code === 'Slash' && event.key !== '-') {
         event.preventDefault();
         store.toggleShortcuts(true);
         return;
@@ -234,7 +237,27 @@ export function useKeyboardShortcuts(store: AppStore): void {
         return;
       }
 
+      // Space held: a drag pans the photo, whatever the tool. Never in a text field, where it types.
+      if (event.key === ' ' && state.module === 'develop' && !command && !event.altKey) {
+        if (textEntry) return;
+        event.preventDefault();
+        setPanHeld(true);
+        return;
+      }
+
       if (typing) return;
+
+      // Z and Ctrl/Cmd + - zoom the photo. Ctrl/Cmd+0 stays the colour class clear.
+      const zoom = state.module === 'develop' ? zoomKeyAction(event) : undefined;
+      if (zoom !== undefined) {
+        event.preventDefault();
+        if (zoom === 'toggle') {
+          if (!event.repeat) zoomCommands.toggle();
+        } else {
+          zoomCommands.step(zoom === 'in' ? 1 : -1);
+        }
+        return;
+      }
 
       const rating = ratingFromKey(event);
       if (rating !== undefined) {
@@ -367,7 +390,22 @@ export function useKeyboardShortcuts(store: AppStore): void {
           break;
       }
     };
+    // Space is only a modifier for the pointer, so it ends with the key (or with the window losing
+    // focus, whose keyup never arrives). The keyup is cancelled too, or a focused button would click.
+    const onKeyUp = (event: KeyboardEvent): void => {
+      if (event.key !== ' ' || !zoomStore.get().panHeld) return;
+      event.preventDefault();
+      setPanHeld(false);
+    };
+    const onBlur = (): void => setPanHeld(false);
     window.addEventListener('keydown', onKeyDown);
-    return () => window.removeEventListener('keydown', onKeyDown);
+    window.addEventListener('keyup', onKeyUp);
+    window.addEventListener('blur', onBlur);
+    return () => {
+      window.removeEventListener('keydown', onKeyDown);
+      window.removeEventListener('keyup', onKeyUp);
+      window.removeEventListener('blur', onBlur);
+      setPanHeld(false);
+    };
   }, [store]);
 }

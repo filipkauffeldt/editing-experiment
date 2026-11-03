@@ -135,7 +135,7 @@
   border-bottom: 1px solid var(--line);
   color: var(--text);
   font-size: var(--fs-small);
-  z-index: 2;
+  z-index: 3;
   /* Let a drag that starts on the toolbar background reach the image; the
      controls themselves stay clickable. On narrow windows the toolbar wraps
      over more of the image and used to swallow the first drag. */
@@ -455,4 +455,18 @@
 
 .splitLabelRight {
   right: auto;
+}
+
+/* Space held: a layer over every tool, so a drag pans the photo and nothing else sees it. The
+   toolbars (z-index 3, later in the tree) stay above it. */
+.panLayer {
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+  cursor: grab;
+  touch-action: none;
+}
+
+.panDragging {
+  cursor: grabbing;
 }
