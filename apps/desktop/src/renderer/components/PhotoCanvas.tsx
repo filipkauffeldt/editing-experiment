@@ -18,6 +18,7 @@ import {
   croppedToSourcePixels,
   grainSeedFromId,
   cropOutputSize,
+  isUsableCrop,
   predictAutoTone,
   whiteBalanceFromPatch,
   type CropViewTransform,
@@ -43,6 +44,15 @@ import {
   useDevelopViewMode,
 } from '../develop-view';
 import { cropFit, cropLayout, fitWithin } from '../crop-view';
+import {
+  WHOLE_IMAGE,
+  linearEdgeFor,
+  mosaicZoomedView,
+  pictureSize,
+  pictureViewTransform,
+} from '../zoom-render';
+import { screenToUnit, zoomPercent, type ViewLayout } from '../view-transform';
+import { useZoomControls, zoomKey } from '../zoom-view';
 import {
   blockSizePxRange,
   blockSizePxToRel,
@@ -74,18 +84,30 @@ interface LoadedImage {
 const MIN_EDGE = 64;
 const MAX_EDGE = 2560;
 const EDGE_BUCKET = 64;
+/** Longest side of the drawing buffer while zoomed: sharp at 100% on a large window, still cheap to fill. */
+const ZOOM_BUFFER_EDGE = 4096;
 
 /** Crop mode: the image outside the frame is multiplied by this. */
 const CROP_DIM = 0.42;
 /** The empty canvas outside the rotated image (sRGB), a touch lighter than the app background. */
 const CROP_OUTSIDE: [number, number, number] = [0.1, 0.1, 0.11];
+/** Zoomed, outside the picture is the app background (`--bg`, #161618). */
+const ZOOM_OUTSIDE: [number, number, number] = [0.086, 0.086, 0.094];
 
-/** A press that moves less than this (of the picture's size) is a click, not a drawing. */
+/**
+ * A press that moves less than this (of the picture's size) is a click, not a drawing; a
+ * rectangle smaller than `MIN_AREA` is not an area. Both are fractions of the picture at Fit and
+ * shrink with the zoom, so they stay a few screen pixels however far in the view is.
+ */
 const CLICK_DISTANCE = 0.006;
+const MIN_AREA = 0.01;
 
 const clamp01 = (value: number): number => Math.min(1, Math.max(0, value));
 
-const normalizedPoint = (event: React.PointerEvent, element: Element): { x: number; y: number } => {
+const normalizedPoint = (
+  event: { clientX: number; clientY: number },
+  element: Element,
+): { x: number; y: number } => {
   const rect = element.getBoundingClientRect();
   return {
     x: clamp01((event.clientX - rect.left) / Math.max(1, rect.width)),
@@ -363,6 +385,8 @@ function CanvasForPhoto({ photo }: { photo: Photo }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const mosaicRef = useRef<HTMLCanvasElement>(null);
   const overlayRef = useRef<SVGSVGElement>(null);
+  // Where a zoomed view reads its drawn pixels back to mosaic them.
+  const scratchRef = useRef<HTMLCanvasElement | null>(null);
   const rendererRef = useRef<DevelopRenderer | null>(null);
 
   const [container, setContainer] = useState({ width: 0, height: 0 });
@@ -441,12 +465,72 @@ function CanvasForPhoto({ photo }: { photo: Photo }) {
   const display = cropping
     ? cropFit(container, imageAspect).size
     : fitWithin(container, imageAspect);
-  // Crop mode draws on the whole workspace: the rotated image is bigger than
-  // the unrotated fit, and the frame is dragged around it.
-  const stage = cropping ? { width: container.width, height: container.height } : display;
-
   const dpr = typeof window === 'undefined' ? 1 : window.devicePixelRatio || 1;
-  const requestedEdge =
+
+  // The full-resolution oriented image, and the picture shown of it: the committed crop, unless a
+  // crop or a retouch is being edited (then the whole image).
+  const fullImage = useMemo(
+    () =>
+      image.width && image.height
+        ? { width: image.width, height: image.height }
+        : loaded
+          ? {
+              width: loaded.header.sourceWidth || loaded.header.width,
+              height: loaded.header.sourceHeight || loaded.header.height,
+            }
+          : { width: sourceWidth, height: sourceHeight },
+    [image.width, image.height, loaded, sourceWidth, sourceHeight],
+  );
+  const picture = useMemo(
+    () => pictureSize(renderParams.crop, fullImage),
+    [renderParams.crop, fullImage],
+  );
+  // Where Fit puts the picture in the container; zoom and pan move it from there.
+  const fitLayout = useMemo(
+    (): ViewLayout =>
+      cropping
+        ? cropLayout(container, picture)
+        : {
+            scale: display.width / picture.width,
+            offset: {
+              x: (container.width - display.width) / 2,
+              y: (container.height - display.height) / 2,
+            },
+          },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [cropping, container.width, container.height, display.width, display.height, picture],
+  );
+  const zoom = useZoomControls(
+    zoomKey(photo.id, cropping ? 'crop' : retouching ? 'retouch' : 'develop'),
+    { base: fitLayout, image: picture, viewport: container, dpr },
+    containerRef,
+  );
+  const zoomed = zoom.view.scale !== null;
+  // Crop mode draws on the whole workspace: the rotated image is bigger than
+  // the unrotated fit, and the frame is dragged around it. A zoomed view needs the whole canvas too.
+  const stage = cropping || zoomed ? { width: container.width, height: container.height } : display;
+  // Where the picture sits in the stage (at Fit, the stage is the picture), and how far in the view is.
+  const stageLayout = useMemo(
+    (): ViewLayout => ({
+      scale: zoom.layout.scale,
+      offset: {
+        x: zoom.layout.offset.x - (container.width - stage.width) / 2,
+        y: zoom.layout.offset.y - (container.height - stage.height) / 2,
+      },
+    }),
+    [
+      zoom.layout.scale,
+      zoom.layout.offset.x,
+      zoom.layout.offset.y,
+      container.width,
+      container.height,
+      stage.width,
+      stage.height,
+    ],
+  );
+  const zoomRatio = stageLayout.scale / Math.max(1e-9, fitLayout.scale);
+
+  const fitEdge =
     display.width > 0
       ? Math.min(
           MAX_EDGE,
@@ -456,21 +540,22 @@ function CanvasForPhoto({ photo }: { photo: Photo }) {
           ),
         )
       : MAX_EDGE;
+  const bufferEdge = zoomed ? ZOOM_BUFFER_EDGE : cropping ? MAX_EDGE : fitEdge;
   const bufferScale =
-    display.width > 0
-      ? Math.min(
-          1,
-          (cropping ? MAX_EDGE : requestedEdge) / (Math.max(stage.width, stage.height) * dpr),
-        )
-      : 1;
+    display.width > 0 ? Math.min(1, bufferEdge / (Math.max(stage.width, stage.height) * dpr)) : 1;
   // Drawing-buffer pixels per CSS pixel; the crop view maps through it.
   const bufferRatio = dpr * bufferScale;
   const bufferWidth = Math.max(1, Math.round(stage.width * bufferRatio));
   const bufferHeight = Math.max(1, Math.round(stage.height * bufferRatio));
+  // Sized for the screen at Fit. Zoomed in, enough pixels for what the picture covers (the
+  // full-resolution decode, the one the export reuses, past the largest step), never upscaled.
+  const requestedEdge: number | undefined = zoomed
+    ? linearEdgeFor(stageLayout.scale * bufferRatio, Math.max(fullImage.width, fullImage.height))
+    : fitEdge;
 
   const cropView = useMemo((): CropViewTransform | undefined => {
     if (!cropSession || !loaded) return undefined;
-    const layout = cropLayout(stage, cropSession.image);
+    const layout = stageLayout;
     const geometry = cropGeometry(cropSession.crop, cropSession.image);
     const toBuffer = layout.scale * bufferRatio;
     const centre = {
@@ -492,15 +577,55 @@ function CanvasForPhoto({ photo }: { photo: Photo }) {
       outside: CROP_OUTSIDE,
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [
-    cropSession?.crop,
-    cropSession?.pivot,
-    cropSession?.image,
-    loaded,
-    stage.width,
-    stage.height,
-    bufferRatio,
-  ]);
+  }, [cropSession?.crop, cropSession?.pivot, cropSession?.image, loaded, stageLayout, bufferRatio]);
+
+  // Zoomed in on a develop or retouch view: the same view transform as crop mode, with the crop
+  // being shown (or the whole image) as the frame, so the shader, the lens corrections and the
+  // vignette stay the develop render's own.
+  const zoomView = useMemo((): CropViewTransform | undefined => {
+    if (!zoomed || cropping || !loaded) return undefined;
+    const crop =
+      renderParams.crop !== undefined && isUsableCrop(renderParams.crop)
+        ? renderParams.crop
+        : WHOLE_IMAGE;
+    return pictureViewTransform({
+      crop,
+      image: fullImage,
+      uploadedWidth: loaded.header.width,
+      layout: stageLayout,
+      bufferRatio,
+      outside: ZOOM_OUTSIDE,
+    });
+  }, [zoomed, cropping, loaded, renderParams.crop, fullImage, stageLayout, bufferRatio]);
+  const viewTransform = cropView ?? zoomView;
+
+  // The committed retouch version is the default view; while editing, the session's areas
+  // (shapes and faces, added, subtracted or off) replace it.
+  const committedMosaic = useMemo(() => {
+    const version = topRetouchVersion(image);
+    return version?.ops.find((op) => op.type === 'mosaic');
+  }, [image]);
+  const mosaicOp = useMemo(
+    () =>
+      session
+        ? opFromAreas(session.areas, session.blockSizeRel, session.facePadding, lensContext)
+        : committedMosaic,
+    [session, committedMosaic, lensContext],
+  );
+
+  // The areas to pixelate, on the picture the shapes are stored on; a lens correction moves them
+  // with its pixels. Undefined when there is nothing to show.
+  const previewOp = useMemo(
+    () =>
+      mosaicOp && opHasAddedArea(mosaicOp) && loaded
+        ? mapMosaicShapes(mosaicOp, (shapes) =>
+            correctedShapes(shapes, loaded.header, renderParams),
+          )
+        : undefined,
+    [mosaicOp, loaded, renderParams],
+  );
+  // A zoomed view mosaics what the canvas shows, so the draw effect above does it.
+  const zoomedMosaic = zoomed && !cropping && !contextLost ? previewOp : undefined;
 
   useEffect(() => {
     store.loadPhotoProfile(photo.id, {
@@ -650,17 +775,49 @@ function CanvasForPhoto({ photo }: { photo: Photo }) {
         const draw = (drawOptions: typeof options | undefined): void => {
           if (cropView) renderer.renderView(renderParams, cropView);
           else if (viewMode.beforeAfter === 'split')
-            renderer.renderSplit(renderParams, before, viewMode.split, drawOptions);
-          else if (viewMode.beforeAfter === 'before') renderer.render(before, drawOptions);
+            renderer.renderSplit(renderParams, before, viewMode.split, drawOptions, zoomView);
+          else if (viewMode.beforeAfter === 'before') {
+            if (zoomView) renderer.renderView(before, zoomView, drawOptions);
+            else renderer.render(before, drawOptions);
+          } else if (zoomView) renderer.renderView(renderParams, zoomView, drawOptions);
           else renderer.render(renderParams, drawOptions);
         };
         draw(options);
         setRenderVersion((version) => version + 1);
         setFirstFrame(true);
+        // A zoomed view mosaics the pixels it just drew: the canvas is read back in this same task,
+        // before the browser composites, with the clipping overlay left off.
+        const mosaicCanvas = mosaicRef.current;
+        if (zoomedMosaic && zoomView && mosaicCanvas && canvasRef.current) {
+          if (clipping) draw(undefined);
+          try {
+            const scratch = (scratchRef.current ??= document.createElement('canvas'));
+            scratch.width = canvasRef.current.width;
+            scratch.height = canvasRef.current.height;
+            const read = scratch.getContext('2d', { willReadFrequently: true });
+            const paint = mosaicCanvas.getContext('2d');
+            if (read && paint) {
+              read.drawImage(canvasRef.current, 0, 0);
+              const pixels = read.getImageData(0, 0, scratch.width, scratch.height);
+              mosaicZoomedView(new Uint8Array(pixels.data.buffer), scratch, {
+                op: zoomedMosaic,
+                crop: renderParams.crop,
+                image: fullImage,
+                picture,
+                layout: stageLayout,
+                bufferRatio,
+              });
+              paint.putImageData(pixels, 0, 0);
+              setMosaicVersion((version) => version + 1);
+            }
+          } finally {
+            if (clipping) draw(options);
+          }
+        }
         // The histogram is a small GPU downsample of this frame, throttled so
-        // the readback never becomes part of the slider loop. Crop mode draws
-        // overlays around the frame, so it keeps the committed crop's histogram.
-        if (!cropView && (!renderer.softwareRendering || histogramReadback)) {
+        // the readback never becomes part of the slider loop. Crop mode and a zoomed view show
+        // only part of the picture, so they keep the histogram of the whole frame.
+        if (!viewTransform && (!renderer.softwareRendering || histogramReadback)) {
           const now = typeof performance === 'undefined' ? Date.now() : performance.now();
           const key = `${photo.id}|${viewMode.beforeAfter}`;
           if (histogramKey.current !== key || now - lastHistogramAt.current >= 200) {
@@ -688,6 +845,13 @@ function CanvasForPhoto({ photo }: { photo: Photo }) {
     contextLost,
     renderParams,
     cropView,
+    zoomView,
+    viewTransform,
+    zoomedMosaic,
+    fullImage,
+    picture,
+    stageLayout,
+    bufferRatio,
     bufferWidth,
     bufferHeight,
     photo.id,
@@ -732,13 +896,23 @@ function CanvasForPhoto({ photo }: { photo: Photo }) {
     }
   }, [viewMode.request, renderer, loaded, contextLost, renderParams, store, colorModel]);
 
-  const pickerFrom = (event: React.MouseEvent<HTMLDivElement>): { x: number; y: number } => {
-    const rect = event.currentTarget.getBoundingClientRect();
-    return {
-      x: clamp01((event.clientX - rect.left) / Math.max(1, rect.width)),
-      y: clamp01((event.clientY - rect.top) / Math.max(1, rect.height)),
-    };
+  // A pointer position as a fraction of the picture. At Fit the stage is the picture; zoomed, the
+  // stage is the whole canvas and the picture is placed in it.
+  const pointOnPicture = (
+    event: { clientX: number; clientY: number },
+    element: Element,
+  ): { x: number; y: number } => {
+    if (!zoomed) return normalizedPoint(event, element);
+    const rect = element.getBoundingClientRect();
+    const unit = screenToUnit(stageLayout, picture, {
+      x: event.clientX - rect.left,
+      y: event.clientY - rect.top,
+    });
+    return { x: clamp01(unit.x), y: clamp01(unit.y) };
   };
+
+  const pickerFrom = (event: React.MouseEvent<HTMLDivElement>): { x: number; y: number } =>
+    pointOnPicture(event, event.currentTarget);
 
   const pickWhiteBalance = (event: React.MouseEvent<HTMLDivElement>): void => {
     if (!loaded) return;
@@ -756,7 +930,8 @@ function CanvasForPhoto({ photo }: { photo: Photo }) {
       : { x: point.x * source.width, y: point.y * source.height };
     const rect = event.currentTarget.getBoundingClientRect();
     // About five display pixels across, in source pixels.
-    const radius = Math.max(2, Math.round((source.width / Math.max(1, rect.width)) * 5));
+    const shownWidth = zoomed ? stageLayout.scale * picture.width : rect.width;
+    const radius = Math.max(2, Math.round((source.width / Math.max(1, shownWidth)) * 5));
     try {
       const result = whiteBalanceFromPatch(
         loaded.header,
@@ -776,20 +951,6 @@ function CanvasForPhoto({ photo }: { photo: Photo }) {
     }
   };
 
-  // The committed retouch version is the default view; while editing, the session's areas
-  // (shapes and faces, added, subtracted or off) replace it.
-  const committedMosaic = useMemo(() => {
-    const version = topRetouchVersion(image);
-    return version?.ops.find((op) => op.type === 'mosaic');
-  }, [image]);
-  const mosaicOp = useMemo(
-    () =>
-      session
-        ? opFromAreas(session.areas, session.blockSizeRel, session.facePadding, lensContext)
-        : committedMosaic,
-    [session, committedMosaic, lensContext],
-  );
-
   // Live mosaic preview: render at the view size, mosaic the pixels on the CPU,
   // and paint them over the canvas. Runs in the normal view too, so a committed
   // retouch version is what the user sees (and what Next & send exports).
@@ -798,14 +959,11 @@ function CanvasForPhoto({ photo }: { photo: Photo }) {
     if (!mosaic) return;
     const context = mosaic.getContext('2d');
     if (!context) return;
-    if (cropping || !mosaicOp || !opHasAddedArea(mosaicOp) || !renderer || !loaded || contextLost) {
+    if (cropping || zoomed || !previewOp || !renderer || !loaded || contextLost) {
       context.clearRect(0, 0, mosaic.width, mosaic.height);
       return;
     }
-    // Shapes are stored on the recorded picture; a lens correction moves them with its pixels.
-    const op = mapMosaicShapes(mosaicOp, (shapes) =>
-      correctedShapes(shapes, loaded.header, renderParams),
-    );
+    const op = previewOp;
     const frame = requestAnimationFrame(() => {
       try {
         const rgba = renderMosaicPreview({
@@ -826,7 +984,17 @@ function CanvasForPhoto({ photo }: { photo: Photo }) {
       }
     });
     return () => cancelAnimationFrame(frame);
-  }, [mosaicOp, renderer, loaded, contextLost, renderParams, cropping, bufferWidth, bufferHeight]);
+  }, [
+    previewOp,
+    renderer,
+    loaded,
+    contextLost,
+    renderParams,
+    cropping,
+    zoomed,
+    bufferWidth,
+    bufferHeight,
+  ]);
 
   // Detect faces can take its search area as a lasso too; both lassos are drawn the same way.
   const drawsLasso =
@@ -835,13 +1003,15 @@ function CanvasForPhoto({ photo }: { photo: Photo }) {
   const updateDraft = (event: React.PointerEvent): void => {
     const surface = overlayRef.current;
     if (!surface) return;
-    const point = normalizedPoint(event, surface);
+    const point = pointOnPicture(event, surface);
     if (!dragStart.current) return;
     dragMoved.current = true;
     if (drawsLasso) {
       setDraftPoints((current) => {
         const last = current[current.length - 1];
-        if (last && Math.hypot(last.x - point.x, last.y - point.y) < 0.004) return current;
+        if (last && Math.hypot(last.x - point.x, last.y - point.y) < 0.004 / zoomRatio) {
+          return current;
+        }
         return [...current, point];
       });
     } else if (session?.tool === 'rect' || session?.tool === 'faces') {
@@ -855,13 +1025,13 @@ function CanvasForPhoto({ photo }: { photo: Photo }) {
     if (!surface) return;
     if (surface.hasPointerCapture(event.pointerId)) surface.releasePointerCapture(event.pointerId);
     const start = dragStart.current;
-    const end = normalizedPoint(event, surface);
+    const end = pointOnPicture(event, surface);
     dragStart.current = null;
     dragPointer.current = null;
     const mode = drawMode.current;
     // A click, not a drag, switches the topmost area under it on or off, wherever the tool is.
     const clicked =
-      Math.hypot(end.x - start.x, end.y - start.y) < CLICK_DISTANCE &&
+      Math.hypot(end.x - start.x, end.y - start.y) < CLICK_DISTANCE / zoomRatio &&
       (!drawsLasso || draftPoints.length < 3 || !dragMoved.current);
     if (clicked) {
       setDraftPoints([]);
@@ -874,12 +1044,14 @@ function CanvasForPhoto({ photo }: { photo: Photo }) {
       const points = [...draftPoints, end];
       setDraftPoints([]);
       if (points.length >= 3) {
-        const simplified = simplifyPolygon(points, 0.003);
+        const simplified = simplifyPolygon(points, 0.003 / zoomRatio);
         if (simplified.length < 3) return;
         if (session.tool === 'faces') {
           // Search the lasso's bounding box; only faces centred inside the outline are kept.
           const bounds = polygonBounds(simplified);
-          if (bounds.w >= 0.01 && bounds.h >= 0.01) await detectFaces(bounds, mode, simplified);
+          if (bounds.w >= MIN_AREA / zoomRatio && bounds.h >= MIN_AREA / zoomRatio) {
+            await detectFaces(bounds, mode, simplified);
+          }
         } else {
           store.addRetouchShape({ type: 'polygon', points: simplified }, mode);
         }
@@ -888,7 +1060,7 @@ function CanvasForPhoto({ photo }: { photo: Photo }) {
     }
     const rect = rectFromPoints(start, end);
     setDraftRect(undefined);
-    if (rect.w < 0.01 || rect.h < 0.01) return;
+    if (rect.w < MIN_AREA / zoomRatio || rect.h < MIN_AREA / zoomRatio) return;
     if (session.tool === 'faces') await detectFaces(rect, mode);
     else store.addRetouchShape(rect, mode);
   };
@@ -938,7 +1110,7 @@ function CanvasForPhoto({ photo }: { photo: Photo }) {
         ? 'subtract'
         : 'add'
       : session.mode;
-    dragStart.current = normalizedPoint(event, surface);
+    dragStart.current = pointOnPicture(event, surface);
     dragMoved.current = false;
     surface.setPointerCapture(event.pointerId);
     if (drawsLasso) setDraftPoints([dragStart.current]);
@@ -974,6 +1146,19 @@ function CanvasForPhoto({ photo }: { photo: Photo }) {
   }, [retouching]);
 
   const rectsInPreview = session && draftRect ? [draftRect] : [];
+  // The picture in stage pixels: the whole stage at Fit, placed and scaled in it when zoomed.
+  const pictureBox = zoomed
+    ? {
+        x: stageLayout.offset.x,
+        y: stageLayout.offset.y,
+        w: stageLayout.scale * picture.width,
+        h: stageLayout.scale * picture.height,
+      }
+    : { x: 0, y: 0, w: stage.width, h: stage.height };
+  // The retouch overlay's coordinates are the picture's 0..1; zoomed, it shows the part in view.
+  const overlayBox = zoomed
+    ? `${-pictureBox.x / pictureBox.w} ${-pictureBox.y / pictureBox.h} ${stage.width / pictureBox.w} ${stage.height / pictureBox.h}`
+    : '0 0 1 1';
 
   return (
     <div className={styles.canvasWrap} data-testid="photo-canvas" ref={containerRef}>
@@ -985,6 +1170,8 @@ function CanvasForPhoto({ photo }: { photo: Photo }) {
         }}
         data-photo-id={photo.id}
         data-mode={cropSession ? 'crop' : session ? 'retouch' : 'develop'}
+        data-zoom={zoomed ? Math.round(zoomPercent(zoom.layout.scale, dpr)) : 'fit'}
+        data-view={`${stageLayout.scale},${stageLayout.offset.x},${stageLayout.offset.y}`}
       >
         {/*
          * The cached image is of the edited photo (cropped, or a placeholder while a
@@ -1020,6 +1207,7 @@ function CanvasForPhoto({ photo }: { photo: Photo }) {
           data-testid="develop-canvas"
           data-ready={loaded !== null && !contextLost ? 'true' : 'false'}
           data-render-version={renderVersion}
+          data-image-width={loaded?.header.width}
           aria-label={`Developed preview of ${photo.fileName}`}
         />
         <canvas
@@ -1045,11 +1233,11 @@ function CanvasForPhoto({ photo }: { photo: Photo }) {
             className={styles.loupe}
             data-testid="wb-loupe"
             style={{
-              left: `${Math.min(stage.width - 116, Math.max(8, pickerPoint.x * stage.width + 18))}px`,
-              top: `${Math.min(stage.height - 116, Math.max(8, pickerPoint.y * stage.height + 18))}px`,
+              left: `${Math.min(stage.width - 116, Math.max(8, pictureBox.x + pickerPoint.x * pictureBox.w + 18))}px`,
+              top: `${Math.min(stage.height - 116, Math.max(8, pictureBox.y + pickerPoint.y * pictureBox.h + 18))}px`,
               backgroundImage: `url("${appUrl.preview(photo.id, image.previewRevision)}")`,
-              backgroundSize: `${stage.width * 4}px ${stage.height * 4}px`,
-              backgroundPosition: `${-(pickerPoint.x * stage.width * 4 - 54)}px ${-(pickerPoint.y * stage.height * 4 - 54)}px`,
+              backgroundSize: `${pictureBox.w * 4}px ${pictureBox.h * 4}px`,
+              backgroundPosition: `${-(pickerPoint.x * pictureBox.w * 4 - 54)}px ${-(pickerPoint.y * pictureBox.h * 4 - 54)}px`,
             }}
           />
         )}
@@ -1095,13 +1283,13 @@ function CanvasForPhoto({ photo }: { photo: Photo }) {
             <PenIcon size={10} /> Retouch version
           </div>
         )}
-        {cropSession && <CropOverlay session={cropSession} stage={stage} />}
+        {cropSession && <CropOverlay session={cropSession} stage={stage} layout={stageLayout} />}
         {cropSession && <CropToolbar session={cropSession} />}
         {session && (
           <svg
             ref={overlayRef}
             className={styles.overlay}
-            viewBox="0 0 1 1"
+            viewBox={overlayBox}
             preserveAspectRatio="none"
             onPointerDown={onPointerDown}
             onPointerMove={onPointerMove}
@@ -1156,6 +1344,13 @@ function CanvasForPhoto({ photo }: { photo: Photo }) {
               />
             )}
           </svg>
+        )}
+        {zoom.panHeld && (
+          <div
+            className={`${styles.panLayer} ${zoom.dragging ? styles.panDragging : ''}`}
+            data-testid="pan-layer"
+            {...zoom.panHandlers}
+          />
         )}
         {contextLost && <div className={styles.notice}>Restoring the graphics context…</div>}
         {!firstFrame && !previewLoaded && !error && (

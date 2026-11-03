@@ -2,7 +2,6 @@ import type { Point } from '@ee/contracts';
 import { cropGeometry, type CropHandle } from '@ee/develop-gl';
 import { useRef, useState } from 'react';
 import {
-  cropLayout,
   createDoubleClickGuard,
   cursorFor,
   frameRect,
@@ -10,6 +9,7 @@ import {
   hitTestFrame,
   screenToView,
   viewToScreen,
+  type CropLayout,
   type FrameHit,
   type Size,
 } from '../crop-view';
@@ -37,9 +37,17 @@ const HANDLES: CropHandle[] = ['nw', 'n', 'ne', 'e', 'se', 's', 'sw', 'w'];
  * - the straighten tool draws a line along the horizon.
  *
  * Pointer positions are CSS pixels in the stage; the store takes view
- * coordinates, so everything goes through the layout.
+ * coordinates, so everything goes through the layout (which carries the zoom and pan).
  */
-export function CropOverlay({ session, stage }: { session: CropSession; stage: Size }) {
+export function CropOverlay({
+  session,
+  stage,
+  layout,
+}: {
+  session: CropSession;
+  stage: Size;
+  layout: CropLayout;
+}) {
   const store = useAppStore();
   const overlayRef = useRef<HTMLDivElement>(null);
   const active = useRef<'gesture' | 'line' | null>(null);
@@ -50,7 +58,6 @@ export function CropOverlay({ session, stage }: { session: CropSession; stage: S
   const [grabbed, setGrabbed] = useState<FrameHit>();
   const [line, setLine] = useState<{ from: Point; to: Point } | null>(null);
 
-  const layout = cropLayout(stage, session.image);
   const geometry = cropGeometry(session.crop, session.image);
   const rect = frameRect(layout, session.pivot, geometry.width, geometry.height);
 

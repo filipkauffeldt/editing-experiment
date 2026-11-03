@@ -1,6 +1,5 @@
 import type { PhotoId, Point } from '@ee/contracts';
 import { useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from 'react';
-import type { Size } from './crop-view';
 import { createStore } from './develop-view';
 import {
   DEFAULT_ZOOM_LEVEL,
@@ -102,6 +101,8 @@ export interface ZoomControls {
   view: ZoomView;
   /** Where the picture sits now, in CSS pixels of the container. */
   layout: ViewLayout;
+  /** Space is held: the canvas puts a pan layer over the active tool. */
+  panHeld: boolean;
   /** Whether a Space-drag is in progress. */
   dragging: boolean;
   panHandlers: {
@@ -228,6 +229,7 @@ export function useZoomControls(
   return {
     view,
     layout,
+    panHeld: state.panHeld,
     dragging,
     panHandlers: {
       onPointerDown(event) {
