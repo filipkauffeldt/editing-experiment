@@ -41,6 +41,23 @@ describe('copy and paste metadata', () => {
     expect(section.textContent).toContain('code-replacements.txt');
   });
 
+  it('does not fire global rating or colour class shortcuts behind the dialog', async () => {
+    const { store } = await renderApp();
+    const photo = activePhoto(store.getState());
+    if (!photo) throw new Error('no selection');
+    const before = { rating: photo.rating, colorClass: photo.colorClass };
+
+    fireEvent.click(screen.getByTestId('metadata-copy'));
+    await screen.findByTestId('copy-metadata-dialog');
+
+    fireEvent.keyDown(window, { key: '3', code: 'Digit3' });
+    fireEvent.keyDown(window, { key: '2', code: 'Digit2', ctrlKey: true });
+
+    const after = store.getState().photos.find((candidate) => candidate.id === photo.id);
+    expect(after?.rating).toBe(before.rating);
+    expect(after?.colorClass).toBe(before.colorClass);
+  });
+
   it('lists grouped fields and copies only the checked ones, including empty values', async () => {
     const { store } = await renderApp();
     const photo = activePhoto(store.getState());

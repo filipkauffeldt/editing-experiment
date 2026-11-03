@@ -84,7 +84,13 @@ export function useKeyboardShortcuts(store: AppStore): void {
           cancelWbPicker();
           return;
         }
-        if (state.crop && !typing && !state.dialog && !state.copySettings) {
+        if (
+          state.crop &&
+          !typing &&
+          !state.dialog &&
+          !state.copySettings &&
+          !state.metadataCopyOpen
+        ) {
           event.preventDefault();
           store.cancelCrop();
           return;
@@ -95,6 +101,7 @@ export function useKeyboardShortcuts(store: AppStore): void {
           !textEntry &&
           !state.dialog &&
           !state.copySettings &&
+          !state.metadataCopyOpen &&
           !state.shortcutsOpen &&
           !state.exportOpen &&
           !state.batchCaptionOpen
@@ -108,7 +115,13 @@ export function useKeyboardShortcuts(store: AppStore): void {
           store.toggleShortcuts(false);
           return;
         }
-        if (state.dialog || state.copySettings || state.exportOpen || state.batchCaptionOpen)
+        if (
+          state.dialog ||
+          state.copySettings ||
+          state.metadataCopyOpen ||
+          state.exportOpen ||
+          state.batchCaptionOpen
+        )
           return;
         if (state.module === 'library' && !typing && state.selection.length > 1) {
           event.preventDefault();
@@ -136,6 +149,7 @@ export function useKeyboardShortcuts(store: AppStore): void {
       if (
         state.dialog ||
         state.copySettings ||
+        state.metadataCopyOpen ||
         state.shortcutsOpen ||
         state.exportOpen ||
         state.batchCaptionOpen
