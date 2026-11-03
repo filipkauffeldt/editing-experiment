@@ -146,6 +146,7 @@ function Toolbar({ photo }: { photo: Photo }) {
             type="button"
             className={`${styles.tool} ${session.tool === tool ? styles.toolActive : ''}`}
             onClick={() => store.setRetouchTool(tool)}
+            aria-pressed={session.tool === tool}
             data-tool={tool}
           >
             {TOOL_LABELS[tool]}

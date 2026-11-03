@@ -20,8 +20,9 @@ The proof of concept covers one end-to-end workflow:
 3. **Develop.** A `crs:` parameter set that follows Lightroom's names, imported `.xmp` presets,
    camera profiles, lens corrections, crop/straighten, copy/paste/sync of settings and a
    live WebGL2 preview.
-4. **Retouch.** Rectangle and lasso selections, YuNet face detection inside
-   a region, and mosaic/pixelate of the selected faces.
+4. **Retouch.** Rectangle and lasso areas, YuNet face detection inside a rectangle or lasso, and
+   mosaic/pixelate of the areas. Every area can be switched on and off, added or subtracted, and a
+   saved retouch can be resumed and edited again.
 5. **Export / Export & send.** Render a JPEG at the active export preset's output size
    with metadata and no leaked original thumbnail into the preset's local folder, then
    upload the exported file to a target FTP/FTPS/SFTP server. Next & send advances to the
@@ -209,7 +210,10 @@ Key types (names are binding, fields can grow):
   `Dehaze`, `Sharpness` and the sharpening and noise reduction detail sliders,
   `ToneCurvePV2012`,
   crop)
-- `RetouchOp` = `MosaicOp { shapes: Shape[], blockSizeRel }`,
+- `RetouchOp` = `MosaicOp { shapes: Shape[], blockSizeRel, areas?, facePadding? }`; `areas` is
+  the ordered `MosaicArea { shape, mode?: 'add' | 'subtract', enabled?, face? }` list that is
+  rendered when present (`shapes` then holds the enabled adds, and is all there is in a version
+  saved before `areas` existed, which loads as adds),
   `Shape = Rect | Polygon` in normalized image coordinates (0..1)
 - `PhotoVersion { id, kind: 'develop' | 'retouch', ops }`
 - `ExportPreset { id, name, folderTemplate, fileNameTemplate, ifExists, format, quality,
@@ -505,6 +509,29 @@ resize is needed. Neighbourhood radii are in full-resolution source pixels and
 `blockSizeRel` is relative to the image edge, so the smaller render has the same
 look; a browser test compares a 2048 px direct render with a full-resolution
 render downscaled to 2048 px.
+
+## Retouch editing
+
+A retouch session (`AppState.retouch`) edits one ordered list of areas (`renderer/retouch-areas.ts`):
+rectangles, lassos and detected faces, each added or subtracted and each on or off. A subtract takes
+mosaic away from everything before it and a later add covers the area again (`applyMosaic` follows the
+list order). A face keeps the detector's box next to its padded outline, so it can be switched on and
+off and re-padded after a resume; the padding is stored as `facePadding`. Saving writes the whole list
+into the version's `MosaicOp`, and re-entering Retouch loads it back (a version without `areas` loads
+its shapes as editable adds, wand outlines from before that tool was removed included).
+
+- **Tools.** Retouch always opens on Detect faces with a Rectangle search area in Add mode; nothing is
+  remembered from the last session. Detect faces searches a rectangle, or a lasso's bounding box and
+  keeps the faces centred inside the outline, and adds to the faces already there.
+- **Gestures.** Drawing adds an area in the current mode; Alt held at the start of a drawing flips the
+  mode for that drawing (AltGr never does). A click on an area switches the topmost one under it on or
+  off. Undo steps back through drawing, detecting and switching. Esc drops a shape being drawn, or
+  otherwise saves and leaves.
+- **Rendering.** Mosaic is a CPU pass after the develop render. The canvas preview
+  (`renderer/retouch-preview.ts`), the export and the thumbnail (`composeDevelopedRgba`) all call
+  `applyMosaic` with the same op, and `mapMosaicShapes` moves areas through lens correction and crop
+  in step with their shapes. The ops key (`retouchOpsKey`) is the JSON of the ops, so a toggle or a
+  subtract changes it and an export of a stale render is refused as before.
 
 ## Renderer shell
 

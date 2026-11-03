@@ -898,6 +898,65 @@ describe.skipIf(nefs.length === 0 || !haveDisplay)(
       expect(retouch[0]?.ops[0]).toMatchObject({ type: 'mosaic' });
     }, 60_000);
 
+    it('resumes a saved retouch: faces can be switched off and on again, and the defaults reset', async () => {
+      await selectPhoto('cardB_001.jpg');
+      await canvasReady();
+      const toolbar = window.locator('[data-testid="retouch-toolbar"]');
+      const savedFaces = async (): Promise<boolean[]> => {
+        const photo = (await invoke<Photo[]>('photos:list')).find(
+          (candidate) => candidate.fileName === 'cardB_001.jpg',
+        )!;
+        const op = photo.versions.filter((version) => version.kind === 'retouch').at(-1)?.ops[0];
+        if (op?.type !== 'mosaic') throw new Error('no mosaic');
+        return (op.areas ?? []).filter((area) => area.face).map((area) => area.enabled !== false);
+      };
+      const initial = await savedFaces();
+      expect(initial.length).toBeGreaterThan(0);
+      expect(initial.every(Boolean)).toBe(true);
+
+      // Whatever tool and mode the last session ended with, a new one opens the same way.
+      for (let round = 0; round < 2; round++) {
+        await window.keyboard.press('r');
+        await toolbar.waitFor();
+        await window.locator('[data-tool="faces"][aria-pressed="true"]').waitFor();
+        await window.locator('[data-face-area="rect"][aria-pressed="true"]').waitFor();
+        await window.locator('[data-mode="add"][aria-pressed="true"]').waitFor();
+        await window.getByTestId('face-count').waitFor();
+        // Round 1 resumes what round 0 saved: the first face is off.
+        expect(await window.getByTestId('face-count').textContent()).toContain(
+          `${round === 0 ? initial.length : initial.length - 1}/${initial.length} faces on`,
+        );
+        // Click the first face's centre: off in the first round, back on in the second.
+        const at = await window
+          .locator('[data-face-index]')
+          .first()
+          .evaluate((element) => {
+            const path = element as unknown as SVGGeometryElement;
+            const svg = path.ownerSVGElement!.getBoundingClientRect();
+            const box = path.getBBox();
+            return {
+              x: svg.left + (box.x + box.width / 2) * svg.width,
+              y: svg.top + (box.y + box.height / 2) * svg.height,
+            };
+          });
+        await window.mouse.click(at.x, at.y);
+        await window.getByTestId('face-count').waitFor();
+        expect(await window.getByTestId('face-count').textContent()).toContain(
+          round === 0
+            ? `${initial.length - 1}/${initial.length} faces on`
+            : `${initial.length}/${initial.length} faces on`,
+        );
+        await window.locator('[data-tool="rect"]').click();
+        await window.locator('[data-mode="subtract"]').click();
+        await window.getByTestId('done-retouch').click();
+        await toolbar.waitFor({ state: 'detached' });
+        const saved = await savedFaces();
+        expect(saved[0]).toBe(round === 1);
+        expect(saved.slice(1)).toEqual(initial.slice(1));
+      }
+      expect(await savedFaces()).toEqual(initial);
+    }, 60_000);
+
     it('leaves retouch mode with Done, Escape and the footer toggle, keeping the saved version', async () => {
       await selectPhoto('cardB_001.jpg');
       await canvasReady();
