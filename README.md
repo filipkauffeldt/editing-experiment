@@ -212,7 +212,8 @@ Set things up in this order:
 `Ctrl/⌘` means Ctrl, or Cmd on macOS. Letters and digits match the character
 the key prints, so the shortcuts are designed for a Swedish layout; AltGr combinations
 are treated as text. `F1` opens the in-app list; `?` does too, as does
-`Ctrl/⌘` plus the physical Slash key. In Ingest only `G` and `D` switch
+`Ctrl/⌘` plus the physical Slash key (except where that key prints `-`, as on a
+Swedish keyboard: there `Ctrl/⌘` + `-` zooms out). In Ingest only `G` and `D` switch
 modules.
 
 | Key                            | Action                                                                                                 |
@@ -231,6 +232,10 @@ modules.
 | `Esc`                          | Cancel crop, WB picker or retouch; close the shortcut list; leave a field; clear the Library selection |
 | `Y` or the physical `\` key    | Before / after (Develop)                                                                               |
 | `J` / `W`                      | Clipping overlay / white balance picker (Develop)                                                      |
+| `Z`                            | Toggle Fit and the zoom level chosen in the footer (100% to start); in Develop, crop and retouch       |
+| `Ctrl/⌘`+`+` / `-`             | Zoom in / out in steps (`=` and the numpad keys work too); `Ctrl/⌘`+`0` stays the colour class clear   |
+| `Ctrl/⌘`+wheel or pinch        | Zoom around the pointer                                                                                |
+| `Space`+drag                   | Pan the zoomed photo in any mode; the active tool is paused while Space is held                        |
 | `Ctrl/⌘`+`Z`                   | Undo the last retouch shape                                                                            |
 | `Ctrl/⌘`+`I`                   | Batch caption (Library); focus the caption field (Develop)                                             |
 | `Ctrl/⌘`+`A`                   | Select all in the Library                                                                              |
@@ -240,7 +245,7 @@ modules.
 | `Shift`+`Ctrl/⌘`+`E`           | Export…                                                                                                |
 | `Shift`+`Ctrl/⌘`+`Enter`       | Export & send                                                                                          |
 | `Ctrl/⌘`+`Enter`               | Next & send (Develop)                                                                                  |
-| `?` / `F1` / `Ctrl/⌘`+`/`      | Show the in-app shortcut list                                                                          |
+| `?` / `F1`                     | Show the in-app shortcut list (`Ctrl/⌘`+`/` where that key does not print `-`)                         |
 
 ## Credentials
 

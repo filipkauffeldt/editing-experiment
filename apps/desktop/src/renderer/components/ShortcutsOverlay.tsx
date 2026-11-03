@@ -7,7 +7,7 @@ const GROUPS: { title: string; rows: [string, string][] }[] = [
     title: 'Navigate',
     rows: [
       ['← / →', 'Previous / next photo'],
-      ['? / F1 / Ctrl/⌘ + /', 'Show this shortcut list'],
+      ['? / F1', 'Show this shortcut list'],
       ['Esc', 'Leave the current field'],
     ],
   },
@@ -60,6 +60,15 @@ const GROUPS: { title: string; rows: [string, string][] }[] = [
       ['J', 'Show clipping (red highlights, blue shadows)'],
       ['W', 'White balance picker (Esc cancels)'],
       ['Split', 'Before/after split view (button in Develop)'],
+    ],
+  },
+  {
+    title: 'Zoom and pan',
+    rows: [
+      ['Z', 'Toggle Fit and the chosen zoom level (100% to start)'],
+      ['Ctrl/⌘ + + / −', 'Zoom in / out in steps'],
+      ['Ctrl/⌘ + wheel or pinch', 'Zoom around the pointer'],
+      ['Space + drag', 'Pan, in every mode (the tool is paused)'],
     ],
   },
   {

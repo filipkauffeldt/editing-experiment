@@ -159,8 +159,9 @@ export function useKeyboardShortcuts(store: AppStore): void {
         return;
 
       const library = state.module === 'library';
-      // The physical slash key, so the shortcut does not depend on where `/` sits.
-      if (command && event.code === 'Slash') {
+      // The physical slash key, so the shortcut does not depend on where `/` sits. Not where that
+      // key prints `-` (Swedish, German, ...): there Ctrl/Cmd+`-` zooms out, and F1 or `?` open the list.
+      if (command && event.code === 'Slash' && event.key !== '-') {
         event.preventDefault();
         store.toggleShortcuts(true);
         return;
