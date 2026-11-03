@@ -224,9 +224,35 @@ describe('metadata', () => {
     store.select(photoId);
     await vi.waitFor(() => expect(store.getState().template).toBeDefined());
 
-    await store.applyTemplate('replace', photoId);
+    await store.applyTemplate({
+      mode: 'replace',
+      templatePath: '/mock/templates/premier-league.XMP',
+    });
     expect(store.getState().metadata[photoId]?.city).toBe('Manchester');
     expect(store.getState().metadata[photoId]?.caption).toContain('{event}');
+  });
+
+  it('applies a template to every selected photo and remembers the path', async () => {
+    const { store, fake } = await setup();
+    const photos = store.getState().photos.slice(0, 3);
+    const [first, second, third] = photos;
+    if (!first || !second || !third) throw new Error('not enough photos');
+    store.select(first.id);
+    store.select(third.id, 'range');
+    expect(store.getState().selection).toEqual([first.id, second.id, third.id]);
+
+    await store.applyTemplate({
+      mode: 'fillEmpty',
+      templatePath: '/mock/templates/new.XMP',
+    });
+
+    const call = fake.calls.find((candidate) => candidate.channel === 'metadata:applyTemplate');
+    expect(call?.args[0]).toMatchObject({
+      photoIds: [first.id, second.id, third.id],
+      templatePath: '/mock/templates/new.XMP',
+      mode: 'fillEmpty',
+    });
+    expect(fake.calls.some((candidate) => candidate.channel === 'settings:set')).toBe(true);
   });
 });
 

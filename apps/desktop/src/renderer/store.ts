@@ -2101,37 +2101,63 @@ export class AppStore {
     }
   };
 
-  readonly applyTemplate = async (
-    mode: TemplateApplyMode = 'replace',
-    photoId?: PhotoId,
-  ): Promise<void> => {
-    const id = photoId ?? this.state.selectedId;
-    if (!id) return;
-    const path = this.state.settings?.ingest.metadataTemplatePath ?? this.state.templatePath;
+  /**
+   * Apply the selected template to the current photo, or to every selected
+   * photo when more than one is selected. Defaults to the last loaded template.
+   */
+  readonly applyTemplate = async ({
+    mode = 'replace',
+    templatePath,
+    photoIds,
+  }: {
+    mode?: TemplateApplyMode;
+    templatePath?: string;
+    photoIds?: readonly PhotoId[];
+  } = {}): Promise<void> => {
+    const path =
+      templatePath ??
+      this.state.templatePath ??
+      this.state.settings?.ingest.metadataTemplatePath ??
+      this.state.settings?.metadataTemplates?.[0];
     if (!path) {
       this.toast('error', 'No metadata template is configured');
       return;
     }
+    const targets = this.metadataTargets(photoIds);
+    if (targets.length === 0) return;
     try {
       const result = await this.bridge.invoke('metadata:applyTemplate', {
-        photoIds: [id],
+        photoIds: targets,
         templatePath: path,
         mode,
       });
-      const [fields, template] = await Promise.all([
-        this.bridge.invoke('metadata:read', { photoId: id }),
+      const [fieldsByPhoto, template] = await Promise.all([
+        Promise.all(
+          result.updated.map(
+            async (photoId) =>
+              [photoId, await this.bridge.invoke('metadata:read', { photoId })] as const,
+          ),
+        ),
         this.bridge.invoke('metadata:readTemplate', { path }),
       ]);
-      this.set({
-        metadata: { ...this.state.metadata, [id]: fields },
-        template,
-        templatePath: path,
-        metadataUnresolved: { ...this.state.metadataUnresolved, [id]: [] },
-      });
+      const metadata = { ...this.state.metadata };
+      const metadataUnresolved = { ...this.state.metadataUnresolved };
+      for (const [photoId, fields] of fieldsByPhoto) {
+        metadata[photoId] = fields;
+        metadataUnresolved[photoId] = [];
+      }
+      this.set({ metadata, metadataUnresolved, template, templatePath: path });
+      await this.rememberMetadataTemplate(path);
       if (result.failed.length > 0) {
         this.toast('error', `Template failed for ${result.failed.length} photo(s)`);
       } else {
-        this.toast('success', mode === 'replace' ? 'Template applied' : 'Empty fields filled');
+        const count = result.updated.length;
+        this.toast(
+          'success',
+          mode === 'replace'
+            ? `Template applied to ${count} photo${count === 1 ? '' : 's'}`
+            : `Filled empty fields on ${count} photo${count === 1 ? '' : 's'}`,
+        );
       }
     } catch (cause) {
       this.toast('error', `Could not apply template: ${messageOf(cause)}`);

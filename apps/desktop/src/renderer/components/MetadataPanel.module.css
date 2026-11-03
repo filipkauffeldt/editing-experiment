@@ -28,10 +28,24 @@
   border-bottom: 1px solid var(--line);
 }
 
+.templateSelect {
+  flex: 1;
+  width: auto;
+  min-width: 0;
+  font-size: var(--fs-small);
+}
+
 .templateMode {
   width: auto;
   flex: 1;
+  min-width: 0;
   font-size: var(--fs-small);
+}
+
+.clipboardNote {
+  color: var(--dim);
+  font-size: var(--fs-label);
+  white-space: nowrap;
 }
 
 .diffPill {
