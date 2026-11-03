@@ -149,3 +149,10 @@
   gap: 4px;
   margin-left: auto;
 }
+
+.wbMode {
+  color: var(--dim);
+  font-size: var(--fs-label);
+  letter-spacing: var(--tracking-label);
+  text-transform: uppercase;
+}

@@ -479,8 +479,9 @@ function CanvasForPhoto({ photo }: { photo: Photo }) {
         const data = await response.arrayBuffer();
         if (!cancelled) {
           setLoaded({ header, data });
-          // The Lens Corrections panel reads the lens facts of the image on screen.
+          // The Lens Corrections panel reads the lens facts, the white balance sliders the as-shot gains.
           store.setPhotoLens(photo.id, header.lens, header);
+          store.setPhotoWhiteBalance(photo.id, header);
           setLinearUnavailable(false);
           setError(undefined);
         }

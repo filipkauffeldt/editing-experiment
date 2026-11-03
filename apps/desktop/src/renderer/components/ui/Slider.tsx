@@ -11,9 +11,11 @@ export interface SliderProps {
   step: number;
   /** Where the centre tick and the start of the fill sit; the range's middle by default. */
   neutral?: number;
-  /** What the typed field shows. Empty with a placeholder means "not set" (e.g. as shot). */
+  /** What the typed field shows. Empty with a placeholder means "not set". */
   display: number | '';
   placeholder?: string;
+  /** The value is the photo's as-shot setting, so the thumb is drawn muted. */
+  asShot?: boolean;
   /** Typed field limits, which differ from the range's when the track is a remapped scale. */
   numberMin?: number;
   numberMax?: number;
@@ -46,6 +48,7 @@ export function Slider({
   neutral,
   display,
   placeholder,
+  asShot,
   numberMin = min,
   numberMax = max,
   numberStep = step,
@@ -61,7 +64,7 @@ export function Slider({
   const classes = [
     styles.slider,
     tone === 'temperature' ? styles.temperature : tone === 'tint' ? styles.tint : '',
-    display === '' ? styles.asShot : '',
+    asShot || display === '' ? styles.asShot : '',
     compact ? styles.compact : '',
   ];
   return (

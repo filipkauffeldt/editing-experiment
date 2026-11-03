@@ -78,6 +78,7 @@ export {
   WHITE_BALANCE_PRESETS,
 } from './wb';
 export type {
+  ColorModel,
   Multipliers,
   ResolvedWhiteBalance,
   TemperatureTint,

@@ -18,6 +18,7 @@ import {
   straightenAngleFromLine,
   type AutoToneSettings,
   type CropHandle,
+  type WhiteBalanceCamera,
 } from '@ee/develop-gl';
 import {
   DEFAULT_COPY_SETTING_GROUPS,
@@ -331,6 +332,8 @@ export interface AppState {
   editDefaults: Record<string, EditParams>;
   /** Lens facts of the photos opened in the develop view (from the linear image header). */
   photoLens: Record<string, PhotoLensContext>;
+  /** Camera white balance of the photos opened in the develop view, for the as-shot slider values. */
+  photoWhiteBalance: Record<string, WhiteBalanceCamera>;
   /** The camera profile each opened photo's sidecar names, once loaded (or why it could not be). */
   photoProfiles: Record<string, PhotoProfile>;
   /** The profiles that fit each opened photo's camera: the Profile select's options. */
@@ -621,6 +624,7 @@ const emptyState = (): AppState => ({
   editParams: {},
   editDefaults: {},
   photoLens: {},
+  photoWhiteBalance: {},
   photoProfiles: {},
   profileChoices: {},
   sectionStash: {},
@@ -2262,6 +2266,21 @@ export class AppStore {
     const context: PhotoLensContext = { lens, width: size.width, height: size.height };
     if (JSON.stringify(context) === JSON.stringify(known)) return;
     this.set({ photoLens: { ...this.state.photoLens, [photoId]: context } });
+  };
+
+  /** Remembers what the white balance sliders need to show the as-shot values. */
+  readonly setPhotoWhiteBalance = (photoId: PhotoId, camera: WhiteBalanceCamera): void => {
+    const known = this.state.photoWhiteBalance[photoId];
+    const context: WhiteBalanceCamera = {
+      asShotMultipliers: camera.asShotMultipliers,
+      xyzToCamera: camera.xyzToCamera,
+      ...(camera.asShotTemperature === undefined
+        ? {}
+        : { asShotTemperature: camera.asShotTemperature }),
+      ...(camera.asShotTint === undefined ? {} : { asShotTint: camera.asShotTint }),
+    };
+    if (JSON.stringify(context) === JSON.stringify(known)) return;
+    this.set({ photoWhiteBalance: { ...this.state.photoWhiteBalance, [photoId]: context } });
   };
 
   // ------------------------------------------------------------ camera profiles
