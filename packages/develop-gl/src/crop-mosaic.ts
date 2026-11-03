@@ -1,4 +1,10 @@
-import type { CropParams, MosaicOp, Point, Shape } from '@ee/contracts';
+import {
+  mapMosaicShapes,
+  type CropParams,
+  type MosaicOp,
+  type Point,
+  type Shape,
+} from '@ee/contracts';
 import { cropOutputPixels, sourceToCroppedPixels, type Size } from './crop';
 
 /** Points are normalized, so rounding to this many decimals keeps the payload small. */
@@ -25,8 +31,8 @@ export function cropMosaicOp(op: MosaicOp, crop: CropParams, source: Size, outpu
       y: round(mapped.y / natural.height),
     };
   };
-  const shapes = op.shapes.map((shape) => mapShape(shape, toOutput, output));
-  return { ...op, shapes };
+  // Subtract areas move with the same map as adds, so their order and mode survive the crop.
+  return mapMosaicShapes(op, (shapes) => shapes.map((shape) => mapShape(shape, toOutput, output)));
 }
 
 function mapShape(shape: Shape, toOutput: (point: Point) => Point, output: Size): Shape {

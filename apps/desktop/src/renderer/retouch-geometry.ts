@@ -1,5 +1,6 @@
 import type { LensShotInfo, Rect, Shape } from '@ee/contracts';
 import { previewShapesToRecorded, recordedRegionToPreview } from '@ee/develop-gl';
+import { pointInPolygon, shapeBounds } from '@ee/retouch';
 
 const clamp = (value: number, min: number, max: number): number =>
   Math.min(max, Math.max(min, value));
@@ -51,4 +52,28 @@ export function faceStoredShape(
 /** A search region drawn on the recorded picture, as the part of the embedded preview that holds it. */
 export function detectionRegion(region: Rect, context: PhotoLensContext | undefined): Rect {
   return context?.lens ? recordedRegionToPreview(region, context) : region;
+}
+
+interface NormalizedPoint {
+  x: number;
+  y: number;
+}
+
+/** Centre of a detected face on the recorded picture, where the lasso was drawn. */
+function faceCentre(box: Rect, context: PhotoLensContext | undefined): NormalizedPoint {
+  const bounds = shapeBounds(faceStoredShape(box, 0, context));
+  return { x: bounds.x + bounds.w / 2, y: bounds.y + bounds.h / 2 };
+}
+
+/**
+ * The faces whose box centre lies inside a lasso. Detection searches the lasso's bounding box, so
+ * faces beside the outline are found too; the centre test drops those. Boxes are the detector's
+ * raw boxes (preview space) and the lasso is on the recorded picture, like every retouch shape.
+ */
+export function facesInLasso<T extends { box: Rect }>(
+  faces: readonly T[],
+  lasso: readonly NormalizedPoint[],
+  context: PhotoLensContext | undefined,
+): T[] {
+  return faces.filter((face) => pointInPolygon(faceCentre(face.box, context), lasso));
 }

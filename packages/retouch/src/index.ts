@@ -39,9 +39,3 @@ export {
   MIN_BLOCK_SIZE,
   type MosaicOptions,
 } from './mosaic';
-export {
-  magicWand,
-  traceMaskOutline,
-  type MagicWandOptions,
-  type MagicWandResult,
-} from './magic-wand';

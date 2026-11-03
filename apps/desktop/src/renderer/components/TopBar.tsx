@@ -62,6 +62,8 @@ export function TopBar({ className, loadError }: { className?: string; loadError
 
   const choose = (tab: Tab): void => {
     if (tab === 'retouch') store.openRetouchModule();
+    // Retouch is Develop with a session open, so the Develop tab is also the way out of it.
+    else if (tab === 'develop' && state.retouch) void store.requestExitRetouch();
     else store.setModule(tab);
   };
 

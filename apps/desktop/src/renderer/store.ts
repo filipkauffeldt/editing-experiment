@@ -49,7 +49,6 @@ import {
   type ProfileResolution,
   type ResolvedProfile,
   type MosaicOp,
-  type Rect,
   type Shape,
   type SliderParam,
   type SourceConfig,
@@ -72,7 +71,15 @@ import {
   type LibraryQuick,
   type LibraryState,
 } from './library';
-import { faceStoredShape, type PhotoLensContext } from './retouch-geometry';
+import {
+  areasFromOp,
+  opFromAreas,
+  withDetectedFaces,
+  type RetouchArea,
+  type RetouchFaceBox,
+  type RetouchMode,
+} from './retouch-areas';
+import type { PhotoLensContext } from './retouch-geometry';
 
 export type QuickFilter =
   'all' | 'untagged' | 'tagged' | 'edited' | 'not-uploaded' | 'failed-uploads' | 'metadata-differs';
@@ -126,15 +133,10 @@ export interface PhotoFlags {
 }
 
 /** Which gesture the retouch overlay currently records. */
-export type RetouchTool = 'rect' | 'lasso' | 'wand' | 'faces';
+export type RetouchTool = 'rect' | 'lasso' | 'faces';
 
-/** A detected face, with the padded box that is actually mosaicked when enabled. */
-export interface RetouchFace {
-  /** Raw detector box in normalized image coordinates; padding is applied when rendering. */
-  box: Rect;
-  score?: number;
-  enabled: boolean;
-}
+/** How the Detect faces tool takes its search area. */
+export type FaceSearchArea = 'rect' | 'lasso';
 
 /** The retouch editing session for one photo. */
 export interface RetouchSession {
@@ -142,17 +144,23 @@ export interface RetouchSession {
   /** Existing retouch version being edited; absent until the first commit. */
   versionId?: VersionId;
   tool: RetouchTool;
+  /** Shape of the area drawn with Detect faces. */
+  faceArea: FaceSearchArea;
   /** Mosaic block edge relative to the longer image edge. */
   blockSizeRel: number;
-  /** Magic-wand colour tolerance (CIE76, 0..100). */
-  tolerance: number;
   /**
    * Extra padding around detected faces as a fraction of the box width.
    * Height padding is 1.4x this and biased upward to cover hair.
    */
   facePadding: number;
-  shapes: Shape[];
-  faces: RetouchFace[];
+  /** Add or Subtract: what the next drawn shape or detection does. */
+  mode: RetouchMode;
+  /** Every area in render order: drawn shapes and detected faces, on or off, added or subtracted. */
+  areas: RetouchArea[];
+  /** Earlier values of `areas`, newest last, for Undo. */
+  undo: RetouchArea[][];
+  /** True once the user changed something since the session opened or the last save. */
+  dirty: boolean;
   busy: boolean;
 }
 
@@ -582,12 +590,12 @@ const defaultConfirm = (message: string): boolean =>
     ? window.confirm(message)
     : true;
 
-const structuredCloneShape = (shape: Shape): Shape =>
-  shape.type === 'rect' ? { ...shape } : { ...shape, points: shape.points.map((p) => ({ ...p })) };
-
-const hasPendingRetouch = (session: RetouchSession | undefined): boolean =>
-  session !== undefined &&
-  (session.shapes.length > 0 || session.faces.some((face) => face.enabled));
+/**
+ * Unsaved work in a retouch session. An untouched session that only shows the saved version is not
+ * pending, so leaving it never rewrites the version (and never fails on a save).
+ */
+export const hasPendingRetouch = (session: RetouchSession | undefined): boolean =>
+  session !== undefined && session.dirty && session.areas.length > 0;
 
 /** Throttle for develop writes: first change goes out at once, then at most every 80 ms. */
 const DEVELOP_THROTTLE_MS = 80;
@@ -1066,7 +1074,7 @@ export class AppStore {
     if (session && session.photoId !== photoId) {
       // Never lose an unreviewed mosaic by navigating away. The commit path is
       // shared with exports, so an in-flight save is awaited instead of duplicated.
-      if (session.busy || hasPendingRetouch(session)) {
+      if (hasPendingRetouch(session)) {
         void this.commitRetouch().then((photo) => {
           if (photo) this.applySelection(photoId, mode);
         });
@@ -1328,16 +1336,20 @@ export class AppStore {
     if (!photo) return;
     const version = topRetouchVersion(photo);
     const op = version?.ops.find((candidate): candidate is MosaicOp => candidate.type === 'mosaic');
+    // A resumed session starts from the saved areas, faces and padding; the tool, search area and
+    // mode always start the same way and are not remembered from the last session.
     this.set({
       retouch: {
         photoId: photo.id,
         ...(version ? { versionId: version.id } : {}),
-        tool: 'rect',
+        tool: 'faces',
+        faceArea: 'rect',
+        mode: 'add',
         blockSizeRel: op?.blockSizeRel ?? DEFAULT_BLOCK_SIZE_REL,
-        tolerance: 24,
-        facePadding: DEFAULT_FACE_PADDING,
-        shapes: op ? op.shapes.map((shape) => structuredCloneShape(shape)) : [],
-        faces: [],
+        facePadding: op?.facePadding ?? DEFAULT_FACE_PADDING,
+        areas: op ? areasFromOp(op) : [],
+        undo: [],
+        dirty: false,
         busy: false,
       },
     });
@@ -1348,49 +1360,81 @@ export class AppStore {
     this.set({ retouch: { ...this.state.retouch, tool } });
   };
 
-  readonly setRetouchBlockSize = (blockSizeRel: number): void => {
-    if (!this.state.retouch || !(blockSizeRel > 0)) return;
-    this.set({ retouch: { ...this.state.retouch, blockSizeRel } });
+  readonly setRetouchFaceArea = (faceArea: FaceSearchArea): void => {
+    if (!this.state.retouch) return;
+    this.set({ retouch: { ...this.state.retouch, faceArea } });
   };
 
-  readonly setRetouchTolerance = (tolerance: number): void => {
-    if (!this.state.retouch) return;
-    this.set({ retouch: { ...this.state.retouch, tolerance: Math.max(0, tolerance) } });
+  readonly setRetouchBlockSize = (blockSizeRel: number): void => {
+    if (!this.state.retouch || !(blockSizeRel > 0)) return;
+    this.set({ retouch: { ...this.state.retouch, blockSizeRel, dirty: true } });
   };
 
   readonly setRetouchFacePadding = (facePadding: number): void => {
     if (!this.state.retouch || !(facePadding >= 0)) return;
     this.set({
-      retouch: { ...this.state.retouch, facePadding: Math.min(0.5, facePadding) },
+      retouch: { ...this.state.retouch, facePadding: Math.min(0.5, facePadding), dirty: true },
     });
   };
 
-  readonly addRetouchShape = (shape: Shape): void => {
+  readonly setRetouchMode = (mode: RetouchMode): void => {
     if (!this.state.retouch) return;
-    this.set({
-      retouch: { ...this.state.retouch, shapes: [...this.state.retouch.shapes, shape] },
-    });
+    this.set({ retouch: { ...this.state.retouch, mode } });
   };
 
+  /** Replace the areas as one undoable step. */
+  private changeRetouchAreas(areas: RetouchArea[]): void {
+    const session = this.state.retouch;
+    if (!session) return;
+    this.set({
+      retouch: { ...session, areas, undo: [...session.undo, session.areas], dirty: true },
+    });
+  }
+
+  /** Add a drawn shape in `mode` (the session's mode when omitted). */
+  readonly addRetouchShape = (shape: Shape, mode?: RetouchMode): void => {
+    const session = this.state.retouch;
+    if (!session) return;
+    this.changeRetouchAreas([
+      ...session.areas,
+      {
+        kind: shape.type === 'rect' ? 'rect' : 'lasso',
+        mode: mode ?? session.mode,
+        enabled: true,
+        shape,
+      },
+    ]);
+  };
+
+  /** Add detected faces in `mode`; a face that is already in the session is not added twice. */
+  readonly addRetouchFaces = (faces: RetouchFaceBox[], mode?: RetouchMode): void => {
+    const session = this.state.retouch;
+    if (!session) return;
+    const areas = withDetectedFaces(session.areas, faces, mode ?? session.mode);
+    if (areas.length === session.areas.length) return;
+    this.changeRetouchAreas(areas);
+  };
+
+  /** Switch one area (a drawn shape or a face) on or off. */
+  readonly toggleRetouchArea = (index: number): void => {
+    const session = this.state.retouch;
+    const area = session?.areas[index];
+    if (!session || !area) return;
+    this.changeRetouchAreas(
+      session.areas.map((candidate, i) =>
+        i === index ? { ...candidate, enabled: !candidate.enabled } : candidate,
+      ),
+    );
+  };
+
+  /** Undo the last change to the areas: a shape, a detection or a switch. */
   readonly undoRetouchShape = (): void => {
     const session = this.state.retouch;
-    if (!session || session.shapes.length === 0) return;
-    this.set({ retouch: { ...session, shapes: session.shapes.slice(0, -1) } });
-  };
-
-  readonly setRetouchFaces = (faces: RetouchFace[]): void => {
-    if (!this.state.retouch) return;
-    this.set({ retouch: { ...this.state.retouch, faces } });
-  };
-
-  readonly toggleRetouchFace = (index: number): void => {
-    const session = this.state.retouch;
-    const face = session?.faces[index];
-    if (!session || !face) return;
-    const faces = session.faces.map((candidate, i) =>
-      i === index ? { ...candidate, enabled: !candidate.enabled } : candidate,
-    );
-    this.set({ retouch: { ...session, faces } });
+    const previous = session?.undo.at(-1);
+    if (!session || !previous) return;
+    this.set({
+      retouch: { ...session, areas: previous, undo: session.undo.slice(0, -1), dirty: true },
+    });
   };
 
   readonly setRetouchBusy = (busy: boolean): void => {
@@ -1398,21 +1442,30 @@ export class AppStore {
     this.set({ retouch: { ...this.state.retouch, busy } });
   };
 
-  /** Leave retouch mode without saving. Explicit cancel only; the UI uses {@link requestExitRetouch}. */
+  /**
+   * Leave retouch mode and throw away unsaved shapes. Only the labelled "Discard changes" button
+   * and the paths that have just saved call this; everything else uses {@link requestExitRetouch}.
+   */
   readonly exitRetouch = (): void => {
     if (!this.state.retouch) return;
     this.set({ retouch: undefined });
   };
 
   /**
-   * Leave retouch mode, saving pending shapes/faces first. A failed save keeps
-   * the session open so nothing is lost.
+   * Leave retouch mode, keeping the work: pending shapes/faces are saved first, and a failed save
+   * keeps the session open so nothing is lost (Discard changes still leaves). Face detection in
+   * flight does not hold the session: its result is dropped.
    */
   readonly requestExitRetouch = async (): Promise<void> => {
     const session = this.state.retouch;
     if (!session) return;
-    if (session.busy || hasPendingRetouch(session)) {
+    if (hasPendingRetouch(session)) {
       await this.commitRetouch();
+      return;
+    }
+    // A save that is already running closes the session itself when it succeeds.
+    if (this.retouchCommit) {
+      await this.retouchCommit;
       return;
     }
     this.exitRetouch();
@@ -1436,19 +1489,16 @@ export class AppStore {
   private async runCommitRetouch(): Promise<Photo | undefined> {
     const session = this.state.retouch;
     if (!session) return undefined;
-    const shapes = [
-      ...session.shapes,
-      ...session.faces
-        .filter((face) => face.enabled)
-        .map((face) =>
-          faceStoredShape(face.box, session.facePadding, this.state.photoLens[session.photoId]),
-        ),
-    ];
-    if (shapes.length === 0) {
+    if (session.areas.length === 0) {
       this.toast('error', 'Draw a selection or detect a face first');
       return undefined;
     }
-    const op: MosaicOp = { type: 'mosaic', shapes, blockSizeRel: session.blockSizeRel };
+    const op = opFromAreas(
+      session.areas,
+      session.blockSizeRel,
+      session.facePadding,
+      this.state.photoLens[session.photoId],
+    );
     this.setRetouchBusy(true);
     try {
       let versionId = session.versionId;
@@ -2656,7 +2706,7 @@ export class AppStore {
     if (this.state.crop && ids.has(this.state.crop.photoId)) this.applyCrop();
     const session = this.state.retouch;
     if (session && ids.has(session.photoId)) {
-      if (session.busy || hasPendingRetouch(session)) {
+      if (this.retouchCommit || hasPendingRetouch(session)) {
         const saved = await this.commitRetouch();
         if (!saved) throw new Error('the retouch version could not be saved');
       } else {

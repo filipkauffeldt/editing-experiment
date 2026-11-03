@@ -214,6 +214,227 @@ describe('PhotoCanvas preview', () => {
     );
   });
 
+  it('detects faces inside a lasso: searches its bounding box and keeps the faces centred in it', async () => {
+    const regions: unknown[] = [];
+    await store.dispose();
+    fake = createFakeBridge({
+      handlers: {
+        'retouch:detectFaces': async (args) => {
+          regions.push((args as { region?: unknown }).region);
+          // One face inside the triangle drawn below, one in its bounding box but outside it.
+          return [
+            { box: { type: 'rect', x: 0.2, y: 0.5, w: 0.1, h: 0.1 }, score: 0.9 },
+            { box: { type: 'rect', x: 0.6, y: 0.1, w: 0.1, h: 0.1 }, score: 0.9 },
+          ];
+        },
+      },
+    });
+    window.eeTransport = fake.transport;
+    store = createAppStore(fake.bridge);
+    await store.init();
+    const photo = activePhoto(store.getState());
+    if (!photo) throw new Error('no selection');
+    pendingLinear();
+    render(
+      <AppStoreProvider store={store}>
+        <PhotoCanvas photo={photo} />
+      </AppStoreProvider>,
+    );
+    act(() => {
+      store.toggleRetouch();
+      store.setRetouchTool('faces');
+      store.setRetouchFaceArea('lasso');
+    });
+    const overlay = await screen.findByTestId('retouch-overlay');
+    vi.spyOn(overlay, 'getBoundingClientRect').mockReturnValue({
+      x: 0,
+      y: 0,
+      width: 400,
+      height: 300,
+      top: 0,
+      right: 400,
+      bottom: 300,
+      left: 0,
+      toJSON: () => ({}),
+    });
+    Object.assign(overlay, {
+      setPointerCapture: vi.fn(),
+      releasePointerCapture: vi.fn(),
+      hasPointerCapture: () => false,
+    });
+    // Lower-left triangle of the picture: (0.1, 0.1) (0.1, 0.9) (0.9, 0.9).
+    fireEvent.pointerDown(overlay, { clientX: 40, clientY: 30, pointerId: 1, button: 0 });
+    fireEvent.pointerMove(overlay, { clientX: 40, clientY: 270, pointerId: 1 });
+    fireEvent.pointerMove(overlay, { clientX: 200, clientY: 270, pointerId: 1 });
+    fireEvent.pointerMove(overlay, { clientX: 360, clientY: 270, pointerId: 1 });
+    fireEvent.pointerUp(overlay, { clientX: 360, clientY: 270, pointerId: 1, button: 0 });
+
+    await waitFor(() => expect(store.getState().retouch?.areas).toHaveLength(1));
+    expect(store.getState().retouch?.areas[0]?.face?.box.x).toBeCloseTo(0.2);
+    expect(regions).toHaveLength(1);
+    expect(regions[0]).toMatchObject({ type: 'rect', x: 0.1, y: 0.1, w: 0.8, h: 0.8 });
+    // The lasso itself is not a mosaic shape.
+    expect(store.getState().retouch?.areas.every((area) => area.kind === 'face')).toBe(true);
+  });
+
+  describe('areas', () => {
+    async function openOverlay(): Promise<HTMLElement> {
+      const photo = activePhoto(store.getState());
+      if (!photo) throw new Error('no selection');
+      pendingLinear();
+      render(
+        <AppStoreProvider store={store}>
+          <PhotoCanvas photo={photo} />
+        </AppStoreProvider>,
+      );
+      act(() => store.toggleRetouch());
+      const overlay = await screen.findByTestId('retouch-overlay');
+      vi.spyOn(overlay, 'getBoundingClientRect').mockReturnValue({
+        x: 0,
+        y: 0,
+        width: 400,
+        height: 300,
+        top: 0,
+        right: 400,
+        bottom: 300,
+        left: 0,
+        toJSON: () => ({}),
+      });
+      Object.assign(overlay, {
+        setPointerCapture: vi.fn(),
+        releasePointerCapture: vi.fn(),
+        hasPointerCapture: () => false,
+      });
+      return overlay;
+    }
+    const drag = (
+      overlay: HTMLElement,
+      from: [number, number],
+      to: [number, number],
+      modifiers: { altKey?: boolean; ctrlKey?: boolean } = {},
+    ): void => {
+      fireEvent.pointerDown(overlay, {
+        clientX: from[0],
+        clientY: from[1],
+        pointerId: 1,
+        button: 0,
+        ...modifiers,
+      });
+      fireEvent.pointerMove(overlay, { clientX: to[0], clientY: to[1], pointerId: 1 });
+      fireEvent.pointerUp(overlay, { clientX: to[0], clientY: to[1], pointerId: 1, button: 0 });
+    };
+
+    it('opens on Detect faces, Rectangle and Add, whatever the last session used', async () => {
+      const overlay = await openOverlay();
+      expect(store.getState().retouch).toMatchObject({
+        tool: 'faces',
+        faceArea: 'rect',
+        mode: 'add',
+      });
+      expect(screen.getByRole('button', { name: 'Add' }).getAttribute('aria-pressed')).toBe('true');
+
+      act(() => {
+        store.setRetouchTool('lasso');
+        store.setRetouchMode('subtract');
+        store.setRetouchFaceArea('lasso');
+      });
+      drag(overlay, [40, 40], [200, 200]);
+      act(() => store.exitRetouch());
+      act(() => store.toggleRetouch());
+      expect(store.getState().retouch).toMatchObject({
+        tool: 'faces',
+        faceArea: 'rect',
+        mode: 'add',
+      });
+    });
+
+    it('draws in Add or Subtract mode, and a click on an area switches it off and on', async () => {
+      const overlay = await openOverlay();
+      act(() => store.setRetouchTool('rect'));
+      drag(overlay, [40, 30], [360, 270]);
+      fireEvent.click(screen.getByRole('button', { name: 'Subtract' }));
+      drag(overlay, [120, 90], [280, 210]);
+
+      expect(store.getState().retouch?.areas.map((a) => [a.kind, a.mode, a.enabled])).toEqual([
+        ['rect', 'add', true],
+        ['rect', 'subtract', true],
+      ]);
+      expect(screen.getByTestId('drawn-count').textContent).toContain('2/2 areas on');
+
+      // Click inside the hole: the topmost area there is the subtract area.
+      drag(overlay, [200, 150], [200, 150]);
+      expect(store.getState().retouch?.areas[1]?.enabled).toBe(false);
+      expect(
+        overlay.querySelector('[data-area-index="1"]')?.getAttribute('data-area-enabled'),
+      ).toBe('false');
+      expect(screen.getByTestId('drawn-count').textContent).toContain('1/2 areas on');
+      // A click on the outer area only, outside the hole, switches that one.
+      drag(overlay, [60, 40], [60, 40]);
+      expect(store.getState().retouch?.areas.map((a) => a.enabled)).toEqual([false, false]);
+      drag(overlay, [60, 40], [60, 40]);
+      expect(store.getState().retouch?.areas[0]?.enabled).toBe(true);
+      // Clicking does not draw anything.
+      expect(store.getState().retouch?.areas).toHaveLength(2);
+    });
+
+    it('Alt flips the mode for one drawing; AltGr (Ctrl+Alt) does not', async () => {
+      const overlay = await openOverlay();
+      act(() => store.setRetouchTool('rect'));
+      drag(overlay, [40, 30], [360, 270], { altKey: true });
+      drag(overlay, [60, 50], [100, 90], { altKey: true, ctrlKey: true });
+      expect(store.getState().retouch?.areas.map((a) => a.mode)).toEqual(['subtract', 'add']);
+      expect(store.getState().retouch?.mode).toBe('add');
+    });
+  });
+
+  it('Escape drops the shape being drawn and does not leave retouch', async () => {
+    const photo = activePhoto(store.getState());
+    if (!photo) throw new Error('no selection');
+    pendingLinear();
+    render(
+      <AppStoreProvider store={store}>
+        <PhotoCanvas photo={photo} />
+      </AppStoreProvider>,
+    );
+    act(() => store.toggleRetouch());
+    const overlay = await screen.findByTestId('retouch-overlay');
+    vi.spyOn(overlay, 'getBoundingClientRect').mockReturnValue({
+      x: 0,
+      y: 0,
+      width: 400,
+      height: 300,
+      top: 0,
+      right: 400,
+      bottom: 300,
+      left: 0,
+      toJSON: () => ({}),
+    });
+    Object.assign(overlay, {
+      setPointerCapture: vi.fn(),
+      releasePointerCapture: vi.fn(),
+      hasPointerCapture: () => true,
+    });
+    fireEvent.pointerDown(overlay, { clientX: 40, clientY: 40, pointerId: 1, button: 0 });
+    fireEvent.pointerMove(overlay, { clientX: 200, clientY: 200, pointerId: 1 });
+
+    // The app's own Escape handler listens on window; it must not see this one.
+    const globalHandler = vi.fn();
+    window.addEventListener('keydown', globalHandler);
+    fireEvent.keyDown(window, { key: 'Escape' });
+    fireEvent.pointerUp(overlay, { clientX: 200, clientY: 200, pointerId: 1, button: 0 });
+    window.removeEventListener('keydown', globalHandler);
+
+    expect(globalHandler).not.toHaveBeenCalled();
+    expect(store.getState().retouch).toBeDefined();
+    expect(store.getState().retouch?.areas).toHaveLength(0);
+
+    // With nothing mid-draw the key reaches the app's handler.
+    window.addEventListener('keydown', globalHandler);
+    fireEvent.keyDown(window, { key: 'Escape' });
+    window.removeEventListener('keydown', globalHandler);
+    expect(globalHandler).toHaveBeenCalledTimes(1);
+  });
+
   it('busts the browser cache with the preview revision', async () => {
     const photo = activePhoto(store.getState());
     if (!photo) throw new Error('no selection');

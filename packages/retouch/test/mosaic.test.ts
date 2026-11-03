@@ -197,3 +197,133 @@ describe('applyMosaic', () => {
     expect(elapsed).toBeLessThan(1500);
   }, 60_000);
 });
+
+describe('applyMosaic areas', () => {
+  const width = 64;
+  const height = 64;
+  const full = rect(0, 0, 1, 1);
+  const areaOp = (areas: NonNullable<MosaicOp['areas']>): MosaicOp => ({
+    type: 'mosaic',
+    shapes: [],
+    areas,
+    blockSizeRel: 8 / width,
+  });
+  const pixel = (rgba: Uint8Array, x: number, y: number): number[] => [
+    ...rgba.slice((y * width + x) * 4, (y * width + x) * 4 + 4),
+  ];
+
+  it('renders a version saved without areas as all adds, exactly as before', () => {
+    const source = gradient(width, height);
+    const legacy = applyMosaic(source, width, height, op([rect(0.1, 0.1, 0.5, 0.5)], 8 / width));
+    const modern = applyMosaic(
+      source,
+      width,
+      height,
+      areaOp([{ shape: rect(0.1, 0.1, 0.5, 0.5) }]),
+    );
+    expect(modern).toEqual(legacy);
+  });
+
+  it('a subtract area takes the mosaic away and leaves the original pixels there', () => {
+    const source = gradient(width, height);
+    const hole = rect(24 / width, 24 / height, 16 / width, 16 / height);
+    const result = applyMosaic(
+      source,
+      width,
+      height,
+      areaOp([{ shape: full }, { shape: hole, mode: 'subtract' }]),
+    );
+    const flat = applyMosaic(source, width, height, areaOp([{ shape: full }]));
+    for (let y = 0; y < height; y++) {
+      for (let x = 0; x < width; x++) {
+        const inHole = x >= 24 && x < 40 && y >= 24 && y < 40;
+        expect(pixel(result, x, y)).toEqual(pixel(inHole ? source : flat, x, y));
+      }
+    }
+  });
+
+  it('a later add covers a subtracted area again, an earlier one does not', () => {
+    const source = gradient(width, height);
+    const hole = rect(24 / width, 24 / height, 16 / width, 16 / height);
+    const flat = applyMosaic(source, width, height, areaOp([{ shape: full }]));
+    const readded = applyMosaic(
+      source,
+      width,
+      height,
+      areaOp([{ shape: full }, { shape: hole, mode: 'subtract' }, { shape: hole }]),
+    );
+    expect(readded).toEqual(flat);
+    const subtractFirst = applyMosaic(
+      source,
+      width,
+      height,
+      areaOp([{ shape: hole, mode: 'subtract' }, { shape: full }]),
+    );
+    expect(subtractFirst).toEqual(flat);
+  });
+
+  it('subtracts from areas of another block size too', () => {
+    const source = gradient(width, height);
+    const small = rect(0, 0, 0.5, 0.2);
+    const large = rect(0, 0.4, 1, 0.6);
+    const hole = rect(0, 0, 1, 1);
+    const result = applyMosaic(
+      source,
+      width,
+      height,
+      areaOp([{ shape: small }, { shape: large }, { shape: hole, mode: 'subtract' }]),
+    );
+    expect(result).toEqual(source);
+  });
+
+  it('ignores areas that are off, subtract areas included', () => {
+    const source = gradient(width, height);
+    const hole = rect(0.2, 0.2, 0.3, 0.3);
+    const on = applyMosaic(source, width, height, areaOp([{ shape: full }]));
+    const result = applyMosaic(
+      source,
+      width,
+      height,
+      areaOp([
+        { shape: full },
+        { shape: hole, mode: 'subtract', enabled: false },
+        { shape: rect(0, 0, 1, 1), enabled: false, mode: 'add' },
+      ]),
+    );
+    expect(result).toEqual(on);
+    expect(applyMosaic(source, width, height, areaOp([{ shape: full, enabled: false }]))).toEqual(
+      source,
+    );
+  });
+
+  it('works on a lasso, in place', () => {
+    const source = gradient(width, height);
+    const lasso = {
+      type: 'polygon' as const,
+      points: [
+        { x: 0.1, y: 0.1 },
+        { x: 0.9, y: 0.1 },
+        { x: 0.5, y: 0.9 },
+      ],
+    };
+    const hole = rect(0.4, 0.2, 0.2, 0.2);
+    const copy = applyMosaic(
+      source,
+      width,
+      height,
+      areaOp([{ shape: lasso }, { shape: hole, mode: 'subtract' }]),
+    );
+    const inPlace = source.slice();
+    applyMosaic(
+      inPlace,
+      width,
+      height,
+      areaOp([{ shape: lasso }, { shape: hole, mode: 'subtract' }]),
+      {
+        inPlace: true,
+      },
+    );
+    expect(inPlace).toEqual(copy);
+    expect(pixel(copy, 32, 16)).toEqual(pixel(source, 32, 16));
+  });
+});
