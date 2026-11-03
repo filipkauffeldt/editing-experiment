@@ -28,6 +28,7 @@ import { applyMosaic, magicWand, shapeBounds, simplifyPolygon } from '@ee/retouc
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { ee } from '../ee';
 import {
+  hasPendingRetouch,
   namesProfile,
   paramsForPhoto,
   topRetouchVersion,
@@ -46,7 +47,7 @@ import { detectionRegion, faceStoredShape } from '../retouch-geometry';
 import { useAppState, useAppStore } from '../store-context';
 import { CropOverlay } from './CropOverlay';
 import { CropToolbar } from './CropToolbar';
-import { EyeIcon, PenIcon } from './icons';
+import { CheckIcon, EyeIcon, PenIcon } from './icons';
 import styles from './PhotoCanvas.module.css';
 
 interface LoadedImage {
@@ -107,6 +108,8 @@ function Toolbar() {
   const session = state.retouch;
   if (!session) return null;
   const enabledFaces = session.faces.filter((face) => face.enabled).length;
+  const unsaved = hasPendingRetouch(session);
+  const unsavedCount = session.shapes.length + enabledFaces;
   return (
     <div className={styles.toolbar} data-testid="retouch-toolbar">
       <div className={styles.tools}>
@@ -121,6 +124,61 @@ function Toolbar() {
             {TOOL_LABELS[tool]}
           </button>
         ))}
+      </div>
+      {/* The way out comes right after the tools, so a narrow window wraps the sliders, not it. */}
+      <div className={styles.actions}>
+        <button
+          type="button"
+          className={styles.secondary}
+          onClick={() => store.undoRetouchShape()}
+          disabled={session.shapes.length === 0}
+          title="Undo the last shape (Ctrl/⌘+Z)"
+        >
+          Undo
+        </button>
+        <button
+          type="button"
+          className={styles.secondary}
+          onClick={() => void store.deleteRetouchVersion()}
+          title="Remove the saved retouch version of this photo"
+        >
+          Delete version
+        </button>
+        {unsaved && (
+          <button
+            type="button"
+            className={styles.secondary}
+            onClick={() => store.exitRetouch()}
+            title={`Leave retouch mode and throw away ${unsavedCount} unsaved ${
+              unsavedCount === 1 ? 'selection' : 'selections'
+            }`}
+            data-testid="discard-retouch"
+          >
+            Discard changes
+          </button>
+        )}
+        <button
+          type="button"
+          className={styles.commit}
+          onClick={() => void store.commitRetouch()}
+          disabled={session.busy}
+          data-testid="commit-retouch"
+        >
+          <PenIcon size={11} /> {session.busy ? 'Saving…' : 'Mosaic'}
+        </button>
+        <button
+          type="button"
+          className={styles.done}
+          onClick={() => void store.requestExitRetouch()}
+          title={
+            unsaved
+              ? 'Save the mosaic and leave retouch mode (Esc)'
+              : 'Leave retouch mode, keeping what is saved (Esc)'
+          }
+          data-testid="done-retouch"
+        >
+          <CheckIcon size={11} /> Done
+        </button>
       </div>
       {session.tool === 'wand' && (
         <label className={styles.control}>
@@ -162,36 +220,6 @@ function Toolbar() {
           />
         </label>
       )}
-      <div className={styles.actions}>
-        <button
-          type="button"
-          className={styles.secondary}
-          onClick={() => store.undoRetouchShape()}
-          disabled={session.shapes.length === 0}
-          title="Undo the last shape (Ctrl/⌘+Z)"
-        >
-          Undo
-        </button>
-        <button
-          type="button"
-          className={styles.secondary}
-          onClick={() => void store.deleteRetouchVersion()}
-        >
-          Delete version
-        </button>
-        <button type="button" className={styles.secondary} onClick={() => store.exitRetouch()}>
-          Cancel
-        </button>
-        <button
-          type="button"
-          className={styles.commit}
-          onClick={() => void store.commitRetouch()}
-          disabled={session.busy}
-          data-testid="commit-retouch"
-        >
-          <PenIcon size={11} /> {session.busy ? 'Saving…' : 'Mosaic'}
-        </button>
-      </div>
       {session.faces.length > 0 && (
         <div className={styles.faceHint}>
           <EyeIcon size={10} /> {enabledFaces}/{session.faces.length} faces selected
@@ -204,7 +232,8 @@ function Toolbar() {
             ? 'Click a colour region.'
             : session.tool === 'lasso'
               ? 'Draw a freehand outline.'
-              : 'Drag a rectangle around what to pixelate.'}
+              : 'Drag a rectangle around what to pixelate.'}{' '}
+        Esc saves and leaves.
       </div>
     </div>
   );
@@ -266,6 +295,7 @@ function CanvasForPhoto({ photo }: { photo: Photo }) {
   const [draftPoints, setDraftPoints] = useState<{ x: number; y: number }[]>([]);
   const dragStart = useRef<{ x: number; y: number } | null>(null);
   const dragMoved = useRef(false);
+  const dragPointer = useRef<number | null>(null);
   const [pickerPoint, setPickerPoint] = useState<{ x: number; y: number } | null>(null);
   const [splitting, setSplitting] = useState(false);
   const lastHistogramAt = useRef(0);
@@ -838,6 +868,7 @@ function CanvasForPhoto({ photo }: { photo: Photo }) {
     const surface = overlayRef.current;
     if (!surface) return;
     event.preventDefault();
+    dragPointer.current = event.pointerId;
     dragStart.current = normalizedPoint(event, surface);
     dragMoved.current = false;
     surface.setPointerCapture(event.pointerId);
@@ -850,6 +881,28 @@ function CanvasForPhoto({ photo }: { photo: Photo }) {
   const onPointerUp = (event: React.PointerEvent): void => {
     void finishDrag(event);
   };
+
+  // Escape while a shape is being drawn drops that shape; the keyboard handler only sees the
+  // key when nothing is mid-draw. Capture phase, so it runs before the global shortcuts.
+  useEffect(() => {
+    if (!retouching) return;
+    const onKeyDown = (event: KeyboardEvent): void => {
+      if (event.key !== 'Escape' || !dragStart.current) return;
+      event.preventDefault();
+      event.stopPropagation();
+      const surface = overlayRef.current;
+      const pointerId = dragPointer.current;
+      if (surface && pointerId !== null && surface.hasPointerCapture(pointerId)) {
+        surface.releasePointerCapture(pointerId);
+      }
+      dragStart.current = null;
+      dragPointer.current = null;
+      setDraftRect(undefined);
+      setDraftPoints([]);
+    };
+    window.addEventListener('keydown', onKeyDown, true);
+    return () => window.removeEventListener('keydown', onKeyDown, true);
+  }, [retouching]);
 
   const rectsInPreview = session && draftRect ? [draftRect] : [];
 
@@ -1029,8 +1082,9 @@ function CanvasForPhoto({ photo }: { photo: Photo }) {
           </div>
         )}
         {error && <div className={`${styles.notice} ${styles.error}`}>{error}</div>}
-        <Toolbar />
       </div>
+      {/* Outside the stage: the stage is only as wide as the photo, a portrait one would clip it. */}
+      <Toolbar />
     </div>
   );
 }

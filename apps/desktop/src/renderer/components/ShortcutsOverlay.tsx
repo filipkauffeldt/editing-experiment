@@ -44,6 +44,14 @@ const GROUPS: { title: string; rows: [string, string][] }[] = [
     ],
   },
   {
+    title: 'Retouch',
+    rows: [
+      ['R', 'Enter retouch mode / save and leave it'],
+      ['Esc', 'Drop the shape being drawn; otherwise save and leave'],
+      ['Ctrl/⌘ + Z', 'Undo the last shape'],
+    ],
+  },
+  {
     title: 'Develop',
     rows: [
       ['Y', 'Before / after'],

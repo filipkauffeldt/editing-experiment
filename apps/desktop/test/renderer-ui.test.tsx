@@ -217,6 +217,57 @@ describe('retouch version', () => {
     await waitFor(() => expect(screen.getByTestId('retouch-version-indicator')).toBeTruthy());
     expect(screen.queryByTestId('retouch-toolbar')).toBeNull();
   });
+
+  it('leaves retouch with Done, keeping the drawn shape as a saved version', async () => {
+    const { store, fake } = await renderApp();
+    fireEvent.keyDown(window, { key: 'r' });
+    await screen.findByTestId('retouch-toolbar');
+    expect(screen.queryByTestId('discard-retouch')).toBeNull();
+    act(() => store.addRetouchShape({ type: 'rect', x: 0.1, y: 0.1, w: 0.2, h: 0.2 }));
+    expect(screen.getByTestId('discard-retouch').textContent).toBe('Discard changes');
+
+    fireEvent.click(screen.getByTestId('done-retouch'));
+
+    await waitFor(() => expect(store.getState().retouch).toBeUndefined());
+    expect(fake.calls.some((call) => call.channel === 'retouch:set')).toBe(true);
+  });
+
+  it('discards unsaved shapes only through the labelled button', async () => {
+    const { store, fake } = await renderApp();
+    fireEvent.keyDown(window, { key: 'r' });
+    await screen.findByTestId('retouch-toolbar');
+    act(() => store.addRetouchShape({ type: 'rect', x: 0.1, y: 0.1, w: 0.2, h: 0.2 }));
+
+    fireEvent.click(screen.getByTestId('discard-retouch'));
+
+    expect(store.getState().retouch).toBeUndefined();
+    expect(fake.calls.some((call) => call.channel === 'retouch:set')).toBe(false);
+  });
+
+  it('leaves with Escape even when a slider has focus', async () => {
+    const { store } = await renderApp();
+    fireEvent.keyDown(window, { key: 'r' });
+    const slider = await screen.findByLabelText('Mosaic block size');
+    slider.focus();
+
+    fireEvent.keyDown(slider, { key: 'Escape' });
+
+    await waitFor(() => expect(store.getState().retouch).toBeUndefined());
+  });
+
+  it('leaves with the Develop tab and with the footer toggle', async () => {
+    const { store } = await renderApp();
+    fireEvent.keyDown(window, { key: 'r' });
+    await screen.findByTestId('retouch-toolbar');
+
+    fireEvent.click(screen.getByRole('tab', { name: 'Develop' }));
+    await waitFor(() => expect(store.getState().retouch).toBeUndefined());
+
+    fireEvent.click(screen.getByTestId('toggle-retouch'));
+    expect(store.getState().retouch).toBeDefined();
+    fireEvent.click(screen.getByTestId('toggle-retouch'));
+    await waitFor(() => expect(store.getState().retouch).toBeUndefined());
+  });
 });
 
 describe('crop mode', () => {

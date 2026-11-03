@@ -89,7 +89,16 @@ export function useKeyboardShortcuts(store: AppStore): void {
           store.cancelCrop();
           return;
         }
-        if (state.retouch && !typing && !state.dialog && !state.copySettings) {
+        // A slider or button that has focus is not text entry: Escape must still leave retouch.
+        if (
+          state.retouch &&
+          !textEntry &&
+          !state.dialog &&
+          !state.copySettings &&
+          !state.shortcutsOpen &&
+          !state.exportOpen &&
+          !state.batchCaptionOpen
+        ) {
           event.preventDefault();
           void store.requestExitRetouch();
           return;

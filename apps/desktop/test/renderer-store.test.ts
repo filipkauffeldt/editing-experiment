@@ -985,6 +985,62 @@ describe('retouch sessions', () => {
     store.exitRetouch();
     expect(store.getState().retouch).toBeUndefined();
   });
+
+  it('leaves a session that only shows the saved version without writing it again', async () => {
+    const { store, fake } = await setup();
+    store.select(asPhotoId('mock-03'));
+    store.toggleRetouch();
+    expect(store.getState().retouch?.shapes.length).toBeGreaterThan(0);
+    expect(store.getState().retouch?.dirty).toBe(false);
+
+    await store.requestExitRetouch();
+
+    expect(store.getState().retouch).toBeUndefined();
+    expect(fake.calls.some((call) => call.channel === 'retouch:set')).toBe(false);
+  });
+
+  it('saves an edited saved version when it is left', async () => {
+    const { store, fake } = await setup();
+    store.select(asPhotoId('mock-03'));
+    store.toggleRetouch();
+    store.setRetouchBlockSize(0.02);
+
+    await store.requestExitRetouch();
+
+    expect(store.getState().retouch).toBeUndefined();
+    const set = fake.calls.find((call) => call.channel === 'retouch:set');
+    expect(set?.args[0]).toMatchObject({ ops: [{ blockSizeRel: 0.02 }] });
+  });
+
+  it('leaves while face detection is still running, with nothing to save', async () => {
+    const { store, fake } = await setup();
+    store.toggleRetouch();
+    store.setRetouchBusy(true);
+
+    await store.requestExitRetouch();
+
+    expect(store.getState().retouch).toBeUndefined();
+    expect(fake.calls.some((call) => call.channel === 'retouch:set')).toBe(false);
+  });
+
+  it('stays open when the save fails, and Discard still leaves', async () => {
+    const { store } = await setup({
+      handlers: {
+        'retouch:set': async () => {
+          throw new Error('disk full');
+        },
+      },
+    });
+    store.toggleRetouch();
+    store.addRetouchShape(rect);
+
+    await store.requestExitRetouch();
+    expect(store.getState().retouch).toBeDefined();
+    expect(store.getState().retouch?.busy).toBe(false);
+
+    store.exitRetouch();
+    expect(store.getState().retouch).toBeUndefined();
+  });
 });
 
 describe('crop gestures', () => {

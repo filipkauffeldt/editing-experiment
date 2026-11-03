@@ -139,6 +139,12 @@
   gap: 14px;
 }
 
+/* Wrapped sliders go below; the actions stay on the first row, at its right end. */
+.toolbar .actions {
+  margin-left: auto;
+  flex-wrap: wrap;
+}
+
 /* Tools and modes are text; the active one has a 1 px underline. */
 .tool {
   padding: 2px 0;
@@ -176,6 +182,24 @@
 .commit:disabled {
   color: var(--dim);
   border-color: var(--line);
+}
+
+/* The way out of a mode: outlined in the text colour so it reads as the exit. */
+.done {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 22px;
+  padding: 0 9px;
+  border: 1px solid var(--text);
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  font-weight: 600;
+}
+
+.done:hover:not(:disabled) {
+  background: var(--raised);
 }
 
 /* The one filled control in a toolbar. */

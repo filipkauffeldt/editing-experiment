@@ -44,7 +44,7 @@ export function PhotoView({ className, photo }: PhotoViewProps) {
               type="button"
               className={`${styles.retouch} ${retouching ? styles.retouchActive : ''}`}
               onClick={() => store.toggleRetouch()}
-              title="Retouch mode (R)"
+              title={retouching ? 'Leave retouch mode (R or Esc)' : 'Retouch mode (R)'}
               data-testid="toggle-retouch"
               disabled={cropping}
             >
@@ -53,7 +53,7 @@ export function PhotoView({ className, photo }: PhotoViewProps) {
               ) : (
                 <PenIcon size={11} />
               )}
-              {retouching ? 'Exit' : 'Retouch'}
+              {retouching ? 'Exit retouch' : 'Retouch'}
             </button>
             <span className={styles.zoom}>{retouching ? 'Retouch' : 'Fit'}</span>
           </>

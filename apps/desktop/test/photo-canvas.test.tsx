@@ -214,6 +214,54 @@ describe('PhotoCanvas preview', () => {
     );
   });
 
+  it('Escape drops the shape being drawn and does not leave retouch', async () => {
+    const photo = activePhoto(store.getState());
+    if (!photo) throw new Error('no selection');
+    pendingLinear();
+    render(
+      <AppStoreProvider store={store}>
+        <PhotoCanvas photo={photo} />
+      </AppStoreProvider>,
+    );
+    act(() => store.toggleRetouch());
+    const overlay = await screen.findByTestId('retouch-overlay');
+    vi.spyOn(overlay, 'getBoundingClientRect').mockReturnValue({
+      x: 0,
+      y: 0,
+      width: 400,
+      height: 300,
+      top: 0,
+      right: 400,
+      bottom: 300,
+      left: 0,
+      toJSON: () => ({}),
+    });
+    Object.assign(overlay, {
+      setPointerCapture: vi.fn(),
+      releasePointerCapture: vi.fn(),
+      hasPointerCapture: () => true,
+    });
+    fireEvent.pointerDown(overlay, { clientX: 40, clientY: 40, pointerId: 1, button: 0 });
+    fireEvent.pointerMove(overlay, { clientX: 200, clientY: 200, pointerId: 1 });
+
+    // The app's own Escape handler listens on window; it must not see this one.
+    const globalHandler = vi.fn();
+    window.addEventListener('keydown', globalHandler);
+    fireEvent.keyDown(window, { key: 'Escape' });
+    fireEvent.pointerUp(overlay, { clientX: 200, clientY: 200, pointerId: 1, button: 0 });
+    window.removeEventListener('keydown', globalHandler);
+
+    expect(globalHandler).not.toHaveBeenCalled();
+    expect(store.getState().retouch).toBeDefined();
+    expect(store.getState().retouch?.shapes).toHaveLength(0);
+
+    // With nothing mid-draw the key reaches the app's handler.
+    window.addEventListener('keydown', globalHandler);
+    fireEvent.keyDown(window, { key: 'Escape' });
+    window.removeEventListener('keydown', globalHandler);
+    expect(globalHandler).toHaveBeenCalledTimes(1);
+  });
+
   it('busts the browser cache with the preview revision', async () => {
     const photo = activePhoto(store.getState());
     if (!photo) throw new Error('no selection');
