@@ -14,6 +14,7 @@ import { JobsClient } from './jobs-client';
 import { handleAppProtocol, registerAppScheme } from './protocol';
 import { hostFor } from '../shared/routing';
 import { electronSecretPort, serveSecrets } from '../shared/secret-port';
+import { installApplicationMenu } from './menu';
 import { createMainWindow } from './window';
 
 const mock = process.env.EE_MOCK === '1';
@@ -101,6 +102,7 @@ void app.whenReady().then(() => {
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createMainWindow();
   });
+  installApplicationMenu();
   const window = createMainWindow();
   // Problems found before the renderer existed are shown once it has loaded.
   window.webContents.once('did-finish-load', () => {

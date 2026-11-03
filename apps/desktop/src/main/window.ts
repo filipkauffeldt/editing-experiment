@@ -20,6 +20,10 @@ export function createMainWindow(): BrowserWindow {
     },
   });
 
+  // Pinch and Ctrl+wheel zoom the photo (renderer), never the page: a zoomed page would also move
+  // every pointer position the photo view reads.
+  void window.webContents.setVisualZoomLevelLimits(1, 1);
+
   const devServerUrl = process.env.ELECTRON_RENDERER_URL;
   if (devServerUrl) void window.loadURL(devServerUrl);
   else void window.loadFile(join(import.meta.dirname, '../renderer/index.html'));
