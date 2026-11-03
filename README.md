@@ -99,10 +99,14 @@ Linux/Ubuntu 24.04 is the primary development platform.
 ### System dependencies
 
 - Node 24 and pnpm. Install Node 24, then run `corepack enable` once; the pnpm
-  version (12.15.0) is pinned by `packageManager` in `package.json`.
+  version (12.15.0) is pinned by `packageManager` in `package.json`. Fedora's
+  `nodejs` package does not include `corepack` and may be older than Node 24,
+  so install Node 24 with fnm (or another Node 24 install) and enable Corepack
+  from there.
 - Rust stable via rustup (edition 2024); install it with
-  `curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh`. A C/C++
-  compiler (`g++` or `clang++`) is also needed. LibRaw is vendored in
+  `curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh`. If rustup
+  reports that no default toolchain is configured, run `rustup default stable`.
+  A C/C++ compiler (`g++` or `clang++`) is also needed. LibRaw is vendored in
   `crates/core/vendor/libraw` and compiled by `build.rs`; no system LibRaw,
   cmake or pkg-config is needed.
 - Electron runtime libraries. On Debian/Ubuntu:
@@ -126,11 +130,17 @@ pnpm fetch-retouch       # YuNet model and face photos into fixtures/ (gitignore
 EE_NO_SANDBOX=1 pnpm dev
 ```
 
-On Ubuntu 24.04, AppArmor restricts unprivileged user namespaces and the SUID
-`chrome-sandbox` helper shipped in `node_modules` is not configured, so Electron
-aborts at startup. `EE_NO_SANDBOX=1` passes `--no-sandbox` to the dev launch.
-The flag is only passed by the dev launcher; app code never disables the
-sandbox. Do not chown or chmod the sandbox binary.
+Electron's npm package is installed without its binary, so `pnpm dev`,
+`pnpm screenshot` and the Electron tests download it on first run; no separate
+step is needed. If Electron fails to start with "Electron uninstall", run
+`node scripts/ensure-electron.mjs` once.
+
+On Ubuntu 24.04 and later, AppArmor restricts unprivileged user namespaces and
+the SUID `chrome-sandbox` helper shipped in `node_modules` is not configured, so
+Electron aborts at startup. `EE_NO_SANDBOX=1` passes `--no-sandbox` to the dev
+launch. Only Ubuntu has this restriction; Fedora and other distributions do not
+need the flag. The flag is only passed by the dev launcher; app code never
+disables the sandbox. Do not chown or chmod the sandbox binary.
 
 `pnpm dev` opens an Electron window and needs a graphical desktop session; it
 will not start on a headless machine. Use `xvfb-run` for the tests and
