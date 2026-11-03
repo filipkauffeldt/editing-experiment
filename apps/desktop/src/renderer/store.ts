@@ -125,7 +125,7 @@ export interface PhotoFlags {
 }
 
 /** Which gesture the retouch overlay currently records. */
-export type RetouchTool = 'rect' | 'lasso' | 'wand' | 'faces';
+export type RetouchTool = 'rect' | 'lasso' | 'faces';
 
 /** How the Detect faces tool takes its search area. */
 export type FaceSearchArea = 'rect' | 'lasso';
@@ -148,8 +148,6 @@ export interface RetouchSession {
   faceArea: FaceSearchArea;
   /** Mosaic block edge relative to the longer image edge. */
   blockSizeRel: number;
-  /** Magic-wand colour tolerance (CIE76, 0..100). */
-  tolerance: number;
   /**
    * Extra padding around detected faces as a fraction of the box width.
    * Height padding is 1.4x this and biased upward to cover hair.
@@ -1343,7 +1341,6 @@ export class AppStore {
         tool: 'rect',
         faceArea: 'rect',
         blockSizeRel: op?.blockSizeRel ?? DEFAULT_BLOCK_SIZE_REL,
-        tolerance: 24,
         facePadding: DEFAULT_FACE_PADDING,
         shapes: op ? op.shapes.map((shape) => structuredCloneShape(shape)) : [],
         faces: [],
@@ -1366,11 +1363,6 @@ export class AppStore {
   readonly setRetouchBlockSize = (blockSizeRel: number): void => {
     if (!this.state.retouch || !(blockSizeRel > 0)) return;
     this.set({ retouch: { ...this.state.retouch, blockSizeRel, dirty: true } });
-  };
-
-  readonly setRetouchTolerance = (tolerance: number): void => {
-    if (!this.state.retouch) return;
-    this.set({ retouch: { ...this.state.retouch, tolerance: Math.max(0, tolerance) } });
   };
 
   readonly setRetouchFacePadding = (facePadding: number): void => {

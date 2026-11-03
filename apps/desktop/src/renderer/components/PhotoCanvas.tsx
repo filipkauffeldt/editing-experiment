@@ -24,7 +24,7 @@ import {
   type DevelopRenderer,
   withoutLensGeometry,
 } from '@ee/develop-gl';
-import { applyMosaic, magicWand, polygonBounds, shapeBounds, simplifyPolygon } from '@ee/retouch';
+import { applyMosaic, polygonBounds, shapeBounds, simplifyPolygon } from '@ee/retouch';
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { ee } from '../ee';
 import {
@@ -105,7 +105,6 @@ const shapeBox = (shape: Shape): { x: number; y: number; w: number; h: number } 
 const TOOL_LABELS: Record<RetouchTool, string> = {
   rect: 'Rectangle',
   lasso: 'Lasso',
-  wand: 'Magic wand',
   faces: 'Detect faces',
 };
 
@@ -208,20 +207,6 @@ function Toolbar({ photo }: { photo: Photo }) {
           ))}
         </div>
       )}
-      {session.tool === 'wand' && (
-        <label className={styles.control}>
-          <span>Tolerance {Math.round(session.tolerance)}</span>
-          <input
-            type="range"
-            min={0}
-            max={60}
-            step={1}
-            value={session.tolerance}
-            aria-label="Magic wand tolerance"
-            onChange={(event) => store.setRetouchTolerance(Number(event.target.value))}
-          />
-        </label>
-      )}
       <BlockSizeControl photo={photo} />
       {(session.tool === 'faces' || session.faces.length > 0) && (
         <label className={styles.control}>
@@ -247,11 +232,9 @@ function Toolbar({ photo }: { photo: Photo }) {
           ? session.faceArea === 'lasso'
             ? 'Draw a loose outline around the faces.'
             : 'Drag a rough area around the faces.'
-          : session.tool === 'wand'
-            ? 'Click a colour region.'
-            : session.tool === 'lasso'
-              ? 'Draw a freehand outline.'
-              : 'Drag a rectangle around what to pixelate.'}{' '}
+          : session.tool === 'lasso'
+            ? 'Draw a freehand outline.'
+            : 'Drag a rectangle around what to pixelate.'}{' '}
         Esc saves and leaves.
       </div>
     </div>
@@ -856,13 +839,6 @@ function CanvasForPhoto({ photo }: { photo: Photo }) {
     const start = dragStart.current;
     const end = normalizedPoint(event, surface);
     dragStart.current = null;
-    if (session.tool === 'wand') {
-      setDraftRect(undefined);
-      if (!dragMoved.current || Math.hypot(end.x - start.x, end.y - start.y) < 0.02) {
-        await runMagicWand(end);
-      }
-      return;
-    }
     if (drawsLasso) {
       const points = [...draftPoints, end];
       setDraftPoints([]);
@@ -884,30 +860,6 @@ function CanvasForPhoto({ photo }: { photo: Photo }) {
     if (rect.w < 0.01 || rect.h < 0.01) return;
     if (session.tool === 'faces') await detectFaces(rect);
     else store.addRetouchShape(rect);
-  };
-
-  const runMagicWand = async (point: { x: number; y: number }): Promise<void> => {
-    const mosaic = mosaicRef.current;
-    if (!session || !renderer || !mosaic) return;
-    try {
-      const rgba = renderer.renderToRGBA(renderParams, {
-        width: mosaic.width,
-        height: mosaic.height,
-      });
-      const result = magicWand(
-        rgba,
-        mosaic.width,
-        mosaic.height,
-        {
-          x: point.x * mosaic.width,
-          y: point.y * mosaic.height,
-        },
-        { tolerance: session.tolerance },
-      );
-      for (const shape of result.shapes) store.addRetouchShape(shape);
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : String(cause));
-    }
   };
 
   const detectFaces = async (

@@ -20,7 +20,7 @@ The proof of concept covers one end-to-end workflow:
 3. **Develop.** A `crs:` parameter set that follows Lightroom's names, imported `.xmp` presets,
    camera profiles, lens corrections, crop/straighten, copy/paste/sync of settings and a
    live WebGL2 preview.
-4. **Retouch.** Rectangle, lasso and magic-wand selections, YuNet face detection inside
+4. **Retouch.** Rectangle and lasso selections, YuNet face detection inside
    a region, and mosaic/pixelate of the selected faces.
 5. **Export / Export & send.** Render a JPEG at the active export preset's output size
    with metadata and no leaked original thumbnail into the preset's local folder, then

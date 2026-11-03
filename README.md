@@ -57,7 +57,7 @@ Export / Export & send.
 - Lightroom-style crop and straighten `C`, applied in the preview and the
   export.
 - Copy, paste and sync develop settings by group.
-- Retouch mosaic (rectangle, lasso, magic wand) with YuNet face detection
+- Retouch mosaic (rectangle, lasso) with YuNet face detection
   inside a dragged region.
 - Export presets (folder and file name templates, resize, output sharpening,
   metadata and send targets) and Export / Export & send / Next & send. Export
