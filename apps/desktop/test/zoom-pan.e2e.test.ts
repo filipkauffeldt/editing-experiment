@@ -265,7 +265,6 @@ describe.skipIf(!haveDisplay)('zoom and pan (real Electron app)', { timeout: 240
       sources: [{ id: asSourceId('card'), name: 'card', kind: 'folder', path: card }],
       destination: { path: join(root, 'ingest') },
       renameTemplate: '{sourceName}_{seq:3}',
-      codeReplacementPaths: [],
     };
     await invoke('ingest:start', { config });
     for (let i = 0; i < 300; i++) {
