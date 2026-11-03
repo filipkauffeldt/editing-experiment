@@ -685,7 +685,8 @@ export class AppStore {
   private toastId = 0;
   private started = false;
   private finishing = false;
-  private readonly editedPreviews: EditedPreviewScheduler | undefined;
+  private editedPreviews: EditedPreviewScheduler | undefined;
+  private readonly renderEditedPreview: EditedPreviewRenderer | undefined;
   private editedPreviewErrorShown = false;
   private renderChain: Promise<void> = Promise.resolve();
   private readonly exportWaiters = new Map<
@@ -702,34 +703,40 @@ export class AppStore {
     confirm?: (message: string) => boolean,
   ) {
     this.confirm = confirm ?? defaultConfirm;
-    if (renderEditedPreview) {
-      this.editedPreviews = new EditedPreviewScheduler({
-        // The scheduler works on the photo's own settings (what is saved, and whether it
-        // is edited at all); the picture is drawn with the raw defaults under them.
-        render: async (photo, params, ops) =>
-          renderEditedPreview(photo, withDefaults(params, await this.loadDefaults(photo.id)), ops, {
-            profile: await this.profileForRender(photo.id, params),
-          }),
-        getPhoto: (photoId) => this.photoById.get(photoId),
-        settle: (photoId) =>
-          this.flushDevelopParams(photoId, activeDevelopVersion(this.photoById.get(photoId))?.id),
-        getParams: (photoId) => this.currentParams(photoId),
-        getRetouchOps: (photo) => topRetouchVersion(photo)?.ops ?? [],
-        store: (args) => this.bridge.invoke('photos:setEditedPreview', args),
-        // Without waiting for the photos:updated event, so a photo is not drawn twice.
-        onStored: (photo) => this.upsertPhoto(photo),
-        // The backend still calls it stale (say, a sidecar with only a process version).
-        onNoEdits: (photo) =>
-          this.upsertPhoto({ ...(this.photoById.get(photo.id) ?? photo), previewStale: false }),
-        onError: (photo, cause) => {
-          console.warn(`Could not render the thumbnail of ${photo.fileName}`, cause);
-          // One toast per session: a missing GPU would otherwise fail photo after photo.
-          if (this.editedPreviewErrorShown) return;
-          this.editedPreviewErrorShown = true;
-          this.toast('error', `Could not update thumbnails: ${messageOf(cause)}`);
-        },
-      });
-    }
+    this.renderEditedPreview = renderEditedPreview;
+    this.editedPreviews = this.createEditedPreviews();
+  }
+
+  /** A fresh scheduler, or none when the store was built without a thumbnail renderer. */
+  private createEditedPreviews(): EditedPreviewScheduler | undefined {
+    const renderEditedPreview = this.renderEditedPreview;
+    if (!renderEditedPreview) return undefined;
+    return new EditedPreviewScheduler({
+      // The scheduler works on the photo's own settings (what is saved, and whether it
+      // is edited at all); the picture is drawn with the raw defaults under them.
+      render: async (photo, params, ops) =>
+        renderEditedPreview(photo, withDefaults(params, await this.loadDefaults(photo.id)), ops, {
+          profile: await this.profileForRender(photo.id, params),
+        }),
+      getPhoto: (photoId) => this.photoById.get(photoId),
+      settle: (photoId) =>
+        this.flushDevelopParams(photoId, activeDevelopVersion(this.photoById.get(photoId))?.id),
+      getParams: (photoId) => this.currentParams(photoId),
+      getRetouchOps: (photo) => topRetouchVersion(photo)?.ops ?? [],
+      store: (args) => this.bridge.invoke('photos:setEditedPreview', args),
+      // Without waiting for the photos:updated event, so a photo is not drawn twice.
+      onStored: (photo) => this.upsertPhoto(photo),
+      // The backend still calls it stale (say, a sidecar with only a process version).
+      onNoEdits: (photo) =>
+        this.upsertPhoto({ ...(this.photoById.get(photo.id) ?? photo), previewStale: false }),
+      onError: (photo, cause) => {
+        console.warn(`Could not render the thumbnail of ${photo.fileName}`, cause);
+        // One toast per session: a missing GPU would otherwise fail photo after photo.
+        if (this.editedPreviewErrorShown) return;
+        this.editedPreviewErrorShown = true;
+        this.toast('error', `Could not update thumbnails: ${messageOf(cause)}`);
+      },
+    });
   }
 
   readonly getState = (): AppState => this.state;
