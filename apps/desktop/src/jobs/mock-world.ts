@@ -374,6 +374,22 @@ export function createMockHandlers(world: MockWorld, emit: Emit): Partial<IpcHan
       }
       return { updated, failed };
     },
+    'metadata:writeFields': async ({ photoIds, fields }) => {
+      const updated: PhotoId[] = [];
+      const failed: { photoId: PhotoId; message: string }[] = [];
+      for (const photoId of new Set(photoIds)) {
+        const photo = photoById(world, photoId);
+        if (!photo) {
+          failed.push({ photoId, message: 'no such photo' });
+          continue;
+        }
+        const next = { ...(world.metadata.get(photoId) ?? {}), ...fields };
+        world.metadata.set(photoId, next);
+        applyMetadata(photo, next);
+        updated.push(photoId);
+      }
+      return { updated, failed };
+    },
     'metadata:expandCaption': async ({ photoId, text }) => {
       const photo = findPhoto(photoId);
       return expandMockCaption(photo, world.metadata.get(photoId) ?? {}, text);

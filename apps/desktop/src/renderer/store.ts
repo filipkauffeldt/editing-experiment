@@ -62,6 +62,7 @@ import {
 } from '@ee/contracts';
 import { EditedPreviewScheduler, type EditedPreviewRenderer } from './edited-preview-scheduler';
 import { renderFullResolution } from './export-render';
+import { copyMetadataFields, type MetadataFieldName } from './metadata-fields';
 import {
   initialLibrary,
   matchesLibrary,
@@ -315,6 +316,13 @@ export interface CopiedSettings {
   params: EditParams;
 }
 
+/** The IPTC fields last copied from a photo; Paste writes exactly these. */
+export interface CopiedMetadata {
+  sourcePhotoId: PhotoId;
+  sourceName: string;
+  fields: Partial<IptcFields>;
+}
+
 /** The last photo that was edited, for Previous (`Ctrl/Cmd+Alt+V`). */
 export interface PreviousEdit {
   photoId: PhotoId;
@@ -360,6 +368,10 @@ export interface AppState {
   copySettings?: { mode: 'copy' | 'sync' };
   /** What Paste (`Ctrl/Cmd+Shift+V`) applies. */
   copiedSettings?: CopiedSettings;
+  /** The open Copy Metadata dialog; absent when closed. */
+  metadataCopyOpen?: boolean;
+  /** What the Metadata panel's Paste writes. */
+  copiedMetadata?: CopiedMetadata;
   /** What Previous (`Ctrl/Cmd+Alt+V`) applies. */
   previousEdit?: PreviousEdit;
   exportPresets: ExportPreset[];
@@ -2161,6 +2173,96 @@ export class AppStore {
       }
     } catch (cause) {
       this.toast('error', `Could not apply template: ${messageOf(cause)}`);
+    }
+  };
+
+  /** Open the Copy Metadata field picker for the active photo. */
+  readonly openMetadataCopy = (): void => {
+    if (!activePhoto(this.state)) {
+      this.toast('error', 'Select a photo first');
+      return;
+    }
+    this.set({
+      metadataCopyOpen: true,
+      copySettings: undefined,
+      dialog: undefined,
+      exportOpen: false,
+      batchCaptionOpen: false,
+      shortcutsOpen: false,
+    });
+  };
+
+  readonly closeMetadataCopy = (): void => this.set({ metadataCopyOpen: false });
+
+  /** Remember the checked fields, including empty ones, for Paste. */
+  readonly confirmMetadataCopy = (fields: readonly MetadataFieldName[]): void => {
+    const photo = activePhoto(this.state);
+    if (!photo || fields.length === 0) {
+      this.set({ metadataCopyOpen: false });
+      return;
+    }
+    this.set({
+      copiedMetadata: {
+        sourcePhotoId: photo.id,
+        sourceName: photo.fileName,
+        fields: copyMetadataFields(this.state.metadata[photo.id] ?? {}, fields),
+      },
+      metadataCopyOpen: false,
+    });
+    this.toast(
+      'success',
+      `Copied ${fields.length} field${fields.length === 1 ? '' : 's'} from ${photo.fileName}`,
+    );
+  };
+
+  /**
+   * Write exactly the copied fields onto the selection (or the open photo).
+   * Empty copied values clear the target field; nothing else is touched and
+   * code replacements are never re-expanded.
+   */
+  readonly pasteMetadata = async (): Promise<void> => {
+    const copied = this.state.copiedMetadata;
+    if (!copied) {
+      this.toast('error', 'Copy metadata first');
+      return;
+    }
+    const targets = this.metadataTargets();
+    if (targets.length === 0) return;
+    try {
+      // Flush debounced typing first so it cannot land after (and undo) the paste.
+      await Promise.all(targets.map((photoId) => this.saveMetadata(photoId)));
+      const result = await this.bridge.invoke('metadata:writeFields', {
+        photoIds: targets,
+        fields: copied.fields,
+      });
+      const fieldsByPhoto = await Promise.all(
+        result.updated.map(
+          async (photoId) =>
+            [photoId, await this.bridge.invoke('metadata:read', { photoId })] as const,
+        ),
+      );
+      const metadata = { ...this.state.metadata };
+      const metadataUnresolved = { ...this.state.metadataUnresolved };
+      for (const [photoId, fields] of fieldsByPhoto) {
+        metadata[photoId] = fields;
+        metadataUnresolved[photoId] = [];
+      }
+      this.set({ metadata, metadataUnresolved });
+      const count = Object.keys(copied.fields).length;
+      const written = result.updated.length;
+      if (result.failed.length > 0) {
+        this.toast(
+          'error',
+          `Pasted to ${written} photo${written === 1 ? '' : 's'}; ${result.failed.length} failed`,
+        );
+      } else {
+        this.toast(
+          'success',
+          `Pasted ${count} field${count === 1 ? '' : 's'} to ${written} photo${written === 1 ? '' : 's'}`,
+        );
+      }
+    } catch (cause) {
+      this.toast('error', `Could not paste metadata: ${messageOf(cause)}`);
     }
   };
 

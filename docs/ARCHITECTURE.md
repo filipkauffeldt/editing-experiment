@@ -497,6 +497,30 @@ stay with each photo.
 - There is no general undo stack in the app, so a batch paste is one write but not an
   undoable step yet.
 
+## Metadata templates and Copy/Paste metadata
+
+Settings → Metadata is the global home of Photo Mechanic metadata templates and code
+replacement files, like Photo Mechanic itself. `AppSettings.metadataTemplates` is an
+ordered list of `.XMP` paths (the app never copies the files) and
+`AppSettings.codeReplacementPaths` is used everywhere captions expand: ingest, the
+caption/metadata fields and batch caption. Settings → Ingest keeps its own template
+choice (a dropdown over the global list, plus None and Browse…) and the Replace / Fill
+empty mode. Loading settings written before this split migrates
+`ingest.metadataTemplatePath` into the global list (keeping it selected for ingest) and
+moves `ingest.codeReplacementPaths` to the global list.
+
+The Metadata panel (Develop) has a template picker over the global list; **Browse…** adds
+the picked `.XMP` to the list. Applying a template targets the whole multi-selection in
+the film strip (or the open photo) and keeps the existing Fill empty / Replace all mode.
+
+**Copy…** opens a field picker grouped like the panel sections (Caption, Credits,
+Location, Event / job). It snapshots the checked fields from the active photo, including
+explicit empty values, in `AppState.copiedMetadata`. **Paste** writes exactly that partial
+field set to the selected photos through `metadata:writeFields` (the normal `writeIptc`
+path, so raws go to their XMP sidecar and are never written). Fields that were not copied
+stay untouched and code replacements are not re-expanded on paste. `metadata:writeFields`
+also refreshes each photo's `metadataDiffersFromTemplate` status.
+
 ## Export model
 
 Three actions share one model: Export… (preset into a local folder), Export & send

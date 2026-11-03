@@ -98,6 +98,12 @@ async function runMock(outDir: string): Promise<void> {
     await shoot('01b-copy-settings.png');
     await window.keyboard.press('Escape');
 
+    // Metadata copy dialog: grouped field picker.
+    await window.getByTestId('metadata-copy').click();
+    await window.getByTestId('copy-metadata-dialog').waitFor();
+    await shoot('01d-copy-metadata.png');
+    await window.keyboard.press('Escape');
+
     // A retouched photo shows the stacked-frame badge and an active upload.
     await window.locator('[title^="_DSC8332.NEF"]').click();
     await window.waitForFunction(

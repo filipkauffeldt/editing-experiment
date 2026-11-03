@@ -1,0 +1,75 @@
+.sections {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px 20px;
+}
+
+.section {
+  min-width: 0;
+}
+
+.sectionTitle {
+  margin: 0 0 4px;
+  padding-bottom: 4px;
+  border-bottom: 1px solid var(--line);
+  color: var(--dim);
+  font-size: var(--fs-label);
+  font-weight: 500;
+  letter-spacing: var(--tracking-label);
+  text-transform: uppercase;
+}
+
+.fields {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.field {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 5px 6px;
+  border: 1px solid transparent;
+}
+
+.field:hover {
+  background: var(--raised);
+}
+
+.field input {
+  margin-top: 2px;
+  accent-color: var(--text);
+}
+
+.text {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+
+.label {
+  color: var(--text);
+  font-size: var(--fs-small);
+}
+
+.value {
+  overflow: hidden;
+  color: var(--dim);
+  font-size: var(--fs-label);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.note {
+  margin: 14px 0 0;
+  padding-top: 10px;
+  border-top: 1px solid var(--line);
+  color: var(--muted);
+  font-size: var(--fs-small);
+}
+
+.spacer {
+  flex: 1;
+}

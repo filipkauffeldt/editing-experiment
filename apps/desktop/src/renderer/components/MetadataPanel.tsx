@@ -87,6 +87,8 @@ export function MetadataPanel({ className }: { className?: string }) {
   const template = state.template;
   const unresolved = photo ? (state.metadataUnresolved[photo.id] ?? []) : [];
   const [templateMode, setTemplateMode] = useState<'replace' | 'fillEmpty'>('fillEmpty');
+  const copied = state.copiedMetadata;
+  const copiedCount = copied ? Object.keys(copied.fields).length : 0;
   const templateOptions = [
     ...new Set(
       [
@@ -169,6 +171,34 @@ export function MetadataPanel({ className }: { className?: string }) {
                 title="Metadata no longer matches the ingest template"
               >
                 differs
+              </span>
+            )}
+          </div>
+
+          <div className={styles.templateBar}>
+            <Button
+              size="small"
+              data-testid="metadata-copy"
+              onClick={() => store.openMetadataCopy()}
+            >
+              Copy…
+            </Button>
+            <Button
+              size="small"
+              data-testid="metadata-paste"
+              disabled={!copied}
+              title={
+                copied
+                  ? `Paste ${copiedCount} field${copiedCount === 1 ? '' : 's'} from ${copied.sourceName}`
+                  : 'Copy metadata first'
+              }
+              onClick={() => void store.pasteMetadata()}
+            >
+              Paste
+            </Button>
+            {copied && (
+              <span className={styles.clipboardNote}>
+                {copiedCount} field{copiedCount === 1 ? '' : 's'} copied
               </span>
             )}
           </div>

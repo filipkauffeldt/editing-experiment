@@ -236,6 +236,16 @@ export function createFakeBridge(
       }
       return { updated: photoIds, failed: [] };
     },
+    'metadata:writeFields': async (...args) => {
+      const { photoIds, fields } = args[0] as {
+        photoIds: PhotoId[];
+        fields: Partial<IptcFields>;
+      };
+      for (const photoId of photoIds) {
+        metadata.set(photoId, { ...(metadata.get(photoId) ?? {}), ...fields });
+      }
+      return { updated: photoIds, failed: [] };
+    },
     'metadata:expandCaption': async (...args) => {
       const { photoId, text } = args[0] as { photoId: PhotoId; text: string };
       return expandMockCaption(findPhoto(photoId), metadata.get(photoId) ?? {}, text);

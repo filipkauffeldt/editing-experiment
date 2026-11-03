@@ -79,6 +79,7 @@ export function createBackendHandlers(deps: HandlerDeps): IpcHandlers {
     'metadata:write': (args) => metadata.write(args),
     'metadata:readTemplate': ({ path }) => metadata.readTemplate(path),
     'metadata:applyTemplate': (args) => metadata.applyTemplate(args),
+    'metadata:writeFields': (args) => metadata.writeFields(args),
     'metadata:expandCaption': (args) => metadata.expandCaption(args),
 
     'develop:getParams': (ref) => edits.getParams(ref),
