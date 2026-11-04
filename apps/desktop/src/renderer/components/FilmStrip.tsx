@@ -6,8 +6,10 @@ import {
   RatingStars,
   StatusLabels,
   TagSquare,
+  exportBadgesByPhoto,
   uploadPercent,
   uploadsByPhoto,
+  type PhotoExportBadge,
 } from './PhotoOverlays';
 import styles from './FilmStrip.module.css';
 
@@ -16,7 +18,15 @@ const ITEM_GAP = 6;
 const STEP = ITEM_WIDTH + ITEM_GAP;
 const OVERSCAN = 4;
 
-function PhotoBadges({ photo, percent }: { photo: Photo; percent?: number }) {
+function PhotoBadges({
+  photo,
+  percent,
+  exportState,
+}: {
+  photo: Photo;
+  percent?: number;
+  exportState?: PhotoExportBadge;
+}) {
   return (
     <>
       <span className={styles.topLeft}>{photo.tagged && <TagSquare tagged />}</span>
@@ -25,7 +35,7 @@ function PhotoBadges({ photo, percent }: { photo: Photo; percent?: number }) {
         <ColorDot colorClass={photo.colorClass} />
       </span>
       <span className={styles.bottomLeft}>
-        <StatusLabels photo={photo} percent={percent} />
+        <StatusLabels photo={photo} percent={percent} exportState={exportState} />
       </span>
     </>
   );
@@ -42,6 +52,7 @@ export function FilmStrip({ photos }: { photos: Photo[] }) {
   const [scrollLeft, setScrollLeft] = useState(0);
   const [viewportWidth, setViewportWidth] = useState(1200);
   const uploads = useMemo(() => uploadsByPhoto(state.uploads), [state.uploads]);
+  const exports = useMemo(() => exportBadgesByPhoto(state.exportJobs), [state.exportJobs]);
 
   useEffect(() => {
     const viewport = viewportRef.current;
@@ -129,7 +140,11 @@ export function FilmStrip({ photos }: { photos: Photo[] }) {
                 alt={photo.fileName}
                 draggable={false}
               />
-              <PhotoBadges photo={photo} percent={uploadPercent(uploads.get(photo.id))} />
+              <PhotoBadges
+                photo={photo}
+                percent={uploadPercent(uploads.get(photo.id))}
+                exportState={exports.get(photo.id)}
+              />
             </button>
           );
         })}

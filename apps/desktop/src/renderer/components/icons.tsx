@@ -83,6 +83,16 @@ export function UploadIcon(props: IconProps) {
   );
 }
 
+/** Save/export: an arrow down into a tray, the mirror of the upload icon. */
+export function ExportIcon(props: IconProps) {
+  return (
+    <Icon {...props}>
+      <path d="M8 2.8v7.7M5.2 7.8 8 10.6l2.8-2.8" />
+      <path d="M2.8 10v2.4c0 .5.3.8.8.8h8.8c.5 0 .8-.3.8-.8V10" />
+    </Icon>
+  );
+}
+
 export function GearIcon(props: IconProps) {
   return (
     <Icon {...props}>

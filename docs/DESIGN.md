@@ -75,8 +75,10 @@ Built in `components/ui/`:
   profile folders…*. A profile that is not on this machine is a plain muted line with an `--error`
   status dot, not a coloured box.
 - **Tag**: an 11 px square, filled white when tagged.
-- **Status overlays** on thumbnails: tiny mono text labels on `#000a` (`sent`,
-  `sending 64%`, `queued`, `failed`, `edited`, `retouched`, `meta ≠`).
+- **Status overlays** on thumbnails: a spinning ring while a photo is queued or
+  exporting, a static export icon once it is exported, and tiny mono text labels
+  on `#000a` (`sent`, `sending 64%`, `queued`, `failed`, `edited`, `retouched`,
+  `meta ≠`). Uploading adds a small bobbing upload icon beside its percentage.
 
 ## Layout
 

@@ -6,6 +6,7 @@ import {
   RatingStars,
   StatusLabels,
   TagSquare,
+  exportBadgesByPhoto,
   uploadPercent,
   uploadsByPhoto,
 } from './PhotoOverlays';
@@ -30,6 +31,7 @@ export function LibraryGrid({ photos }: { photos: Photo[] }) {
   const [scrollTop, setScrollTop] = useState(0);
   const selected = useMemo(() => new Set<PhotoId>(selection), [selection]);
   const uploads = useMemo(() => uploadsByPhoto(state.uploads), [state.uploads]);
+  const exports = useMemo(() => exportBadgesByPhoto(state.exportJobs), [state.exportJobs]);
 
   useEffect(() => {
     const viewport = ref.current;
@@ -125,7 +127,11 @@ export function LibraryGrid({ photos }: { photos: Photo[] }) {
                   <TagSquare tagged={photo.tagged} onToggle={() => store.toggleTag(photo.id)} />
                 </span>
                 <span className={styles.labels}>
-                  <StatusLabels photo={photo} percent={uploadPercent(uploads.get(photo.id))} />
+                  <StatusLabels
+                    photo={photo}
+                    percent={uploadPercent(uploads.get(photo.id))}
+                    exportState={exports.get(photo.id)}
+                  />
                 </span>
               </div>
               <div className={styles.info}>
