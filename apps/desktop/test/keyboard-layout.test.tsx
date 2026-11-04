@@ -1,6 +1,6 @@
-import { fireEvent, render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { App } from '../src/renderer/App';
 import {
   cancelWbPicker,
@@ -41,6 +41,12 @@ afterEach(async () => {
 const captionField = (): HTMLTextAreaElement => {
   const field = document.querySelector<HTMLTextAreaElement>('[data-caption-input]');
   if (!field) throw new Error('no caption field');
+  return field;
+};
+
+const keywordsField = (root: ParentNode = document): HTMLInputElement => {
+  const field = root.querySelector<HTMLInputElement>('[data-keywords-input]');
+  if (!field) throw new Error('no keywords field');
   return field;
 };
 
@@ -157,6 +163,94 @@ describe('develop shortcuts on non-US layouts', () => {
     fireEvent.keyDown(caption, { key: 'u', code: 'KeyU' });
     expect(developViewStore.get().beforeAfter).toBe('off');
     expect(photoFlags(store.getState(), photo.id).tagged).toBe(false);
+  });
+});
+
+describe('keywords shortcut', () => {
+  it('focuses the keywords draft at the end, from inside the caption field', async () => {
+    await renderApp();
+    const keywords = keywordsField();
+    const scrollIntoView = vi.fn();
+    Object.assign(keywords, { scrollIntoView });
+    const caption = captionField();
+    caption.focus();
+
+    key({ key: 'k', ctrlKey: true });
+
+    expect(document.activeElement).toBe(keywords);
+    expect(keywords.selectionStart).toBe(keywords.value.length);
+    expect(keywords.selectionEnd).toBe(keywords.value.length);
+    expect(keywords.value.slice(keywords.selectionStart ?? 0, keywords.selectionEnd ?? 0)).toBe('');
+    expect(scrollIntoView).toHaveBeenCalledWith({ block: 'nearest' });
+  });
+
+  it('keeps an unfinished draft and puts the caret after it', async () => {
+    await renderApp();
+    const user = userEvent.setup();
+    const keywords = keywordsField();
+    await user.click(keywords);
+    await user.type(keywords, 'portrait');
+    keywords.setSelectionRange(0, 3);
+
+    // Caps Lock reports an upper-case `K`; it must work like the lower-case key.
+    fireEvent.keyDown(keywords, { key: 'K', ctrlKey: true });
+
+    expect(document.activeElement).toBe(keywords);
+    expect(keywords.value).toBe('portrait');
+    expect(keywords.selectionStart).toBe(8);
+    expect(keywords.selectionEnd).toBe(8);
+    expect(keywords.value.slice(keywords.selectionStart ?? 0, keywords.selectionEnd ?? 0)).toBe('');
+  });
+
+  it('opens the Library batch dialog at Keywords and scrolls to it', async () => {
+    const { store } = await renderApp();
+    store.openLibrary('loupe');
+    await waitFor(() => expect(store.getState().module).toBe('library'));
+
+    const original = HTMLElement.prototype.scrollIntoView;
+    const scrollIntoView = vi.fn();
+    HTMLElement.prototype.scrollIntoView = scrollIntoView;
+    try {
+      key({ key: 'k', ctrlKey: true });
+
+      const dialog = screen.getByTestId('batch-caption-dialog');
+      const keywords = keywordsField(dialog);
+      expect(document.activeElement).toBe(keywords);
+      expect(keywords.value).toBe('');
+      expect(keywords.selectionStart).toBe(0);
+      expect(keywords.selectionEnd).toBe(0);
+      expect(scrollIntoView).toHaveBeenCalledWith({ block: 'nearest' });
+    } finally {
+      if (original) HTMLElement.prototype.scrollIntoView = original;
+      else delete (HTMLElement.prototype as { scrollIntoView?: unknown }).scrollIntoView;
+    }
+  });
+
+  it('does not fire for AltGr or behind a dialog', async () => {
+    const { store } = await renderApp();
+    const keywords = keywordsField();
+
+    const altGraph = new KeyboardEvent('keydown', {
+      key: 'k',
+      code: 'KeyK',
+      ctrlKey: true,
+      altKey: true,
+      bubbles: true,
+    });
+    Object.defineProperty(altGraph, 'getModifierState', { value: () => true });
+    fireEvent(window, altGraph);
+    expect(document.activeElement).not.toBe(keywords);
+
+    // A real Ctrl+K still works.
+    key({ key: 'k', ctrlKey: true });
+    expect(document.activeElement).toBe(keywords);
+    keywords.blur();
+
+    // But not while a dialog owns the keyboard.
+    key({ key: 'F1' });
+    expect(store.getState().shortcutsOpen).toBe(true);
+    key({ key: 'k', ctrlKey: true });
+    expect(document.activeElement).not.toBe(keywords);
   });
 });
 

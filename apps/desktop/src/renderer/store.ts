@@ -401,6 +401,8 @@ export interface AppState {
   shortcutsOpen: boolean;
   /** The Library's batch caption dialog. */
   batchCaptionOpen: boolean;
+  /** Ctrl/Cmd+K opened it: put the caret in the Keywords row when it mounts. */
+  batchCaptionFocusKeywords?: boolean;
   loading: boolean;
   error?: string;
 }
@@ -3674,8 +3676,13 @@ export class AppStore {
   // ----------------------------------------------------------------------- ui
 
   readonly openDialog = (tab: DialogTab): void => this.set({ dialog: tab, shortcutsOpen: false });
-  readonly toggleBatchCaption = (open?: boolean): void => {
-    this.set({ batchCaptionOpen: open ?? !this.state.batchCaptionOpen, dialog: undefined });
+  readonly toggleBatchCaption = (open?: boolean, focus?: 'keywords'): void => {
+    const next = open ?? !this.state.batchCaptionOpen;
+    this.set({
+      batchCaptionOpen: next,
+      batchCaptionFocusKeywords: next && focus === 'keywords',
+      dialog: undefined,
+    });
   };
   readonly closeDialog = (): void => this.set({ dialog: undefined });
   readonly toggleShortcuts = (open?: boolean): void => {

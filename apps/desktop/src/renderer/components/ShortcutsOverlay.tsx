@@ -84,6 +84,7 @@ const GROUPS: { title: string; rows: [string, string][] }[] = [
     title: 'Caption',
     rows: [
       ['Ctrl/⌘ + I', 'Focus the caption field'],
+      ['Ctrl/⌘ + K', 'Focus the keywords field'],
       ['Ctrl + Space', 'Expand codes and {variables}'],
     ],
   },
