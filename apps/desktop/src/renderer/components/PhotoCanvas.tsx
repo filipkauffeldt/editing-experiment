@@ -54,6 +54,7 @@ import {
 import { screenToUnit, zoomPercent, type ViewLayout } from '../view-transform';
 import { useZoomControls, zoomKey } from '../zoom-view';
 import {
+  BLOCK_SIZE_REL_RANGE,
   blockSizePxRange,
   blockSizePxToRel,
   blockSizeRelToPx,
@@ -75,6 +76,7 @@ import { useAppState, useAppStore } from '../store-context';
 import { CropOverlay } from './CropOverlay';
 import { CropToolbar } from './CropToolbar';
 import { CheckIcon, EyeIcon, PenIcon } from './icons';
+import { NumberField } from './ui/NumberField';
 import styles from './PhotoCanvas.module.css';
 
 interface LoadedImage {
@@ -291,11 +293,23 @@ function Toolbar({ photo }: { photo: Photo }) {
         ))}
       </div>
       <BlockSizeControl photo={photo} />
-      <label
+      <div
         className={`${styles.control} ${showsFacePadding ? '' : styles.hiddenControl}`}
         aria-hidden={showsFacePadding ? undefined : true}
       >
-        <span>Face padding {Math.round(session.facePadding * 100)}%</span>
+        <span>Face padding</span>
+        <NumberField
+          label="Face padding in percent"
+          value={Math.round(session.facePadding * 100)}
+          min={0}
+          max={50}
+          step={1}
+          formatValue={String}
+          suffix="%"
+          disabled={!showsFacePadding}
+          tabIndex={showsFacePadding ? undefined : -1}
+          onCommit={(percent) => store.setRetouchFacePadding(percent / 100)}
+        />
         <input
           type="range"
           min={0}
@@ -306,7 +320,7 @@ function Toolbar({ photo }: { photo: Photo }) {
           disabled={!showsFacePadding}
           onChange={(event) => store.setRetouchFacePadding(Number(event.target.value))}
         />
-      </label>
+      </div>
       <div
         className={styles.faceHint}
         data-testid="area-counts"
@@ -347,28 +361,49 @@ function BlockSizeControl({ photo }: { photo: Photo }) {
   const longEdge = photoLongEdge(photo);
   if (longEdge === undefined) {
     return (
-      <label className={styles.control}>
-        <span>Block size {(session.blockSizeRel * 100).toFixed(1)}%</span>
+      <div className={styles.control}>
+        <span>Block size</span>
+        <NumberField
+          label="Block size in percent"
+          value={Number((session.blockSizeRel * 100).toFixed(1))}
+          min={BLOCK_SIZE_REL_RANGE.min * 100}
+          max={BLOCK_SIZE_REL_RANGE.max * 100}
+          step={BLOCK_SIZE_REL_RANGE.step * 100}
+          formatValue={(percent) => percent.toFixed(1)}
+          suffix="%"
+          inputMode="decimal"
+          onCommit={(percent) => store.setRetouchBlockSize(percent / 100)}
+        />
         <input
           type="range"
-          min={0.002}
-          max={0.04}
-          step={0.001}
+          min={BLOCK_SIZE_REL_RANGE.min}
+          max={BLOCK_SIZE_REL_RANGE.max}
+          step={BLOCK_SIZE_REL_RANGE.step}
           value={session.blockSizeRel}
           aria-label="Mosaic block size"
           onChange={(event) => store.setRetouchBlockSize(Number(event.target.value))}
         />
-      </label>
+      </div>
     );
   }
   const px = blockSizeRelToPx(session.blockSizeRel, longEdge);
   const range = blockSizePxRange(px);
   return (
-    <label
+    <div
       className={styles.control}
       title="Block edge in pixels of the full-resolution photo. Small selections get larger blocks, so a face stays unrecognisable."
     >
-      <span data-testid="block-size-label">Block size {px} px</span>
+      <span data-testid="block-size-label">Block size</span>
+      <NumberField
+        label="Block size in px"
+        value={px}
+        min={range.min}
+        max={range.max}
+        step={range.step}
+        formatValue={String}
+        suffix="px"
+        onCommit={(next) => store.setRetouchBlockSize(blockSizePxToRel(next, longEdge))}
+      />
       <input
         type="range"
         min={range.min}
@@ -380,7 +415,7 @@ function BlockSizeControl({ photo }: { photo: Photo }) {
           store.setRetouchBlockSize(blockSizePxToRel(Number(event.target.value), longEdge))
         }
       />
-    </label>
+    </div>
   );
 }
 
@@ -1242,6 +1277,19 @@ function CanvasForPhoto({ photo }: { photo: Photo }) {
           data-mode={cropSession ? 'crop' : session ? 'retouch' : 'develop'}
           data-zoom={zoomed ? Math.round(zoomPercent(zoom.layout.scale, dpr)) : 'fit'}
           data-view={`${stageLayout.scale},${stageLayout.offset.x},${stageLayout.offset.y}`}
+          onPointerDown={(event) => {
+            // The overlays call preventDefault on pointer down, which keeps a typed value field
+            // focused in Chromium. Clicking the photo is a normal blur; toolbar controls keep it.
+            const target = event.target;
+            if (
+              target instanceof Element &&
+              target.closest('input, textarea, select, button, label')
+            ) {
+              return;
+            }
+            const active = document.activeElement;
+            if (active instanceof HTMLElement && active !== document.body) active.blur();
+          }}
         >
           {/*
            * The cached image is of the edited photo (cropped, or a placeholder while a

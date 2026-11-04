@@ -521,6 +521,20 @@ describe('PhotoCanvas preview', () => {
       expect(store.getState().retouch?.areas.map((a) => a.mode)).toEqual(['subtract', 'add']);
       expect(store.getState().retouch?.mode).toBe('add');
     });
+
+    it('draws straight after committing a typed block size with Enter', async () => {
+      const overlay = await openOverlay();
+      act(() => store.setRetouchTool('rect'));
+      const field = screen.getByLabelText('Block size in px') as HTMLInputElement;
+      field.focus();
+      fireEvent.change(field, { target: { value: '48' } });
+      fireEvent.keyDown(field, { key: 'Enter' });
+      expect(document.activeElement).toBe(document.body);
+
+      drag(overlay, [40, 30], [360, 270]);
+
+      expect(store.getState().retouch?.areas).toHaveLength(1);
+    });
   });
 
   it('Escape drops the shape being drawn and does not leave retouch', async () => {

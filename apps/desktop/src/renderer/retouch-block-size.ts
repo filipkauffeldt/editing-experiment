@@ -8,6 +8,13 @@ import { MIN_BLOCK_SIZE } from '@ee/retouch';
  */
 export const BLOCK_SIZE_PX = { min: MIN_BLOCK_SIZE, max: 256, step: 1 } as const;
 
+/**
+ * The percent slider, used only while the photo's long edge is unknown. The
+ * stored value is still relative, so a saved version looks the same at any
+ * render size.
+ */
+export const BLOCK_SIZE_REL_RANGE = { min: 0.002, max: 0.04, step: 0.001 } as const;
+
 /** The longer edge of the full-resolution photo, or undefined while its size is unknown. */
 export function photoLongEdge(photo: { width?: number; height?: number }): number | undefined {
   const { width, height } = photo;

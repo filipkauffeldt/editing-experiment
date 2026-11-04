@@ -17,6 +17,8 @@ import {
   type AppStore,
 } from '../src/renderer/store';
 import { temperatureToTrack, trackToTemperature } from '../src/renderer/temperature-scale';
+import { zoomStore } from '../src/renderer/zoom-view';
+import { mockPhotos } from '../src/shared/mock';
 import { createFakeBridge, type FakeBridge } from './fake-bridge';
 
 const stores: AppStore[] = [];
@@ -50,6 +52,45 @@ const captionField = (): HTMLTextAreaElement => {
   if (!field) throw new Error('no caption field');
   return field;
 };
+
+const enterRetouch = async (): Promise<void> => {
+  fireEvent.keyDown(window, { key: 'r' });
+  await screen.findByTestId('retouch-toolbar');
+};
+
+const typeInto = (field: HTMLInputElement, value: string): void => {
+  field.focus();
+  fireEvent.change(field, { target: { value } });
+};
+
+const commitWithEnter = (field: HTMLInputElement): void => {
+  fireEvent.keyDown(field, { key: 'Enter' });
+};
+
+/** Blur through act, so the state a blur commits is visible to the next assertion. */
+const blurField = (field: HTMLInputElement): void => {
+  act(() => field.blur());
+};
+
+/** A text field swallows rating and pan keys; after it blurs the shortcut works again. */
+async function expectNoGlobalKeys(store: AppStore, field: HTMLInputElement): Promise<void> {
+  const photo = activePhoto(store.getState());
+  if (!photo) throw new Error('no selection');
+  const before = photoFlags(store.getState(), photo.id).rating;
+  // A different key, so a rating that did fire is visible in the assertion.
+  const ratingKey = before === 4 ? '3' : '4';
+  const user = userEvent.setup();
+  field.focus();
+  await user.type(field, ratingKey);
+  expect(zoomStore.get().panHeld).toBe(false);
+  fireEvent.keyDown(field, { key: ' ', code: 'Space' });
+  expect(photoFlags(store.getState(), photo.id).rating).toBe(before);
+  expect(zoomStore.get().panHeld).toBe(false);
+
+  blurField(field);
+  fireEvent.keyDown(window, { key: ratingKey, code: `Digit${ratingKey}` });
+  expect(photoFlags(store.getState(), photo.id).rating).toBe(Number(ratingKey));
+}
 
 describe('keyboard-first shell', () => {
   it('moves the selection, tags, rates and assigns a colour class', async () => {
@@ -256,14 +297,204 @@ describe('retouch version', () => {
     if (!photo?.width || !photo.height) throw new Error('the mock photo has no size');
     fireEvent.keyDown(window, { key: 'r' });
     const slider = await screen.findByLabelText('Mosaic block size');
-    expect(screen.getByTestId('block-size-label').textContent).toMatch(/^Block size \d+ px$/);
+    const field = screen.getByLabelText('Block size in px') as HTMLInputElement;
+    expect(field.value).toMatch(/^\d+$/);
+    expect(screen.getByTestId('block-size-label').textContent).toBe('Block size');
 
     fireEvent.change(slider, { target: { value: '48' } });
 
-    expect(screen.getByTestId('block-size-label').textContent).toBe('Block size 48 px');
+    expect(field.value).toBe('48');
     expect(store.getState().retouch?.blockSizeRel).toBeCloseTo(
       48 / Math.max(photo.width, photo.height),
     );
+  });
+
+  it('commits a typed block size on Enter, not while the digits arrive', async () => {
+    const { store } = await renderApp();
+    const photo = activePhoto(store.getState());
+    if (!photo?.width || !photo.height) throw new Error('the mock photo has no size');
+    const longEdge = Math.max(photo.width, photo.height);
+    await enterRetouch();
+    const field = screen.getByLabelText('Block size in px') as HTMLInputElement;
+    const slider = screen.getByLabelText('Mosaic block size') as HTMLInputElement;
+    const before = store.getState().retouch?.blockSizeRel;
+
+    typeInto(field, '7');
+    expect(store.getState().retouch?.blockSizeRel).toBe(before);
+    expect(slider.value).not.toBe('7');
+    fireEvent.change(field, { target: { value: '73' } });
+    expect(store.getState().retouch?.blockSizeRel).toBe(before);
+    expect(slider.value).not.toBe('73');
+
+    commitWithEnter(field);
+
+    expect(store.getState().retouch?.blockSizeRel).toBeCloseTo(73 / longEdge);
+    expect(slider.value).toBe('73');
+    expect(field.value).toBe('73');
+    // Enter commits and leaves the field, but not Retouch.
+    expect(document.activeElement).toBe(document.body);
+    expect(store.getState().retouch).toBeDefined();
+  });
+
+  it('commits a typed block size on blur too', async () => {
+    const { store } = await renderApp();
+    const photo = activePhoto(store.getState());
+    if (!photo?.width || !photo.height) throw new Error('the mock photo has no size');
+    await enterRetouch();
+    const field = screen.getByLabelText('Block size in px') as HTMLInputElement;
+
+    typeInto(field, '48');
+    blurField(field);
+
+    expect(store.getState().retouch?.blockSizeRel).toBeCloseTo(
+      48 / Math.max(photo.width, photo.height),
+    );
+    expect(field.value).toBe('48');
+  });
+
+  it('clamps typed block sizes to the slider range and its safety floor', async () => {
+    const { store } = await renderApp();
+    const photo = activePhoto(store.getState());
+    if (!photo?.width || !photo.height) throw new Error('the mock photo has no size');
+    const longEdge = Math.max(photo.width, photo.height);
+    await enterRetouch();
+    const field = screen.getByLabelText('Block size in px') as HTMLInputElement;
+    const slider = screen.getByLabelText('Mosaic block size') as HTMLInputElement;
+
+    typeInto(field, '9999');
+    commitWithEnter(field);
+    expect(store.getState().retouch?.blockSizeRel).toBeCloseTo(256 / longEdge);
+    expect(slider.value).toBe('256');
+    expect(field.value).toBe('256');
+
+    typeInto(field, '1');
+    commitWithEnter(field);
+    expect(store.getState().retouch?.blockSizeRel).toBeCloseTo(8 / longEdge);
+    expect(slider.value).toBe('8');
+    expect(field.value).toBe('8');
+  });
+
+  it('restores the block size when the draft is cleared or invalid', async () => {
+    const { store } = await renderApp();
+    await enterRetouch();
+    const field = screen.getByLabelText('Block size in px') as HTMLInputElement;
+    const before = field.value;
+    const beforeRel = store.getState().retouch?.blockSizeRel;
+
+    typeInto(field, '');
+    blurField(field);
+    expect(field.value).toBe(before);
+    expect(store.getState().retouch?.blockSizeRel).toBe(beforeRel);
+
+    typeInto(field, '12px');
+    commitWithEnter(field);
+    expect(field.value).toBe(before);
+    expect(store.getState().retouch?.blockSizeRel).toBe(beforeRel);
+  });
+
+  it('types the block size in percent while the photo size is unknown', async () => {
+    const photos = mockPhotos();
+    const unknownSize = { ...photos[0]!, width: undefined, height: undefined };
+    const { store } = await renderApp({ photos: [unknownSize, ...photos.slice(1)] });
+    await enterRetouch();
+    const field = screen.getByLabelText('Block size in percent') as HTMLInputElement;
+    const slider = screen.getByLabelText('Mosaic block size') as HTMLInputElement;
+
+    typeInto(field, '2.5');
+    commitWithEnter(field);
+    expect(store.getState().retouch?.blockSizeRel).toBeCloseTo(0.025);
+    expect(slider.value).toBe('0.025');
+    expect(field.value).toBe('2.5');
+
+    typeInto(field, '10');
+    commitWithEnter(field);
+    expect(store.getState().retouch?.blockSizeRel).toBeCloseTo(0.04);
+    expect(field.value).toBe('4.0');
+  });
+
+  it('applies typed face padding in percent, clamps it and restores a bad draft', async () => {
+    const { store } = await renderApp();
+    await enterRetouch();
+    const field = screen.getByLabelText('Face padding in percent') as HTMLInputElement;
+    const slider = screen.getByLabelText('Face padding') as HTMLInputElement;
+
+    typeInto(field, '35');
+    commitWithEnter(field);
+    expect(store.getState().retouch?.facePadding).toBeCloseTo(0.35);
+    expect(slider.value).toBe('0.35');
+    expect(field.value).toBe('35');
+
+    typeInto(field, '80');
+    commitWithEnter(field);
+    expect(store.getState().retouch?.facePadding).toBeCloseTo(0.5);
+    expect(field.value).toBe('50');
+
+    typeInto(field, '-5');
+    commitWithEnter(field);
+    expect(store.getState().retouch?.facePadding).toBe(0);
+    expect(field.value).toBe('0');
+
+    typeInto(field, 'wide');
+    commitWithEnter(field);
+    expect(field.value).toBe('0');
+    expect(store.getState().retouch?.facePadding).toBe(0);
+  });
+
+  it('disables the hidden Face padding field but keeps its room', async () => {
+    const { store } = await renderApp();
+    await enterRetouch();
+    const field = screen.getByLabelText('Face padding in percent') as HTMLInputElement;
+    const slider = screen.getByLabelText('Face padding') as HTMLInputElement;
+    expect(field.disabled).toBe(false);
+    expect(field.tabIndex).toBe(0);
+
+    act(() => store.setRetouchTool('rect'));
+
+    expect(field.disabled).toBe(true);
+    expect(field.tabIndex).toBe(-1);
+    expect(slider.disabled).toBe(true);
+    expect(field.closest('[aria-hidden="true"]')).toBeTruthy();
+    // Still mounted, so the control keeps the toolbar's height.
+    expect(screen.getByText('Face padding')).toBeTruthy();
+  });
+
+  it('does not rate or pan from the typed retouch fields', async () => {
+    const { store } = await renderApp();
+    await enterRetouch();
+    await expectNoGlobalKeys(store, screen.getByLabelText('Block size in px') as HTMLInputElement);
+    await expectNoGlobalKeys(
+      store,
+      screen.getByLabelText('Face padding in percent') as HTMLInputElement,
+    );
+  });
+
+  it('leaves a typed field with Escape without leaving retouch', async () => {
+    const { store } = await renderApp();
+    const photo = activePhoto(store.getState());
+    if (!photo?.width || !photo.height) throw new Error('the mock photo has no size');
+    await enterRetouch();
+    const field = screen.getByLabelText('Block size in px') as HTMLInputElement;
+
+    typeInto(field, '48');
+    fireEvent.keyDown(field, { key: 'Escape' });
+
+    expect(document.activeElement).toBe(document.body);
+    expect(store.getState().retouch).toBeDefined();
+    expect(store.getState().retouch?.blockSizeRel).toBeCloseTo(
+      48 / Math.max(photo.width, photo.height),
+    );
+  });
+
+  it('blurs a typed field when the photo is clicked', async () => {
+    await renderApp();
+    await enterRetouch();
+    const field = screen.getByLabelText('Block size in px') as HTMLInputElement;
+    field.focus();
+    expect(document.activeElement).toBe(field);
+
+    fireEvent.pointerDown(screen.getByTestId('mosaic-canvas'), { pointerId: 1, button: 0 });
+
+    expect(document.activeElement).toBe(document.body);
   });
 
   it('leaves with Escape even when a slider has focus', async () => {
