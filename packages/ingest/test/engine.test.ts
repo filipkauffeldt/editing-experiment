@@ -10,10 +10,12 @@ import {
 import { afterEach, describe, expect, it } from 'vitest';
 import { nodeFileCopier } from '../src/copy';
 import { startIngest } from '../src/engine';
+import { IngestAbortError } from '../src/errors';
 import { hashFile } from '../src/hash';
 import { naturalCompare, splitName } from '../src/naming';
 import { MemorySeenStore } from '../src/seen-store';
 import type { FileCopier, IngestedFileInfo } from '../src/types';
+import { waitFor } from './helpers/engine';
 import { cleanupTempDirs, makeTempDir } from './helpers/temp';
 
 afterEach(cleanupTempDirs);
@@ -33,6 +35,43 @@ function config(sources: Array<FolderSource | CardSource>, destination: string):
     destination: { path: destination },
     fileNaming: 'rename',
     renameTemplate: '{filenamebase}_{seq:2}',
+  };
+}
+
+function waitForAbort(signal: AbortSignal | undefined): Promise<never> {
+  if (!signal) return Promise.reject(new Error('test copier needs an abort signal'));
+  return new Promise((_resolve, reject) => {
+    const abort = (): void => reject(new IngestAbortError());
+    if (signal.aborted) {
+      abort();
+      return;
+    }
+    signal.addEventListener('abort', abort, { once: true });
+  });
+}
+
+/**
+ * Copies normally until `callToGate`; that copy writes a partial temp file and
+ * waits for the run's abort, so a stop lands in the middle of a file.
+ */
+function gatedCopierAt(callToGate: number): { copier: FileCopier; started: Promise<void> } {
+  let started!: () => void;
+  const startedPromise = new Promise<void>((resolve) => {
+    started = resolve;
+  });
+  let calls = 0;
+  return {
+    started: startedPromise,
+    copier: {
+      async copy(from, to, { signal }) {
+        calls += 1;
+        if (calls !== callToGate) return nodeFileCopier.copy(from, to, { signal });
+        await writeFile(to, 'partial-bytes');
+        started();
+        await waitForAbort(signal);
+        return { sourceHash: '', destinationHash: '' };
+      },
+    },
   };
 }
 
@@ -134,6 +173,159 @@ describe('startIngest', () => {
       expect.objectContaining({ type: 'ingest.state', state: 'stopped' }),
     );
     expect(await readdir(destination)).toHaveLength(1);
+  });
+
+  it.each([1, 2, 3, 4])(
+    'stopping while copy %i runs leaves no partial, temp or half photo set',
+    async (gate) => {
+      const root = await makeTempDir();
+      const source = join(root, 'source');
+      const destination = join(root, 'destination');
+      const backup = join(root, 'backup');
+      await Promise.all([
+        mkdir(destination, { recursive: true }),
+        mkdir(backup, { recursive: true }),
+      ]);
+      const raw = join(source, '_DSC1.NEF');
+      const sidecar = join(source, '_DSC1.xmp');
+      await createFile(raw, 'raw-bytes');
+      await createFile(sidecar, '<xmp>sidecar</xmp>');
+      const shot = new Date('2026-05-01T10:00:00Z');
+      await utimes(raw, shot, shot);
+      await utimes(sidecar, shot, shot);
+      const rawBefore = await stat(raw);
+      const sidecarBefore = await stat(sidecar);
+      const { copier, started } = gatedCopierAt(gate);
+      const events: JobEvent[] = [];
+      const handle = startIngest(
+        {
+          ...config([folderSource('a', source)], destination),
+          backupDestination: { path: backup },
+        },
+        { fileCopier: copier },
+      );
+      handle.on((event) => events.push(event));
+
+      await started;
+      await handle.stop();
+      await handle.done;
+
+      expect(handle.status()[0]).toMatchObject({
+        state: 'stopped',
+        filesDone: 0,
+        filesTotal: 1,
+      });
+      expect(events.some((event) => event.type === 'job.error')).toBe(false);
+      // No final name, no `.ingest-tmp` file, and no primary left without its backup or sidecar.
+      expect(await readdir(destination)).toEqual([]);
+      expect(await readdir(backup)).toEqual([]);
+      expect(await readFile(raw, 'utf8')).toBe('raw-bytes');
+      expect(await readFile(sidecar, 'utf8')).toBe('<xmp>sidecar</xmp>');
+      expect((await stat(raw)).mtimeMs).toBe(rawBefore.mtimeMs);
+      expect((await stat(sidecar)).mtimeMs).toBe(sidecarBefore.mtimeMs);
+    },
+  );
+
+  it('re-copies the interrupted photo and skips the ones completed before the stop', async () => {
+    const root = await makeTempDir();
+    const source = join(root, 'source');
+    const destination = join(root, 'destination');
+    const first = join(source, '_DSC1.NEF');
+    const second = join(source, '_DSC2.NEF');
+    await createFile(first, 'raw-one');
+    await createFile(second, 'raw-two');
+    const firstInfo = await stat(first);
+    const secondInfo = await stat(second);
+    const seenStore = new MemorySeenStore();
+    const ingested: string[] = [];
+    const { copier, started } = gatedCopierAt(2);
+    const hooks = {
+      seenStore,
+      onFileIngested: async (info: IngestedFileInfo) => {
+        ingested.push(info.sourceFileName);
+      },
+    };
+
+    const stopped = startIngest(config([folderSource('a', source)], destination), {
+      ...hooks,
+      fileCopier: copier,
+    });
+    await started;
+    await stopped.stop();
+    await stopped.done;
+
+    expect(stopped.status()[0]).toMatchObject({ state: 'stopped', filesDone: 1 });
+    expect(ingested).toEqual(['_DSC1.NEF']);
+    expect(await readdir(destination)).toEqual(['_DSC1_01.NEF']);
+    expect(
+      seenStore.has({
+        sourceId: 'a',
+        path: first,
+        size: firstInfo.size,
+        mtimeMs: firstInfo.mtimeMs,
+      }),
+    ).toBe(true);
+    expect(
+      seenStore.has({
+        sourceId: 'a',
+        path: second,
+        size: secondInfo.size,
+        mtimeMs: secondInfo.mtimeMs,
+      }),
+    ).toBe(false);
+
+    ingested.length = 0;
+    const again = startIngest(config([folderSource('a', source)], destination), hooks);
+    await again.done;
+
+    expect(again.status()[0]?.state).toBe('finished');
+    expect(ingested).toEqual(['_DSC2.NEF']);
+    expect((await readdir(destination)).sort()).toEqual(['_DSC1_01.NEF', '_DSC2_02.NEF']);
+  });
+
+  it('stops only the chosen source while the other finishes', async () => {
+    const root = await makeTempDir();
+    const sourceA = join(root, 'source-a');
+    const sourceB = join(root, 'source-b');
+    const destination = join(root, 'destination');
+    for (const file of ['_DSC1.NEF', '_DSC2.NEF']) {
+      await createFile(join(sourceA, file), `a-${file}`);
+      await createFile(join(sourceB, file), `b-${file}`);
+    }
+
+    let releaseA!: () => void;
+    const aStarted = new Promise<void>((resolve) => {
+      releaseA = resolve;
+    });
+    let gatedA = false;
+    const copier: FileCopier = {
+      async copy(from, to, { signal }) {
+        if (from.startsWith(sourceA) && !gatedA) {
+          gatedA = true;
+          await writeFile(to, 'partial-a');
+          releaseA();
+          await waitForAbort(signal);
+        }
+        return nodeFileCopier.copy(from, to, { signal });
+      },
+    };
+    const handle = startIngest(
+      config([folderSource('a', sourceA), folderSource('b', sourceB)], destination),
+      { fileCopier: copier },
+    );
+
+    await aStarted;
+    await waitFor(
+      () => handle.status().find((info) => info.sourceId === 'b')?.state === 'finished',
+      'source b to finish',
+    );
+    await handle.stop(asSourceId('a'));
+    await handle.done;
+
+    const status = new Map(handle.status().map((info) => [info.sourceId, info]));
+    expect(status.get(asSourceId('a'))?.state).toBe('stopped');
+    expect(status.get(asSourceId('b'))?.state).toBe('finished');
+    expect((await readdir(destination)).sort()).toEqual(['_DSC1_01.NEF', '_DSC2_02.NEF']);
   });
 
   it('skips already seen files and re-ingests a file whose mtime changed', async () => {
