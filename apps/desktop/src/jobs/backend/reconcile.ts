@@ -71,6 +71,11 @@ async function recoveredInfo(
 export interface ReconcileOptions {
   directory: string;
   known: ReadonlySet<string>;
+  /**
+   * Paths the user removed from the Library while the file stayed on disk. They are not photos
+   * without an entry by accident, so they are not brought back.
+   */
+  excluded?: ReadonlySet<string>;
   /** The normal per-file ingest hook: previews, template, index. */
   index: OnFileIngested;
   signal?: AbortSignal;
@@ -83,6 +88,7 @@ export async function reconcileDestination(options: ReconcileOptions): Promise<n
   let added = 0;
   for (const path of await findUnindexed(options.directory, options.known)) {
     if (options.signal?.aborted) break;
+    if (options.excluded?.has(path)) continue;
     try {
       const sidecar = path.replace(/\.[^./\\]+$/, '.xmp');
       const hasSidecar = await stat(sidecar).then(

@@ -211,6 +211,7 @@ export async function createBackend(options: BackendOptions): Promise<Backend> {
     return reconcileDestination({
       directory: ingestSettings.destination.path,
       known: index.paths(),
+      excluded: photos.excludedPaths(),
       index: hook,
       signal: reconcileAbort.signal,
       onError: (path, error) =>

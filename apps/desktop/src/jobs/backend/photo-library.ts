@@ -39,9 +39,16 @@ export class PhotoLibrary {
     return this.index.hasPath(path);
   }
 
+  /** Paths removed from the Library by the user (`removeFromLibrary`). */
+  excludedPaths(): Set<string> {
+    return this.index.excludedPaths();
+  }
+
   /** Index a newly ingested photo and announce it. */
   add(photo: Photo, templatePath?: string, sourcePath?: string): void {
     this.index.save(photo, templatePath, sourcePath);
+    // A new file at a path the user had removed is a new photo, not the one they removed.
+    this.index.clearExcluded(photo.path);
     this.emit('photos:added', photo);
   }
 
@@ -59,6 +66,16 @@ export class PhotoLibrary {
    */
   remove(photoId: PhotoId): boolean {
     const removed = this.index.remove(photoId);
+    if (removed) this.emit('photos:removed', { photoId });
+    return removed;
+  }
+
+  /**
+   * Like {@link remove}, for a photo the user dropped from the Library with its file left in
+   * place: the path is remembered so the startup scan does not index the file again.
+   */
+  removeAndExclude(photoId: PhotoId): boolean {
+    const removed = this.index.removeAndExclude(photoId);
     if (removed) this.emit('photos:removed', { photoId });
     return removed;
   }

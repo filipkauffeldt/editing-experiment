@@ -3,6 +3,8 @@ import {
   type DeletePhotosResult,
   type Photo,
   type PhotoId,
+  type RemoveFromLibraryArgs,
+  type RemoveFromLibraryResult,
   type SourceConfig,
   IpcError,
 } from '@ee/contracts';
@@ -71,7 +73,7 @@ async function realDirectory(directory: string): Promise<string> {
 
 /**
  * Deletes photos: file and sidecar to the system trash, then the Library entry and the data the
- * app keeps for it.
+ * app keeps for it. Also removes photos from the Library alone ({@link PhotoDeleter.removeFromLibrary}).
  *
  * Safety (AGENTS.md: never modify or delete an original on a source):
  * - It takes photo ids and resolves the paths from the index itself.
@@ -96,19 +98,63 @@ export class PhotoDeleter {
   constructor(private readonly deps: PhotoDeleterDeps) {}
 
   async delete(args: DeletePhotosArgs): Promise<DeletePhotosResult> {
+    return this.each('photos:delete', args, (photoId) => this.deleteOne(photoId));
+  }
+
+  /**
+   * Drops photos from the Library without touching a file: for photos that were deleted outside
+   * the app, so it does not look at the disk at all (not even to see whether the file is there,
+   * which could hang or fail on an unplugged drive). The entry and the app's data go the same
+   * way as in {@link delete}, under the photo's lock; additionally the photo's path is
+   * remembered so the startup scan does not index a file that is still there.
+   */
+  async removeFromLibrary(args: RemoveFromLibraryArgs): Promise<RemoveFromLibraryResult> {
+    return this.each('photos:removeFromLibrary', args, (photoId) => this.removeOne(photoId));
+  }
+
+  private async each(
+    channel: string,
+    args: { photoIds: PhotoId[] },
+    one: (photoId: PhotoId) => Promise<void>,
+  ): Promise<DeletePhotosResult> {
     if (!Array.isArray(args?.photoIds) || args.photoIds.some((id) => typeof id !== 'string')) {
-      throw new IpcError('invalid_argument', 'photos:delete needs a list of photo ids');
+      throw new IpcError('invalid_argument', `${channel} needs a list of photo ids`);
     }
     const result: DeletePhotosResult = { deleted: [], failed: [] };
     for (const photoId of new Set(args.photoIds)) {
       try {
-        await this.deleteOne(photoId);
+        await one(photoId);
         result.deleted.push(photoId);
       } catch (error) {
         result.failed.push({ photoId, message: messageOf(error) });
       }
     }
     return result;
+  }
+
+  private removeOne(photoId: PhotoId): Promise<void> {
+    const { photos } = this.deps;
+    return photos.withLock(photoId, async () => {
+      let name: string;
+      try {
+        name = photos.get(photoId).fileName;
+      } catch (error) {
+        // Not in the index: already removed (a repeated request, another window).
+        if (error instanceof IpcError && error.code === 'not_found') return;
+        throw error;
+      }
+      photos.removeAndExclude(photoId);
+      await this.cleanUp(photoId, name);
+    });
+  }
+
+  /** Clear what other services keep about a photo whose entry is gone. A failure is only logged. */
+  private async cleanUp(photoId: PhotoId, name: string): Promise<void> {
+    try {
+      await this.deps.onRemoved(photoId);
+    } catch (error) {
+      this.deps.warn(`${name}: could not clear its cached data: ${messageOf(error)}`);
+    }
   }
 
   private deleteOne(photoId: PhotoId): Promise<void> {
@@ -129,11 +175,7 @@ export class PhotoDeleter {
       await this.trashIfPresent(targets.photo, photo, 'photo');
 
       photos.remove(photoId);
-      try {
-        await this.deps.onRemoved(photoId);
-      } catch (error) {
-        this.deps.warn(`${photo.fileName}: could not clear its cached data: ${messageOf(error)}`);
-      }
+      await this.cleanUp(photoId, photo.fileName);
     });
   }
 

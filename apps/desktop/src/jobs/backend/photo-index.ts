@@ -37,6 +37,10 @@ export class PhotoIndex {
   private readonly pathsStatement: StatementSync;
   private readonly hasPathStatement: StatementSync;
   private readonly removeStatement: StatementSync;
+  private readonly pathOfStatement: StatementSync;
+  private readonly excludeStatement: StatementSync;
+  private readonly includeStatement: StatementSync;
+  private readonly excludedStatement: StatementSync;
 
   constructor(filePath: string) {
     if (filePath !== ':memory:') mkdirSync(dirname(filePath), { recursive: true });
@@ -54,6 +58,8 @@ export class PhotoIndex {
       );
       CREATE INDEX IF NOT EXISTS photos_source ON photos (source_id, seq);
       CREATE INDEX IF NOT EXISTS photos_path ON photos (path);
+      -- Paths the user removed from the Library while the file may still be on disk.
+      CREATE TABLE IF NOT EXISTS removed_paths (path TEXT PRIMARY KEY);
     `);
     // An index made before `source_path` existed gets the column; its rows have none.
     const columns = this.db.prepare('PRAGMA table_info(photos)').all() as unknown as {
@@ -79,6 +85,12 @@ export class PhotoIndex {
     );
     this.templateStatement = this.db.prepare('UPDATE photos SET template_path = ? WHERE id = ?');
     this.removeStatement = this.db.prepare('DELETE FROM photos WHERE id = ?');
+    this.pathOfStatement = this.db.prepare('SELECT path FROM photos WHERE id = ?');
+    this.excludeStatement = this.db.prepare(
+      'INSERT OR IGNORE INTO removed_paths (path) VALUES (?)',
+    );
+    this.includeStatement = this.db.prepare('DELETE FROM removed_paths WHERE path = ?');
+    this.excludedStatement = this.db.prepare('SELECT path FROM removed_paths');
     this.hasPathStatement = this.db.prepare('SELECT 1 FROM photos WHERE path = ? LIMIT 1');
     this.pathsStatement = this.db.prepare(
       "SELECT json_extract(json, '$.path') AS path FROM photos",
@@ -116,6 +128,35 @@ export class PhotoIndex {
   /** Drop a photo's entry. Returns whether there was one. */
   remove(photoId: PhotoId): boolean {
     return Number(this.removeStatement.run(photoId).changes) > 0;
+  }
+
+  /**
+   * Drop a photo's entry and remember its path as removed, in one transaction, so that the
+   * startup scan does not index the file again if it is still on disk.
+   */
+  removeAndExclude(photoId: PhotoId): boolean {
+    this.db.exec('BEGIN IMMEDIATE');
+    try {
+      const row = this.pathOfStatement.get(photoId) as { path: string } | undefined;
+      if (row) this.excludeStatement.run(row.path);
+      const removed = Number(this.removeStatement.run(photoId).changes) > 0;
+      this.db.exec('COMMIT');
+      return removed;
+    } catch (error) {
+      this.db.exec('ROLLBACK');
+      throw error;
+    }
+  }
+
+  /** Paths removed from the Library; the startup scan leaves these files alone. */
+  excludedPaths(): Set<string> {
+    const rows = this.excludedStatement.all() as unknown as { path: string }[];
+    return new Set(rows.map((row) => row.path));
+  }
+
+  /** A new file is indexed at this path: it is not the removed photo, so stop hiding it. */
+  clearExcluded(path: string): void {
+    this.includeStatement.run(path);
   }
 
   hasPath(path: string): boolean {
