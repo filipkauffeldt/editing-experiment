@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { SettingsStore } from '../src/jobs/backend/settings-store';
+import { defaultPanelWidths } from '../src/shared/panel-widths';
 import { defaultSettings } from '../src/shared/settings';
 import { hostFor } from '../src/shared/routing';
 
@@ -208,6 +209,68 @@ describe('SettingsStore copy selections', () => {
       /copyMetadataFields/,
     );
     expect(() => store.set({ copySettingGroups: [1] as never })).toThrow(/copySettingGroups/);
+  });
+});
+
+describe('SettingsStore panel widths', () => {
+  it('round-trips dragged widths and clamps values outside the panel limits', async () => {
+    const file = join(await tempDir(), 'settings.json');
+    const store = new SettingsStore(file, defaults);
+    expect(store.get().panelWidths).toEqual(defaultPanelWidths());
+
+    store.set({
+      panelWidths: { 'library-sidebar': 40, 'develop-panel': 9999, 'ingest-sources': 333 },
+    });
+    expect(store.get().panelWidths).toEqual({
+      'library-sidebar': 160,
+      'develop-panel': 620,
+      'ingest-sources': 333,
+    });
+
+    const reopened = new SettingsStore(file, defaults);
+    expect(reopened.get().panelWidths).toEqual({
+      'library-sidebar': 160,
+      'develop-panel': 620,
+      'ingest-sources': 333,
+    });
+  });
+
+  it('loads old files with no widths and drops unknown or non-numeric panels', async () => {
+    const file = join(await tempDir(), 'settings.json');
+    await writeFile(
+      file,
+      JSON.stringify({
+        ...defaults,
+        panelWidths: undefined,
+        sources: [],
+        destinations: [],
+      }),
+    );
+    expect(new SettingsStore(file, defaults).get().panelWidths).toBeUndefined();
+
+    await writeFile(
+      file,
+      JSON.stringify({
+        ...defaults,
+        panelWidths: {
+          'library-sidebar': 'wide',
+          'library-inspector': 280,
+          'old-panel': 500,
+        },
+        sources: [],
+        destinations: [],
+      }),
+    );
+    const store = new SettingsStore(file, defaults);
+    expect(store.get().panelWidths).toEqual({ 'library-inspector': 280 });
+
+    const saved = JSON.parse(await readFile(file, 'utf8')) as Record<string, unknown>;
+    expect(saved.panelWidths).toEqual({ 'library-inspector': 280 });
+  });
+
+  it('rejects panel widths that are not an object', () => {
+    const store = new SettingsStore(undefined, defaults);
+    expect(() => store.set({ panelWidths: 'wide' as never })).toThrow(/panelWidths/);
   });
 });
 

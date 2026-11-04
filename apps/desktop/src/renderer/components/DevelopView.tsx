@@ -1,6 +1,7 @@
 import { useAppState, useAppStore } from '../store-context';
 import { activeExportPreset, activePhoto } from '../store';
 import { modKeyLabel } from '../platform';
+import { usePanelLayout, type ResizablePanelDefinition } from '../panel-resize';
 import { ActionBar, Hints, barStyles } from './ActionBar';
 import { DevelopPanel } from './DevelopPanel';
 import { FilmStrip } from './FilmStrip';
@@ -8,7 +9,13 @@ import { FiltersStrip } from './FiltersStrip';
 import { MetadataPanel } from './MetadataPanel';
 import { PhotoView } from './PhotoView';
 import { Button } from './ui/Button';
+import { PanelResizeHandle } from './ui/PanelResizeHandle';
 import styles from './DevelopView.module.css';
+
+const PANELS = [
+  { id: 'develop-metadata', side: 'left' },
+  { id: 'develop-panel', side: 'right' },
+] as const satisfies readonly ResizablePanelDefinition[];
 
 /** What Next & send does: preset, size, quality, folder and where it is sent. */
 function useExportSummary(): string {
@@ -34,15 +41,39 @@ function useExportSummary(): string {
 export function DevelopView() {
   const store = useAppStore();
   const state = useAppState();
+  const { containerRef, panels } = usePanelLayout(PANELS);
+  const metadata = panels['develop-metadata'];
+  const develop = panels['develop-panel'];
   const photos = store.getVisiblePhotos();
   const selected = activePhoto(state);
   const summary = useExportSummary();
   const mod = modKeyLabel();
 
   return (
-    <div className={styles.view} data-testid="develop-view">
+    <div
+      ref={containerRef}
+      className={styles.view}
+      data-testid="develop-view"
+      style={{
+        gridTemplateColumns: `${metadata.width}px minmax(0, 1fr) ${develop.width}px`,
+      }}
+    >
       <MetadataPanel className={styles.meta} />
+      <PanelResizeHandle
+        panel="develop-metadata"
+        label="Metadata panel"
+        side="left"
+        controller={metadata}
+        className={styles.metaHandle}
+      />
       <PhotoView className={styles.photo} photo={selected} />
+      <PanelResizeHandle
+        panel="develop-panel"
+        label="Develop panel"
+        side="right"
+        controller={develop}
+        className={styles.developHandle}
+      />
       <DevelopPanel className={styles.develop} />
       <div className={styles.strips}>
         <FiltersStrip visibleCount={photos.length} />

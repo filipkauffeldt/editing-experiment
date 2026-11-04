@@ -1,0 +1,35 @@
+.handle {
+  position: relative;
+  z-index: 1;
+  width: 1px;
+  height: 100%;
+  background: var(--line);
+  cursor: col-resize;
+  touch-action: none;
+}
+
+/*
+ * A wider invisible target. It only grows into the centre, never over the
+ * panel's own scrollbar, which stays reachable at the panel's inner edge. The
+ * view places the line on the centre side of that edge with justify-self.
+ */
+.handle::before {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 9px;
+  content: '';
+}
+
+.handle[data-side='left']::before {
+  left: 0;
+}
+
+.handle[data-side='right']::before {
+  right: 0;
+}
+
+.handle:hover,
+.handle[data-dragging='true'] {
+  background: var(--text);
+}

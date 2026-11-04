@@ -12,8 +12,13 @@
 .sources {
   grid-area: sources;
   overflow: auto;
-  border-right: 1px solid var(--line);
   background: var(--panel);
+}
+
+.sourcesHandle {
+  grid-area: sources;
+  justify-self: end;
+  transform: translateX(1px);
 }
 
 .settings {

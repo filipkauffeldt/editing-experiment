@@ -3,13 +3,19 @@ import { useEffect, useState } from 'react';
 import { isDiscoveredCardSource, matchCardSources, unconfiguredCards } from '../cards';
 import { useAppState, useAppStore } from '../store-context';
 import type { IngestRun } from '../store';
+import { usePanelLayout, type ResizablePanelDefinition } from '../panel-resize';
 import { ActionBar, barStyles } from './ActionBar';
 import { Dot } from './ui/Dot';
 import { Button } from './ui/Button';
+import { PanelResizeHandle } from './ui/PanelResizeHandle';
 import { RefreshIcon } from './icons';
 import { IngestSection } from './SettingsDialog';
 import { SourceFilters, sourceFilterValues } from './SourceFilters';
 import styles from './IngestView.module.css';
+
+const PANELS = [
+  { id: 'ingest-sources', side: 'left' },
+] as const satisfies readonly ResizablePanelDefinition[];
 
 const baseName = (path: string): string => path.split(/[\\/]/).pop() ?? path;
 
@@ -258,6 +264,8 @@ function IngestSourceFilters({
 export function IngestView() {
   const store = useAppStore();
   const state = useAppState();
+  const { containerRef, panels } = usePanelLayout(PANELS);
+  const sourcesPanel = panels['ingest-sources'];
   const ingest = state.settings?.ingest;
   const templatePath = ingest?.metadataTemplatePath;
   const templateMode = ingest?.metadataTemplateMode ?? 'replace';
@@ -270,8 +278,13 @@ export function IngestView() {
     (source) => !(source.kind === 'card' && source.discovered),
   );
   return (
-    <div className={styles.view} data-testid="ingest-view">
-      <section className={styles.sources}>
+    <div
+      ref={containerRef}
+      className={styles.view}
+      data-testid="ingest-view"
+      style={{ gridTemplateColumns: `${sourcesPanel.width}px minmax(0, 1fr)` }}
+    >
+      <section className={styles.sources} data-testid="ingest-sources">
         <CardsSection />
         <h3 className={styles.title}>Sources</h3>
         <p className={styles.activeChoices} data-testid="ingest-active-choices">
@@ -303,6 +316,13 @@ export function IngestView() {
           })}
         </ul>
       </section>
+      <PanelResizeHandle
+        panel="ingest-sources"
+        label="Ingest sources"
+        side="left"
+        controller={sourcesPanel}
+        className={styles.sourcesHandle}
+      />
       <section className={styles.settings}>
         <h3 className={styles.title}>Ingest settings</h3>
         <div className={styles.form}>

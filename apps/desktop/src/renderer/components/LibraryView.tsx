@@ -1,6 +1,7 @@
 import { useMemo } from 'react';
 import { selectLibraryPhotos } from '../store';
 import { modKeyLabel } from '../platform';
+import { usePanelLayout, type ResizablePanelDefinition } from '../panel-resize';
 import { useAppState, useAppStore } from '../store-context';
 import { ActionBar, barStyles } from './ActionBar';
 import { LibraryGrid } from './LibraryGrid';
@@ -10,12 +11,21 @@ import { LibrarySidebar } from './LibrarySidebar';
 import { LibraryToolbar } from './LibraryToolbar';
 import { COLOR_CLASSES, COLOR_CLASS_NAMES } from './PhotoOverlays';
 import { Button } from './ui/Button';
+import { PanelResizeHandle } from './ui/PanelResizeHandle';
 import styles from './LibraryView.module.css';
+
+const PANELS = [
+  { id: 'library-sidebar', side: 'left' },
+  { id: 'library-inspector', side: 'right' },
+] as const satisfies readonly ResizablePanelDefinition[];
 
 /** Library: folders and collections, the contact sheet, and the inspector. */
 export function LibraryView() {
   const store = useAppStore();
   const state = useAppState();
+  const { containerRef, panels } = usePanelLayout(PANELS);
+  const sidebar = panels['library-sidebar'];
+  const inspector = panels['library-inspector'];
   const { library } = state;
   // The grid follows every photo event; sorting is only redone when something it shows changes.
   const photos = useMemo(
@@ -39,8 +49,22 @@ export function LibraryView() {
   const none = selected.length === 0;
 
   return (
-    <div className={styles.view} data-testid="library-view">
+    <div
+      ref={containerRef}
+      className={styles.view}
+      data-testid="library-view"
+      style={{
+        gridTemplateColumns: `${sidebar.width}px minmax(0, 1fr) ${inspector.width}px`,
+      }}
+    >
       <LibrarySidebar className={styles.side} />
+      <PanelResizeHandle
+        panel="library-sidebar"
+        label="Library sidebar"
+        side="left"
+        controller={sidebar}
+        className={styles.sideHandle}
+      />
       <div className={styles.centre}>
         <LibraryToolbar count={photos.length} total={state.photos.length} />
         {library.view === 'loupe' ? (
@@ -49,6 +73,13 @@ export function LibraryView() {
           <LibraryGrid photos={photos} />
         )}
       </div>
+      <PanelResizeHandle
+        panel="library-inspector"
+        label="Library inspector"
+        side="right"
+        controller={inspector}
+        className={styles.inspectorHandle}
+      />
       <LibraryInspector className={styles.inspector} />
       <div className={styles.bar}>
         <ActionBar

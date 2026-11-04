@@ -11,7 +11,12 @@
 
 .side {
   grid-area: side;
-  border-right: 1px solid var(--line);
+}
+
+.sideHandle {
+  grid-area: side;
+  justify-self: end;
+  transform: translateX(1px);
 }
 
 .centre {
@@ -25,7 +30,12 @@
 .inspector {
   grid-area: inspector;
   min-height: 0;
-  border-left: 1px solid var(--line);
+}
+
+.inspectorHandle {
+  grid-area: inspector;
+  justify-self: start;
+  transform: translateX(-1px);
 }
 
 .bar {
