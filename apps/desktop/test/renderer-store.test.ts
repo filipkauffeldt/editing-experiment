@@ -14,6 +14,7 @@ import {
   cropImageToView,
   cropViewToImage,
 } from '@ee/develop-gl';
+import { CardScanner, type CardFileSystem } from '@ee/ingest';
 import { createFakeBridge, type FakeBridge } from './fake-bridge';
 import type { AppStore } from '../src/renderer/store';
 import type { FullResolutionRenderRequest } from '../src/renderer/export-render';
@@ -1822,5 +1823,67 @@ describe('card discovery', () => {
     expect(
       store.getState().toasts.filter((toast) => toast.message.includes('scan broke')),
     ).toHaveLength(1);
+  });
+
+  it('keeps a picked card picked and counted while its probe is slow, and unpicks it once it is gone', async () => {
+    // The real scanner over a fake volume whose DCIM stat can be made slow, like a busy USB reader.
+    const mount = '/media/filip/NIKON_Z9';
+    const present = { dcim: true };
+    let slow: Promise<void> | undefined;
+    const fs: CardFileSystem = {
+      async list(path) {
+        if (path === '/media/filip') return [{ name: 'NIKON_Z9', isDirectory: true }];
+        if (path.endsWith('DCIM')) return [{ name: 'a.NEF', isDirectory: false }];
+        return [];
+      },
+      async isDirectory(path) {
+        await slow;
+        return path === `${mount}/DCIM` && present.dcim;
+      },
+    };
+    const scanner = new CardScanner({
+      platform: 'linux',
+      user: 'filip',
+      mountRoots: ['/media/filip'],
+      fs,
+      probeTimeoutMs: 10,
+    });
+    const { store } = await setup({
+      handlers: { 'sources:detectCards': () => scanner.scan({ waitForCounts: true }) },
+    });
+    await store.refreshCards();
+    await store.pickCard(store.getState().cards[0]!, true);
+    const picked = store.getState().pickedCards;
+    expect(picked).toHaveLength(1);
+    expect(store.getState().cards[0]?.imageCount).toBe(1);
+
+    let release: () => void = () => undefined;
+    slow = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    await store.refreshCards();
+    await store.refreshCards();
+    expect(store.getState().cards.map((card) => card.mountPath)).toEqual([mount]);
+    expect(store.getState().cards[0]?.imageCount).toBe(1);
+    expect(store.getState().pickedCards).toEqual(picked);
+
+    present.dcim = false;
+    release();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    await store.refreshCards();
+    expect(store.getState().cards).toEqual([]);
+    expect(store.getState().pickedCards).toEqual([]);
+  });
+
+  it('refuses to start an ingest with nothing to run', async () => {
+    const { store, fake } = await setupCards([card('/media/filip/NIKON_Z9', 'NIKON_Z9')]);
+    for (const source of [...store.getState().sources]) await store.removeSource(source.id);
+    await store.refreshCards();
+    const ingest = store.getState().settings?.ingest;
+    if (!ingest) throw new Error('no settings');
+
+    // A card that is shown but not ticked is not something to ingest.
+    await expect(store.startIngest(ingest)).rejects.toThrow(/Nothing to ingest/);
+    expect(fake.calls.some((call) => call.channel === 'ingest:start')).toBe(false);
   });
 });

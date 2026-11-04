@@ -132,4 +132,19 @@ describe('Ingest view cards', () => {
     await user.click(within(screen.getByTestId('ingest-card-removed')).getByText('Dismiss'));
     await waitFor(() => expect(screen.queryByTestId('ingest-card-removed')).toBeNull());
   });
+
+  it('counts only what Ingest will run, and says so when there is nothing to run', async () => {
+    const { store, user } = await renderIngest([z9]);
+    for (const source of [...store.getState().sources]) await store.removeSource(source.id);
+    const row = await screen.findByTestId('ingest-card');
+    const form = screen.getByTestId('ingest-view');
+    expect(within(form).getByText(/Nothing to ingest/)).toBeTruthy();
+
+    await user.click(within(row).getByRole('checkbox', { name: 'NIKON_Z9' }));
+    await waitFor(() => expect(within(form).getByText(/^1 source\(s\): NIKON_Z9$/)).toBeTruthy());
+    await user.click(within(row).getByRole('checkbox', { name: 'NIKON_Z9' }));
+    await user.click(within(form).getByRole('button', { name: 'Ingest', exact: true }));
+
+    expect(await within(form).findByText(/Nothing to ingest\. Tick a card/)).toBeTruthy();
+  });
 });

@@ -3453,8 +3453,14 @@ export class AppStore {
   };
 
   readonly startIngest = async (ingest: IngestSettings): Promise<IngestJobInfo[]> => {
+    const sources = sourcesToIngest(this.state.sources, this.state.pickedCards);
+    if (sources.length === 0) {
+      throw new Error(
+        'Nothing to ingest. Tick a card on the Ingest view, or add a folder or server in Settings → Sources.',
+      );
+    }
     const infos = await this.bridge.invoke('ingest:start', {
-      config: { ...ingest, sources: sourcesToIngest(this.state.sources, this.state.pickedCards) },
+      config: { ...ingest, sources },
     });
     const runs = { ...this.state.ingest };
     for (const info of infos) {
