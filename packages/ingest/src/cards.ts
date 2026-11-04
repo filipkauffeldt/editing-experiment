@@ -21,6 +21,21 @@ export interface CardFileSystem {
   isDirectory(path: string): Promise<boolean>;
 }
 
+/**
+ * What Windows reports about one drive root (`E:\`): the shape of `readDriveInfo` in `@ee/core`.
+ * `driveType` is the `GetDriveTypeW` value (1 no volume, 2 removable, 3 fixed, 4 network,
+ * 5 optical); `errorCode` is the Win32 error of reading the volume, absent on success.
+ */
+export interface DriveInfo {
+  root: string;
+  driveType: number;
+  label?: string;
+  errorCode?: number;
+}
+
+/** Looks up the type and label of drive roots. Resolves to nothing where that is not supported. */
+export type ReadDriveInfo = (roots: string[]) => Promise<DriveInfo[]>;
+
 export interface DetectCardsOptions {
   platform?: NodeJS.Platform;
   /** User name used in the Linux mount roots. */
@@ -33,12 +48,32 @@ export interface DetectCardsOptions {
   mountRoots?: string[];
   /** Windows drives to probe; defaults to D: through Z:. */
   windowsDrives?: string[];
+  /**
+   * Windows only: reads a drive's type and volume label (the native core provides it). Without
+   * it, or when a lookup fails or times out, a drive is named "Drive E". A drive that is not
+   * removable or fixed (network, optical, no volume) is not scanned at all once it is known to be.
+   */
+  readDriveInfo?: ReadDriveInfo;
   fs?: CardFileSystem;
   /** How long one filesystem probe may take before its answer is "unknown". Default 2000. */
   probeTimeoutMs?: number;
 }
 
 const DEFAULT_PROBE_TIMEOUT_MS = 2000;
+
+const DRIVE_REMOVABLE = 2;
+const DRIVE_FIXED = 3;
+// Win32 errors for a card reader slot without a card (or a card Windows cannot mount). The
+// volume is not there to be a card, and probing its DCIM folder through Node could still wake
+// the "There is no disk in the drive" dialog, so such a drive is skipped.
+const ERROR_NOT_READY = 21;
+const ERROR_UNRECOGNIZED_VOLUME = 1005;
+const ERROR_NO_MEDIA_IN_DRIVE = 1112;
+const NO_VOLUME_ERRORS: ReadonlySet<number> = new Set([
+  ERROR_NOT_READY,
+  ERROR_UNRECOGNIZED_VOLUME,
+  ERROR_NO_MEDIA_IN_DRIVE,
+]);
 
 const nodeCardFs: CardFileSystem = {
   async list(path) {
@@ -164,8 +199,10 @@ type ImageCount =
  *
  * - Linux scans `/media/<user>`, `/run/media/<user>` and `/media`.
  * - macOS scans `/Volumes` and ignores the boot volume (a symlink to `/`).
- * - Windows probes the drive letters D: to Z: concurrently. Windows exposes no volume
- *   label without a native module or a shell tool, so the label is "Drive D".
+ * - Windows probes the drive letters D: to Z: concurrently. Node has no volume label API, so
+ *   the label comes from the injected `readDriveInfo` (the native core), one drive at a time
+ *   under the same timeout as every other probe, and is "Drive D" when that is missing, empty,
+ *   failed or too slow. Network, optical and empty drives are left out before any `DCIM` probe.
  *
  * A volume is a card when it has a `DCIM` folder. Every filesystem probe has a
  * timeout, so a dead network drive or a stalled automount cannot hang a scan. A probe
@@ -182,6 +219,7 @@ export class CardScanner {
   readonly #drives: string[];
   readonly #timeoutMs: number;
   readonly #user: string;
+  readonly #readDriveInfo: ReadDriveInfo | undefined;
   readonly #counts = new Map<string, ImageCount>();
   /** Cards found so far, kept while a later probe of them is unknown. */
   readonly #cards = new Map<string, Volume>();
@@ -194,6 +232,7 @@ export class CardScanner {
     this.#timeoutMs = options.probeTimeoutMs ?? DEFAULT_PROBE_TIMEOUT_MS;
     this.#roots = options.mountRoots ?? defaultMountRoots(this.#platform, this.#user);
     this.#drives = options.windowsDrives ?? defaultWindowsDrives();
+    this.#readDriveInfo = options.readDriveInfo;
   }
 
   /**
@@ -300,11 +339,9 @@ export class CardScanner {
   async #volumes(): Promise<{ volumes: Volume[]; unknownRoots: Set<string> }> {
     const unknownRoots = new Set<string>();
     if (this.#platform === 'win32' && this.#roots.length === 0) {
+      const drives = await Promise.all(this.#drives.map((drive) => this.#windowsVolume(drive)));
       return {
-        volumes: this.#drives.map((drive) => {
-          const letter = drive.replace(/[:\\]+$/, '');
-          return { mountPath: `${letter}:\\`, volumeLabel: `Drive ${letter}` };
-        }),
+        volumes: drives.filter((volume): volume is Volume => volume !== undefined),
         unknownRoots,
       };
     }
@@ -337,12 +374,52 @@ export class CardScanner {
     return { volumes, unknownRoots };
   }
 
+  /**
+   * One Windows drive as a candidate card, or nothing when it is known not to be one. Each
+   * drive is asked separately, so a drive that stalls delays only itself, by the probe timeout.
+   *
+   * - Not removable or fixed (network, optical, no volume): not a candidate, and never touched
+   *   again, so a network share is not read. Fixed counts because many USB and CFexpress readers
+   *   present a card as a fixed disk.
+   * - No medium (an empty reader slot): not a candidate.
+   * - Unknown (no lookup, native failure, timeout): "Drive E", or the label the card had when it
+   *   was last found, and the `DCIM` probe decides as it always did.
+   */
+  async #windowsVolume(drive: string): Promise<Volume | undefined> {
+    const letter = drive.replace(/[:\\]+$/, '');
+    const mountPath = `${letter}:\\`;
+    const generic = `Drive ${letter}`;
+    const read = this.#readDriveInfo;
+    if (!read) {
+      return { mountPath, volumeLabel: generic };
+    }
+    const probed = await this.#probe(`drive:${mountPath}`, async () => {
+      const info = (await read([mountPath])).find((entry) => entry.root === mountPath);
+      if (!info) {
+        throw new Error(`no drive information for ${mountPath}`);
+      }
+      return info;
+    });
+    if (!probed.known) {
+      return { mountPath, volumeLabel: this.#cards.get(mountPath)?.volumeLabel ?? generic };
+    }
+    const { driveType, label, errorCode } = probed.value;
+    if (driveType !== DRIVE_REMOVABLE && driveType !== DRIVE_FIXED) {
+      return undefined;
+    }
+    if (errorCode !== undefined && NO_VOLUME_ERRORS.has(errorCode)) {
+      return undefined;
+    }
+    return { mountPath, volumeLabel: label ?? generic };
+  }
+
   /** Runs a filesystem call with a timeout. A timeout or an error is "unknown", never "not there". */
   #probe<T>(key: string, run: () => Promise<T>): Promise<Probed<T>> {
     let pending = this.#inflight.get(key) as Promise<Probed<T>> | undefined;
     if (!pending) {
       // A stalled call cannot be cancelled, so it stays registered until it settles.
-      pending = run().then(
+      // `run` may throw before it returns a promise (e.g. the native core is not built): that is a failure too.
+      pending = (async () => run())().then(
         (value): Probed<T> => ({ known: true, value }),
         (): Probed<T> => ({ known: false }),
       );

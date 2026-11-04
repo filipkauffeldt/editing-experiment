@@ -1,5 +1,11 @@
 export { CardScanner, detectCards } from './cards';
-export type { CardEntry, CardFileSystem, DetectCardsOptions } from './cards';
+export type {
+  CardEntry,
+  CardFileSystem,
+  DetectCardsOptions,
+  DriveInfo,
+  ReadDriveInfo,
+} from './cards';
 export type { SftpConnectOptions } from './remote/sftp';
 export { copyPhotoLocal, nodeFileCopier } from './copy';
 export type { CopyPhotoOptions, CopyPhotoRequest, CopyPhotoResult } from './copy';

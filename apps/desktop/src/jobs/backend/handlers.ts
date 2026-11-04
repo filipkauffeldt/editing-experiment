@@ -1,6 +1,7 @@
 import { IpcError, type IpcHandlers } from '@ee/contracts';
 import { isRawPath } from '@ee/metadata';
 import { delimiter } from 'node:path';
+import { readDriveInfo } from '@ee/core';
 import { CardScanner, testSource, type GetSecret } from '@ee/ingest';
 import type { UploadQueue } from '@ee/export';
 import { systemHandlers } from '../handlers/system';
@@ -43,7 +44,8 @@ export interface HandlerDeps {
  */
 function cardScannerFromEnv(env: NodeJS.ProcessEnv): CardScanner {
   const roots = env.EE_CARD_ROOTS?.split(delimiter).filter((root) => root !== '');
-  return new CardScanner(roots && roots.length > 0 ? { mountRoots: roots } : {});
+  // The volume label of a Windows drive comes from the native core; other platforms ignore it.
+  return new CardScanner(roots && roots.length > 0 ? { mountRoots: roots } : { readDriveInfo });
 }
 
 /** One handler per channel the jobs process serves in real mode. */

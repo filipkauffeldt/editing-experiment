@@ -1,7 +1,14 @@
 import { chmod, mkdir, rm, writeFile } from 'node:fs/promises';
 import { join, posix, win32 } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { CardScanner, detectCards, type CardEntry, type CardFileSystem } from '../src/cards';
+import {
+  CardScanner,
+  detectCards,
+  type CardEntry,
+  type CardFileSystem,
+  type DriveInfo,
+  type ReadDriveInfo,
+} from '../src/cards';
 import { cleanupTempDirs, makeTempDir } from './helpers/temp';
 
 type PathJoin = (parent: string, name: string) => string;
@@ -252,6 +259,218 @@ describe('Windows', () => {
     const cards = await detectCards({ platform: 'win32', mountRoots: ['X:\\cards'], fs });
 
     expect(cards).toEqual([{ mountPath: mount, volumeLabel: 'CARD', imageCount: 1 }]);
+  });
+});
+
+describe('Windows volume labels', () => {
+  const REMOVABLE = 2;
+  const FIXED = 3;
+  const REMOTE = 4;
+  const CDROM = 5;
+  const NO_ROOT = 1;
+  const NOT_READY = 21;
+
+  /** A fake `readDriveInfo`: drives not listed are unused letters. */
+  class FakeDrives {
+    readonly drives = new Map<string, Omit<DriveInfo, 'root'>>();
+    readonly asked: string[] = [];
+    failing = new Set<string>();
+    hanging = new Set<string>();
+    unavailable = false;
+
+    readonly read: ReadDriveInfo = async (roots) => {
+      if (this.unavailable) {
+        throw new Error('Failed to load the native core addon');
+      }
+      this.asked.push(...roots);
+      if (roots.some((root) => this.hanging.has(root))) {
+        return new Promise<DriveInfo[]>(() => undefined);
+      }
+      if (roots.some((root) => this.failing.has(root))) {
+        throw new Error('native failure');
+      }
+      return roots.map((root) => ({
+        root,
+        ...(this.drives.get(root) ?? { driveType: NO_ROOT }),
+      }));
+    };
+  }
+
+  const setup = () => {
+    const fs = new FakeCardFs(win32.join);
+    const drives = new FakeDrives();
+    const scanner = (extra: Partial<ConstructorParameters<typeof CardScanner>[0]> = {}) =>
+      new CardScanner({
+        platform: 'win32',
+        fs,
+        readDriveInfo: drives.read,
+        probeTimeoutMs: 40,
+        ...extra,
+      });
+    return { fs, drives, scanner };
+  };
+
+  it('names a card after its volume label', async () => {
+    const { fs, drives, scanner } = setup();
+    fs.addCard('', 'E:\\', ['a.NEF']);
+    drives.drives.set('E:\\', { driveType: REMOVABLE, label: 'NIKON Z 6' });
+
+    expect(await scanner().scan({ waitForCounts: true })).toEqual([
+      { mountPath: 'E:\\', volumeLabel: 'NIKON Z 6', imageCount: 1 },
+    ]);
+  });
+
+  it('keeps Swedish letters in the label', async () => {
+    const { fs, drives, scanner } = setup();
+    fs.addCard('', 'E:\\', ['a.NEF']);
+    drives.drives.set('E:\\', { driveType: REMOVABLE, label: 'ÅRE ÄLG ÖST' });
+
+    const [card] = await scanner().scan();
+
+    expect(card?.volumeLabel).toBe('ÅRE ÄLG ÖST');
+  });
+
+  it('falls back to "Drive E" for a card without a label', async () => {
+    const { fs, drives, scanner } = setup();
+    fs.addCard('', 'E:\\', ['a.NEF']);
+    drives.drives.set('E:\\', { driveType: REMOVABLE });
+
+    const [card] = await scanner().scan();
+
+    expect(card?.volumeLabel).toBe('Drive E');
+  });
+
+  it('lists a card that Windows reports as a fixed disk', async () => {
+    const { fs, drives, scanner } = setup();
+    fs.addCard('', 'F:\\', ['a.NEF']);
+    drives.drives.set('F:\\', { driveType: FIXED, label: 'CFEXPRESS' });
+
+    expect((await scanner().scan()).map((card) => card.volumeLabel)).toEqual(['CFEXPRESS']);
+  });
+
+  it('does not touch network, optical or unused drives, nor read their DCIM folders', async () => {
+    const { fs, drives, scanner } = setup();
+    // They all have a DCIM folder; being what they are is what keeps them out.
+    fs.addCard('', 'G:\\', ['a.NEF']);
+    fs.addCard('', 'H:\\', ['a.NEF']);
+    fs.addCard('', 'J:\\', ['a.NEF']);
+    drives.drives.set('G:\\', { driveType: REMOTE });
+    drives.drives.set('H:\\', { driveType: CDROM });
+    drives.drives.set('J:\\', { driveType: NO_ROOT });
+
+    expect(await scanner().scan()).toEqual([]);
+    expect(fs.calls.filter((call) => /^[GHJ]:/.test(call))).toEqual([]);
+  });
+
+  it('skips an empty reader slot without probing it through the filesystem', async () => {
+    const { fs, drives, scanner } = setup();
+    drives.drives.set('E:\\', { driveType: REMOVABLE, errorCode: NOT_READY });
+
+    expect(await scanner().scan()).toEqual([]);
+    expect(fs.calls.filter((call) => call.startsWith('E:'))).toEqual([]);
+  });
+
+  it('asks about D: through Z: but never C:', async () => {
+    const { drives, scanner } = setup();
+
+    await scanner().scan();
+
+    expect(drives.asked).toHaveLength(23);
+    expect(drives.asked[0]).toBe('D:\\');
+    expect(drives.asked.at(-1)).toBe('Z:\\');
+    expect(drives.asked).not.toContain('C:\\');
+  });
+
+  it('uses "Drive E" when the native lookup fails, and still checks DCIM', async () => {
+    const { fs, drives, scanner } = setup();
+    fs.addCard('', 'E:\\', ['a.NEF']);
+    drives.failing.add('E:\\');
+
+    expect((await scanner().scan()).map((card) => card.volumeLabel)).toEqual(['Drive E']);
+  });
+
+  it('uses "Drive E" when the native module is unavailable', async () => {
+    const { fs, drives, scanner } = setup();
+    fs.addCard('', 'E:\\', ['a.NEF']);
+    drives.unavailable = true;
+
+    expect((await scanner().scan()).map((card) => card.volumeLabel)).toEqual(['Drive E']);
+  });
+
+  it('uses "Drive E" when the lookup stalls, and the other drives are not held up', async () => {
+    const { fs, drives, scanner } = setup();
+    fs.addCard('', 'E:\\', ['a.NEF']);
+    fs.addCard('', 'F:\\', ['b.NEF']);
+    drives.drives.set('F:\\', { driveType: REMOVABLE, label: 'CARD F' });
+    drives.hanging.add('E:\\');
+
+    const started = Date.now();
+    const cards = await scanner().scan();
+
+    expect(Date.now() - started).toBeLessThan(400);
+    expect(cards.map((card) => [card.mountPath, card.volumeLabel])).toEqual([
+      ['E:\\', 'Drive E'],
+      ['F:\\', 'CARD F'],
+    ]);
+  });
+
+  it('asks again about a stalled drive only after the first lookup settled', async () => {
+    const { fs, drives, scanner } = setup();
+    fs.addCard('', 'E:\\', ['a.NEF']);
+    drives.hanging.add('E:\\');
+    const instance = scanner({ windowsDrives: ['E:'] });
+
+    await instance.scan();
+    await instance.scan();
+
+    expect(drives.asked).toHaveLength(1);
+  });
+
+  it('keeps a known card and its label when a later lookup stalls', async () => {
+    const { fs, drives, scanner } = setup();
+    fs.addCard('', 'E:\\', ['a.NEF']);
+    drives.drives.set('E:\\', { driveType: REMOVABLE, label: 'NIKON Z 6' });
+    const instance = scanner({ windowsDrives: ['E:'] });
+    const first = await instance.scan({ waitForCounts: true });
+
+    drives.hanging.add('E:\\');
+
+    expect(await instance.scan()).toEqual(first);
+  });
+
+  it('drops a card that Windows now says has no medium', async () => {
+    const { fs, drives, scanner } = setup();
+    fs.addCard('', 'E:\\', ['a.NEF']);
+    drives.drives.set('E:\\', { driveType: REMOVABLE, label: 'NIKON Z 6' });
+    const instance = scanner({ windowsDrives: ['E:'] });
+    expect(await instance.scan()).toHaveLength(1);
+
+    drives.drives.set('E:\\', { driveType: REMOVABLE, errorCode: NOT_READY });
+
+    expect(await instance.scan()).toEqual([]);
+  });
+
+  it('picks up a card inserted later with its label, and renames a card that got its label', async () => {
+    const { fs, drives, scanner } = setup();
+    const instance = scanner({ windowsDrives: ['E:'] });
+    expect(await instance.scan()).toEqual([]);
+
+    fs.addCard('', 'E:\\', ['a.NEF']);
+    drives.drives.set('E:\\', { driveType: REMOVABLE });
+    expect((await instance.scan()).map((card) => card.volumeLabel)).toEqual(['Drive E']);
+
+    drives.drives.set('E:\\', { driveType: REMOVABLE, label: 'NIKON Z 6' });
+    expect((await instance.scan()).map((card) => card.volumeLabel)).toEqual(['NIKON Z 6']);
+  });
+
+  it('is not used with custom mount roots', async () => {
+    const { fs, drives, scanner } = setup();
+    fs.addCard('X:\\cards', 'CARD', ['a.NEF']);
+
+    const cards = await scanner({ mountRoots: ['X:\\cards'] }).scan();
+
+    expect(cards.map((card) => card.volumeLabel)).toEqual(['CARD']);
+    expect(drives.asked).toEqual([]);
   });
 });
 
