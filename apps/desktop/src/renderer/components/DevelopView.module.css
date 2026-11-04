@@ -13,7 +13,12 @@
 .meta {
   grid-area: meta;
   min-height: 0;
-  border-right: 1px solid var(--line);
+}
+
+.metaHandle {
+  grid-area: meta;
+  justify-self: end;
+  transform: translateX(1px);
 }
 
 .photo {
@@ -25,7 +30,12 @@
 .develop {
   grid-area: develop;
   min-height: 0;
-  border-left: 1px solid var(--line);
+}
+
+.developHandle {
+  grid-area: develop;
+  justify-self: start;
+  transform: translateX(-1px);
 }
 
 .strips {

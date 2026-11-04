@@ -693,7 +693,7 @@ export function DevelopPanel({ className }: { className?: string }) {
   const mode = useDevelopViewMode();
 
   return (
-    <Panel title="Develop" className={className}>
+    <Panel title="Develop" className={className} testId="develop-panel">
       <Histogram photo={photo} />
       <div className={styles.tools}>
         <Button
