@@ -633,6 +633,32 @@ copy camera EXIF and GPS from the original, or only copyright; `stripGps` drops 
 location tags. Output sharpening is a simple luminance unsharp mask applied after
 the resize (normally a no-op), in the jobs process, before encoding.
 
+**Next & send** moves on first and exports in the background (`AppStore.nextAndSend`).
+Whatever can be refused without waiting (no photo, no preset) is refused where the user is, with
+a toast, and nothing moves. Otherwise the selection moves to the next photo of
+`getVisiblePhotos()` as it was at the press (the last photo stays, and a filter that changes
+later cannot skip or strand the move), and each press hands one job to the jobs process, in
+press order and one `export:start` at a time, so the upload queue (oldest first) sends in the
+order the photos were pressed. A draft crop is applied and unsaved mosaic shapes are saved by
+`select` first, as for any navigation. The jobs process renders one photo at a time and asks
+the renderer for each render when its turn comes. That render draws in a worker from the
+store's own copy of the photo's settings (read from the sidecar when the store has none yet),
+so it does not need the photo to be open and does not touch the canvas, crop or retouch
+session on screen, and it first writes any debounced metadata and settings for that photo, so
+edits made just before the press are in the export however slow their save was. A photo whose
+earlier Next & send has not been rendered yet ignores another press (a double press, or the last
+photo, where the selection does not move); `Ctrl/Cmd+Enter` ignores key repeat. Once the job is
+past its render, the photo can be sent again. A job that fails after the user moved on is a
+toast naming the file (`Could not export <file>: <reason>`) and never changes the selection; a
+failed upload stays in the failed-uploads list in the top bar.
+
+On quit the jobs process closes the export queue: the photo being rendered goes back to
+`queued`, every unfinished job stays in `export-jobs.json` and carries on after the next launch
+once the renderer calls `export:rendererReady`, rendering from the edits saved by then. In-flight
+uploads are requeued from `uploads.sqlite` the same way. There is no quit dialog. A press whose
+job had not been handed to the jobs process yet (the moments it takes to save the edits) is lost,
+and a resumed job that fails shows no toast, only its photo's failed status.
+
 The renderer draws at the final output size so a 1600 px export never renders a
 45 MP raw. `outputSizeForResize` is the one definition of that size: the renderer
 uses it on the crop's pixel size and the encoder uses it to decide whether its own
