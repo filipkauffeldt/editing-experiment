@@ -4,6 +4,7 @@ import {
   asSourceId,
   type CredentialSecret,
   type Destination,
+  type FileNamingMode,
   type FtpSecurity,
   type FileTypeFilter,
   type IngestSettings,
@@ -934,6 +935,7 @@ export function IngestSection() {
   const [destination, setDestination] = useState('');
   const [subfolder, setSubfolder] = useState('');
   const [backup, setBackup] = useState('');
+  const [fileNaming, setFileNaming] = useState<FileNamingMode>('rename');
   const [renameTemplate, setRenameTemplate] = useState('{date}_{seq:4}');
   const [metadataTemplatePath, setMetadataTemplatePath] = useState('');
   const [metadataTemplateMode, setMetadataTemplateMode] = useState<TemplateApplyMode>('replace');
@@ -959,6 +961,7 @@ export function IngestSection() {
     setDestination(ingest.destination.path);
     setSubfolder(ingest.destination.subfolderTemplate ?? '');
     setBackup(ingest.backupDestination?.path ?? '');
+    setFileNaming(ingest.fileNaming);
     setRenameTemplate(ingest.renameTemplate);
     setMetadataTemplatePath(ingest.metadataTemplatePath ?? '');
     setMetadataTemplateMode(ingest.metadataTemplateMode ?? 'replace');
@@ -971,6 +974,7 @@ export function IngestSection() {
       subfolderTemplate: subfolder.trim() || undefined,
     },
     backupDestination: backup.trim() ? { path: backup.trim() } : undefined,
+    fileNaming,
     renameTemplate: renameTemplate.trim(),
     metadataTemplatePath: metadataTemplatePath.trim() || undefined,
     metadataTemplateMode,
@@ -982,7 +986,7 @@ export function IngestSection() {
       setError('Destination folder is required');
       return;
     }
-    if (!renameTemplate.trim()) {
+    if (fileNaming === 'rename' && !renameTemplate.trim()) {
       setError('Rename template is required');
       return;
     }
@@ -1054,14 +1058,30 @@ export function IngestSection() {
           />
         </label>
         <label className={styles.field}>
+          <span className={styles.label}>File names</span>
+          <select
+            className={styles.input}
+            value={fileNaming}
+            data-testid="ingest-file-naming"
+            onChange={(event) => setFileNaming(event.target.value as FileNamingMode)}
+          >
+            <option value="keep">Keep original file names</option>
+            <option value="rename">Rename</option>
+          </select>
+        </label>
+      </div>
+
+      {fileNaming === 'rename' && (
+        <label className={styles.field}>
           <span className={styles.label}>Rename template</span>
           <input
             className={styles.input}
             value={renameTemplate}
+            data-testid="ingest-rename-template"
             onChange={(event) => setRenameTemplate(event.target.value)}
           />
         </label>
-      </div>
+      )}
 
       <div className={styles.gridTwo}>
         <label className={styles.field}>

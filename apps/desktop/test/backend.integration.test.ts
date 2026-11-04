@@ -144,6 +144,7 @@ const testPreset = (overrides: Partial<ExportPreset> = {}): ExportPreset => ({
   id: asPresetId('test-preset'),
   name: 'Test',
   folderTemplate: 'Export/{preset}',
+  fileNaming: 'rename',
   fileNameTemplate: '{filenamebase}',
   ifExists: 'suffix',
   format: 'jpeg',
@@ -259,6 +260,7 @@ describe.skipIf(nefs.length === 0)(
           ftpSource(),
         ],
         destination: { path: ingestDest!, subfolderTemplate: '{sourceName}' },
+        fileNaming: 'rename',
         renameTemplate: '{sourceName}_{seq:3}',
         metadataTemplatePath: templatePath,
       };

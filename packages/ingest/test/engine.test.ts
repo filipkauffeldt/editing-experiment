@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { nodeFileCopier } from '../src/copy';
 import { startIngest } from '../src/engine';
 import { hashFile } from '../src/hash';
+import { naturalCompare, splitName } from '../src/naming';
 import { MemorySeenStore } from '../src/seen-store';
 import type { FileCopier, IngestedFileInfo } from '../src/types';
 import { cleanupTempDirs, makeTempDir } from './helpers/temp';
@@ -24,6 +25,7 @@ function config(sources: FolderSource[], destination: string): IngestConfig {
   return {
     sources,
     destination: { path: destination },
+    fileNaming: 'rename',
     renameTemplate: '{filenamebase}_{seq:2}',
   };
 }
@@ -269,6 +271,44 @@ describe('startIngest', () => {
       new Map([...expected].map(([content, count]) => [content, count * rounds])),
     );
     expect(names).toHaveLength(sourceCount * filesPerSource * rounds);
+  });
+
+  it('keeps original names from two sources with the same shot, pairing each sidecar', async () => {
+    const root = await makeTempDir();
+    const destination = join(root, 'destination');
+    const sources: FolderSource[] = [];
+    for (const card of ['a', 'b']) {
+      const source = join(root, `card-${card}`);
+      sources.push(folderSource(`card-${card}`, source));
+      await createFile(join(source, '_DSC1.JPG'), `jpeg-${card}`);
+      await createFile(join(source, '_DSC1.NEF'), `raw-${card}`);
+      await createFile(join(source, '_DSC1.xmp'), `sidecar-${card}`);
+    }
+
+    const handle = startIngest(
+      { ...config(sources, destination), fileNaming: 'keep', renameTemplate: 'ignored_{seq}' },
+      {},
+    );
+    await handle.done;
+    expect(handle.status().map((job) => job.state)).toEqual(['finished', 'finished']);
+
+    const names = (await readdir(destination)).sort(naturalCompare);
+    expect(names).toEqual([
+      '_DSC1.JPG',
+      '_DSC1.NEF',
+      '_DSC1.xmp',
+      '_DSC1_1.JPG',
+      '_DSC1_1.NEF',
+      '_DSC1_1.xmp',
+    ]);
+
+    // Whichever card won the plain name, its raw, JPEG and sidecar stay one set.
+    for (const base of ['_DSC1', '_DSC1_1']) {
+      const card = (await readFile(join(destination, `${base}.NEF`), 'utf8')).slice('raw-'.length);
+      expect(await readFile(join(destination, `${base}.JPG`), 'utf8')).toBe(`jpeg-${card}`);
+      expect(await readFile(join(destination, `${base}.xmp`), 'utf8')).toBe(`sidecar-${card}`);
+      expect(splitName(`${base}.NEF`).base).toBe(base);
+    }
   });
 
   it('fails a source when the rename template escapes the destination', async () => {

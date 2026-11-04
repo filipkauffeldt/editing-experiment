@@ -97,6 +97,7 @@ export function mockExportPresets(): ExportPreset[] {
       id: asPresetId('mock-export-preset'),
       name: 'Sportfotografen',
       folderTemplate: '{folder}/Export/{preset}',
+      fileNaming: 'rename',
       fileNameTemplate: '{filenamebase}',
       ifExists: 'suffix',
       format: 'jpeg',
@@ -113,6 +114,7 @@ export function mockExportPresets(): ExportPreset[] {
       id: asPresetId('mock-export-preset-web'),
       name: 'Web',
       folderTemplate: '{folder}/Export/{preset}',
+      fileNaming: 'rename',
       fileNameTemplate: '{filenamebase}',
       ifExists: 'suffix',
       format: 'jpeg',
@@ -134,6 +136,7 @@ export function mockSettings(): AppSettings {
     ingest: {
       destination: { path: '/mock/ingested', subfolderTemplate: '{date}/{sourceName}' },
       backupDestination: { path: '/mock/backup' },
+      fileNaming: 'rename',
       renameTemplate: '{date}_{event}_{seq:4}',
       metadataTemplatePath: MOCK_TEMPLATE_PATH,
       metadataTemplateMode: 'replace',

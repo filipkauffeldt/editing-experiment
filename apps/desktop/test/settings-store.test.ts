@@ -100,6 +100,133 @@ describe('SettingsStore metadata templates', () => {
   });
 });
 
+describe('SettingsStore file naming', () => {
+  it('defaults to rename for a fresh install', () => {
+    const store = new SettingsStore(undefined, defaults);
+    expect(store.get().ingest.fileNaming).toBe('rename');
+    expect(store.get().exportPresets[0]?.fileNaming).toBe('rename');
+  });
+
+  it('migrates settings written before the choice to rename and keeps the templates', async () => {
+    const file = join(await tempDir(), 'settings.json');
+    await writeFile(
+      file,
+      JSON.stringify({
+        version: 2,
+        ingest: {
+          destination: { path: '/ingest' },
+          renameTemplate: '{date}_{event}',
+        },
+        exportPresets: [
+          {
+            id: 'old',
+            name: 'Old',
+            folderTemplate: '{folder}',
+            fileNameTemplate: '{filenamebase}-{event}',
+            ifExists: 'suffix',
+            format: 'jpeg',
+            quality: 90,
+            colorSpace: 'srgb',
+            resize: { mode: 'none' },
+            outputSharpening: { target: 'none', amount: 'standard' },
+            metadata: 'all',
+            stripGps: false,
+            version: 'top',
+            sendTo: [],
+          },
+        ],
+        sources: [],
+        destinations: [],
+      }),
+    );
+
+    const store = new SettingsStore(file, defaults);
+    expect(store.get().ingest).toMatchObject({
+      fileNaming: 'rename',
+      renameTemplate: '{date}_{event}',
+    });
+    expect(store.get().exportPresets[0]).toMatchObject({
+      fileNaming: 'rename',
+      fileNameTemplate: '{filenamebase}-{event}',
+    });
+
+    const saved = JSON.parse(await readFile(file, 'utf8')) as {
+      ingest: Record<string, unknown>;
+      exportPresets: Array<Record<string, unknown>>;
+    };
+    expect(saved.ingest.fileNaming).toBe('rename');
+    expect(saved.exportPresets[0]?.fileNaming).toBe('rename');
+  });
+
+  it('round-trips keep-original and retains each template when switching back', async () => {
+    const file = join(await tempDir(), 'settings.json');
+    const store = new SettingsStore(file, defaults);
+    const keptPreset = {
+      ...defaults.exportPresets[0]!,
+      fileNaming: 'keep' as const,
+    };
+    store.set({ ingest: { ...defaults.ingest, fileNaming: 'keep' } });
+    store.saveExportPreset(keptPreset);
+
+    let reopened = new SettingsStore(file, defaults);
+    expect(reopened.get().ingest).toMatchObject({
+      fileNaming: 'keep',
+      renameTemplate: defaults.ingest.renameTemplate,
+    });
+    expect(reopened.get().exportPresets[0]).toMatchObject({
+      fileNaming: 'keep',
+      fileNameTemplate: defaults.exportPresets[0]!.fileNameTemplate,
+    });
+
+    // Switching back still has the template the user wrote before.
+    reopened.set({
+      ingest: {
+        ...reopened.get().ingest,
+        fileNaming: 'rename',
+        renameTemplate: '{event}_{seq:3}',
+      },
+    });
+    reopened.saveExportPreset({
+      ...reopened.get().exportPresets[0]!,
+      fileNaming: 'rename',
+      fileNameTemplate: '{filenamebase}-{event}',
+    });
+
+    reopened = new SettingsStore(file, defaults);
+    expect(reopened.get().ingest).toMatchObject({
+      fileNaming: 'rename',
+      renameTemplate: '{event}_{seq:3}',
+    });
+    expect(reopened.get().exportPresets[0]).toMatchObject({
+      fileNaming: 'rename',
+      fileNameTemplate: '{filenamebase}-{event}',
+    });
+  });
+
+  it('requires a template only while renaming', () => {
+    const store = new SettingsStore(undefined, defaults);
+    expect(() =>
+      store.set({ ingest: { ...defaults.ingest, fileNaming: 'rename', renameTemplate: ' ' } }),
+    ).toThrowError(/rename template/);
+    expect(() =>
+      store.saveExportPreset({
+        ...defaults.exportPresets[0]!,
+        fileNaming: 'rename',
+        fileNameTemplate: ' ',
+      }),
+    ).toThrowError(/export presets/);
+
+    store.set({ ingest: { ...defaults.ingest, fileNaming: 'keep', renameTemplate: '' } });
+    store.saveExportPreset({
+      ...defaults.exportPresets[0]!,
+      fileNaming: 'keep',
+      fileNameTemplate: '',
+    });
+    expect(store.get().ingest.fileNaming).toBe('keep');
+    expect(store.get().exportPresets[0]?.fileNameTemplate).toBe('');
+  });
+});
+
 describe('SettingsStore', () => {
   it('starts from defaults and survives a restart', async () => {
     const file = join(await tempDir(), 'settings.json');

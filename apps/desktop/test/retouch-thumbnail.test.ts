@@ -115,6 +115,7 @@ describe('the film strip thumbnail of a retouched photo', () => {
       config: {
         sources: [{ id: asSourceId('card'), name: 'card', kind: 'folder', path: card }],
         destination: { path: join(root, 'ingest') },
+        fileNaming: 'rename',
         renameTemplate: '{sourceName}_{seq:3}',
       },
     });

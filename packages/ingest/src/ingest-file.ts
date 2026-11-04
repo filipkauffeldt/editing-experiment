@@ -8,7 +8,7 @@ import {
   type SourceConfig,
 } from '@ee/contracts';
 import { copyPhotoLocal } from './copy';
-import { safeFileBase, safeSubfolder } from './naming';
+import { safeFileBase, safeSubfolder, splitName } from './naming';
 import { createTemplateContext, type ExpandTemplate, type TemplateContext } from './template';
 import type { FileCopier, IngestedFileInfo } from './types';
 
@@ -48,6 +48,12 @@ export interface IngestFileDeps {
   copier: FileCopier;
   signal?: AbortSignal;
   now: Date;
+  /**
+   * Base names already chosen in one run, keyed by destination directory,
+   * source and original base. A raw/JPEG pair from the same source then gets
+   * the same collision suffix even while another source races for the name.
+   */
+  baseNames?: Map<string, string>;
 }
 
 export async function ingestFile(
@@ -64,7 +70,6 @@ export async function ingestFile(
     now: deps.now,
     ...(request.capturedAt ? { capturedAt: request.capturedAt } : {}),
   });
-  const finalBase = safeFileBase(deps.expandTemplate(deps.config.renameTemplate, context));
   const primaryDirectory = destinationDirectory(
     deps.config.destination,
     context,
@@ -73,6 +78,18 @@ export async function ingestFile(
   const backupDirectory = deps.config.backupDestination
     ? destinationDirectory(deps.config.backupDestination, context, deps.expandTemplate)
     : undefined;
+
+  const originalBase = splitName(request.sourceFileName).base;
+  const reservationKey = `${request.source.id}\u0000${primaryDirectory}\u0000${originalBase}`;
+  let finalBase: string;
+  if (deps.config.fileNaming === 'keep') {
+    // Keeping the original base name still runs through the file-name guard: it
+    // is a real name, but must never become a path or an empty name.
+    finalBase = deps.baseNames?.get(reservationKey) ?? safeFileBase(originalBase);
+    deps.baseNames?.set(reservationKey, finalBase);
+  } else {
+    finalBase = safeFileBase(deps.expandTemplate(deps.config.renameTemplate, context));
+  }
 
   const result = await copyPhotoLocal(
     {
@@ -88,6 +105,12 @@ export async function ingestFile(
       ...(deps.signal ? { signal: deps.signal } : {}),
     },
   );
+
+  if (deps.config.fileNaming === 'keep') {
+    // A concurrent source may have taken the name, moving this copy to `_1`;
+    // the rest of this source's pair must follow it.
+    deps.baseNames?.set(reservationKey, splitName(result.fileName).base);
+  }
 
   return {
     photoId: asPhotoId(randomUUID()),

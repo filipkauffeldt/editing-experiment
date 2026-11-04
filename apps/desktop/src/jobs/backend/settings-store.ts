@@ -5,13 +5,14 @@ import {
   type Destination,
   type DestinationId,
   type ExportPreset,
+  type FileNamingMode,
   type PresetId,
   type SourceConfig,
   type SourceId,
   type TemplateApplyMode,
 } from '@ee/contracts';
 import { existsSync, readFileSync, renameSync } from 'node:fs';
-import { DEFAULT_TEMPLATE_MODE } from '../../shared/settings';
+import { DEFAULT_FILE_NAMING, DEFAULT_TEMPLATE_MODE } from '../../shared/settings';
 import { writeJsonAtomic } from './atomic-json';
 
 interface PersistedState extends AppSettings {
@@ -37,6 +38,21 @@ const isObject = (value: unknown): value is Record<string, unknown> =>
 const isTemplateApplyMode = (value: unknown): value is TemplateApplyMode =>
   value === 'replace' || value === 'fillEmpty';
 
+const isFileNamingMode = (value: unknown): value is FileNamingMode =>
+  value === 'keep' || value === 'rename';
+
+/**
+ * Settings written before the explicit choice always renamed. Keep the
+ * template untouched so switching back to Rename restores it.
+ */
+function migratePresetNaming(value: unknown): { preset: ExportPreset; migrated: boolean } {
+  if (!isObject(value)) return { preset: value as ExportPreset, migrated: false };
+  if (isFileNamingMode(value.fileNaming)) {
+    return { preset: value as unknown as ExportPreset, migrated: false };
+  }
+  return { preset: { ...value, fileNaming: 'rename' } as unknown as ExportPreset, migrated: true };
+}
+
 /**
  * Local sources used to have a single `lockedOnly` boolean. It maps to the
  * lock filter now, and the old key is dropped so it is not persisted again.
@@ -59,13 +75,15 @@ function assertIngest(value: unknown): asserts value is AppSettings['ingest'] {
     typeof value.destination.path !== 'string' ||
     value.destination.path === '' ||
     typeof value.renameTemplate !== 'string' ||
+    !isFileNamingMode(value.fileNaming) ||
+    (value.fileNaming === 'rename' && value.renameTemplate.trim() === '') ||
     (value.metadataTemplateMode !== undefined &&
       !isTemplateApplyMode(value.metadataTemplateMode)) ||
     (value.developPresetId !== undefined && typeof value.developPresetId !== 'string')
   ) {
     throw new IpcError(
       'invalid_argument',
-      'ingest settings need destination.path and renameTemplate',
+      'ingest settings need destination.path and fileNaming, plus a rename template when renaming',
     );
   }
 }
@@ -83,8 +101,9 @@ function assertExportPreset(value: unknown): asserts value is ExportPreset {
     value.name.trim() === '' ||
     typeof value.folderTemplate !== 'string' ||
     value.folderTemplate.trim() === '' ||
+    !isFileNamingMode(value.fileNaming) ||
     typeof value.fileNameTemplate !== 'string' ||
-    value.fileNameTemplate.trim() === '' ||
+    (value.fileNaming === 'rename' && value.fileNameTemplate.trim() === '') ||
     !['suffix', 'overwrite', 'skip'].includes(String(value.ifExists)) ||
     value.format !== 'jpeg' ||
     !isQuality(value.quality) ||
@@ -205,7 +224,9 @@ export class SettingsStore {
       if (!fallbackPreset) throw new Error('default settings have no export preset');
       let presets: ExportPreset[];
       if (Array.isArray(parsed.exportPresets) && parsed.exportPresets.length > 0) {
-        presets = parsed.exportPresets as ExportPreset[];
+        const migratedPresets = parsed.exportPresets.map(migratePresetNaming);
+        presets = migratedPresets.map((entry) => entry.preset);
+        if (migratedPresets.some((entry) => entry.migrated)) migrated = true;
       } else if (isObject(parsed.finishAction)) {
         presets = [
           presetFromFinishAction(parsed.finishAction as LegacyFinishAction, fallbackPreset),
@@ -237,13 +258,18 @@ export class SettingsStore {
         }
         // Settings written before the mode existed mean Replace: a camera-written
         // copyright/artist must be corrected by the template, not kept.
-        ingest = isTemplateApplyMode(rest.metadataTemplateMode)
-          ? (rest as unknown as AppSettings['ingest'])
-          : {
-              ...(rest as unknown as AppSettings['ingest']),
-              metadataTemplateMode: DEFAULT_TEMPLATE_MODE,
-            };
-        if (!isTemplateApplyMode(rest.metadataTemplateMode)) migrated = true;
+        // Settings written before the naming choice existed mean Rename: templates
+        // have always decided the name, and nothing may change silently.
+        ingest = {
+          ...(rest as unknown as AppSettings['ingest']),
+          metadataTemplateMode: isTemplateApplyMode(rest.metadataTemplateMode)
+            ? rest.metadataTemplateMode
+            : DEFAULT_TEMPLATE_MODE,
+          fileNaming: isFileNamingMode(rest.fileNaming) ? rest.fileNaming : DEFAULT_FILE_NAMING,
+        };
+        if (!isTemplateApplyMode(rest.metadataTemplateMode) || !isFileNamingMode(rest.fileNaming)) {
+          migrated = true;
+        }
       }
 
       // The single ingest template becomes part of the global template list, and

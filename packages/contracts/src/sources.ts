@@ -124,13 +124,27 @@ export interface IngestDestination {
 /** How a metadata template merges into existing metadata. */
 export type TemplateApplyMode = 'replace' | 'fillEmpty';
 
+/**
+ * Whether file names are rebuilt from a template or kept as they are.
+ * Existing settings predate the choice and migrate to `rename`.
+ */
+export type FileNamingMode = 'keep' | 'rename';
+
 /** Everything `ingest:start` needs. All sources run in parallel, each in filename order. */
 export interface IngestConfig {
   sources: SourceConfig[];
   destination: IngestDestination;
   /** Second copy made alongside the primary one; failure to write it fails the file. */
   backupDestination?: IngestDestination;
-  /** File name template without extension, e.g. `{date}_{event}_{seq:4}`. */
+  /**
+   * `rename` builds the file name from `renameTemplate`; `keep` copies the
+   * source's own base name and only adds a numeric suffix on a collision.
+   */
+  fileNaming: FileNamingMode;
+  /**
+   * File name template without extension, e.g. `{date}_{event}_{seq:4}`.
+   * Retained while `fileNaming` is `keep`, so switching back restores it.
+   */
   renameTemplate: string;
   /** Photo Mechanic style `.XMP` metadata template applied to every ingested photo. */
   metadataTemplatePath?: string;

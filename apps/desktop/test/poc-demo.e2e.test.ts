@@ -490,6 +490,7 @@ describe.skipIf(nefs.length === 0 || !haveDisplay)(
         id: asPresetId('poc-main'),
         name: 'Sportfotografen',
         folderTemplate: '{folder}/Export/{preset}',
+        fileNaming: 'rename',
         fileNameTemplate: '{filenamebase}',
         ifExists: 'suffix',
         format: 'jpeg',
@@ -527,6 +528,7 @@ describe.skipIf(nefs.length === 0 || !haveDisplay)(
       const settings: AppSettings = {
         ingest: {
           destination: { path: join(root, 'ingest') },
+          fileNaming: 'rename',
           renameTemplate: '{sourceName}_{seq:3}',
           metadataTemplatePath: templatePath,
         },

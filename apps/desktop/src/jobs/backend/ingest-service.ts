@@ -32,12 +32,14 @@ export class IngestService {
   async start(config: IngestConfig): Promise<IngestJobInfo[]> {
     if (
       !Array.isArray(config?.sources) ||
+      (config?.fileNaming !== 'keep' && config?.fileNaming !== 'rename') ||
       typeof config.renameTemplate !== 'string' ||
+      (config.fileNaming === 'rename' && config.renameTemplate.trim() === '') ||
       typeof config.destination?.path !== 'string'
     ) {
       throw new IpcError(
         'invalid_argument',
-        'ingest config needs sources, renameTemplate and destination.path',
+        'ingest config needs sources, fileNaming and destination.path, plus a rename template when renaming',
       );
     }
     // Starting a source that is still running replaces its run.

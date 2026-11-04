@@ -264,6 +264,7 @@ describe.skipIf(!haveDisplay)('zoom and pan (real Electron app)', { timeout: 240
     const config: IngestConfig = {
       sources: [{ id: asSourceId('card'), name: 'card', kind: 'folder', path: card }],
       destination: { path: join(root, 'ingest') },
+      fileNaming: 'rename',
       renameTemplate: '{sourceName}_{seq:3}',
     };
     await invoke('ingest:start', { config });

@@ -19,10 +19,12 @@ Export / Export & send.
 ## Implemented
 
 - Ingest from folder and card sources and from polled FTP/FTPS/SFTP servers, in
-  parallel. Each source copies in filename order, with rename and subfolder
-  templates, SHA-256 verification, an optional backup destination, and no
-  writes to the originals; deleting from a server is opt-in and off by
-  default.
+  parallel. Each source copies in filename order, with an explicit choice of
+  keeping the original file names or renaming with a template (and an optional
+  subfolder template), SHA-256 verification, an optional backup destination,
+  and no writes to the originals; deleting from a server is opt-in and off by
+  default. Keeping names adds a numeric suffix when two sources hold the same
+  name, so nothing is overwritten.
 - Per-source local ingest filters: file types RAW / JPEG / Both, lock state
   Locked / Unlocked / All, and incremental ingest (on by default).
 - Photo Mechanic `.XMP` metadata templates with Replace (the default) or Fill
@@ -189,18 +191,21 @@ Set things up in this order:
 1. **Settings → Metadata.** Add the Photo Mechanic metadata template `.XMP` files
    and tab-delimited code replacement files. This global list feeds the
    Metadata panel and ingest.
-2. **Settings → Ingest.** Choose the destination folder and rename template
-   (and optionally a subfolder template and backup folder). Pick the metadata
-   template from the global list and its mode, `Replace existing values` (the
-   default) or `Fill empty fields`, and choose the develop preset to apply on
-   import. Import presets with **Develop → Presets → Import** first.
+2. **Settings → Ingest.** Choose the destination folder and whether to
+   **Keep original file names** or **Rename** with a template (and optionally a
+   subfolder template and backup folder). Pick the metadata template from the
+   global list and its mode, `Replace existing values` (the default) or
+   `Fill empty fields`, and choose the develop preset to apply on import.
+   Import presets with **Develop → Presets → Import** first.
 3. **Settings → Sources.** Add a folder, card, FTP or SFTP source, then
    **Test** and **Save source**. For a local source, set its filters: file
    types RAW / JPEG / Both, lock state Locked / Unlocked / All, and Incremental
    (on by default). Anonymous FTP needs no password.
 4. **Settings → Destinations** for upload targets, and **Export… → New
    preset** for export presets (Location, File, Content, Then send), then
-   **Save preset** and **Set as active**.
+   **Save preset** and **Set as active**. A preset keeps the photo's current
+   base name or renames with a file name template; keep mode only adds `-1`,
+   `-2` when a file of that name already exists.
 5. Optional: **Settings → Profiles → Add folder…** for `.dcp`/`.xmp` camera
    profiles. Adobe's own folders are found automatically on macOS and Windows.
    See [Camera profiles](docs/camera-profiles.md) for the platform details.

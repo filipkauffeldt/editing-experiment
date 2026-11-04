@@ -9,7 +9,8 @@ software.
 The proof of concept covers one end-to-end workflow:
 
 1. **Ingest.** Local folders, cards and polled FTP/FTPS/SFTP sources are ingested in
-   parallel, each in filename order, with rename and subfolder templates, SHA-256
+   parallel, each in filename order, keeping the original names or renaming with a
+   template (plus an optional subfolder template), SHA-256
    verification, an optional backup destination, a Photo Mechanic metadata template
    (Replace by default, or Fill empty) and an optional develop preset. Local sources
    filter by file type (RAW / JPEG / Both), lock state (Locked / Unlocked / All) and
@@ -121,7 +122,9 @@ exports/             default exportRoot (presets choose folders below it)
   nothing. Progress reports `filesScanned` (before filters), `filesTotal` (new files to copy) and
   `filesSkipped` (already ingested), so the UI can show "12 locked of 480" and
   "142 new · 338 already ingested". With incremental off the existing collision handling adds
-  numeric suffixes; ingest never overwrites.
+  numeric suffixes; ingest never overwrites. Keeping original names uses the source's own base
+  name and the same suffix rule; the suffix is decided once per source and base, so a raw/JPEG
+  pair and its XMP sidecar keep matching names while two sources race for the same shot.
 - `app://thumb|preview` are cached JPEGs. `app://linear/<id>?maxEdge=N` is decoded in the jobs process
   (f16 for raws, f32 for JPEGs), written to `cache/linear` (small LRU) and streamed from
   there by main, with the `LinearImageHeader` in `x-ee-linear-image`. Main only streams
@@ -145,7 +148,9 @@ exports/             default exportRoot (presets choose folders below it)
   current photo is queued again once the renderer calls `export:rendererReady`.
 - Export safety: the target is checked against every indexed photo's `path` and `sidecarPath`
   (case-folded on macOS/Windows) and an export never writes over them. `ifExists` defaults to
-  `suffix`; `overwrite` only replaces a path recorded in `exported-files.json`. The render request
+  `suffix`; `overwrite` only replaces a path recorded in `exported-files.json`. With
+  `fileNaming: 'keep'` the same rule applies to the photo's base name, so repeat exports and a
+  raw/JPEG pair sharing a base get `-1`, `-2`, … before the extension. The render request
   carries the ops key (`retouchOpsKey`) the jobs process expects; the renderer echoes the key of the
   ops it applied and the jobs process rejects a stale or mosaic-less render.
 - On quit, main asks the jobs process to shut down (stop ingest, close the upload queue, ExifTool and
@@ -200,9 +205,11 @@ Key types (names are binding, fields can grow):
   `FolderSource` and `CardSource` also have optional `fileTypes` (`both` default),
   `lockFilter` (`all` default) and `incremental` (`true` default); remote sources
   have none of them.
-- `IngestConfig { sources, destination, backupDestination?, renameTemplate,
-  metadataTemplatePath?, metadataTemplateMode?, developPresetId? }`;
-  the template mode is `replace` (default) or `fillEmpty`. The global
+- `IngestConfig { sources, destination, backupDestination?, fileNaming,
+  renameTemplate, metadataTemplatePath?, metadataTemplateMode?, developPresetId? }`;
+  `fileNaming` is `keep` (the source's own file names) or `rename`; settings
+  written before it existed migrate to `rename`, and `renameTemplate` is kept
+  while keeping names. The template mode is `replace` (default) or `fillEmpty`. The global
   `AppSettings.metadataTemplates` and `AppSettings.codeReplacementPaths` lists
   supply the template picker and code replacement files for ingest and the
   Metadata panel.
@@ -221,9 +228,11 @@ Key types (names are binding, fields can grow):
   saved before `areas` existed, which loads as adds),
   `Shape = Rect | Polygon` in normalized image coordinates (0..1)
 - `PhotoVersion { id, kind: 'develop' | 'retouch', ops }`
-- `ExportPreset { id, name, folderTemplate, fileNameTemplate, ifExists, format, quality,
-  colorSpace, resize, outputSharpening, metadata, stripGps, version, sendTo }`;
-  `folderTemplate` is relative to `AppSettings.exportRoot` (or absolute) and expands
+- `ExportPreset { id, name, folderTemplate, fileNaming, fileNameTemplate, ifExists, format,
+  quality, colorSpace, resize, outputSharpening, metadata, stripGps, version, sendTo }`;
+  `fileNaming` is `keep` (the photo's current base name plus `.jpg`) or `rename`
+  (existing presets and fresh installs migrate to `rename`); `folderTemplate`
+  is relative to `AppSettings.exportRoot` (or absolute) and expands
   `{variables}` from `@ee/metadata`, plus `{preset}`.
 - `Destination` = `FolderDestination | FtpDestination | SftpDestination`,
   with `remotePathTemplate`

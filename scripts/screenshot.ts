@@ -364,6 +364,7 @@ async function runReal(outDir: string): Promise<void> {
     await invoke('settings:set', {
       ingest: {
         destination: { path: join(temp, 'ingest') },
+        fileNaming: 'rename',
         renameTemplate: '{sourceName}_{seq:3}',
       },
       exportRoot: join(temp, 'exports'),
@@ -372,6 +373,7 @@ async function runReal(outDir: string): Promise<void> {
           id: 'shots-preset',
           name: 'Sportfotografen',
           folderTemplate: '{folder}/Export/{preset}',
+          fileNaming: 'rename',
           fileNameTemplate: '{filenamebase}',
           ifExists: 'suffix',
           format: 'jpeg',
@@ -394,6 +396,7 @@ async function runReal(outDir: string): Promise<void> {
       config: {
         sources: [{ id: 'shots-card', kind: 'folder', name: 'shots', path: source }],
         destination: { path: join(temp, 'ingest') },
+        fileNaming: 'rename',
         renameTemplate: '{sourceName}_{seq:3}',
       },
     });

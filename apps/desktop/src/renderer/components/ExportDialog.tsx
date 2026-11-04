@@ -4,6 +4,7 @@ import {
   type DestinationId,
   type ExportPreset,
   type ExportResize,
+  type FileNamingMode,
   type PresetId,
 } from '@ee/contracts';
 import { useEffect, useState } from 'react';
@@ -72,14 +73,28 @@ function PresetEditor({
             />
           </label>
           <label className={`${styles.field} ${styles.wide}`}>
-            <span className={styles.label}>File name template</span>
-            <input
+            <span className={styles.label}>File names</span>
+            <select
               className={styles.input}
-              value={draft.fileNameTemplate}
-              data-testid="filename-template"
-              onChange={(event) => patch({ fileNameTemplate: event.target.value })}
-            />
+              value={draft.fileNaming}
+              data-testid="export-file-naming"
+              onChange={(event) => patch({ fileNaming: event.target.value as FileNamingMode })}
+            >
+              <option value="keep">Keep original file name</option>
+              <option value="rename">Rename</option>
+            </select>
           </label>
+          {draft.fileNaming === 'rename' && (
+            <label className={`${styles.field} ${styles.wide}`}>
+              <span className={styles.label}>File name template</span>
+              <input
+                className={styles.input}
+                value={draft.fileNameTemplate}
+                data-testid="filename-template"
+                onChange={(event) => patch({ fileNameTemplate: event.target.value })}
+              />
+            </label>
+          )}
           <label className={styles.field}>
             <span className={styles.label}>If the file exists</span>
             <select
@@ -289,8 +304,11 @@ export function ExportDialog() {
       setError('A preset needs a name');
       return undefined;
     }
-    if (preset.folderTemplate.trim() === '' || preset.fileNameTemplate.trim() === '') {
-      setError('Folder and file name templates are required');
+    if (
+      preset.folderTemplate.trim() === '' ||
+      (preset.fileNaming === 'rename' && preset.fileNameTemplate.trim() === '')
+    ) {
+      setError('A folder template is required; a file name template is required when renaming');
       return undefined;
     }
     if (!Number.isInteger(preset.quality) || preset.quality < 1 || preset.quality > 100) {

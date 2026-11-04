@@ -1,4 +1,4 @@
-import type { AppSettings, ExportPreset, TemplateApplyMode } from '@ee/contracts';
+import type { AppSettings, ExportPreset, FileNamingMode, TemplateApplyMode } from '@ee/contracts';
 import { asPresetId } from '@ee/contracts';
 import { join } from 'node:path';
 
@@ -8,6 +8,7 @@ export function defaultExportPreset(): ExportPreset {
     id: asPresetId('default'),
     name: 'Sportfotografen',
     folderTemplate: '{folder}/Export/{preset}',
+    fileNaming: 'rename',
     fileNameTemplate: '{filenamebase}',
     ifExists: 'suffix',
     format: 'jpeg',
@@ -28,6 +29,7 @@ export function defaultSettings(homeDir: string): AppSettings {
   return {
     ingest: {
       destination: { path: join(homeDir, 'Pictures', 'ee-ingest') },
+      fileNaming: 'rename',
       renameTemplate: '{date}_{seq:4}',
       metadataTemplateMode: 'replace',
     },
@@ -45,3 +47,9 @@ export function defaultSettings(homeDir: string): AppSettings {
  * must correct those fields.
  */
 export const DEFAULT_TEMPLATE_MODE: TemplateApplyMode = 'replace';
+
+/**
+ * Naming used when settings do not say, and by a fresh install. Ingest and
+ * export renamed by template before the explicit choice existed.
+ */
+export const DEFAULT_FILE_NAMING: FileNamingMode = 'rename';

@@ -119,6 +119,7 @@ describe.skipIf(!nef || !haveDisplay)('real mode smoke test (Electron)', () => {
     const config: IngestConfig = {
       sources: [{ id: asSourceId('card'), name: 'card', kind: 'folder', path: card }],
       destination: { path: join(root, 'ingest') },
+      fileNaming: 'rename',
       renameTemplate: '{sourceName}_{seq:3}',
     };
     await invoke('ingest:start', { config });
