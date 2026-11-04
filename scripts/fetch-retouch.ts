@@ -85,8 +85,31 @@ async function sha256Of(path: string): Promise<string | undefined> {
   return hash.digest('hex');
 }
 
+// Wikimedia answers 429 to anonymous clients and to busy CI runners. A named client and a few
+// patient retries (honouring Retry-After) are what its etiquette asks for.
+const USER_AGENT =
+  'editing-experiment-fixtures (+https://github.com/filipkauffeldt/editing-experiment)';
+const MAX_ATTEMPTS = 5;
+
+async function fetchWithRetry(url: string): Promise<Response> {
+  for (let attempt = 1; ; attempt += 1) {
+    const response = await fetch(url, {
+      redirect: 'follow',
+      headers: { 'user-agent': USER_AGENT },
+    });
+    const retryable = response.status === 429 || response.status >= 500;
+    if (response.ok || !retryable || attempt === MAX_ATTEMPTS) {
+      return response;
+    }
+    const retryAfter = Number(response.headers.get('retry-after'));
+    const seconds = Number.isFinite(retryAfter) && retryAfter > 0 ? retryAfter : 2 ** attempt * 2;
+    console.log(`${url}: HTTP ${response.status}, retrying in ${seconds}s`);
+    await new Promise((resolve) => setTimeout(resolve, Math.min(seconds, 60) * 1000));
+  }
+}
+
 async function download(file: Download, destination: string): Promise<void> {
-  const response = await fetch(file.url, { redirect: 'follow' });
+  const response = await fetchWithRetry(file.url);
   if (!response.ok || !response.body) {
     throw new Error(`${file.url}: HTTP ${response.status}`);
   }
