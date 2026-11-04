@@ -35,7 +35,13 @@ const secretPort = new Promise<SecretPort>((resolve) => {
 let backend: Promise<Backend> | undefined;
 let mockHandlers: Partial<IpcHandlers> | undefined;
 if (mock) {
-  mockHandlers = createJobsHandlers({ mock, appVersion, emit, simulate: true });
+  // Keep the mock world still for screenshots so the same badges appear every run.
+  mockHandlers = createJobsHandlers({
+    mock,
+    appVersion,
+    emit,
+    simulate: process.env.EE_SCREENSHOTS !== '1',
+  });
 } else {
   const userDataDir = process.env.EE_USER_DATA_DIR;
   backend = userDataDir
