@@ -93,7 +93,8 @@ describe('detectCards on a real filesystem', () => {
     await writeFile(join(folder, 'notes.txt'), 'x');
     await mkdir(join(parent, 'plain-usb'));
 
-    const cards = await detectCards({ platform: 'linux', mountRoots: [parent] });
+    // The platform decides the path separator, which has to be the real one here.
+    const cards = await detectCards({ platform: process.platform, mountRoots: [parent] });
 
     expect(cards).toEqual([{ mountPath: card, volumeLabel: 'NIKON_Z9', imageCount: 1 }]);
   });
