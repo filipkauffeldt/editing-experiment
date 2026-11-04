@@ -401,6 +401,32 @@ describe('settings', () => {
     expect(infos).toHaveLength(store.getState().sources.length);
     expect(fake.calls.some((call) => call.channel === 'ingest:start')).toBe(true);
   });
+
+  it('surfaces a failed stop and clears the per-source stopping state', async () => {
+    const { store, fake } = await setup({
+      handlers: {
+        'ingest:stop': async () => {
+          throw new Error('run is stuck');
+        },
+      },
+    });
+    const source = store.getState().sources[0];
+    if (!source) throw new Error('no source');
+
+    await store.stopIngest(source.id);
+
+    expect(
+      fake.calls.some(
+        (call) =>
+          call.channel === 'ingest:stop' &&
+          (call.args[0] as { sourceId?: string } | undefined)?.sourceId === source.id,
+      ),
+    ).toBe(true);
+    expect(store.getState().ingestStopping).toEqual({});
+    expect(store.getState().toasts.at(-1)?.message).toContain(
+      'Could not stop the ingest: run is stuck',
+    );
+  });
 });
 
 describe('crop editing', () => {

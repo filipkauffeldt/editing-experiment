@@ -83,7 +83,11 @@
 }
 
 .state {
+  display: flex;
   grid-column: 2 / -1;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
   color: var(--muted);
 }
 

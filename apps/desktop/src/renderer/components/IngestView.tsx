@@ -41,13 +41,34 @@ const runTone = (run: IngestRun | undefined): 'error' | 'ok' | 'idle' =>
       ? 'ok'
       : 'idle';
 
+/** Stops one source; disabled while its run is winding down after the click. */
+function StopIngestButton({ source }: { source: SourceConfig }) {
+  const store = useAppStore();
+  const stopping = useAppState().ingestStopping[source.id] === true;
+  return (
+    <Button
+      size="small"
+      aria-label={`Stop ${source.name}`}
+      title={stopping ? `Stopping ${source.name}…` : `Stop ${source.name}`}
+      disabled={stopping}
+      onClick={() => void store.stopIngest(source.id)}
+    >
+      {stopping ? 'Stopping…' : 'Stop'}
+    </Button>
+  );
+}
+
 /** Progress line, bar, error and warning of one source's run. */
 function RunStatus({ source, run }: { source: SourceConfig; run: IngestRun | undefined }) {
   const percent =
     run && run.filesTotal > 0 ? Math.min(100, (run.filesDone / run.filesTotal) * 100) : 0;
+  const stoppable = run?.state === 'running' || run?.state === 'watching';
   return (
     <>
-      <span className={`${styles.state} mono`}>{progressText(source, run)}</span>
+      <span className={styles.state}>
+        <span className="mono">{progressText(source, run)}</span>
+        {stoppable && <StopIngestButton source={source} />}
+      </span>
       <span className={styles.bar}>
         <span style={{ width: `${percent}%` }} />
       </span>

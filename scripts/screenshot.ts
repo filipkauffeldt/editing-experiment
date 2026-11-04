@@ -93,6 +93,15 @@ async function runMock(outDir: string): Promise<void> {
     );
     await shoot('01-main-1440.png');
 
+    // The running Ingest view: the Stop all control and a Stop on every running source.
+    await window.getByRole('tab', { name: 'Ingest' }).click();
+    await window.locator('[data-testid="ingest-view"]').waitFor();
+    await window.getByRole('button', { name: 'Ingest', exact: true }).click();
+    await window.getByRole('button', { name: 'Stop all ingests' }).waitFor();
+    await shoot('01e-ingest-running.png');
+    await window.getByRole('tab', { name: 'Develop' }).click();
+    await window.locator('[data-testid="film-strip"]').waitFor();
+
     // Copy Settings: Lightroom-style groups, Crop off by default.
     await window.getByTestId('open-copy-settings').click();
     await window.getByTestId('copy-settings-dialog').waitFor();

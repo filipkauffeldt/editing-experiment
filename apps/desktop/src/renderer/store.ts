@@ -342,6 +342,8 @@ export interface AppState {
   presets: EditPreset[];
   uploads: UploadItem[];
   ingest: Record<string, IngestRun>;
+  /** Source ids whose stop is waiting for the run to abort. */
+  ingestStopping: Record<string, true>;
   /** Cards mounted as of the last scan (`sources:detectCards`). */
   cards: DetectedCard[];
   /** A scan for cards is running. */
@@ -653,6 +655,7 @@ const emptyState = (): AppState => ({
   selection: [],
   uploads: [],
   ingest: {},
+  ingestStopping: {},
   cards: [],
   cardsScanning: false,
   cardsCounting: false,
@@ -3520,6 +3523,36 @@ export class AppStore {
     const saved = unchanged ? wanted : await this.saveSource(wanted);
     if (!this.state.pickedCards.includes(saved.id)) {
       this.set({ pickedCards: [...this.state.pickedCards, saved.id] });
+    }
+  };
+
+  /**
+   * Stops one source, or every source that is still running or watching. The call
+   * returns when the runs have wound down, so the controls stay disabled until then.
+   */
+  readonly stopIngest = async (sourceId?: SourceId): Promise<void> => {
+    const targets = sourceId
+      ? [sourceId]
+      : Object.values(this.state.ingest)
+          .filter((run) => run.state === 'running' || run.state === 'watching')
+          .map((run) => run.sourceId);
+    if (targets.length === 0) return;
+
+    const stopping = { ...this.state.ingestStopping };
+    for (const id of targets) stopping[id] = true;
+    this.set({ ingestStopping: stopping });
+    try {
+      if (sourceId) {
+        await this.bridge.invoke('ingest:stop', { sourceId });
+      } else {
+        await this.bridge.invoke('ingest:stop');
+      }
+    } catch (cause) {
+      this.toast('error', `Could not stop the ingest: ${messageOf(cause)}`);
+    } finally {
+      const next = { ...this.state.ingestStopping };
+      for (const id of targets) delete next[id];
+      this.set({ ingestStopping: next });
     }
   };
 

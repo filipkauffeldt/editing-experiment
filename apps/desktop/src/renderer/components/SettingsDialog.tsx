@@ -28,6 +28,7 @@ import {
   SourceFilters,
   sourceFilterValues,
 } from './SourceFilters';
+import { Button } from './ui/Button';
 import styles from './SettingsDialog.module.css';
 
 const newId = (prefix: string): string =>
@@ -976,6 +977,11 @@ export function IngestSection() {
 
   // What Ingest will copy: unticked discovered cards are left out.
   const toRun = sourcesToIngest(state.sources, state.pickedCards);
+  const activeRuns = Object.values(state.ingest).filter(
+    (run) => run.state === 'running' || run.state === 'watching',
+  );
+  const stoppingAll =
+    activeRuns.length > 0 && activeRuns.every((run) => state.ingestStopping[run.sourceId]);
 
   const build = (): IngestSettings => ({
     destination: {
@@ -1172,6 +1178,16 @@ export function IngestSection() {
             : `${toRun.length} source(s): ${toRun.map((source) => source.name).join(', ')}`}
         </span>
         <span className={styles.spacer} />
+        {activeRuns.length > 0 && (
+          <Button
+            aria-label="Stop all ingests"
+            title="Stop every running and watching source"
+            disabled={stoppingAll}
+            onClick={() => void store.stopIngest()}
+          >
+            {stoppingAll ? 'Stopping…' : 'Stop all'}
+          </Button>
+        )}
         <button type="submit" className={styles.button} disabled={busy}>
           Save
         </button>

@@ -97,6 +97,22 @@ describe('FTP source', { timeout: 15_000 }, () => {
     expect(handle.status()[0]?.state).toBe('watching');
   });
 
+  it('stops watching and starts watching again after a new run', async () => {
+    const setupResult = await setup();
+    const { root, destination } = setupResult;
+    const first = start(setupResult);
+    await waitForWatching(first);
+
+    await first.stop();
+    expect(first.status()[0]?.state).toBe('stopped');
+
+    const second = start(setupResult);
+    await waitForWatching(second);
+    await writeFile(join(root, '_DSC8.NEF'), 'raw-eight');
+    await waitFor(() => pathExists(join(destination, '_DSC8_01.NEF')), 'download after restart');
+    expect(await readFile(join(destination, '_DSC8_01.NEF'), 'utf8')).toBe('raw-eight');
+  });
+
   it('does not download a file that is still growing', async () => {
     const setupResult = await setup({ pollIntervalMs: 100 });
     const { root, destination } = setupResult;
