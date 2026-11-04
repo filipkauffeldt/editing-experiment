@@ -19,9 +19,13 @@ export function CopySettingsDialog() {
   const state = useAppState();
   const mode = state.copySettings?.mode ?? 'copy';
   const photo = activePhoto(state);
-  const [groups, setGroups] = useState<DevelopSettingGroupId[]>(() => [
-    ...DEFAULT_COPY_SETTING_GROUPS,
-  ]);
+  // The last confirmed Copy/Sync, or the default groups when nothing was remembered yet.
+  const remembered = state.settings?.copySettingGroups;
+  const [groups, setGroups] = useState<DevelopSettingGroupId[]>(() =>
+    remembered === undefined
+      ? [...DEFAULT_COPY_SETTING_GROUPS]
+      : DEVELOP_SETTING_GROUPS.map((group) => group.id).filter((id) => remembered.includes(id)),
+  );
   const selected = new Set(groups);
 
   const toggle = (id: DevelopSettingGroupId): void =>

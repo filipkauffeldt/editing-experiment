@@ -2247,6 +2247,16 @@ export class AppStore {
 
   readonly closeMetadataCopy = (): void => this.set({ metadataCopyOpen: false });
 
+  /**
+   * Remember the ticked copy options, but never let a settings failure stop the
+   * copy itself: the dialog has already done its job when this runs.
+   */
+  private rememberCopySelection(patch: Partial<AppSettings>): void {
+    void this.saveSettings(patch).catch((cause) => {
+      this.toast('error', `Could not remember the copy selection: ${messageOf(cause)}`);
+    });
+  }
+
   /** Remember the checked fields, including empty ones, for Paste. */
   readonly confirmMetadataCopy = (fields: readonly MetadataFieldName[]): void => {
     const photo = activePhoto(this.state);
@@ -2262,6 +2272,7 @@ export class AppStore {
       },
       metadataCopyOpen: false,
     });
+    this.rememberCopySelection({ copyMetadataFields: [...fields] });
     this.toast(
       'success',
       `Copied ${fields.length} field${fields.length === 1 ? '' : 's'} from ${photo.fileName}`,
@@ -2888,7 +2899,10 @@ export class AppStore {
 
   readonly closeCopySettings = (): void => this.set({ copySettings: undefined });
 
-  /** Confirm the dialog: remember the settings, or apply them to the whole selection. */
+  /**
+   * Confirm the dialog: remember the settings, or apply them to the whole
+   * selection. Copy and Sync are the same dialog and remember the same ticks.
+   */
   readonly confirmCopySettings = (groups: readonly DevelopSettingGroupId[]): void => {
     const dialog = this.state.copySettings;
     const source = activePhoto(this.state);
@@ -2904,10 +2918,12 @@ export class AppStore {
         },
         copySettings: undefined,
       });
+      this.rememberCopySelection({ copySettingGroups: [...groups] });
       this.toast('success', `Copied settings from ${source.fileName}`);
       return;
     }
     this.set({ copySettings: undefined });
+    this.rememberCopySelection({ copySettingGroups: [...groups] });
     void this.applySettingsToPhotos(this.settingsTargets(), params, groups, 'Synced');
   };
 
