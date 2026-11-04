@@ -579,6 +579,125 @@ describe.skipIf(!haveDisplay)('zoom and pan (real Electron app)', { timeout: 240
     await waitForZoom('fit');
   });
 
+  it('fits the whole photo below the retouch toolbar and draws where the pointer is', async () => {
+    await window.mouse.move(2, 2);
+    if ((await view()).zoom !== 'fit') {
+      await window.keyboard.press('z');
+      await waitForZoom('fit');
+    }
+    const canvas = await window.locator('[data-testid="photo-canvas"]').boundingBox();
+    if (!canvas) throw new Error('photo canvas has no bounds');
+    const developStage = await stageBox();
+    const boxes = async (): Promise<{ toolbar: Box; stage: Box }> => {
+      const [toolbar, stage] = await Promise.all([
+        window.getByTestId('retouch-toolbar').boundingBox(),
+        stageBox(),
+      ]);
+      if (!toolbar) throw new Error('retouch toolbar has no bounds');
+      return { toolbar, stage };
+    };
+    const expectInsideCanvas = (stage: Box): void => {
+      expect(stage.x).toBeGreaterThanOrEqual(canvas.x - 0.5);
+      expect(stage.y).toBeGreaterThanOrEqual(canvas.y - 0.5);
+      expect(stage.x + stage.width).toBeLessThanOrEqual(canvas.x + canvas.width + 0.5);
+      expect(stage.y + stage.height).toBeLessThanOrEqual(canvas.y + canvas.height + 0.5);
+    };
+    /** Fit centres the photo in the area the toolbar leaves, not in the whole canvas. */
+    const expectCentredBelowToolbar = (stage: Box, toolbar: Box): void => {
+      const top = toolbar.y + toolbar.height;
+      const bottom = canvas.y + canvas.height;
+      expect(stage.y).toBeGreaterThanOrEqual(top - 0.5);
+      expect(Math.abs(stage.y - top - (bottom - top - stage.height) / 2)).toBeLessThan(1.5);
+    };
+    /** The toolbar can wrap to another number of rows: the photo must refit below it. */
+    const waitForFitBelowToolbar = async (): Promise<void> => {
+      await window.waitForFunction(() => {
+        const toolbar = document
+          .querySelector('[data-testid="retouch-toolbar"]')
+          ?.getBoundingClientRect();
+        const stage = document
+          .querySelector('[data-testid="photo-canvas"] [data-photo-id]')
+          ?.getBoundingClientRect();
+        return toolbar !== undefined && stage !== undefined && stage.top >= toolbar.bottom - 0.5;
+      });
+      await settle();
+    };
+
+    await window.keyboard.press('r');
+    await window.getByTestId('retouch-toolbar').waitFor();
+    await waitForFitBelowToolbar();
+    const faces = await boxes();
+    expect(faces.stage.y).toBeGreaterThanOrEqual(faces.toolbar.y + faces.toolbar.height - 0.5);
+    expectInsideCanvas(faces.stage);
+    expectCentredBelowToolbar(faces.stage, faces.toolbar);
+    // The whole picture, not a crop of it, in the space below the toolbar.
+    expect(faces.stage.width / faces.stage.height).toBeCloseTo(IMAGE.width / IMAGE.height, 2);
+
+    // Rectangle drops the Detect faces controls, so the toolbar wraps to fewer rows and the
+    // photo moves up with the area it leaves.
+    await window.locator('[data-tool="rect"]').click();
+    await waitForFitBelowToolbar();
+    const rect = await boxes();
+    expect(rect.toolbar.height).toBeLessThan(faces.toolbar.height);
+    expect(rect.stage.y).toBeLessThan(faces.stage.y);
+    expect(rect.stage.y).toBeGreaterThanOrEqual(rect.toolbar.y + rect.toolbar.height - 0.5);
+    expectInsideCanvas(rect.stage);
+    expectCentredBelowToolbar(rect.stage, rect.toolbar);
+    expect(rect.stage.width / rect.stage.height).toBeCloseTo(IMAGE.width / IMAGE.height, 2);
+
+    // A rectangle drawn after the layout change lands where the pointer is, in picture pixels.
+    const from = {
+      x: rect.stage.x + rect.stage.width * 0.2,
+      y: rect.stage.y + rect.stage.height * 0.3,
+    };
+    const to = {
+      x: rect.stage.x + rect.stage.width * 0.7,
+      y: rect.stage.y + rect.stage.height * 0.8,
+    };
+    await window.mouse.move(from.x, from.y);
+    await window.mouse.down();
+    await window.mouse.move(to.x, to.y, { steps: 8 });
+    await window.mouse.up();
+    await window.waitForSelector('[data-testid="retouch-overlay"] [data-area-kind="rect"]');
+
+    const d = await window
+      .locator('[data-testid="retouch-overlay"] [data-area-kind="rect"]')
+      .first()
+      .getAttribute('d');
+    const match = /M ([\d.e-]+) ([\d.e-]+) h ([\d.e-]+) v ([\d.e-]+)/.exec(d ?? '');
+    if (!match) throw new Error(`unexpected path ${d}`);
+    const [x, y, w, h] = match.slice(1).map(Number) as [number, number, number, number];
+    const expected = {
+      x: (from.x - rect.stage.x) / rect.stage.width,
+      y: (from.y - rect.stage.y) / rect.stage.height,
+      w: (to.x - from.x) / rect.stage.width,
+      h: (to.y - from.y) / rect.stage.height,
+    };
+    const onePixel = 2 / IMAGE.width;
+    expect(Math.abs(x - expected.x)).toBeLessThan(onePixel);
+    expect(Math.abs(y - expected.y)).toBeLessThan(2 / IMAGE.height);
+    expect(Math.abs(w - expected.w)).toBeLessThan(onePixel * 2);
+    expect(Math.abs(h - expected.h)).toBeLessThan(4 / IMAGE.height);
+
+    // Remove the test rectangle again, so the photo is left as the later tests expect it.
+    await window.getByRole('button', { name: 'Undo' }).click();
+
+    // Leaving Retouch returns the photo to the full develop canvas.
+    await window.keyboard.press('Escape');
+    await window.getByTestId('retouch-toolbar').waitFor({ state: 'detached' });
+    await window.waitForFunction((height) => {
+      const stage = document
+        .querySelector('[data-testid="photo-canvas"] [data-photo-id]')
+        ?.getBoundingClientRect();
+      return stage !== undefined && Math.abs(stage.height - height) <= 1;
+    }, developStage.height);
+    await settle();
+    const after = await stageBox();
+    expect(after.width).toBeCloseTo(developStage.width, 0);
+    expect(after.height).toBeCloseTo(developStage.height, 0);
+    expect(after.y).toBeCloseTo(developStage.y, 0);
+  });
+
   it('draws a retouch rectangle on the face while zoomed, and the stored shape is that region', async () => {
     await window.keyboard.press('r');
     await window.getByTestId('retouch-toolbar').waitFor();
