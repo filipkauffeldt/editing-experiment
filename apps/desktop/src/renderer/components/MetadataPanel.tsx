@@ -61,6 +61,7 @@ function KeywordsEditor({ photoId, keywords }: { photoId: PhotoId; keywords: str
         {keywords.length === 0 && <span className={styles.noKeywords}>No keywords</span>}
       </div>
       <TextInput
+        data-keywords-input
         placeholder="Add keyword…"
         value={draft}
         onChange={(event) => setDraft(event.target.value)}

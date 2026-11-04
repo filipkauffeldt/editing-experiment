@@ -253,6 +253,7 @@ modules.
 | `Space`+drag                   | Pan the zoomed photo in any mode; the active tool is paused while Space is held                        |
 | `Ctrl/⌘`+`Z`                   | Undo the last retouch shape                                                                            |
 | `Ctrl/⌘`+`I`                   | Batch caption (Library); focus the caption field (Develop)                                             |
+| `Ctrl/⌘`+`K`                   | Batch caption at Keywords (Library); focus the keywords field (Develop)                                |
 | `Ctrl/⌘`+`A`                   | Select all in the Library                                                                              |
 | `Shift`+`Ctrl/⌘`+`C`           | Copy settings…                                                                                         |
 | `Shift`+`Ctrl/⌘`+`V`           | Paste settings to the selection                                                                        |

@@ -17,6 +17,19 @@ export function focusCaptionField(): void {
 }
 
 /**
+ * Focus the keywords editor ready for a new keyword: nothing selected and the
+ * caret at the end, and scroll the panel (or dialog) to it.
+ */
+export function focusKeywordsField(): void {
+  const field = document.querySelector<HTMLInputElement>('[data-keywords-input]');
+  if (!field) return;
+  field.scrollIntoView?.({ block: 'nearest' });
+  field.focus({ preventScroll: true });
+  const end = field.value.length;
+  field.setSelectionRange(end, end);
+}
+
+/**
  * Symbols that a Swedish (and most non-US) layout only produces with AltGr.
  * Windows/Linux report AltGr as Ctrl+Alt, so a combo carrying one of these is
  * character input, never a command.
@@ -69,7 +82,8 @@ function isTextEntryTarget(target: EventTarget | null): boolean {
 /**
  * Global shortcuts. While an input, textarea, select or contenteditable has
  * focus only the explicit command shortcuts work (Ctrl/Cmd+Enter, Ctrl/Cmd+I,
- * Shift+Ctrl/Cmd+Enter, Shift+Ctrl/Cmd+E, Escape and Ctrl+Space inside the caption).
+ * Ctrl/Cmd+K, Shift+Ctrl/Cmd+Enter, Shift+Ctrl/Cmd+E, Escape and Ctrl+Space inside
+ * the caption).
  */
 export function useKeyboardShortcuts(store: AppStore): void {
   useEffect(() => {
@@ -186,6 +200,12 @@ export function useKeyboardShortcuts(store: AppStore): void {
         event.preventDefault();
         if (library) store.toggleBatchCaption(true);
         else if (state.module === 'develop') focusCaptionField();
+        return;
+      }
+      if (command && (event.key === 'k' || event.key === 'K')) {
+        event.preventDefault();
+        if (library) store.toggleBatchCaption(true, 'keywords');
+        else if (state.module === 'develop') focusKeywordsField();
         return;
       }
       if (library && !typing && command && (event.key === 'a' || event.key === 'A')) {

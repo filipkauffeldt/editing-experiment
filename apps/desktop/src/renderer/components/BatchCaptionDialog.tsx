@@ -1,5 +1,6 @@
 import type { IptcFields } from '@ee/contracts';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
+import { focusKeywordsField } from '../keyboard';
 import type { FieldEdit } from '../library';
 import { useAppState, useAppStore } from '../store-context';
 import { Modal } from './Modal';
@@ -42,6 +43,12 @@ export function BatchCaptionDialog() {
     state.selection.length > 0 ? state.selection : state.selectedId ? [state.selectedId] : [];
   const [rows, setRows] = useState<Partial<Record<keyof IptcFields, Row>>>({});
   const [busy, setBusy] = useState(false);
+
+  // Ctrl/Cmd+K asks for the Keywords row when the dialog mounts.
+  const focusKeywords = state.batchCaptionFocusKeywords;
+  useEffect(() => {
+    if (focusKeywords) focusKeywordsField();
+  }, [focusKeywords]);
 
   const edits: FieldEdit[] = FIELDS.flatMap((field) => {
     const row = rows[field.name];
@@ -120,6 +127,7 @@ export function BatchCaptionDialog() {
               ) : (
                 <TextInput
                   id={`batch-${field.name}`}
+                  data-keywords-input={field.name === 'keywords' ? true : undefined}
                   variant="boxed"
                   placeholder={field.name === 'keywords' ? 'comma, separated' : undefined}
                   value={row?.value ?? ''}
