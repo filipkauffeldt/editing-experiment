@@ -10,6 +10,7 @@ import {
   panBy,
   reclamp,
   viewLayout,
+  wheelPanDelta,
   wheelZoomFactor,
   zoomBy,
   zoomTo,
@@ -179,17 +180,24 @@ export function useZoomControls(
     };
   }, [key]);
 
-  // Ctrl/Cmd + wheel, which Chromium also sends for a trackpad pinch. A native listener, because
-  // React's wheel handlers are passive and the browser would zoom the page.
+  // Ctrl/Cmd + wheel, which Chromium also sends for a trackpad pinch, zooms. A plain wheel pans a
+  // zoomed view, and does nothing at Fit. A native listener, because React's wheel handlers are
+  // passive and the browser would zoom or scroll the page instead.
   useEffect(() => {
     const target = element.current;
     if (!target) return;
     const onWheel = (event: WheelEvent): void => {
-      if (!event.ctrlKey && !event.metaKey) return;
-      event.preventDefault();
-      const box = target.getBoundingClientRect();
       const context = latest.current;
       const now = reclamp(viewFor(zoomStore.get(), key), context);
+      if (!event.ctrlKey && !event.metaKey) {
+        // Ctrl+Alt (AltGr on Windows/Linux) carries Ctrl, so it keeps zooming as before.
+        if (now.scale === null) return;
+        event.preventDefault();
+        setView(key, panBy(now, context, wheelPanDelta(event)));
+        return;
+      }
+      event.preventDefault();
+      const box = target.getBoundingClientRect();
       setView(
         key,
         zoomBy(

@@ -249,6 +249,7 @@ modules.
 | `Z`                            | Toggle Fit and the zoom level chosen in the footer (100% to start); in Develop, crop and retouch       |
 | `Ctrl/⌘`+`+` / `-`             | Zoom in / out in steps (`=` and the numpad keys work too); `Ctrl/⌘`+`0` stays the colour class clear   |
 | `Ctrl/⌘`+wheel or pinch        | Zoom around the pointer                                                                                |
+| `Scroll`                       | Pan the zoomed photo in any mode (does nothing at Fit); `Shift`+scroll pans sideways                   |
 | `Space`+drag                   | Pan the zoomed photo in any mode; the active tool is paused while Space is held                        |
 | `Ctrl/⌘`+`Z`                   | Undo the last retouch shape                                                                            |
 | `Ctrl/⌘`+`I`                   | Batch caption (Library); focus the caption field (Develop)                                             |

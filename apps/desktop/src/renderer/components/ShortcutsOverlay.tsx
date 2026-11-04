@@ -69,6 +69,7 @@ const GROUPS: { title: string; rows: [string, string][] }[] = [
       ['Z', 'Toggle Fit and the chosen zoom level (100% to start)'],
       ['Ctrl/⌘ + + / −', 'Zoom in / out in steps'],
       ['Ctrl/⌘ + wheel or pinch', 'Zoom around the pointer'],
+      ['Scroll', 'Pan the zoomed photo, in every mode (Shift scrolls sideways)'],
       ['Space + drag', 'Pan, in every mode (the tool is paused)'],
     ],
   },

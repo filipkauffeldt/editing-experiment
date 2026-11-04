@@ -524,9 +524,12 @@ edited previews or the export, and the develop shader is the same one.
   leaving crop and retouch, starts at Fit. The level `Z` goes to (50 / 100 / 200 %, 100 % to
   start) and whether Space is held live there too.
 - **Maths** (`renderer/view-transform.ts`, pure, unit tested): `viewLayout` (picture to CSS pixels),
-  `zoomTo`/`zoomBy` about an anchor, `panBy`, `clampPan` and `wheelZoomFactor`. A picture smaller
-  than the canvas on an axis stays centred on it; a larger one pans until its edge is 64 px inside
-  the canvas. Zoom is limited to Fit (below) and 800 % (above), in device pixels.
+  `zoomTo`/`zoomBy` about an anchor, `panBy`, `clampPan`, `wheelZoomFactor` and `wheelPanDelta`.
+  A picture smaller than the canvas on an axis stays centred on it; a larger one pans until its
+  edge is 64 px inside the canvas. Zoom is limited to Fit (below) and 800 % (above), in device
+  pixels. `wheelPanDelta` negates the wheel delta (scrolling down moves the view down the photo),
+  uses both axes, turns line and page deltas into pixels like `wheelZoomFactor` does, and makes
+  Shift pan sideways even where Chromium sends it as a vertical delta.
 - **Picture.** The picture is what the view shows in full-resolution pixels: the committed crop's
   output in Develop, the whole image in Crop and Retouch. 100 % is one of its pixels per device
   pixel, so `Z` on a 2x display is a layout scale of 0.5.
@@ -553,10 +556,12 @@ edited previews or the export, and the develop shader is the same one.
   or numpad `-` match `event.key`, never `code`, as on a Swedish keyboard `+` and `-` sit on the
   physical Minus and Slash keys. That is why the shortcut list's Ctrl/Cmd+Slash does not fire where
   the Slash key prints `-`. AltGr never zooms. Ctrl/Cmd+Wheel and a trackpad pinch (a Ctrl+wheel
-  to Chromium) zoom about the pointer. Space (never in a text field, Ctrl+Space excluded) puts a
-  pan layer over the active tool: a drag pans and nothing else sees the pointer, and Space is
-  released on key up or window blur. **Ctrl/Cmd+0 is not Fit**: it clears the colour class, which
-  has no other clear, so Fit is `Z` or the footer.
+  to Chromium) zoom about the pointer. A plain wheel pans a zoomed view, on both axes (Shift
+  sideways), and is left alone at Fit; it only moves the view, so the active crop or retouch tool
+  stays active. Space (never in a text field, Ctrl+Space excluded) puts a pan layer over the
+  active tool: a drag pans and nothing else sees the pointer, and Space is released on key up or
+  window blur. **Ctrl/Cmd+0 is not Fit**: it clears the colour class, which has no other clear, so
+  Fit is `Z` or the footer.
 - **Electron.** `main/menu-template.ts` is Electron's default menu minus the View menu's zoom roles
   (they bind Ctrl/Cmd+0, `+` and `-` to page zoom), and `setVisualZoomLevelLimits(1, 1)` turns
   off pinch page zoom.

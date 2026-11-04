@@ -14,6 +14,8 @@ import {
   screenToImage,
   screenToUnit,
   viewLayout,
+  wheelPanDelta,
+  wheelPixels,
   wheelZoomFactor,
   zoomBy,
   zoomPercent,
@@ -179,5 +181,48 @@ describe('wheel zoom factor', () => {
   it('reads line-based wheels and caps one event', () => {
     expect(wheelZoomFactor({ deltaY: -3, deltaMode: 1 })).toBeCloseTo(ZOOM_STEP, 1);
     expect(wheelZoomFactor({ deltaY: -100000, deltaMode: 0 })).toBeLessThan(1.32);
+  });
+});
+
+describe('wheel pan delta', () => {
+  it('negates both axes, so scrolling down moves the view down the picture', () => {
+    expect(wheelPanDelta({ deltaX: 30, deltaY: 100, deltaMode: 0, shiftKey: false })).toEqual({
+      x: -30,
+      y: -100,
+    });
+    expect(wheelPanDelta({ deltaX: -12, deltaY: -8, deltaMode: 0, shiftKey: false })).toEqual({
+      x: 12,
+      y: 8,
+    });
+  });
+
+  it('normalises line and page deltas to pixels on both axes', () => {
+    expect(wheelPixels(3, 1)).toBe(99);
+    expect(wheelPixels(-3, 1)).toBe(-99);
+    expect(wheelPixels(1, 2)).toBe(100);
+    expect(wheelPixels(7, 0)).toBe(7);
+    expect(wheelPanDelta({ deltaX: -3, deltaY: 3, deltaMode: 1, shiftKey: false })).toEqual({
+      x: 99,
+      y: -99,
+    });
+    expect(wheelPanDelta({ deltaX: 0, deltaY: 1, deltaMode: 2, shiftKey: false })).toEqual({
+      x: 0,
+      y: -100,
+    });
+  });
+
+  it('pans sideways with Shift, also when only a vertical delta arrives', () => {
+    expect(wheelPanDelta({ deltaX: 0, deltaY: 100, deltaMode: 0, shiftKey: true })).toEqual({
+      x: -100,
+      y: 0,
+    });
+    expect(wheelPanDelta({ deltaX: 80, deltaY: 0, deltaMode: 0, shiftKey: true })).toEqual({
+      x: -80,
+      y: 0,
+    });
+    expect(wheelPanDelta({ deltaX: 0, deltaY: 2, deltaMode: 1, shiftKey: true })).toEqual({
+      x: -66,
+      y: 0,
+    });
   });
 });

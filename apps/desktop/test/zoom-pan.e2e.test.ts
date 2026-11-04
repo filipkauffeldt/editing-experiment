@@ -519,6 +519,66 @@ describe.skipIf(!haveDisplay)('zoom and pan (real Electron app)', { timeout: 240
     await waitForZoom('fit');
   });
 
+  it('scroll pans the zoomed photo, does nothing at Fit, and Ctrl+wheel still zooms', async () => {
+    const box = await stageBox();
+    const centre = { x: box.x + box.width / 2, y: box.y + box.height / 2 };
+    await window.mouse.move(centre.x, centre.y);
+    const fit = await view();
+    expect(fit.zoom).toBe('fit');
+    await window.mouse.wheel(0, 120);
+    await settle();
+    // Fit is not a pan: the view stays where it was and the wheel is left to the page.
+    expect(await view()).toEqual(fit);
+
+    await window.keyboard.press('z');
+    await waitForZoom('100');
+    const zoomed = await view();
+    await window.mouse.move(centre.x, centre.y);
+    // Scrolling down moves the view down the photo: the picture itself moves up.
+    await window.mouse.wheel(0, 120);
+    await settle();
+    const down = await view();
+    expect(down.x).toBeCloseTo(zoomed.x, 6);
+    expect(down.y).toBeCloseTo(zoomed.y - 120, 0);
+
+    // Both axes pan.
+    await window.mouse.wheel(80, 0);
+    await settle();
+    const sideways = await view();
+    expect(sideways.x).toBeCloseTo(down.x - 80, 0);
+    expect(sideways.y).toBeCloseTo(down.y, 6);
+
+    // On Linux and Windows Chromium may send Shift+wheel as a vertical delta; it pans sideways.
+    await window.keyboard.down('Shift');
+    await window.mouse.wheel(0, 60);
+    await window.keyboard.up('Shift');
+    await settle();
+    const shifted = await view();
+    expect(shifted.x).toBeCloseTo(sideways.x - 60, 0);
+    expect(shifted.y).toBeCloseTo(sideways.y, 6);
+
+    // Ctrl+wheel still zooms, from Fit as well.
+    await window.keyboard.press('z');
+    await waitForZoom('fit');
+    const beforeZoom = await view();
+    await window.mouse.move(centre.x, centre.y);
+    await window.keyboard.down('Control');
+    await window.mouse.wheel(0, -100);
+    await window.keyboard.up('Control');
+    await window.waitForFunction(
+      () =>
+        document
+          .querySelector('[data-testid="photo-canvas"] [data-photo-id]')
+          ?.getAttribute('data-zoom') !== 'fit',
+    );
+    await settle();
+    const afterZoom = await view();
+    expect(afterZoom.zoom).not.toBe('fit');
+    expect(afterZoom.scale).toBeGreaterThan(beforeZoom.scale);
+    await window.keyboard.press('z');
+    await waitForZoom('fit');
+  });
+
   it('draws a retouch rectangle on the face while zoomed, and the stored shape is that region', async () => {
     await window.keyboard.press('r');
     await window.getByTestId('retouch-toolbar').waitFor();
@@ -533,6 +593,10 @@ describe.skipIf(!haveDisplay)('zoom and pan (real Electron app)', { timeout: 240
     await window.keyboard.press('z');
     await waitForZoom('100');
     await waitForFullResolution();
+
+    // Scroll pans the zoomed view; a rectangle drawn afterwards must still land on the face.
+    await window.mouse.wheel(0, 40);
+    await settle();
 
     // Where the face really is on screen: the white square in a screenshot.
     const { shot, origin } = await shoot();
