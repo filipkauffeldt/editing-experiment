@@ -1,6 +1,12 @@
-import { mkdir, readdir, readFile, rm, utimes, writeFile } from 'node:fs/promises';
+import { mkdir, readdir, readFile, rm, stat, utimes, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { asSourceId, type FolderSource, type IngestConfig, type JobEvent } from '@ee/contracts';
+import {
+  asSourceId,
+  type CardSource,
+  type FolderSource,
+  type IngestConfig,
+  type JobEvent,
+} from '@ee/contracts';
 import { afterEach, describe, expect, it } from 'vitest';
 import { nodeFileCopier } from '../src/copy';
 import { startIngest } from '../src/engine';
@@ -21,7 +27,7 @@ function folderSource(id: string, path: string, recursive = false): FolderSource
   return { kind: 'folder', id: asSourceId(id), name: id, path, recursive };
 }
 
-function config(sources: FolderSource[], destination: string): IngestConfig {
+function config(sources: Array<FolderSource | CardSource>, destination: string): IngestConfig {
   return {
     sources,
     destination: { path: destination },
@@ -326,5 +332,66 @@ describe('startIngest', () => {
     expect(handle.status()[0]?.state).toBe('failed');
     expect(handle.status()[0]?.error).toContain('path');
     expect(await readdir(destination).catch(() => [])).toEqual([]);
+  });
+
+  describe('a card that comes back', () => {
+    const cardAt = (mountPath: string): CardSource => ({
+      kind: 'card',
+      id: asSourceId('nikon'),
+      name: 'NIKON Z 6',
+      mountPath,
+    });
+
+    it('is still incremental when it is mounted under a different path', async () => {
+      const root = await makeTempDir();
+      const destination = join(root, 'destination');
+      const first = join(root, 'media', 'NIKON Z 6');
+      const second = join(root, 'media', 'NIKON Z 61');
+      const frame = '100NCZ/_DSC1.NEF';
+      const shot = new Date('2026-05-01T10:00:00Z');
+      await createFile(join(first, 'DCIM', frame));
+      await utimes(join(first, 'DCIM', frame), shot, shot);
+      const seenStore = new MemorySeenStore();
+      let ingested: string[] = [];
+      const hooks = {
+        seenStore,
+        onFileIngested: async (info: IngestedFileInfo) => {
+          ingested.push(info.sourceFileName);
+        },
+      };
+
+      await startIngest(config([cardAt(first)], destination), hooks).done;
+      expect(ingested).toEqual(['_DSC1.NEF']);
+
+      // The same card mounted elsewhere: the same file with the same timestamp.
+      await createFile(join(second, 'DCIM', frame));
+      await utimes(join(second, 'DCIM', frame), shot, shot);
+      await createFile(join(second, 'DCIM', '100NCZ/_DSC2.NEF'));
+      ingested = [];
+      await startIngest(config([cardAt(second)], destination), hooks).done;
+
+      expect(ingested).toEqual(['_DSC2.NEF']);
+    });
+
+    it('honours files an older run recorded by absolute path', async () => {
+      const root = await makeTempDir();
+      const destination = join(root, 'destination');
+      const mount = join(root, 'media', 'NIKON Z 6');
+      const file = join(mount, 'DCIM', '100NCZ', '_DSC1.NEF');
+      await createFile(file);
+      const info = await stat(file);
+      const seenStore = new MemorySeenStore();
+      seenStore.add({ sourceId: 'nikon', path: file, size: info.size, mtimeMs: info.mtimeMs });
+      const ingested: string[] = [];
+
+      await startIngest(config([cardAt(mount)], destination), {
+        seenStore,
+        onFileIngested: async (done: IngestedFileInfo) => {
+          ingested.push(done.sourceFileName);
+        },
+      }).done;
+
+      expect(ingested).toEqual([]);
+    });
   });
 });
