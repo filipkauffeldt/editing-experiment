@@ -115,6 +115,11 @@ async function runMock(outDir: string): Promise<void> {
     await window.keyboard.press('Escape');
 
     // A retouched photo shows the stacked-frame badge and an active upload.
+    // The ingest toast covers the right-hand frames; let it expire first.
+    await window
+      .getByTestId('toasts')
+      .waitFor({ state: 'detached', timeout: 10_000 })
+      .catch(() => undefined);
     await window.locator('[title^="_DSC8332.NEF"]').click();
     await window.waitForFunction(
       () =>

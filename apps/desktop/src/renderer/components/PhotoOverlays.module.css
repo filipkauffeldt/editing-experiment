@@ -21,7 +21,70 @@
 .labels {
   display: flex;
   flex-wrap: wrap;
+  align-items: center;
   gap: 2px;
+}
+
+/* Export and upload icons share the text labels' scrim so they sit in one row. */
+.badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  height: 14px;
+  padding: 0;
+  background: var(--scrim);
+  color: var(--text);
+}
+
+/* A rotating ring: transform only, so many thumbnails stay cheap. */
+.spinner {
+  box-sizing: border-box;
+  width: 9px;
+  height: 9px;
+  border: 1.5px solid currentColor;
+  border-right-color: transparent;
+  border-radius: 50%;
+  animation: export-spin 0.8s linear infinite;
+}
+
+/* Uploading: the arrow bobs, so it reads differently from the export ring. */
+.uploading {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+}
+
+.uploadingIcon {
+  flex: none;
+  animation: upload-bob 0.9s ease-in-out infinite alternate;
+}
+
+@keyframes export-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes upload-bob {
+  from {
+    transform: translateY(0);
+  }
+
+  to {
+    transform: translateY(-2px);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .spinner,
+  .uploadingIcon {
+    animation: none;
+  }
+
+  .spinner {
+    opacity: 0.7;
+  }
 }
 
 /* Tiny text labels on a translucent black strip: sent, sending 64%, failed. */

@@ -1,4 +1,5 @@
-import type { Photo, UploadItem } from '@ee/contracts';
+import type { ExportJob, ExportPhotoProgress, Photo, UploadItem } from '@ee/contracts';
+import { ExportIcon, UploadIcon } from './icons';
 import { Dot } from './ui/Dot';
 import styles from './PhotoOverlays.module.css';
 
@@ -89,12 +90,76 @@ export function uploadsByPhoto(uploads: readonly UploadItem[]): Map<string, Uplo
   return map;
 }
 
+/** What a photo's newest export job says about its badge. */
+export type PhotoExportBadge = 'exporting' | 'exported' | 'failed';
+
+function exportBadgeFor(state: ExportPhotoProgress['state']): PhotoExportBadge {
+  switch (state) {
+    case 'queued':
+    case 'rendering':
+    case 'exporting':
+      return 'exporting';
+    case 'sending':
+    case 'done':
+    case 'skipped':
+      return 'exported';
+    case 'failed':
+    case 'cancelled':
+      return 'failed';
+  }
+}
+
+/**
+ * The newest job that mentions each photo. Jobs arrive newest first, so a failed
+ * retry hides an older Exported instead of leaving it on screen. Grouped once
+ * per render, like {@link uploadsByPhoto}.
+ */
+export function exportBadgesByPhoto(jobs: readonly ExportJob[]): Map<string, PhotoExportBadge> {
+  const map = new Map<string, PhotoExportBadge>();
+  for (const job of jobs) {
+    for (const progress of job.photos) {
+      if (!map.has(progress.photoId)) map.set(progress.photoId, exportBadgeFor(progress.state));
+    }
+  }
+  return map;
+}
+
+function exportBadge(
+  photo: Photo,
+  jobState: PhotoExportBadge | undefined,
+): PhotoExportBadge | undefined {
+  if (jobState === 'failed') return undefined;
+  if (jobState !== undefined) return jobState;
+  if (photo.status.export === 'done') return 'exported';
+  if (photo.status.export === 'rendering' || photo.status.export === 'encoding') return 'exporting';
+  return undefined;
+}
+
 /** Status text labels for a thumbnail. Titles are what the tests and screen readers read. */
-export function StatusLabels({ photo, percent }: { photo: Photo; percent?: number }) {
+export function StatusLabels({
+  photo,
+  percent,
+  exportState,
+}: {
+  photo: Photo;
+  percent?: number;
+  exportState?: PhotoExportBadge;
+}) {
   const retouch = photo.versions.some((version) => version.kind === 'retouch');
   const upload = photo.status.upload;
+  const exporting = exportBadge(photo, exportState);
   return (
-    <span className={styles.labels}>
+    <span className={styles.labels} data-testid="status-labels">
+      {exporting === 'exporting' && (
+        <span className={styles.badge} role="img" aria-label="Exporting" title="Exporting">
+          <span className={styles.spinner} aria-hidden="true" />
+        </span>
+      )}
+      {exporting === 'exported' && (
+        <span className={styles.badge} role="img" aria-label="Exported" title="Exported">
+          <ExportIcon size={10} />
+        </span>
+      )}
       {retouch ? (
         <span className={`${styles.label} ${styles.labelDim}`} title="Retouch version">
           retouched
@@ -115,22 +180,38 @@ export function StatusLabels({ photo, percent }: { photo: Photo; percent?: numbe
         </span>
       )}
       {upload === 'done' && (
-        <span className={styles.label} title="Uploaded">
+        <span className={styles.label} role="img" aria-label="Uploaded" title="Uploaded">
           sent
         </span>
       )}
       {upload === 'uploading' && (
-        <span className={styles.label} title="Uploading">
+        <span
+          className={`${styles.label} ${styles.uploading}`}
+          role="img"
+          aria-label={percent === undefined ? 'Uploading' : `Uploading ${percent}%`}
+          title="Uploading"
+        >
+          <UploadIcon size={10} className={styles.uploadingIcon} />
           {percent === undefined ? 'sending' : `sending ${percent}%`}
         </span>
       )}
       {upload === 'queued' && (
-        <span className={`${styles.label} ${styles.labelDim}`} title="Queued for upload">
+        <span
+          className={`${styles.label} ${styles.labelDim}`}
+          role="img"
+          aria-label="Queued for upload"
+          title="Queued for upload"
+        >
           queued
         </span>
       )}
       {upload === 'failed' && (
-        <span className={`${styles.label} ${styles.labelFailed}`} title="Upload failed">
+        <span
+          className={`${styles.label} ${styles.labelFailed}`}
+          role="img"
+          aria-label="Upload failed"
+          title="Upload failed"
+        >
           failed
         </span>
       )}

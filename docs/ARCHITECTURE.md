@@ -631,7 +631,9 @@ preset, then advance). A batch runs in the jobs process; the renderer stays usab
 `ifExists` picks suffix/overwrite/skip. Metadata modes write IPTC/XMP, optionally
 copy camera EXIF and GPS from the original, or only copyright; `stripGps` drops the
 location tags. Output sharpening is a simple luminance unsharp mask applied after
-the resize (normally a no-op), in the jobs process, before encoding.
+the resize (normally a no-op), in the jobs process, before encoding. `Photo.status.export`
+is saved in the index (`done` survives a restart; `rendering`/`encoding` are transient),
+and the film strip and Library grid derive queued/running badges from the export jobs.
 
 **Next & send** moves on first and exports in the background (`AppStore.nextAndSend`).
 Whatever can be refused without waiting (no photo, no preset) is refused where the user is, with

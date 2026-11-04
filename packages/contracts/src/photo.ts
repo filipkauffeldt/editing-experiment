@@ -20,7 +20,11 @@ export interface CameraInfo {
 
 /** Where a photo is in the ingest pipeline. */
 export type IngestState = 'pending' | 'copying' | 'verifying' | 'done' | 'failed';
-/** Export (full-resolution render + encode) state. */
+/**
+ * Export (full-resolution render + encode) state. `done` is saved in the photo
+ * index, so the Exported badge survives a restart; `rendering` and `encoding`
+ * are transient and are cleared when no job is running.
+ */
 export type ExportState = 'none' | 'rendering' | 'encoding' | 'done' | 'failed';
 /** Upload state of the photo's most recent export, aggregated over destinations. */
 export type UploadState = 'none' | 'queued' | 'uploading' | 'done' | 'failed';

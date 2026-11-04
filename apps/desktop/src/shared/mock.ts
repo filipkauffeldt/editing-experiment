@@ -155,6 +155,10 @@ export function mockSettings(): AppSettings {
 
 const EDITED = new Set([3, 7, 12, 18, 23, 31, 35]);
 const RETOUCHED = new Set([3, 12, 31]);
+/** Photos whose latest export finished even though the upload may still be queued. */
+const EXPORTED = new Set([1, 2, 8, 10]);
+/** One photo is always mid-export, so the screenshot tour can show the spinner. */
+const EXPORTING = 6;
 
 /** Upload state shown as a badge for the n-th (1-based) photo. */
 function uploadStateFor(n: number): Exclude<UploadItemState, 'cancelled'> | undefined {
@@ -240,7 +244,7 @@ export function mockPhotos(): Photo[] {
         ingest: 'done',
         edited: EDITED.has(n),
         metadataDiffersFromTemplate: n === 5,
-        export: upload === 'done' ? 'done' : 'none',
+        export: n === EXPORTING ? 'encoding' : EXPORTED.has(n) ? 'done' : 'none',
         upload: upload === 'failed' ? 'failed' : (upload ?? 'none'),
       },
       versions,
