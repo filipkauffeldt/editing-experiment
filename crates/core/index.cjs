@@ -841,5 +841,6 @@ module.exports.decodeLinear = nativeBinding.decodeLinear
 module.exports.encodeJpeg = nativeBinding.encodeJpeg
 module.exports.extractPreview = nativeBinding.extractPreview
 module.exports.makePreviews = nativeBinding.makePreviews
+module.exports.readDriveInfo = nativeBinding.readDriveInfo
 module.exports.readRawInfo = nativeBinding.readRawInfo
 module.exports.resizeRgba = nativeBinding.resizeRgba
