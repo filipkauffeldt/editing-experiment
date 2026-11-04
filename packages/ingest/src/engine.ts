@@ -239,8 +239,10 @@ export function startIngest(config: IngestConfig, hooks: IngestHooks = {}): Inge
             seq: job.seq,
             size: file.size,
             mtimeMs: file.mtimeMs,
+            ...(sidecarInfo ? { sidecarMtimeMs: sidecarInfo.mtimeMs } : {}),
           },
           {
+            ...(hooks.onWarning ? { onWarning: hooks.onWarning } : {}),
             config,
             expandTemplate,
             copier,

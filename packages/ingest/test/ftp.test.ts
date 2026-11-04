@@ -1,4 +1,4 @@
-import { appendFile, readFile, readdir, rename, writeFile } from 'node:fs/promises';
+import { appendFile, readFile, readdir, rename, stat, utimes, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { asSourceId, type FtpSource, type JobEvent } from '@ee/contracts';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -95,6 +95,26 @@ describe('FTP source', { timeout: 15_000 }, () => {
     expect(await readFile(join(destination, '_DSC1_01.xmp'), 'utf8')).toBe('<xmp/>');
     await waitForWatching(handle);
     expect(handle.status()[0]?.state).toBe('watching');
+  });
+
+  it('downloads a file whose listing has no modified time and leaves the copy’s own time', async () => {
+    // A plain LIST has no year, so basic-ftp reports no `modifiedAt` and the entry's time is 0.
+    const setupResult = await setup();
+    const { root, destination } = setupResult;
+    const shot = new Date(Date.now() - 2 * 24 * 3600 * 1000);
+    await writeFile(join(root, '_DSC3.NEF'), 'raw-three');
+    await utimes(join(root, '_DSC3.NEF'), shot, shot);
+    const before = Date.now();
+    const handle = start(setupResult);
+
+    await waitFor(() => pathExists(join(destination, '_DSC3_01.NEF')), 'raw download');
+
+    expect(await readFile(join(destination, '_DSC3_01.NEF'), 'utf8')).toBe('raw-three');
+    // Not the epoch, not an invented time: just when the copy was written.
+    expect((await stat(join(destination, '_DSC3_01.NEF'))).mtimeMs).toBeGreaterThanOrEqual(
+      before - 2000,
+    );
+    await handle.stop();
   });
 
   it('stops watching and starts watching again after a new run', async () => {

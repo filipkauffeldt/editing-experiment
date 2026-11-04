@@ -70,6 +70,8 @@ export type GetSecret = (credentialRef: string) => Promise<CredentialSecret>;
 export interface IngestHooks {
   /** Rename and subfolder variables. Defaults to the small built-in. */
   expandTemplate?: ExpandTemplate;
+  /** A problem that does not fail an ingest (e.g. a copy's modified time could not be set). Defaults to `console.warn`. */
+  onWarning?: (message: string) => void;
   /** Called after a photo and its sidecar are verified in the destination. */
   onFileIngested?: OnFileIngested;
   /** Required for FTP/SFTP sources. */
