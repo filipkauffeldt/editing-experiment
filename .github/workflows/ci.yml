@@ -294,3 +294,53 @@ jobs:
         with:
           name: screenshots
           path: screenshots/
+
+  windows:
+    # What a developer on Windows does: install, build the native core, test, build the app, start it.
+    # The first runs showed what breaks, so every step after the install runs even when an earlier
+    # one failed, and the job stays red until all of them pass.
+    runs-on: windows-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v7
+      # Version comes from "packageManager" in package.json.
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: pnpm
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+      - uses: Swatinem/rust-cache@v2
+      - run: pnpm install --frozen-lockfile
+      - name: Lint
+        if: ${{ !cancelled() }}
+        run: pnpm lint
+      - name: Typecheck
+        if: ${{ !cancelled() }}
+        run: pnpm typecheck
+      - name: Build the native core
+        if: ${{ !cancelled() }}
+        run: pnpm build:native
+      - uses: actions/cache@v6
+        with:
+          path: fixtures/raw
+          key: fixtures-raw-${{ hashFiles('scripts/fetch-fixtures.ts') }}
+      - name: Fetch fixtures
+        if: ${{ !cancelled() }}
+        run: node scripts/fetch-fixtures.ts
+      - name: Rust tests and clippy
+        if: ${{ !cancelled() }}
+        run: |
+          cargo test
+          cargo clippy --all-targets -- -D warnings
+      - name: Unit tests
+        if: ${{ !cancelled() }}
+        run: pnpm test:unit
+      - name: Build the desktop app
+        if: ${{ !cancelled() }}
+        run: pnpm --filter "@ee/desktop" run build
+      - name: Launch the built app
+        if: ${{ !cancelled() }}
+        run: pnpm test:e2e:launch
