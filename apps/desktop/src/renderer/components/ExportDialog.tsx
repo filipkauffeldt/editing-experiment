@@ -11,6 +11,7 @@ import { useEffect, useState } from 'react';
 import { activeExportPreset, exportPhotoIds } from '../store';
 import { useAppState, useAppStore } from '../store-context';
 import { Modal } from './Modal';
+import { TemplateField } from './TemplateField';
 import styles from './ExportDialog.module.css';
 
 const newPresetId = (): PresetId => asPresetId(`preset-${Date.now().toString(36)}`);
@@ -63,15 +64,14 @@ function PresetEditor({
       <section className={styles.section}>
         <h4 className={styles.sectionTitle}>Location</h4>
         <div className={styles.grid}>
-          <label className={`${styles.field} ${styles.wide}`}>
-            <span className={styles.label}>Folder template (relative to the export root)</span>
-            <input
-              className={styles.input}
-              value={draft.folderTemplate}
-              data-testid="folder-template"
-              onChange={(event) => patch({ folderTemplate: event.target.value })}
-            />
-          </label>
+          <TemplateField
+            className={styles.wide}
+            label="Folder template (relative to the export root)"
+            context="export"
+            value={draft.folderTemplate}
+            testId="folder-template"
+            onChange={(folderTemplate) => patch({ folderTemplate })}
+          />
           <label className={`${styles.field} ${styles.wide}`}>
             <span className={styles.label}>File names</span>
             <select
@@ -85,15 +85,14 @@ function PresetEditor({
             </select>
           </label>
           {draft.fileNaming === 'rename' && (
-            <label className={`${styles.field} ${styles.wide}`}>
-              <span className={styles.label}>File name template</span>
-              <input
-                className={styles.input}
-                value={draft.fileNameTemplate}
-                data-testid="filename-template"
-                onChange={(event) => patch({ fileNameTemplate: event.target.value })}
-              />
-            </label>
+            <TemplateField
+              className={styles.wide}
+              label="File name template"
+              context="export"
+              value={draft.fileNameTemplate}
+              testId="filename-template"
+              onChange={(fileNameTemplate) => patch({ fileNameTemplate })}
+            />
           )}
           <label className={styles.field}>
             <span className={styles.label}>If the file exists</span>
