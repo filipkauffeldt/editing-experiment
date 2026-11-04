@@ -26,6 +26,7 @@ import {
   type AppSettings,
   type CredentialSecret,
   type CropParams,
+  type DetectedCard,
   type Destination,
   type DevelopSettingGroupId,
   type EditParams,
@@ -60,6 +61,7 @@ import {
   retouchOpsKey,
   withDefaults,
 } from '@ee/contracts';
+import { cardSourceFor, matchCardSources, sourcesToIngest } from './cards';
 import { EditedPreviewScheduler, type EditedPreviewRenderer } from './edited-preview-scheduler';
 import { renderFullResolution } from './export-render';
 import { copyMetadataFields, type MetadataFieldName } from './metadata-fields';
@@ -340,6 +342,10 @@ export interface AppState {
   presets: EditPreset[];
   uploads: UploadItem[];
   ingest: Record<string, IngestRun>;
+  /** Cards mounted now, as the last poll saw them (`sources:detectCards`). */
+  cards: DetectedCard[];
+  /** Ids of the discovered card sources the user ticked; only these are ingested. Starts empty. */
+  pickedCards: string[];
   metadata: Record<string, IptcFields>;
   metadataUnresolved: Record<string, string[]>;
   template?: IptcFields;
@@ -643,6 +649,8 @@ const emptyState = (): AppState => ({
   selection: [],
   uploads: [],
   ingest: {},
+  cards: [],
+  pickedCards: [],
   metadata: {},
   metadataUnresolved: {},
   editParams: {},
@@ -807,6 +815,8 @@ export class AppStore {
    */
   readonly dispose = async (): Promise<void> => {
     this.started = false;
+    this.stopCardTimer();
+    this.cardWatchers = 0;
     for (const unsubscribe of this.unsubscribers.splice(0)) unsubscribe();
     if (this.beforeUnload && typeof window !== 'undefined') {
       window.removeEventListener('beforeunload', this.beforeUnload);
@@ -3346,9 +3356,105 @@ export class AppStore {
     this.set({ settings });
   };
 
+  // -------------------------------------------------------------------- cards
+
+  private cardWatchers = 0;
+  private cardTimer: ReturnType<typeof setInterval> | undefined;
+  private cardPolling = false;
+  private cardPollFailed = false;
+
+  /**
+   * Polls for inserted cards while a view needs them (the Ingest view). Returns the function
+   * that stops watching; the timer runs while at least one watcher is left.
+   */
+  readonly watchCards = (intervalMs = 3000): (() => void) => {
+    this.cardWatchers += 1;
+    if (this.cardWatchers === 1) {
+      void this.refreshCards();
+      this.cardTimer = setInterval(() => void this.refreshCards(), intervalMs);
+    }
+    let stopped = false;
+    return () => {
+      if (stopped) return;
+      stopped = true;
+      this.cardWatchers -= 1;
+      if (this.cardWatchers === 0) this.stopCardTimer();
+    };
+  };
+
+  private stopCardTimer(): void {
+    if (this.cardTimer !== undefined) clearInterval(this.cardTimer);
+    this.cardTimer = undefined;
+  }
+
+  /** One poll. A poll that is still running is not doubled up by the next tick. */
+  readonly refreshCards = async (): Promise<void> => {
+    if (this.cardPolling) return;
+    this.cardPolling = true;
+    try {
+      const cards = await this.bridge.invoke('sources:detectCards');
+      this.cardPollFailed = false;
+      if (this.started) this.applyCards(cards);
+    } catch (cause) {
+      // One toast per streak of failures, not one every 3 s.
+      if (!this.cardPollFailed)
+        this.toast('error', `Could not look for cards: ${messageOf(cause)}`);
+      this.cardPollFailed = true;
+    } finally {
+      this.cardPolling = false;
+    }
+  };
+
+  private applyCards(cards: DetectedCard[]): void {
+    const current = this.state.cards;
+    const unchanged =
+      cards.length === current.length &&
+      cards.every(
+        (card, index) =>
+          card.mountPath === current[index]?.mountPath &&
+          card.volumeLabel === current[index]?.volumeLabel &&
+          card.imageCount === current[index]?.imageCount,
+      );
+    // A card that left is unpicked, so putting it back asks again. One that is mid-ingest
+    // stays picked and its run reports its own error.
+    const mounted = new Set<string>(
+      [...matchCardSources(cards, this.state.sources).values()].map((source) => source.id),
+    );
+    const pickedCards = this.state.pickedCards.filter(
+      (id) => mounted.has(id) || this.state.ingest[id]?.state === 'running',
+    );
+    const picksChanged = pickedCards.length !== this.state.pickedCards.length;
+    if (unchanged && !picksChanged) return;
+    this.set({ cards, pickedCards });
+  }
+
+  /**
+   * Ticks or unticks a mounted card. Ticking it for the first time creates the persisted
+   * source for the volume (see {@link matchCardSources}); unticking keeps it, with its filters.
+   * Nothing is ingested until the user starts an ingest.
+   */
+  readonly pickCard = async (card: DetectedCard, picked: boolean): Promise<void> => {
+    const match = matchCardSources(this.state.cards, this.state.sources).get(card.mountPath);
+    if (!picked) {
+      if (match) {
+        this.set({ pickedCards: this.state.pickedCards.filter((id) => id !== match.id) });
+      }
+      return;
+    }
+    const wanted = cardSourceFor(card, match, this.state.sources);
+    const unchanged =
+      match !== undefined &&
+      match.mountPath === wanted.mountPath &&
+      match.volumeLabel === wanted.volumeLabel;
+    const saved = unchanged ? wanted : await this.saveSource(wanted);
+    if (!this.state.pickedCards.includes(saved.id)) {
+      this.set({ pickedCards: [...this.state.pickedCards, saved.id] });
+    }
+  };
+
   readonly startIngest = async (ingest: IngestSettings): Promise<IngestJobInfo[]> => {
     const infos = await this.bridge.invoke('ingest:start', {
-      config: { ...ingest, sources: this.state.sources },
+      config: { ...ingest, sources: sourcesToIngest(this.state.sources, this.state.pickedCards) },
     });
     const runs = { ...this.state.ingest };
     for (const info of infos) {
