@@ -26,6 +26,7 @@ import {
   type AppSettings,
   type CredentialSecret,
   type CropParams,
+  type DeletePhotosResult,
   type DetectedCard,
   type Destination,
   type DevelopSettingGroupId,
@@ -64,6 +65,7 @@ import {
 import { cardSourceFor, isDiscoveredCardSource, matchCardSources, sourcesToIngest } from './cards';
 import { EditedPreviewScheduler, type EditedPreviewRenderer } from './edited-preview-scheduler';
 import { renderFullResolution } from './export-render';
+import { nextPhotoAfterRemoval, photoIdOfKey, withoutPhotos } from './photo-removal';
 import { copyMetadataFields, type MetadataFieldName } from './metadata-fields';
 import {
   initialLibrary,
@@ -405,8 +407,18 @@ export interface AppState {
   batchCaptionOpen: boolean;
   /** Ctrl/Cmd+K opened it: put the caret in the Keywords row when it mounts. */
   batchCaptionFocusKeywords?: boolean;
+  /** The open "Delete photos" confirmation; absent when closed. */
+  deleteRequest?: DeleteRequest;
+  /** The photo context menu (right-click), at a window position; absent when closed. */
+  photoMenu?: { x: number; y: number };
   loading: boolean;
   error?: string;
+}
+
+/** What the Delete confirmation is about: the photos, and whether the backend is working on it. */
+export interface DeleteRequest {
+  photoIds: PhotoId[];
+  busy: boolean;
 }
 
 /** Key for one version's develop parameters. */
@@ -696,6 +708,10 @@ export class AppStore {
   private readonly paramEditVersion = new Map<string, number>();
   private readonly paramSequence = new Map<string, number>();
   private readonly labelWrites = new Map<PhotoId, Promise<void>>();
+  /** Photos a delete is working on: their failing saves are not worth an error message. */
+  private readonly removing = new Set<PhotoId>();
+  /** Photos that were deleted: a late event or response must not bring them back. */
+  private readonly removed = new Set<PhotoId>();
   private retouchCommit: Promise<Photo | undefined> | undefined;
   /** Photos whose develop settings were changed in this session (for Previous). */
   private readonly editedPhotoIds = new Set<PhotoId>();
@@ -805,6 +821,10 @@ export class AppStore {
     this.unsubscribers.push(
       this.bridge.on('photos:added', (photo) => this.queuePhoto(photo)),
       this.bridge.on('photos:updated', (photo) => this.queuePhoto(photo)),
+      // A delete this window asked for is applied from its result in one step.
+      this.bridge.on('photos:removed', ({ photoId }) => {
+        if (!this.removing.has(photoId)) this.removePhotos([photoId]);
+      }),
       this.bridge.on('jobs:event', (event) => this.handleJobEvent(event)),
     );
     if (typeof window !== 'undefined') {
@@ -976,6 +996,7 @@ export class AppStore {
 
   /** Internal status updates (metadata writes, upload events) apply at once. */
   private upsertPhoto(photo: Photo): void {
+    if (this.removed.has(photo.id)) return;
     // Keep a not-yet-flushed event from overwriting this newer object next frame.
     if (this.pendingPhotos.has(photo.id)) this.pendingPhotos.set(photo.id, photo);
     this.set({ photos: this.applyPhoto(photo) });
@@ -987,6 +1008,7 @@ export class AppStore {
    * events for the same id keep only the newest object.
    */
   private queuePhoto(photo: Photo): void {
+    if (this.removed.has(photo.id)) return;
     this.pendingPhotos.set(photo.id, photo);
     if (this.photoFlush !== null) return;
     if (typeof requestAnimationFrame === 'function') {
@@ -1194,6 +1216,7 @@ export class AppStore {
         for (const photo of photos) this.upsertPhoto(photo);
       })
       .catch((cause: unknown) => {
+        if (photoIds.every((id) => this.isGoing(id))) return;
         this.toast('error', `Could not save labels: ${messageOf(cause)}`);
       })
       .finally(() => {
@@ -2106,6 +2129,7 @@ export class AppStore {
         this.upsertPhoto(photo);
       })
       .catch((cause: unknown) => {
+        if (this.isGoing(photoId)) return;
         this.toast('error', `Could not save metadata: ${messageOf(cause)}`);
       })
       .finally(() => {
@@ -2384,7 +2408,7 @@ export class AppStore {
       .then(() => undefined)
       .catch((cause: unknown) => {
         // A stale response must not report an error after a newer write won.
-        if (this.paramSequence.get(key) === sequence) {
+        if (this.paramSequence.get(key) === sequence && !this.isGoing(photoId)) {
           this.toast('error', `Could not save develop settings: ${messageOf(cause)}`);
         }
       })
@@ -3720,6 +3744,182 @@ export class AppStore {
         break;
       }
     }
+  }
+
+  // ------------------------------------------------------------------- delete
+
+  /** Being deleted, or deleted already. */
+  private isGoing(photoId: PhotoId): boolean {
+    return this.removing.has(photoId) || this.removed.has(photoId);
+  }
+
+  /** The photos Delete acts on: the Library's selection, the open photo elsewhere. */
+  private deleteTargets(): PhotoId[] {
+    const { module, selection, selectedId } = this.state;
+    const ids =
+      module === 'library' && selection.length > 0 ? selection : selectedId ? [selectedId] : [];
+    return [...new Set(ids)].filter((id) => this.photoById.has(id));
+  }
+
+  /** Whether a delete may start now: not while a crop or retouch session is open, nor in Ingest. */
+  private canDelete(): boolean {
+    const { crop, retouch, deleteRequest, module } = this.state;
+    return !crop && !retouch && !deleteRequest && module !== 'ingest';
+  }
+
+  /**
+   * Right-click on a photo in the grid or film strip. A photo outside the Library's selection
+   * is selected first (in Develop the clicked photo becomes the open one); one inside it keeps
+   * the whole selection.
+   */
+  readonly openPhotoMenu = (photoId: PhotoId, x: number, y: number): void => {
+    if (!this.canDelete() || !this.photoById.has(photoId)) return;
+    const { module, selection, selectedId } = this.state;
+    const inScope = module === 'library' ? selection.includes(photoId) : photoId === selectedId;
+    if (!inScope) this.select(photoId);
+    this.set({ photoMenu: { x, y } });
+  };
+
+  readonly closePhotoMenu = (): void => {
+    if (this.state.photoMenu) this.set({ photoMenu: undefined });
+  };
+
+  /** Ask before deleting the selection (Library) or the open photo (Develop). */
+  readonly requestDelete = (): void => {
+    const allowed = this.canDelete();
+    const photoIds = allowed ? this.deleteTargets() : [];
+    this.set({
+      photoMenu: undefined,
+      ...(photoIds.length > 0 ? { deleteRequest: { photoIds, busy: false } } : {}),
+    });
+  };
+
+  readonly cancelDelete = (): void => {
+    const request = this.state.deleteRequest;
+    // A running delete cannot be called back; the dialog stays until the answer is in.
+    if (request && !request.busy) this.set({ deleteRequest: undefined });
+  };
+
+  /**
+   * Move the photos to the system trash. The backend reports each photo: the ones that were
+   * deleted leave the Library, the ones that were not stay and are named in an error.
+   */
+  readonly confirmDelete = async (): Promise<void> => {
+    const request = this.state.deleteRequest;
+    if (!request || request.busy) return;
+    this.set({ deleteRequest: { ...request, busy: true } });
+    for (const id of request.photoIds) this.removing.add(id);
+    let result: DeletePhotosResult;
+    try {
+      result = await this.bridge.invoke('photos:delete', { photoIds: request.photoIds });
+    } catch (cause) {
+      for (const id of request.photoIds) this.removing.delete(id);
+      this.set({ deleteRequest: undefined });
+      this.toast('error', `Could not delete the photos: ${messageOf(cause)}`);
+      return;
+    }
+    const deleted = new Set(result.deleted);
+    for (const id of request.photoIds) {
+      this.removing.delete(id);
+      if (deleted.has(id)) this.removed.add(id);
+    }
+    this.removePhotos(result.deleted);
+    this.set({ deleteRequest: undefined });
+    if (result.failed.length > 0) {
+      const messages = result.failed.map((failure) => failure.message).join('; ');
+      this.toast(
+        'error',
+        result.failed.length === request.photoIds.length
+          ? `Nothing was deleted. ${messages}`
+          : `${result.failed.length} of ${request.photoIds.length} photos were not deleted. ${messages}`,
+      );
+    }
+  };
+
+  /** Stop everything the renderer still has queued for a photo that is gone. */
+  private dropPhotoWork(photoId: PhotoId): void {
+    const timer = this.metadataTimers.get(photoId);
+    if (timer) clearTimeout(timer);
+    this.metadataTimers.delete(photoId);
+    this.pendingMetadata.delete(photoId);
+    this.metadataEditVersion.delete(photoId);
+    this.metadataWrites.delete(photoId);
+    this.labelWrites.delete(photoId);
+    this.editedPhotoIds.delete(photoId);
+    for (const [key, entry] of [...this.developThrottles]) {
+      if (entry.photoId !== photoId) continue;
+      if (entry.timer !== null) clearTimeout(entry.timer);
+      this.developThrottles.delete(key);
+    }
+    for (const map of [this.paramWrites, this.paramEditVersion, this.paramSequence]) {
+      for (const key of [...map.keys()]) if (photoIdOfKey(key) === photoId) map.delete(key);
+    }
+    for (const key of [...this.profileResolutions.keys()]) {
+      if (key.startsWith(`${photoId}|`)) this.profileResolutions.delete(key);
+    }
+    this.editedPreviews?.drop(photoId);
+  }
+
+  /**
+   * Take photos out of the Library: the list, the selection (which moves on to the next photo,
+   * or the previous one at the end), what is cached about them, and any crop or retouch session.
+   * In Develop with nothing left to show the app returns to the Library.
+   */
+  private removePhotos(photoIds: readonly PhotoId[]): void {
+    for (const id of photoIds) {
+      this.removed.add(id);
+      this.pendingPhotos.delete(id);
+      this.dropPhotoWork(id);
+    }
+    const gone = new Set(photoIds.filter((id) => this.photoById.has(id)));
+    if (gone.size === 0) return;
+
+    const { selectedId, module } = this.state;
+    const selectionTouched =
+      (selectedId !== undefined && gone.has(selectedId)) ||
+      this.state.selection.some((id) => gone.has(id));
+    const next = selectionTouched
+      ? nextPhotoAfterRemoval(
+          this.selectionOrder().map((photo) => photo.id),
+          gone,
+        )
+      : undefined;
+
+    const photos = this.state.photos.filter((photo) => !gone.has(photo.id));
+    for (const id of gone) this.photoById.delete(id);
+    this.photoPositions.clear();
+    photos.forEach((photo, index) => this.photoPositions.set(photo.id, index));
+    this.visibleCache = undefined;
+    const { retouch, crop, previousEdit } = this.state;
+    this.set({
+      photos,
+      metadata: withoutPhotos(this.state.metadata, gone),
+      metadataUnresolved: withoutPhotos(this.state.metadataUnresolved, gone),
+      editParams: withoutPhotos(this.state.editParams, gone),
+      editDefaults: withoutPhotos(this.state.editDefaults, gone),
+      photoLens: withoutPhotos(this.state.photoLens, gone),
+      photoWhiteBalance: withoutPhotos(this.state.photoWhiteBalance, gone),
+      photoProfiles: withoutPhotos(this.state.photoProfiles, gone),
+      profileChoices: withoutPhotos(this.state.profileChoices, gone),
+      sectionStash: withoutPhotos(this.state.sectionStash, gone),
+      selection: this.state.selection.filter((id) => !gone.has(id)),
+      ...(this.state.selectionAnchor && gone.has(this.state.selectionAnchor)
+        ? { selectionAnchor: undefined }
+        : {}),
+      ...(retouch && gone.has(retouch.photoId) ? { retouch: undefined } : {}),
+      ...(crop && gone.has(crop.photoId) ? { crop: undefined } : {}),
+      ...(previousEdit && gone.has(previousEdit.photoId) ? { previousEdit: undefined } : {}),
+    });
+    if (!selectionTouched) return;
+
+    this.set({ selectedId: undefined, selection: [], selectionAnchor: undefined });
+    this.editedPreviews?.setSelected(undefined);
+    if (next) {
+      this.applySelection(next);
+    } else if (module === 'develop') {
+      this.setModule('library');
+    }
+    if (!next && this.state.library.view === 'loupe') this.setLibrary({ view: 'grid' });
   }
 
   // ----------------------------------------------------------------------- ui

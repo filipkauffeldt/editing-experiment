@@ -114,6 +114,10 @@ export function LibraryGrid({ photos }: { photos: Photo[] }) {
                 )
               }
               onDoubleClick={() => store.openLibrary('loupe')}
+              onContextMenu={(event) => {
+                event.preventDefault();
+                store.openPhotoMenu(photo.id, event.clientX, event.clientY);
+              }}
             >
               <div className={styles.thumb} style={{ height: thumbHeight }}>
                 <img

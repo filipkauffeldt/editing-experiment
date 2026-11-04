@@ -95,6 +95,11 @@ export function useKeyboardShortcuts(store: AppStore): void {
       const command = event.ctrlKey || event.metaKey;
 
       if (event.key === 'Escape') {
+        if (state.photoMenu) {
+          event.preventDefault();
+          store.closePhotoMenu();
+          return;
+        }
         if (!typing && !state.dialog && wbPickerOpen()) {
           event.preventDefault();
           cancelWbPicker();
@@ -105,7 +110,8 @@ export function useKeyboardShortcuts(store: AppStore): void {
           !typing &&
           !state.dialog &&
           !state.copySettings &&
-          !state.metadataCopyOpen
+          !state.metadataCopyOpen &&
+          !state.deleteRequest
         ) {
           event.preventDefault();
           store.cancelCrop();
@@ -120,7 +126,8 @@ export function useKeyboardShortcuts(store: AppStore): void {
           !state.metadataCopyOpen &&
           !state.shortcutsOpen &&
           !state.exportOpen &&
-          !state.batchCaptionOpen
+          !state.batchCaptionOpen &&
+          !state.deleteRequest
         ) {
           event.preventDefault();
           void store.requestExitRetouch();
@@ -136,7 +143,8 @@ export function useKeyboardShortcuts(store: AppStore): void {
           state.copySettings ||
           state.metadataCopyOpen ||
           state.exportOpen ||
-          state.batchCaptionOpen
+          state.batchCaptionOpen ||
+          state.deleteRequest
         )
           return;
         if (state.module === 'library' && !typing && state.selection.length > 1) {
@@ -168,7 +176,9 @@ export function useKeyboardShortcuts(store: AppStore): void {
         state.metadataCopyOpen ||
         state.shortcutsOpen ||
         state.exportOpen ||
-        state.batchCaptionOpen
+        state.batchCaptionOpen ||
+        state.deleteRequest ||
+        state.photoMenu
       )
         return;
 
@@ -307,6 +317,17 @@ export function useKeyboardShortcuts(store: AppStore): void {
       // composition, or for the synthetic keydown an IME emits on commit.
       if (event.ctrlKey || event.metaKey || event.altKey) return;
       if (event.repeat && keyIs(event, 't')) return;
+
+      // Delete asks first and never works in a text field (checked above), in a dialog, or
+      // during crop and retouch. The Mac's "delete" key is Backspace; elsewhere Backspace is
+      // left alone (the metadata panel uses it for keywords).
+      if (event.key === 'Delete' || (event.key === 'Backspace' && isMacPlatform())) {
+        event.preventDefault();
+        if (!event.repeat && !state.crop && !state.retouch && state.module !== 'ingest') {
+          store.requestDelete();
+        }
+        return;
+      }
 
       const developing = state.module === 'develop' && !state.crop && !state.retouch;
       if (developing && (event.code === 'Backslash' || event.code === 'IntlBackslash')) {

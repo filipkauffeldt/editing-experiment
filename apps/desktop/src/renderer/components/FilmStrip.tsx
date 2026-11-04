@@ -123,6 +123,10 @@ export function FilmStrip({ photos }: { photos: Photo[] }) {
                   event.shiftKey ? 'range' : event.ctrlKey || event.metaKey ? 'toggle' : 'replace',
                 )
               }
+              onContextMenu={(event) => {
+                event.preventDefault();
+                store.openPhotoMenu(photo.id, event.clientX, event.clientY);
+              }}
             >
               <img
                 src={appUrl.thumb(photo.id, photo.previewRevision)}
