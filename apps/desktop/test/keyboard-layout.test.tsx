@@ -166,6 +166,43 @@ describe('develop shortcuts on non-US layouts', () => {
   });
 });
 
+describe('caption shortcut', () => {
+  it('focuses the caption at its start from elsewhere', async () => {
+    await renderApp();
+    const user = userEvent.setup();
+    const caption = captionField();
+    await user.click(caption);
+    await user.type(caption, 'Sprinter at the finish line');
+    await user.click(keywordsField());
+    caption.scrollTop = 120;
+
+    key({ key: 'i', ctrlKey: true });
+
+    expect(document.activeElement).toBe(caption);
+    expect(caption.selectionStart).toBe(0);
+    expect(caption.selectionEnd).toBe(0);
+    expect(caption.scrollTop).toBe(0);
+  });
+
+  it('moves the caret to the start when the caption already has focus', async () => {
+    await renderApp();
+    const user = userEvent.setup();
+    const caption = captionField();
+    await user.click(caption);
+    await user.type(caption, 'Sprinter at the finish line');
+    caption.setSelectionRange(12, 18);
+    caption.scrollTop = 120;
+
+    // Caps Lock reports an upper-case `I`; it must work like the lower-case key.
+    fireEvent.keyDown(caption, { key: 'I', ctrlKey: true });
+
+    expect(document.activeElement).toBe(caption);
+    expect(caption.selectionStart).toBe(0);
+    expect(caption.selectionEnd).toBe(0);
+    expect(caption.scrollTop).toBe(0);
+  });
+});
+
 describe('keywords shortcut', () => {
   it('focuses the keywords draft at the end, from inside the caption field', async () => {
     await renderApp();
