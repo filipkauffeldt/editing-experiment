@@ -43,6 +43,7 @@ interface Harness {
   events: JobEvent[];
   exported: PhotoId[];
   enqueued: { photoId: PhotoId; path: string; destinations: string[] }[];
+  cleared: PhotoId[];
   fail: Set<PhotoId>;
   respond(event: Extract<JobEvent, { type: 'export.render' }>): void;
   job(jobId: ExportJob['id']): ExportJob | undefined;
@@ -54,6 +55,7 @@ function harness(
   const events: JobEvent[] = [];
   const exported: PhotoId[] = [];
   const enqueued: Harness['enqueued'] = [];
+  const cleared: PhotoId[] = [];
   const fail = new Set(options.fail ?? []);
   let sequence = 0;
   let request = 0;
@@ -69,6 +71,8 @@ function harness(
     enqueue: async ({ photoId, path, destinations }) => {
       enqueued.push({ photoId, path, destinations: [...destinations] });
     },
+    discard: () => {},
+    clearExportStatus: (photoId) => cleared.push(photoId),
     emit: (event) => events.push(event),
     newJobId: () => asExportJobId(`job-${++sequence}`),
     newRequestId: () => `req-${++request}`,
@@ -78,6 +82,7 @@ function harness(
     events,
     exported,
     enqueued,
+    cleared,
     fail,
     respond: (event) => queue.deliverRender({ ...event, rendered }),
     job: (jobId) => queue.list().find((candidate) => candidate.id === jobId),
@@ -132,6 +137,9 @@ describe('ExportQueue', () => {
     expect(renderEvents(test.events, jobId)).toHaveLength(1);
     expect(test.exported).toEqual([]);
     expect(test.enqueued).toEqual([]);
+    expect(test.cleared).toContain(photo(1));
+    expect(test.cleared).toContain(photo(2));
+    expect(new Set(test.cleared).size).toBe(2);
   });
 
   it('keeps exported photos and resumes the rest after a restart', async () => {
@@ -197,6 +205,7 @@ describe('ExportQueue', () => {
     await vi.waitFor(() => expect(test.job(jobId)?.state).toBe('failed'));
     expect(test.job(jobId)?.photos[0]).toMatchObject({ state: 'failed', error: 'GPU lost' });
     expect(test.job(jobId)?.photos[1]?.state).toBe('done');
+    expect(test.cleared).toEqual([photo(1)]);
   });
 
   it('forces the top version for sends and send actions, but not for export only', async () => {

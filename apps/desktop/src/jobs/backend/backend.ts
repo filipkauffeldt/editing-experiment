@@ -23,7 +23,7 @@ import { PresetStore } from './presets';
 import { ProfileLibrary } from './profiles';
 import { PreviewCache } from './previews';
 import { ExportQueue } from './export-queue';
-import { ExportService } from './export-service';
+import { ExportService, clearInterruptedExportStates } from './export-service';
 import { ExportedFileStore } from './exported-files';
 import { SettingsStore } from './settings-store';
 import { reconcileDestination } from './reconcile';
@@ -158,9 +158,13 @@ export async function createBackend(options: BackendOptions): Promise<Backend> {
     exportPhoto: (args) => exporter.exportOne(args),
     enqueue: ({ photoId, path, destinations }) => exporter.enqueue(photoId, path, destinations),
     discard: (photoId) => exporter.discard(photoId),
+    clearExportStatus: (photoId) => exporter.clearExportState(photoId),
     emit: emitJob,
     onWarning: (message) => console.warn(message),
   });
+  // A crash can leave the transient encoding state in the index; a restored job
+  // still shows its own spinner from export-jobs.json.
+  clearInterruptedExportStates(photos);
   queue.start();
 
   // Pick up files that were copied but never indexed (crash or failed index write).

@@ -1,6 +1,7 @@
 import {
   IpcError,
   type ExportPreset,
+  type ExportState,
   type IptcFields,
   type JobEvent,
   type PhotoId,
@@ -202,6 +203,15 @@ export class ExportService {
     this.exportFields.delete(photoId);
   }
 
+  /**
+   * A cancelled or render-failed job must not leave an older Exported badge
+   * behind. The file may still exist, but this attempt produced none.
+   */
+  clearExportState(photoId: PhotoId): void {
+    this.exportFields.delete(photoId);
+    this.setStatus(photoId, { export: 'none' });
+  }
+
   /** Every indexed original and sidecar, case-folded on case-insensitive file systems. */
   private originalPaths(): Set<string> {
     const paths = new Set<string>();
@@ -286,7 +296,7 @@ export class ExportService {
 
   private setStatus(
     photoId: PhotoId,
-    change: Partial<{ export: 'encoding' | 'done' | 'failed'; upload: UploadState }>,
+    change: Partial<{ export: ExportState; upload: UploadState }>,
   ): void {
     const { photos } = this.deps;
     try {
@@ -302,6 +312,21 @@ export class ExportService {
       // Queue events can outlive the index entry; nothing to update then.
       if (!(error instanceof IpcError && error.code === 'not_found')) throw error;
     }
+  }
+}
+
+/**
+ * `rendering`/`encoding` are only true while a job is alive. Clear one left by
+ * a crash so a restarted app does not spin forever; a restored queued job
+ * shows its own spinner from the export list.
+ */
+export function clearInterruptedExportStates(photos: PhotoLibrary): void {
+  for (const photo of photos.list()) {
+    if (photo.status.export !== 'rendering' && photo.status.export !== 'encoding') continue;
+    photos.update(photo.id, (current) => ({
+      ...current,
+      status: { ...current.status, export: 'none' },
+    }));
   }
 }
 

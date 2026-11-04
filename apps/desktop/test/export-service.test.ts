@@ -18,7 +18,7 @@ import { tmpdir } from 'node:os';
 import { basename, dirname, join } from 'node:path';
 import sharp from 'sharp';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
-import { ExportService } from '../src/jobs/backend/export-service';
+import { ExportService, clearInterruptedExportStates } from '../src/jobs/backend/export-service';
 import { ExportedFileStore } from '../src/jobs/backend/exported-files';
 import { PhotoIndex } from '../src/jobs/backend/photo-index';
 import { PhotoLibrary } from '../src/jobs/backend/photo-library';
@@ -114,7 +114,11 @@ describe('ExportService', () => {
   });
   afterEach(() => rm(root, { recursive: true, force: true }));
 
-  async function addPhoto(name: string, metadata = true): Promise<Photo> {
+  async function addPhoto(
+    name: string,
+    metadata = true,
+    target: PhotoLibrary = library,
+  ): Promise<Photo> {
     const path = join(root, `${name}.jpg`);
     await sharp({ create: { width: 16, height: 16, channels: 3, background: '#357' } })
       .jpeg()
@@ -150,7 +154,7 @@ describe('ExportService', () => {
       },
       versions: [],
     };
-    library.add(photo);
+    target.add(photo);
     return photo;
   }
 
@@ -216,6 +220,49 @@ describe('ExportService', () => {
     const exported = await exporting;
     expect(exported.path.endsWith('locked.jpg')).toBe(true);
     expect(library.get(photo.id).status.export).toBe('done');
+  });
+
+  it('saves the exported status in the index so it survives a restart', async () => {
+    const file = join(root, 'status-index.sqlite');
+    const index = new PhotoIndex(file);
+    const persisted = new PhotoLibrary(index, () => {});
+    const settings = new SettingsStore(undefined, defaultSettings(root));
+    settings.saveDestination(destination);
+    const persistedService = new ExportService({
+      photos: persisted,
+      settings,
+      exiftool,
+      queue: queue as unknown as UploadQueue,
+      exportedFiles: new ExportedFileStore(join(root, 'exported-files.json')),
+      onEvent: () => {},
+    });
+    const photo = await addPhoto('persisted', true, persisted);
+
+    await persistedService.exportOne({ photoId: photo.id, preset: preset(), rendered });
+    expect(persisted.get(photo.id).status.export).toBe('done');
+
+    index.close();
+    const reopened = new PhotoIndex(file);
+    expect(reopened.get(photo.id)?.photo.status.export).toBe('done');
+    reopened.close();
+  });
+
+  it('clears a transient export state left by an interrupted job, but keeps done', async () => {
+    const interrupted = await addPhoto('interrupted');
+    const exported = await addPhoto('exported');
+    library.update(interrupted.id, (photo) => ({
+      ...photo,
+      status: { ...photo.status, export: 'encoding' },
+    }));
+    library.update(exported.id, (photo) => ({
+      ...photo,
+      status: { ...photo.status, export: 'done' },
+    }));
+
+    clearInterruptedExportStates(library);
+
+    expect(library.get(interrupted.id).status.export).toBe('none');
+    expect(library.get(exported.id).status.export).toBe('done');
   });
 
   it('keeps the original base name and suffixes a repeat export', async () => {

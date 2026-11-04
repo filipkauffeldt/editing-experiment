@@ -41,6 +41,8 @@ export interface ExportQueueOptions {
   }): Promise<unknown>;
   /** Drop per-export state when an export is cancelled before it is sent. */
   discard?(photoId: ExportJob['photoIds'][number]): void;
+  /** Remove a photo's finished-export status when its job fails or is cancelled. */
+  clearExportStatus?(photoId: ExportJob['photoIds'][number]): void;
   emit(event: JobEvent): void;
   renderTimeoutMs?: number;
   now?: () => number;
@@ -126,6 +128,7 @@ export class ExportQueue {
     for (const photo of job.photos) {
       if (terminalPhoto(photo.state)) continue;
       photo.state = 'cancelled';
+      this.options.clearExportStatus?.(photo.photoId);
     }
     if (this.pendingRender?.jobId === jobId) {
       const pending = this.pendingRender;
@@ -239,6 +242,7 @@ export class ExportQueue {
     if (!preset) {
       photo.state = 'failed';
       photo.error = `no export preset ${job.presetId}`;
+      this.options.clearExportStatus?.(photo.photoId);
       this.changed(job, 'progress', photo.photoId);
       return;
     }
@@ -257,9 +261,11 @@ export class ExportQueue {
       }
       if (job.state === 'cancelled') {
         photo.state = 'cancelled';
+        this.options.clearExportStatus?.(photo.photoId);
       } else {
         photo.state = 'failed';
         photo.error = messageOf(error);
+        this.options.clearExportStatus?.(photo.photoId);
       }
       this.changed(job, 'progress', photo.photoId);
       return;
@@ -267,6 +273,7 @@ export class ExportQueue {
 
     if (job.state === 'cancelled') {
       photo.state = 'cancelled';
+      this.options.clearExportStatus?.(photo.photoId);
       this.changed(job, 'progress', photo.photoId);
       return;
     }
@@ -295,6 +302,7 @@ export class ExportQueue {
 
     if (this.isCancelled(job)) {
       this.options.discard?.(photo.photoId);
+      this.options.clearExportStatus?.(photo.photoId);
       photo.state = 'cancelled';
       this.changed(job, 'progress', photo.photoId);
       return;
