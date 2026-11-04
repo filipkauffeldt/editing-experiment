@@ -87,6 +87,18 @@ function isTextEntryTarget(target: EventTarget | null): boolean {
 }
 
 /**
+ * A range input keeps focus after a mouse release, and a focused range counts as
+ * text entry, so every global shortcut is ignored. The release can happen
+ * outside the slider (or its panel), so listen on the window and hand the
+ * keyboard back once the pointer is done. Keyboard focus is untouched: no
+ * pointer is involved when the user tabs to a range.
+ */
+function releaseRangeFocus(): void {
+  const active = document.activeElement;
+  if (active instanceof HTMLInputElement && active.type === 'range') active.blur();
+}
+
+/**
  * Global shortcuts. While an input, textarea, select or contenteditable has
  * focus only the explicit command shortcuts work (Ctrl/Cmd+Enter, Ctrl/Cmd+I,
  * Ctrl/Cmd+K, Shift+Ctrl/Cmd+Enter, Shift+Ctrl/Cmd+E, Escape and Ctrl+Space inside
@@ -450,10 +462,15 @@ export function useKeyboardShortcuts(store: AppStore): void {
     window.addEventListener('keydown', onKeyDown);
     window.addEventListener('keyup', onKeyUp);
     window.addEventListener('blur', onBlur);
+    // Capture, so the blur happens before the slider's own pointerup handling.
+    window.addEventListener('pointerup', releaseRangeFocus, true);
+    window.addEventListener('pointercancel', releaseRangeFocus, true);
     return () => {
       window.removeEventListener('keydown', onKeyDown);
       window.removeEventListener('keyup', onKeyUp);
       window.removeEventListener('blur', onBlur);
+      window.removeEventListener('pointerup', releaseRangeFocus, true);
+      window.removeEventListener('pointercancel', releaseRangeFocus, true);
       setPanHeld(false);
     };
   }, [store]);

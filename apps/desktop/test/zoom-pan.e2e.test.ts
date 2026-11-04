@@ -1236,4 +1236,24 @@ describe.skipIf(!haveDisplay)('zoom and pan (real Electron app)', { timeout: 240
     await window.keyboard.press('z');
     await waitForZoom('fit');
   });
+  it('frees the Exposure slider after a mouse drag so Z works at once', async () => {
+    const slider = window.getByRole('slider', { name: 'Exposure' });
+    await slider.scrollIntoViewIfNeeded();
+    const box = await slider.boundingBox();
+    if (!box) throw new Error('no Exposure slider');
+    const value = window.locator('input[aria-label="Exposure value"]');
+    const before = await value.inputValue();
+
+    await window.mouse.move(box.x + box.width * 0.35, box.y + box.height / 2);
+    await window.mouse.down();
+    await window.mouse.move(box.x + box.width * 0.65, box.y + box.height / 2, { steps: 8 });
+    await window.mouse.up();
+
+    expect(await slider.evaluate((element) => element === document.activeElement)).toBe(false);
+    expect(await value.inputValue()).not.toBe(before);
+    await window.keyboard.press('z');
+    await waitForZoom('100');
+    await window.keyboard.press('z');
+    await waitForZoom('fit');
+  });
 });
