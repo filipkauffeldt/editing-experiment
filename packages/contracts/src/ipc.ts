@@ -164,6 +164,11 @@ export interface DeletePhotosArgs {
   photoIds: PhotoId[];
 }
 
+/** Arguments of `photos:removeFromLibrary`. Only ids, never paths. */
+export interface RemoveFromLibraryArgs {
+  photoIds: PhotoId[];
+}
+
 /**
  * Outcome of `photos:delete`; a partial failure does not reject. `deleted` holds the photos
  * that are gone from the Library (their files are in the system trash, or were already
@@ -173,6 +178,12 @@ export interface DeletePhotosResult {
   deleted: PhotoId[];
   failed: { photoId: PhotoId; message: string }[];
 }
+
+/**
+ * Outcome of `photos:removeFromLibrary`, in the shape of {@link DeletePhotosResult}: `deleted`
+ * holds the photos that left the Library (no file was touched), `failed` the ones that stay.
+ */
+export type RemoveFromLibraryResult = DeletePhotosResult;
 
 /** Arguments of `photos:setEditedPreview`. */
 export interface SetEditedPreviewArgs {
@@ -297,6 +308,16 @@ export interface IpcApi {
    */
   'photos:delete': (args: DeletePhotosArgs) => Promise<DeletePhotosResult>;
   /**
+   * Drop photos from the Library and delete the app's data about them (edits and ratings kept
+   * in the index and caches), without touching any file on disk: not the photo, not its
+   * sidecar, and the files do not have to exist. Meant for files that were deleted outside the
+   * app. Takes ids only. The removed paths are remembered so the startup scan does not index
+   * the files again while they are still there; ingesting a new file to the same path lifts
+   * that. Results are per photo, like `photos:delete`; an id the index no longer knows counts
+   * as removed.
+   */
+  'photos:removeFromLibrary': (args: RemoveFromLibraryArgs) => Promise<RemoveFromLibraryResult>;
+  /**
    * Store the edited thumbnail and preview rendered by the renderer. Resolves with
    * the photo as it is now; `previewStale` is still set when the render was refused
    * because the edits changed meanwhile.
@@ -414,7 +435,10 @@ export interface IpcApi {
 export interface IpcEvents {
   'photos:added': Photo;
   'photos:updated': Photo;
-  /** A photo left the Library (deleted). Sent for every photo `photos:delete` removed. */
+  /**
+   * A photo left the Library. Sent for every photo `photos:delete` or `photos:removeFromLibrary`
+   * removed.
+   */
   'photos:removed': { photoId: PhotoId };
   'jobs:event': JobEvent;
 }
@@ -433,6 +457,7 @@ export const INVOKE_CHANNELS = [
   'photos:deleteVersion',
   'photos:setLabels',
   'photos:delete',
+  'photos:removeFromLibrary',
   'photos:setEditedPreview',
   'ingest:start',
   'ingest:stop',

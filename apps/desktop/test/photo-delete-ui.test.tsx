@@ -36,10 +36,12 @@ const key = (init: KeyboardEventInit): void => {
 };
 /** A key as the browser delivers it: on the focused element, bubbling through document and window. */
 const press = (name: string): Promise<void> => userEvent.setup().keyboard(`{${name}}`);
-const deleteCalls = (fake: FakeBridge): PhotoId[][] =>
+const callsTo = (fake: FakeBridge, channel: string): PhotoId[][] =>
   fake.calls
-    .filter((call) => call.channel === 'photos:delete')
+    .filter((call) => call.channel === channel)
     .map((call) => (call.args[0] as { photoIds: PhotoId[] }).photoIds);
+const deleteCalls = (fake: FakeBridge): PhotoId[][] => callsTo(fake, 'photos:delete');
+const removeCalls = (fake: FakeBridge): PhotoId[][] => callsTo(fake, 'photos:removeFromLibrary');
 
 async function openLibrary(options?: Parameters<typeof createFakeBridge>[0]) {
   const world = await renderApp(options);
@@ -143,7 +145,7 @@ describe('delete from the right-click menu', () => {
       within(menu)
         .getAllByRole('menuitem')
         .map((item) => item.textContent),
-    ).toEqual(['Delete…']);
+    ).toEqual(['Delete…', 'Remove from Library…']);
     await user.click(screen.getByTestId('photo-menu-delete'));
     expect(screen.queryByTestId('photo-menu')).toBeNull();
     expect(screen.getByTestId('delete-photos-message').textContent).toMatch(/^1 photo will/);
@@ -425,5 +427,137 @@ describe('nextPhotoAfterRemoval', () => {
     const record = { a: 1, 'a:active': 2, 'a:develop': 3, b: 4, 'b:active': 5 };
     expect(withoutPhotos(record, gone('a'))).toEqual({ b: 4, 'b:active': 5 });
     expect(withoutPhotos(record, gone('x'))).toBe(record);
+  });
+});
+
+describe('Remove from Library', () => {
+  it('asks with the count and what is left alone, and removes without deleting a file', async () => {
+    const { store, fake } = await openLibrary();
+    const user = userEvent.setup();
+    const all = names();
+    const before = store.getState().photos.length;
+    await user.click(cell(all[0]!));
+
+    fireEvent.contextMenu(cell(all[3]!), { clientX: 120, clientY: 80 });
+    expect(selectedNames()).toEqual([all[3]]);
+    const target = store.getState().selectedId;
+    await user.click(await screen.findByTestId('photo-menu-remove-from-library'));
+
+    expect(screen.queryByTestId('photo-menu')).toBeNull();
+    const dialog = await screen.findByTestId('delete-photos-dialog');
+    expect(within(dialog).getByText('Remove from Library')).toBeDefined();
+    const text = dialog.textContent ?? '';
+    expect(text).toMatch(/1 photo will be removed from the Library/);
+    expect(text).toMatch(/edits and ratings in the app/);
+    expect(text).toMatch(/Files on disk are not touched/);
+    expect(text).not.toMatch(/trash/);
+    expect(removeCalls(fake)).toEqual([]);
+
+    await user.click(screen.getByTestId('delete-photos-confirm'));
+    await waitFor(() => expect(removeCalls(fake)).toHaveLength(1));
+    await waitFor(() => expect(store.getState().photos).toHaveLength(before - 1));
+    expect(removeCalls(fake)).toEqual([[target]]);
+    expect(deleteCalls(fake)).toEqual([]);
+    expect(names()).not.toContain(all[3]);
+    // The selection moved on to the next photo, as after a delete.
+    expect(selectedNames()).toEqual([all[4]]);
+    expect(screen.queryByTestId('toasts')?.textContent ?? '').not.toMatch(
+      /error|Could not|not removed/i,
+    );
+  });
+
+  it('acts on the whole selection when the clicked photo is inside it, and Enter confirms, Esc cancels', async () => {
+    const { store, fake } = await openLibrary();
+    const user = userEvent.setup();
+    const all = names();
+    await user.click(cell(all[0]!));
+    await user.keyboard('{Shift>}');
+    await user.click(cell(all[2]!));
+    await user.keyboard('{/Shift}');
+    const inSelection = [...store.getState().selection];
+    expect(inSelection).toHaveLength(3);
+
+    fireEvent.contextMenu(cell(all[1]!), { clientX: 50, clientY: 50 });
+    expect(selectedNames()).toEqual([all[0], all[1], all[2]]);
+    await user.click(await screen.findByTestId('photo-menu-remove-from-library'));
+    expect(screen.getByTestId('delete-photos-message').textContent).toMatch(
+      /^3 photos will be removed from the Library, with their edits/,
+    );
+
+    await press('Escape');
+    await waitFor(() => expect(screen.queryByTestId('delete-photos-dialog')).toBeNull());
+    expect(removeCalls(fake)).toEqual([]);
+    expect(names()).toEqual(all);
+
+    fireEvent.contextMenu(cell(all[1]!), { clientX: 50, clientY: 50 });
+    await user.click(await screen.findByTestId('photo-menu-remove-from-library'));
+    await press('Enter');
+    await waitFor(() => expect(screen.queryByTestId('delete-photos-dialog')).toBeNull());
+    expect(removeCalls(fake)).toEqual([inSelection]);
+    expect(deleteCalls(fake)).toEqual([]);
+  });
+
+  it('removes just the clicked photo from the film strip in Develop', async () => {
+    const { store, fake } = await renderApp();
+    const frames = within(screen.getByTestId('film-strip')).getAllByRole('option');
+    fireEvent.contextMenu(frames[2]!, { clientX: 30, clientY: 30 });
+    const target = store.getState().selectedId;
+    await userEvent.setup().click(await screen.findByTestId('photo-menu-remove-from-library'));
+    await userEvent.setup().click(screen.getByTestId('delete-photos-confirm'));
+    await waitFor(() => expect(removeCalls(fake)).toEqual([[target]]));
+    expect(deleteCalls(fake)).toEqual([]);
+  });
+
+  it('drops a pending save for the photo and shows no error', async () => {
+    const { store, fake } = await renderApp();
+    await waitFor(() => expect(store.getState().selectedId).toBeDefined());
+    const id = store.getState().selectedId!;
+    act(() => store.updateMetadataField(id, 'caption', 'typed just before removing'));
+    act(() => store.requestRemoveFromLibrary());
+    await screen.findByTestId('delete-photos-dialog');
+    await press('Enter');
+    await waitFor(() => expect(store.getState().photos.some((p) => p.id === id)).toBe(false));
+    await new Promise((resolve) => setTimeout(resolve, 700));
+    expect(fake.calls.filter((call) => call.channel === 'metadata:write')).toEqual([]);
+    expect(screen.queryByText(/Could not save/)).toBeNull();
+  });
+
+  it('keeps the photos that failed and names the failure', async () => {
+    const photos = mockPhotos().slice(0, 3);
+    const { store } = await openLibrary({
+      photos,
+      handlers: {
+        'photos:removeFromLibrary': async (...args: unknown[]): Promise<DeletePhotosResult> => {
+          const { photoIds } = args[0] as { photoIds: PhotoId[] };
+          return {
+            deleted: photoIds.filter((id) => id !== photos[1]!.id),
+            failed: [{ photoId: photos[1]!.id, message: 'the index is locked' }],
+          };
+        },
+      },
+    });
+    store.select(photos[0]!.id);
+    store.selectAllInLibrary();
+    act(() => store.requestRemoveFromLibrary());
+    await screen.findByTestId('delete-photos-dialog');
+    await press('Enter');
+    await waitFor(() => expect(store.getState().photos).toHaveLength(1));
+    const toast = screen.getByTestId('toasts').textContent ?? '';
+    expect(toast).toMatch(/1 of 3 photos were not removed/);
+    expect(toast).toContain('the index is locked');
+  });
+
+  it('is not offered where Delete is not: in Ingest and during a dialog', async () => {
+    const { store } = await openLibrary();
+    act(() => store.requestRemoveFromLibrary());
+    await screen.findByTestId('delete-photos-dialog');
+    // A second request while one is open changes nothing.
+    act(() => store.requestRemoveFromLibrary());
+    expect(screen.getAllByTestId('delete-photos-dialog')).toHaveLength(1);
+    await press('Escape');
+    await waitFor(() => expect(screen.queryByTestId('delete-photos-dialog')).toBeNull());
+    act(() => store.setModule('ingest'));
+    act(() => store.requestRemoveFromLibrary());
+    expect(screen.queryByTestId('delete-photos-dialog')).toBeNull();
   });
 });

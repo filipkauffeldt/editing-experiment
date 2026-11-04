@@ -80,7 +80,7 @@ const GROUPS: { title: string; rows: [string, string][] }[] = [
       ['1 – 5', 'Set the star rating (0 clears)'],
       ['Ctrl/⌘ + 1 – 8', 'Set the colour class (Ctrl/⌘ + 0 clears)'],
       ['Delete (⌫ on a Mac)', 'Move the selected photos to the trash, after asking'],
-      ['Right-click a photo', 'Open its menu: Delete…'],
+      ['Right-click a photo', 'Open its menu: Delete…, Remove from Library…'],
     ],
   },
   {

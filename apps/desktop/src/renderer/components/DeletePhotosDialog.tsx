@@ -5,7 +5,8 @@ import { Button } from './ui/Button';
 import styles from './DeletePhotosDialog.module.css';
 
 /**
- * Asks before photos go to the system trash. Enter confirms and Esc cancels (the Modal owns
+ * Asks before photos go to the system trash, or (mode `library`) before they are only removed
+ * from the Library with every file left alone. Enter confirms and Esc cancels (the Modal owns
  * Esc). Nothing is deleted permanently: the files can be taken back from the trash.
  */
 export function DeletePhotosDialog() {
@@ -13,6 +14,7 @@ export function DeletePhotosDialog() {
   const state = useAppState();
   const request = state.deleteRequest;
   const busy = request?.busy ?? false;
+  const library = request?.mode === 'library';
   const count = request?.photoIds.length ?? 0;
   const single =
     count === 1 ? state.photos.find((photo) => photo.id === request?.photoIds[0]) : undefined;
@@ -34,9 +36,10 @@ export function DeletePhotosDialog() {
 
   if (!request) return null;
   const subject = count === 1 ? '1 photo' : `${count} photos`;
+  const pronoun = count === 1 ? 'its' : 'their';
   return (
     <Modal
-      title="Delete photos"
+      title={library ? 'Remove from Library' : 'Delete photos'}
       subtitle={single ? single.fileName : undefined}
       onClose={() => store.cancelDelete()}
       width={440}
@@ -54,20 +57,36 @@ export function DeletePhotosDialog() {
             data-testid="delete-photos-confirm"
             onClick={() => void store.confirmDelete()}
           >
-            {busy ? 'Deleting…' : 'Delete'}
+            {library ? (busy ? 'Removing…' : 'Remove') : busy ? 'Deleting…' : 'Delete'}
           </Button>
         </>
       }
     >
-      <p className={styles.text} data-testid="delete-photos-message">
-        {subject} will be moved to the system trash, with {count === 1 ? 'its' : 'their'} XMP
-        sidecar{count === 1 ? '' : 's'} and edits. {count === 1 ? 'It leaves' : 'They leave'} the
-        Library and can be restored from the trash.
-      </p>
-      <p className={styles.note}>
-        Backup copies and exported files are not touched. Photos on a card or in a source folder are
-        never deleted.
-      </p>
+      {library ? (
+        <>
+          <p className={styles.text} data-testid="delete-photos-message">
+            {subject} will be removed from the Library, with {pronoun} edits and ratings in the app.
+            Files on disk are not touched.
+          </p>
+          <p className={styles.note}>
+            Nothing is deleted, moved or changed on disk, not the {count === 1 ? 'photo' : 'photos'}{' '}
+            or {pronoun} XMP sidecar{count === 1 ? '' : 's'}. Meant for photos whose files were
+            deleted outside the app.
+          </p>
+        </>
+      ) : (
+        <>
+          <p className={styles.text} data-testid="delete-photos-message">
+            {subject} will be moved to the system trash, with {pronoun} XMP sidecar
+            {count === 1 ? '' : 's'} and edits. {count === 1 ? 'It leaves' : 'They leave'} the
+            Library and can be restored from the trash.
+          </p>
+          <p className={styles.note}>
+            Backup copies and exported files are not touched. Photos on a card or in a source folder
+            are never deleted.
+          </p>
+        </>
+      )}
     </Modal>
   );
 }

@@ -69,6 +69,7 @@ export function createBackendHandlers(deps: HandlerDeps): IpcHandlers {
     'photos:deleteVersion': (args) => edits.deleteVersion(args),
     'photos:setLabels': (args) => labels.setLabels(args),
     'photos:delete': (args) => deps.deleter.delete(args),
+    'photos:removeFromLibrary': (args) => deps.deleter.removeFromLibrary(args),
     'photos:setEditedPreview': async (args) => editedPreviews.set(args),
 
     'ingest:start': ({ config }) => ingest.start(config),

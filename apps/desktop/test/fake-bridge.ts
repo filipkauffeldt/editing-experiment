@@ -93,6 +93,15 @@ export function createFakeBridge(
     return photo;
   };
 
+  const dropPhotos = (photoIds: PhotoId[]): { deleted: PhotoId[]; failed: never[] } => {
+    for (const photoId of photoIds) {
+      const index = photos.findIndex((candidate) => candidate.id === photoId);
+      if (index >= 0) photos.splice(index, 1);
+      emit('photos:removed', { photoId });
+    }
+    return { deleted: photoIds, failed: [] };
+  };
+
   const defaults: Partial<Record<InvokeChannel, Handler>> = {
     'system:info': async () => ({
       appVersion: '0.0.0-test',
@@ -150,15 +159,9 @@ export function createFakeBridge(
       emit('photos:updated', next);
       return next;
     },
-    'photos:delete': async (...args) => {
-      const { photoIds } = args[0] as { photoIds: PhotoId[] };
-      for (const photoId of photoIds) {
-        const index = photos.findIndex((candidate) => candidate.id === photoId);
-        if (index >= 0) photos.splice(index, 1);
-        emit('photos:removed', { photoId });
-      }
-      return { deleted: photoIds, failed: [] };
-    },
+    'photos:delete': async (...args) => dropPhotos((args[0] as { photoIds: PhotoId[] }).photoIds),
+    'photos:removeFromLibrary': async (...args) =>
+      dropPhotos((args[0] as { photoIds: PhotoId[] }).photoIds),
     'photos:deleteVersion': async (...args) => {
       const { photoId, versionId } = args[0] as { photoId: PhotoId; versionId: VersionId };
       const photo = findPhoto(photoId);
