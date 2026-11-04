@@ -1591,20 +1591,132 @@ describe.skipIf(nefs.length === 0 || !haveDisplay)(
             expect(value).toBeCloseTo(draft.crop[index]!, 5),
           );
 
-        it('leaves a full-frame crop alone when dragging inside: the photo has nowhere to go', async () => {
+        it('draws a new frame when dragging inside an uncropped photo', async () => {
+          await openFreshCrop('pool_002.NEF');
+          await window.locator('[data-aspect="free"]').click();
+          const before = await cropState();
+          const from = onFrame(before, 0.25, 0.2);
+          const to = onFrame(before, 0.7, 0.8);
+          await dragTo(from, [to]);
+
+          const drawn = await settledCropState(
+            'the drawn frame',
+            (state) => state.gesture === '' && state.frame.width < before.frame.width,
+          );
+          // The corners are under the press and the release.
+          nearly(drawn.frame.left, from.x - drawn.origin.x, 0.5);
+          nearly(drawn.frame.top, from.y - drawn.origin.y, 0.5);
+          nearly(drawn.frame.left + drawn.frame.width, to.x - drawn.origin.x, 0.5);
+          nearly(drawn.frame.top + drawn.frame.height, to.y - drawn.origin.y, 0.5);
+          expect(drawn.tool).toBe('crop');
+          expect(drawn.angle).toBe(0);
+
+          // Cropped now: a drag inside pans the image as before. The frame stays put and the
+          // image follows the mouse, so the crop moves against it.
+          const centre = centreOf(drawn);
+          await dragTo(centre, [{ x: centre.x + 40, y: centre.y - 25 }]);
+          const panned = await settledCropState(
+            'the panned crop',
+            (state) => state.gesture === '' && state.crop[0]! < drawn.crop[0]!,
+          );
+          nearly(panned.frame.left, drawn.frame.left, 0.01);
+          nearly(panned.frame.top, drawn.frame.top, 0.01);
+          nearly(panned.frame.width, drawn.frame.width, 0.01);
+          expect(panned.crop[1]!).toBeGreaterThan(drawn.crop[1]!);
+          expect(panned.crop[2]! - panned.crop[0]!).toBeCloseTo(drawn.crop[2]! - drawn.crop[0]!, 6);
+
+          const saved = await commitAndReadCrop('pool_002.NEF');
+          storedMatchesDraft(saved, panned);
+          await openCrop('pool_002.NEF');
+          // Coming back to the cropped photo, a drag inside still pans instead of drawing.
+          const again = await cropState();
+          const inside = centreOf(again);
+          await dragTo(inside, [{ x: inside.x + 12, y: inside.y }]);
+          const rePanned = await settledCropState(
+            'the crop panned after re-entering',
+            (state) => state.gesture === '' && state.crop[0]! < again.crop[0]!,
+          );
+          nearly(rePanned.frame.left, again.frame.left, 0.01);
+          nearly(rePanned.frame.width, again.frame.width, 0.01);
+          await cancelCrop();
+        }, 180_000);
+
+        it('keeps the locked aspect when drawing from inside an uncropped photo', async () => {
           await openFreshCrop('pool_002.NEF');
           const before = await cropState();
           expect(before.crop.slice(0, 4)).toEqual([0, 0, 1, 1]);
-          const centre = centreOf(before);
-          await dragTo(centre, [{ x: centre.x + 60, y: centre.y + 40 }], true);
-          // The press is a pan; there is just no room to slide the photo.
-          expect((await cropState()).gesture).toBe('pan');
-          await window.mouse.up();
-          const after = await settledCropState(
-            'the finished drag',
-            (state) => state.gesture === '',
+          const ratio = before.frame.width / before.frame.height;
+          const from = onFrame(before, 0.2, 0.3);
+          await dragTo(from, [{ x: from.x + 260, y: from.y + 30 }]);
+          const drawn = await settledCropState(
+            'the drawn frame',
+            (state) => state.gesture === '' && state.frame.width < before.frame.width,
           );
-          expect(after.crop).toEqual(before.crop);
+          nearly(drawn.frame.left, from.x - drawn.origin.x, 0.5);
+          nearly(drawn.frame.top, from.y - drawn.origin.y, 0.5);
+          nearly(drawn.frame.width / drawn.frame.height, ratio, 0.01);
+          await cancelCrop();
+        }, 180_000);
+
+        it('changes nothing on a click inside an uncropped photo, and a double-click applies', async () => {
+          await openFreshCrop('pool_002.NEF');
+          const before = await cropState();
+          const centre = centreOf(before);
+          await window.mouse.click(centre.x, centre.y);
+          const clicked = await cropState();
+          expect(clicked.crop).toEqual(before.crop);
+          expect(clicked.frame).toEqual(before.frame);
+          expect(clicked.gesture).toBe('');
+
+          await window.mouse.dblclick(centre.x, centre.y);
+          await window.locator('[data-testid="crop-toolbar"]').waitFor({ state: 'detached' });
+        }, 180_000);
+
+        it('draws again after Reset', async () => {
+          await openFreshCrop('pool_002.NEF');
+          await chooseAspect(
+            '1:1',
+            (state) => Math.abs(state.frame.width - state.frame.height) < 0.5,
+          );
+          await window.locator('[data-testid="crop-toolbar"] button', { hasText: 'Reset' }).click();
+          const whole = await settledCropState(
+            'the whole frame',
+            (state) => state.crop[0] === 0 && state.crop[2] === 1,
+          );
+          const from = onFrame(whole, 0.3, 0.3);
+          await dragTo(from, [onFrame(whole, 0.6, 0.7)]);
+          const drawn = await settledCropState(
+            'the drawn frame',
+            (state) => state.gesture === '' && state.frame.width < whole.frame.width,
+          );
+          nearly(drawn.frame.left, from.x - drawn.origin.x, 0.5);
+          nearly(drawn.frame.top, from.y - drawn.origin.y, 0.5);
+          await cancelCrop();
+        }, 180_000);
+
+        it('pans a frame cropped on one axis along that axis and does not draw', async () => {
+          await openFreshCrop('cardB_002.NEF');
+          // 16:9 in a 3:2 photo: the whole width, with room above and below.
+          const before = await chooseAspect(
+            '16:9',
+            (state) => state.frame.width / state.frame.height > 1.7,
+          );
+          expect(before.crop[0]).toBeCloseTo(0, 6);
+          expect(before.crop[2]).toBeCloseTo(1, 6);
+          const centre = centreOf(before);
+          await dragTo(centre, [{ x: centre.x + 50, y: centre.y + 30 }]);
+          const after = await settledCropState(
+            'the panned crop',
+            (state) => state.gesture === '' && state.crop[1]! < before.crop[1]! - 0.001,
+          );
+          // The frame stays; the image followed the mouse down, so the crop moved up.
+          nearly(after.frame.left, before.frame.left, 0.01);
+          nearly(after.frame.top, before.frame.top, 0.01);
+          nearly(after.frame.width, before.frame.width, 0.01);
+          nearly(after.frame.height, before.frame.height, 0.01);
+          expect(after.crop[0]).toBeCloseTo(0, 6);
+          expect(after.crop[2]).toBeCloseTo(1, 6);
+          expect(after.crop[3]! - after.crop[1]!).toBeCloseTo(before.crop[3]! - before.crop[1]!, 6);
           await cancelCrop();
         }, 180_000);
 

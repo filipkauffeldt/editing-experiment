@@ -1,4 +1,4 @@
-import type { Point } from '@ee/contracts';
+import type { CropParams, Point } from '@ee/contracts';
 import type { CropHandle } from '@ee/develop-gl';
 import type { CropOverlayKind } from './store';
 
@@ -154,9 +154,9 @@ export interface HitTolerance {
 export const DEFAULT_HIT_TOLERANCE: HitTolerance = { corner: 12, edge: 7 };
 
 /**
- * Lightroom's pointer zones: corners and edges resize, inside pans the image,
- * anywhere outside rotates. The grab areas shrink on tiny frames so the
- * inside stays reachable.
+ * Lightroom's pointer zones: corners and edges resize, inside pans the image
+ * (or draws a new frame on an uncropped photo), anywhere outside rotates. The
+ * grab areas shrink on tiny frames so the inside stays reachable.
  */
 export function hitTestFrame(
   rect: ScreenRect,
@@ -188,6 +188,24 @@ export function hitTestFrame(
   const inside =
     point.x > rect.left && point.x < rect.right && point.y > rect.top && point.y < rect.bottom;
   return inside ? 'move' : 'rotate';
+}
+
+/** Slack on the normalised corners and the angle, so rounding never makes a full frame look cropped. */
+const UNCROPPED_TOLERANCE = 1e-6;
+
+/**
+ * True when the frame is the whole, level photo: nothing is cropped yet. Only
+ * then does a drag inside the frame draw a new one; any frame that is cropped,
+ * on one axis too, or turned by a straighten, is panned as before.
+ */
+export function isUncroppedFrame(crop: CropParams): boolean {
+  return (
+    Math.abs(crop.left) <= UNCROPPED_TOLERANCE &&
+    Math.abs(crop.top) <= UNCROPPED_TOLERANCE &&
+    Math.abs(crop.right - 1) <= UNCROPPED_TOLERANCE &&
+    Math.abs(crop.bottom - 1) <= UNCROPPED_TOLERANCE &&
+    Math.abs(crop.angle) <= UNCROPPED_TOLERANCE
+  );
 }
 
 /** A line segment in CSS pixels. */
@@ -248,8 +266,11 @@ export function guideSegments(
   );
 }
 
-/** CSS cursor for a hit, or the pointer tool. */
-export function cursorFor(hit: FrameHit, dragging: boolean): string {
+/**
+ * CSS cursor for a hit. `draws` says a drag inside the frame would draw a new
+ * frame (see {@link isUncroppedFrame}) rather than pan the image.
+ */
+export function cursorFor(hit: FrameHit, dragging: boolean, draws = false): string {
   switch (hit) {
     case 'nw':
     case 'se':
@@ -264,6 +285,7 @@ export function cursorFor(hit: FrameHit, dragging: boolean): string {
     case 'w':
       return 'ew-resize';
     case 'move':
+      if (draws) return 'crosshair';
       return dragging ? 'grabbing' : 'grab';
     case 'rotate':
       return 'rotate';

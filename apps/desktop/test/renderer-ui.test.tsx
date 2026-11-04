@@ -439,6 +439,181 @@ describe('crop mode', () => {
     expect(store.getState().crop).toBeUndefined();
   });
 
+  describe('dragging inside the frame', () => {
+    const openCrop = async () => {
+      const { store } = await renderApp();
+      fireEvent.keyDown(window, { key: 'c' });
+      await waitFor(() => expect(store.getState().crop).toBeDefined());
+      const overlay = await screen.findByTestId('crop-overlay');
+      stubCapture(overlay);
+      return { store, overlay };
+    };
+    /** A point on the frame as a fraction of its size; jsdom has no layout, so these are client coordinates. */
+    const at = (overlay: HTMLElement, x: number, y: number) => {
+      const frame = frameOf(overlay);
+      return { clientX: frame.left + frame.width * x, clientY: frame.top + frame.height * y };
+    };
+    const drag = (
+      overlay: HTMLElement,
+      from: { clientX: number; clientY: number },
+      to: { clientX: number; clientY: number },
+    ) => {
+      fireEvent.pointerDown(overlay, { ...from, button: 0, pointerId: 1 });
+      fireEvent.pointerMove(overlay, {
+        clientX: (from.clientX + to.clientX) / 2,
+        clientY: (from.clientY + to.clientY) / 2,
+        pointerId: 1,
+      });
+      fireEvent.pointerMove(overlay, { ...to, pointerId: 1 });
+      fireEvent.pointerUp(overlay, { ...to, pointerId: 1 });
+    };
+
+    it('draws a frame from the press to the pointer on an uncropped photo', async () => {
+      const { store, overlay } = await openCrop();
+      fireEvent.click(screen.getByText('Free'));
+      const whole = frameOf(overlay);
+      const from = at(overlay, 0.25, 0.2);
+      const to = at(overlay, 0.7, 0.8);
+      drag(overlay, from, to);
+
+      const drawn = frameOf(overlay);
+      expect(drawn.left).toBeCloseTo(from.clientX, 3);
+      expect(drawn.top).toBeCloseTo(from.clientY, 3);
+      expect(drawn.left + drawn.width).toBeCloseTo(to.clientX, 3);
+      expect(drawn.top + drawn.height).toBeCloseTo(to.clientY, 3);
+      expect(drawn.width).toBeLessThan(whole.width);
+      expect(store.getState().crop?.tool).toBe('crop');
+      expect(store.getState().crop?.gesture).toBeUndefined();
+
+      // The frame is cropped now: a further drag inside pans the image as it always did.
+      // The frame stays put on screen and the image follows the pointer, so the crop goes
+      // the other way: left of the pointer's move and below it.
+      const cropped = store.getState().crop!.crop;
+      const grab = at(overlay, 0.5, 0.5);
+      drag(overlay, grab, { clientX: grab.clientX - 10, clientY: grab.clientY + 6 });
+      const panned = frameOf(overlay);
+      expect(panned.left).toBeCloseTo(drawn.left, 6);
+      expect(panned.top).toBeCloseTo(drawn.top, 6);
+      expect(panned.width).toBeCloseTo(drawn.width, 6);
+      expect(panned.height).toBeCloseTo(drawn.height, 6);
+      const after = store.getState().crop!.crop;
+      expect(after.left).toBeGreaterThan(cropped.left);
+      expect(after.top).toBeLessThan(cropped.top);
+      expect(after.right - after.left).toBeCloseTo(cropped.right - cropped.left, 9);
+      expect(after.bottom - after.top).toBeCloseTo(cropped.bottom - cropped.top, 9);
+    });
+
+    it('draws with the locked aspect and collapses the frame from the first drag past the minimum', async () => {
+      const { store, overlay } = await openCrop();
+      const whole = frameOf(overlay);
+      const ratio = whole.width / whole.height;
+      const from = at(overlay, 0.3, 0.3);
+      fireEvent.pointerDown(overlay, { ...from, button: 0, pointerId: 1 });
+      fireEvent.pointerMove(overlay, {
+        clientX: from.clientX + 120,
+        clientY: from.clientY + 10,
+        pointerId: 1,
+      });
+      // Already a smaller frame with its corner under the press, in the photo's own ratio.
+      const drawn = frameOf(overlay);
+      expect(drawn.left).toBeCloseTo(from.clientX, 3);
+      expect(drawn.top).toBeCloseTo(from.clientY, 3);
+      expect(drawn.width).toBeCloseTo(120, 3);
+      expect(drawn.width / drawn.height).toBeCloseTo(ratio, 3);
+      expect(store.getState().crop?.gesture).toBe('draw');
+      fireEvent.pointerUp(overlay, {
+        clientX: from.clientX + 120,
+        clientY: from.clientY + 10,
+        pointerId: 1,
+      });
+    });
+
+    it('changes nothing on a click or a drag below the minimum, and a double-click applies', async () => {
+      const { store, overlay } = await openCrop();
+      const before = store.getState().crop?.crop;
+      const centre = at(overlay, 0.5, 0.5);
+      drag(overlay, centre, centre);
+      expect(store.getState().crop?.crop).toEqual(before);
+      drag(overlay, centre, { clientX: centre.clientX + 0.2, clientY: centre.clientY });
+      expect(store.getState().crop?.crop).toEqual(before);
+      expect(store.getState().crop?.tool).toBe('crop');
+
+      for (let i = 0; i < 2; i++) {
+        fireEvent.pointerDown(overlay, { ...centre, button: 0, pointerId: 1 });
+        fireEvent.pointerUp(overlay, { ...centre, pointerId: 1 });
+      }
+      fireEvent.doubleClick(overlay, centre);
+      expect(store.getState().crop).toBeUndefined();
+    });
+
+    it('pans a frame cropped on one axis along that axis only, the image following the pointer', async () => {
+      const { store, overlay } = await openCrop();
+      // 1:1 on a photo that is not square leaves one axis whole.
+      fireEvent.click(screen.getByText('1:1'));
+      const before = frameOf(overlay);
+      const cropBefore = store.getState().crop!.crop;
+      const wholeWidth = cropBefore.right - cropBefore.left === 1;
+      const grab = at(overlay, 0.5, 0.5);
+      fireEvent.pointerDown(overlay, { ...grab, button: 0, pointerId: 1 });
+      expect(store.getState().crop?.gesture).toBe('pan');
+      fireEvent.pointerUp(overlay, { ...grab, pointerId: 1 });
+      drag(overlay, grab, { clientX: grab.clientX + 8, clientY: grab.clientY + 8 });
+      // The frame does not move; the crop slides against the pointer on the axis with room.
+      expect(frameOf(overlay)).toEqual(before);
+      const after = store.getState().crop!.crop;
+      if (wholeWidth) {
+        expect(after.left).toBe(cropBefore.left);
+        expect(after.right).toBe(cropBefore.right);
+        expect(after.top).toBeLessThan(cropBefore.top);
+        expect(after.bottom - after.top).toBeCloseTo(cropBefore.bottom - cropBefore.top, 9);
+      } else {
+        expect(after.top).toBe(cropBefore.top);
+        expect(after.bottom).toBe(cropBefore.bottom);
+        expect(after.left).toBeLessThan(cropBefore.left);
+        expect(after.right - after.left).toBeCloseTo(cropBefore.right - cropBefore.left, 9);
+      }
+    });
+
+    it('pans a straightened frame instead of drawing over it', async () => {
+      const { store, overlay } = await openCrop();
+      store.setCropAngle(4);
+      await waitFor(() => expect(overlay.getAttribute('data-angle')).toBe('4'));
+      const before = frameOf(overlay);
+      const sizeBefore = store.getState().crop!.crop;
+      const grab = at(overlay, 0.5, 0.5);
+      fireEvent.pointerDown(overlay, { ...grab, button: 0, pointerId: 1 });
+      expect(store.getState().crop?.gesture).toBe('pan');
+      fireEvent.pointerUp(overlay, { ...grab, pointerId: 1 });
+      drag(overlay, grab, { clientX: grab.clientX + 60, clientY: grab.clientY + 40 });
+      expect(frameOf(overlay)).toEqual(before);
+      const after = store.getState().crop!.crop;
+      expect(after.angle).toBe(4);
+      expect(after.right - after.left).toBeCloseTo(sizeBefore.right - sizeBefore.left, 9);
+    });
+
+    it('shows a crosshair where a drag would draw, a hand where it would move, and follows the crop', async () => {
+      const { store, overlay } = await openCrop();
+      fireEvent.pointerMove(overlay, { ...at(overlay, 0.5, 0.5), pointerId: 1 });
+      expect(overlay.style.cursor).toBe('crosshair');
+      fireEvent.click(screen.getByText('1:1'));
+      // The pointer has not moved, but the frame changed under it.
+      expect(overlay.style.cursor).toBe('grab');
+      fireEvent.click(screen.getByTitle(/Reset the crop/));
+      expect(overlay.style.cursor).toBe('crosshair');
+      expect(store.getState().crop?.crop).toMatchObject({ left: 0, top: 0, right: 1, bottom: 1 });
+    });
+
+    it('draws again after Reset', async () => {
+      const { store, overlay } = await openCrop();
+      fireEvent.click(screen.getByText('1:1'));
+      fireEvent.click(screen.getByTitle(/Reset the crop/));
+      const whole = frameOf(overlay);
+      drag(overlay, at(overlay, 0.2, 0.2), at(overlay, 0.6, 0.6));
+      expect(frameOf(overlay).width).toBeLessThan(whole.width);
+      expect(store.getState().crop?.tool).toBe('crop');
+    });
+  });
+
   it('abandons a drag on pointer cancel and keeps the frame tool', async () => {
     const { store } = await renderApp();
     fireEvent.keyDown(window, { key: 'c' });

@@ -7,6 +7,7 @@ import {
   frameRect,
   guideSegments,
   hitTestFrame,
+  isUncroppedFrame,
   screenToView,
   viewToScreen,
 } from '../src/renderer/crop-view';
@@ -148,6 +149,43 @@ describe('cursorFor', () => {
     expect(cursorFor('move', false)).toBe('grab');
     expect(cursorFor('move', true)).toBe('grabbing');
     expect(cursorFor('rotate', false)).toBe('rotate');
+  });
+
+  it('shows a crosshair inside the frame when a drag there would draw, and leaves the others alone', () => {
+    expect(cursorFor('move', false, true)).toBe('crosshair');
+    expect(cursorFor('move', true, true)).toBe('crosshair');
+    expect(cursorFor('se', false, true)).toBe('nwse-resize');
+    expect(cursorFor('rotate', false, true)).toBe('rotate');
+  });
+});
+
+describe('isUncroppedFrame', () => {
+  const whole = { left: 0, top: 0, right: 1, bottom: 1, angle: 0 };
+
+  it('is true for the whole level photo, whatever rounding left behind', () => {
+    expect(isUncroppedFrame(whole)).toBe(true);
+    expect(
+      isUncroppedFrame({
+        left: 1e-12,
+        top: -1e-12,
+        right: 1 - 2e-12,
+        bottom: 1 + 1e-12,
+        angle: 1e-9,
+      }),
+    ).toBe(true);
+  });
+
+  it('is false for a frame cropped on one axis only', () => {
+    expect(isUncroppedFrame({ ...whole, right: 0.9 })).toBe(false);
+    expect(isUncroppedFrame({ ...whole, top: 0.1 })).toBe(false);
+    expect(isUncroppedFrame({ ...whole, bottom: 0.99 })).toBe(false);
+  });
+
+  it('is false for a straightened photo, even when its frame is the largest one', () => {
+    expect(isUncroppedFrame({ left: 0.1, top: 0.1, right: 0.9, bottom: 0.9, angle: 3 })).toBe(
+      false,
+    );
+    expect(isUncroppedFrame({ ...whole, angle: 0.1 })).toBe(false);
   });
 });
 
