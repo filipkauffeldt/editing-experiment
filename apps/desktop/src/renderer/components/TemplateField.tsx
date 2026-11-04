@@ -1,4 +1,5 @@
 import {
+  listedInContext,
   templateVariablesFor,
   unknownTemplateVariables,
   type TemplateVariable,
@@ -38,7 +39,7 @@ const choicesFor = (context: TemplateVariableContext): Choice[] =>
       example: variable.example,
     },
     ...variable.formats
-      .filter((format) => format.contexts.includes(context))
+      .filter((format) => listedInContext(format.contexts, context))
       .map((format) => ({
         template: format.template,
         aliases: [],
