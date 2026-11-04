@@ -1,4 +1,4 @@
-export { detectCards } from './cards';
+export { CardScanner, detectCards } from './cards';
 export type { CardEntry, CardFileSystem, DetectCardsOptions } from './cards';
 export type { SftpConnectOptions } from './remote/sftp';
 export { copyPhotoLocal, nodeFileCopier } from './copy';
