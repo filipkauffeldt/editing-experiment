@@ -134,6 +134,35 @@ describe('ExportQueue', () => {
     expect(test.enqueued).toEqual([]);
   });
 
+  it('cancels the queued exports of a deleted photo and drops the render being waited for', async () => {
+    const test = harness();
+    const jobId = test.queue.start({
+      photoIds: [photo(1), photo(2), photo(3)],
+      presetId: preset().id,
+    });
+    await vi.waitFor(() => expect(renderEvents(test.events, jobId)).toHaveLength(1));
+
+    // p3 is only queued; p1 is being rendered right now.
+    test.queue.photoRemoved(photo(3));
+    test.queue.photoRemoved(photo(1));
+
+    await vi.waitFor(() => expect(renderEvents(test.events, jobId)).toHaveLength(2));
+    test.respond(renderEvents(test.events, jobId)[1]!);
+    await vi.waitFor(() => expect(test.job(jobId)?.state).toBe('failed'));
+    const states = Object.fromEntries(
+      test.job(jobId)!.photos.map((progress) => [progress.photoId, progress]),
+    );
+    expect(states[photo(1)]).toMatchObject({ state: 'failed', error: 'the photo was deleted' });
+    expect(states[photo(2)]).toMatchObject({ state: 'done' });
+    expect(states[photo(3)]).toMatchObject({ state: 'cancelled', error: 'the photo was deleted' });
+    expect(test.exported).toEqual([photo(2)]);
+    // No render was requested for the deleted photos after the deletion.
+    expect(renderEvents(test.events, jobId).map((event) => event.photoId)).toEqual([
+      photo(1),
+      photo(2),
+    ]);
+  });
+
   it('keeps exported photos and resumes the rest after a restart', async () => {
     const root = await mkdtemp(join(tmpdir(), 'ee-export-queue-'));
     dirs.push(root);
