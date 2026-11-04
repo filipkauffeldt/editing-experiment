@@ -148,6 +148,15 @@ export function createFakeBridge(
       emit('photos:updated', next);
       return next;
     },
+    'photos:delete': async (...args) => {
+      const { photoIds } = args[0] as { photoIds: PhotoId[] };
+      for (const photoId of photoIds) {
+        const index = photos.findIndex((candidate) => candidate.id === photoId);
+        if (index >= 0) photos.splice(index, 1);
+        emit('photos:removed', { photoId });
+      }
+      return { deleted: photoIds, failed: [] };
+    },
     'photos:deleteVersion': async (...args) => {
       const { photoId, versionId } = args[0] as { photoId: PhotoId; versionId: VersionId };
       const photo = findPhoto(photoId);
