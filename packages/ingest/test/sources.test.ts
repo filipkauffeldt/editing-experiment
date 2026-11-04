@@ -4,6 +4,7 @@ import { asSourceId } from '@ee/contracts';
 import type { CardSource, FolderSource } from '@ee/contracts';
 import { afterEach, describe, expect, it } from 'vitest';
 import { IngestError } from '../src/errors';
+import { EXPORT_MARKER_NAME } from '../src/naming';
 import { findSidecar, listImageFiles, listSourceFiles } from '../src/sources';
 import { cleanupTempDirs, makeTempDir } from './helpers/temp';
 
@@ -34,6 +35,23 @@ describe('listImageFiles', () => {
 
     const flat = await listImageFiles(root);
     expect(flat.map((file) => file.name)).toEqual(['root.JPG']);
+  });
+
+  it('leaves a folder the app exported into alone, but reads a marked folder picked as the source', async () => {
+    // A folder source that is the parent of the ingest destination reaches the exports.
+    const root = await makeTempDir();
+    await write(join(root, '20261104_GAIS-AIK', 'a_001.jpg'));
+    await write(join(root, '20261104_GAIS-AIK', 'export', 'a_001.jpg'));
+    await write(join(root, '20261104_GAIS-AIK', 'export', EXPORT_MARKER_NAME));
+    await write(join(root, '20261104_GAIS-AIK', 'export', 'deeper', 'a_001.jpg'));
+
+    const found = await listImageFiles(root, { recursive: true });
+    expect(found.map((file) => `${file.relativeFolder}/${file.name}`)).toEqual([
+      '20261104_GAIS-AIK/a_001.jpg',
+    ]);
+
+    const picked = await listImageFiles(join(root, '20261104_GAIS-AIK', 'export'));
+    expect(picked.map((file) => file.name)).toEqual(['a_001.jpg']);
   });
 
   it('finds a sidecar for a raw, case-insensitively, but not for a JPEG', async () => {

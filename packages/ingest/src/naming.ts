@@ -70,6 +70,23 @@ export function isTemporaryName(name: string): boolean {
   return TEMP_SUFFIXES.some((suffix) => lower.endsWith(suffix));
 }
 
+/**
+ * Every folder the app exports into holds a file of this name. Ingest and the startup scan
+ * leave such a folder (and what is below it) alone: exports live below the ingest
+ * destination, and an exported JPEG is not a photo to ingest or recover. The marker lives with
+ * the folder, so it still works when the index, the exported-files list or the settings are gone.
+ */
+export const EXPORT_MARKER_NAME = '.ee-export';
+
+export const EXPORT_MARKER_TEXT =
+  'Exported by the editing app. The app ignores this folder when it ingests or looks for photos.\n';
+
+/** True when a directory listing contains the export marker. */
+export function hasExportMarker(entryNames: Iterable<string>): boolean {
+  for (const name of entryNames) if (name === EXPORT_MARKER_NAME) return true;
+  return false;
+}
+
 export interface SplitName {
   /** Original file name extension including the dot, or `''`. */
   extension: string;

@@ -3,7 +3,7 @@ import { dirname, join, sep } from 'node:path';
 import type { CardSource, FolderSource } from '@ee/contracts';
 import { IngestError } from './errors';
 import { isImageFileName, isRawFileName } from './formats';
-import { isTemporaryName, naturalCompare, splitName } from './naming';
+import { hasExportMarker, isTemporaryName, naturalCompare, splitName } from './naming';
 import type { SourceFile } from './types';
 
 export interface ListImagesOptions {
@@ -40,6 +40,10 @@ async function walk(
   files: SourceFile[],
 ): Promise<void> {
   const entries = await safeReadDirectory(directory);
+  // A folder the app exported into is not a source of photos, even when a folder source is
+  // the parent of the ingest destination. The folder picked as the source itself is the
+  // user's explicit choice and is read.
+  if (relativeFolder !== '' && hasExportMarker(entries.map((entry) => entry.name))) return;
   const subdirectories = entries
     .filter((entry) => entry.isDirectory && !isTemporaryName(entry.name))
     .sort((a, b) => naturalCompare(a.name, b.name));

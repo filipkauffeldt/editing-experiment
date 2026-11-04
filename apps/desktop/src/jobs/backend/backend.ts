@@ -213,6 +213,7 @@ export async function createBackend(options: BackendOptions): Promise<Backend> {
       directory: ingestSettings.destination.path,
       known: index.paths(),
       excluded: photos.excludedPaths(),
+      isExported: (path) => exportedFiles.has(path),
       index: hook,
       signal: reconcileAbort.signal,
       onError: (path, error) =>
