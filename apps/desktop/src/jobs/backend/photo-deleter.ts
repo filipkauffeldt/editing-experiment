@@ -89,8 +89,8 @@ export class PhotoDeleter {
   constructor(private readonly deps: PhotoDeleterDeps) {}
 
   async delete(args: DeletePhotosArgs): Promise<DeletePhotosResult> {
-    if (!Array.isArray(args?.photoIds)) {
-      throw new IpcError('invalid_argument', 'photos:delete needs photoIds');
+    if (!Array.isArray(args?.photoIds) || args.photoIds.some((id) => typeof id !== 'string')) {
+      throw new IpcError('invalid_argument', 'photos:delete needs a list of photo ids');
     }
     const result: DeletePhotosResult = { deleted: [], failed: [] };
     for (const photoId of new Set(args.photoIds)) {

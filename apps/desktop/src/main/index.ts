@@ -15,6 +15,7 @@ import { handleAppProtocol, registerAppScheme } from './protocol';
 import { hostFor } from '../shared/routing';
 import { electronSecretPort, serveSecrets } from '../shared/secret-port';
 import { installApplicationMenu } from './menu';
+import { createTrashItem } from './trash';
 import { createMainWindow } from './window';
 
 const mock = process.env.EE_MOCK === '1';
@@ -61,7 +62,7 @@ void app.whenReady().then(() => {
     appVersion: app.getVersion(),
     userDataDir,
     // Utility processes have no `shell`; the deleter in the jobs process asks for each file.
-    trashItem: (path) => shell.trashItem(path),
+    trashItem: createTrashItem((path) => shell.trashItem(path)),
     // A restarted jobs process needs a fresh port: the old one died with it.
     onStart: (client) => {
       if (!credentials) return;

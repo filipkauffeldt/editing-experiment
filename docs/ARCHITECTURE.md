@@ -183,6 +183,23 @@ exports/             default exportRoot (presets choose folders below it)
   raw/JPEG pair sharing a base get `-1`, `-2`, … before the extension. The render request
   carries the ops key (`retouchOpsKey`) the jobs process expects; the renderer echoes the key of the
   ops it applied and the jobs process rejects a stale or mosaic-less render.
+- Delete: `photos:delete` takes photo ids only. `PhotoDeleter` (jobs process) resolves the paths from
+  the index and refuses a photo unless the photo file and its sidecar lie inside the ingest destination
+  (real paths, so a symlink cannot lead out) and not inside any configured card or folder source; the
+  sidecar must be the photo itself or its sibling `<name>.xmp`. The files go to the system trash through
+  `shell.trashItem`, which only exists in main, so the jobs process sends a `trash-request` message and
+  main answers by id (`shared/trash-bridge.ts`, `main/trash.ts`). There is no fallback to a permanent
+  delete: when trashing fails the file and the entry stay and the photo is named in the result. Per
+  photo, under its lock: sidecar first, then the photo, then the entry and its data (index row, camera
+  and edited previews, decoded linear images, tracked preview revisions, queued exports). A leftover
+  sidecar would be paired with the next file of the same name, so it must not be what a failure leaves
+  behind; trashing it first means a failure there changes nothing, and one on the photo after it is
+  finished by deleting again (a file that is already gone counts as trashed). Backup copies and exported
+  files are never touched. Edits, labels, previews and face detection that were queued behind the delete
+  find no photo (`not_found`) and write nothing; the startup reconcile ignores `.xmp` files and every
+  photo it finds is a file without an entry, which a successful delete never leaves. The seen store is
+  keyed on the source file, so the same card ingested again does not bring a deleted photo back.
+  `EE_TRASH_DIR` (tests only) makes main move files into that folder instead of the system trash.
 - On quit, main asks the jobs process to shut down (stop ingest, close the upload queue, ExifTool and
   the databases) and kills it only after a timeout.
 
@@ -682,6 +699,15 @@ Design tokens and component rules are in `docs/DESIGN.md`.
   use `openExportDialog` and `exportSelected(true)`.
 - **Folders** come from `libraryFolders(photos)`: the directory of each photo's `path`, which is
   always the ingest copy. Sources are not consulted.
+- **Delete** (`AppState.deleteRequest`): the Delete key (and Backspace on macOS, where the "delete" key
+  reports it) and a right-click menu with one item, "Delete…", on the grid and the film strip. It acts on
+  the Library's selection and on the open photo in Develop; a right-click on a photo outside the
+  selection selects it first. It does nothing in a text field, behind a dialog, in Ingest or during crop
+  and retouch. A dialog states the count and that the files go to the system trash; Enter confirms, Esc
+  cancels. Photos the backend reports as deleted leave the list, the selection moves to the next photo
+  (the previous one at the end), Develop returns to the Library when none is left, and the renderer
+  drops what it kept for them: pending debounced saves, cached metadata and settings, a crop or retouch
+  session, scheduled thumbnails. Photos that failed stay and are named in an error.
 - **Batch caption** (`applyFieldEdits`) reads each photo's fields (`metadata:read`), merges the
   edits (replace, or append: text after a space, keywords as a union; `mergeFieldEdits`) and
   writes with `metadata:write`. Caption codes and `{variables}` are expanded per photo.
