@@ -61,7 +61,7 @@ import {
   retouchOpsKey,
   withDefaults,
 } from '@ee/contracts';
-import { cardSourceFor, matchCardSources, sourcesToIngest } from './cards';
+import { cardSourceFor, isDiscoveredCardSource, matchCardSources, sourcesToIngest } from './cards';
 import { EditedPreviewScheduler, type EditedPreviewRenderer } from './edited-preview-scheduler';
 import { renderFullResolution } from './export-render';
 import { copyMetadataFields, type MetadataFieldName } from './metadata-fields';
@@ -3446,6 +3446,57 @@ export class AppStore {
     const picksChanged = pickedCards.length !== this.state.pickedCards.length;
     if (unchanged && !picksChanged) return;
     this.set({ cards, pickedCards });
+    this.syncPickedCardSources(cards);
+  }
+
+  private readonly cardSourceSyncs = new Set<string>();
+
+  /**
+   * A ticked card that came back somewhere else (`F:\` instead of `E:\`, `NIKON Z 61` instead of
+   * `NIKON Z 6`) is matched to its source by label, so its tick stays. The source still holds the
+   * old mount path, so save the new one. {@link startIngest} does not wait for this save.
+   */
+  private syncPickedCardSources(cards: DetectedCard[]): void {
+    const matches = matchCardSources(cards, this.state.sources);
+    for (const card of cards) {
+      const source = matches.get(card.mountPath);
+      if (!source || !this.state.pickedCards.includes(source.id)) continue;
+      const wanted = cardSourceFor(card, source, this.state.sources);
+      if (wanted.mountPath === source.mountPath && wanted.volumeLabel === source.volumeLabel) {
+        continue;
+      }
+      const key = `${source.id}\u0000${wanted.mountPath}\u0000${wanted.volumeLabel ?? ''}`;
+      if (this.cardSourceSyncs.has(key)) continue;
+      this.cardSourceSyncs.add(key);
+      void this.saveSource(wanted)
+        .catch((cause: unknown) =>
+          this.toast(
+            'error',
+            `Could not save the new location of ${source.name} (${card.mountPath}): ${messageOf(cause)}`,
+          ),
+        )
+        .finally(() => this.cardSourceSyncs.delete(key));
+    }
+  }
+
+  /**
+   * The picked discovered cards as they are mounted now. The saved source can lag behind a
+   * remount (the save in {@link syncPickedCardSources} may still be in flight, or have failed),
+   * so the ingest takes the mount path from the last scan instead of from the saved source.
+   */
+  private sourcesForIngest(): SourceConfig[] {
+    const { cards, sources, pickedCards } = this.state;
+    const matches = matchCardSources(cards, sources);
+    const cardOf = new Map<string, DetectedCard>();
+    for (const card of cards) {
+      const source = matches.get(card.mountPath);
+      if (source) cardOf.set(source.id, card);
+    }
+    return sourcesToIngest(sources, pickedCards).map((source) => {
+      if (!isDiscoveredCardSource(source)) return source;
+      const card = cardOf.get(source.id);
+      return card ? cardSourceFor(card, source, sources) : source;
+    });
   }
 
   /**
@@ -3473,7 +3524,7 @@ export class AppStore {
   };
 
   readonly startIngest = async (ingest: IngestSettings): Promise<IngestJobInfo[]> => {
-    const sources = sourcesToIngest(this.state.sources, this.state.pickedCards);
+    const sources = this.sourcesForIngest();
     if (sources.length === 0) {
       throw new Error(
         'Nothing to ingest. Tick a card on the Ingest view, or add a folder or server in Settings → Sources.',

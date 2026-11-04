@@ -12,7 +12,8 @@ import { copyInto, fixtureNefs, repoRoot } from './helpers/fixtures';
 /**
  * Card discovery in the built app, real mode. `EE_CARD_ROOTS` points the scan at a temp
  * folder, so "inserting" a card is creating a folder with a DCIM directory in it and
- * "removing" it is deleting that folder. The app polls every 3 s.
+ * "removing" it is deleting that folder. Nothing scans in the background: the Ingest view
+ * scans when it opens and on the Rescan cards button.
  */
 const desktopDir = join(repoRoot, 'apps', 'desktop');
 const nef = fixtureNefs()[0];
