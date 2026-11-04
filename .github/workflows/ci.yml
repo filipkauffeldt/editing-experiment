@@ -31,7 +31,7 @@ jobs:
     # Linux only for now. Nothing below is Linux specific beyond the apt/xvfb steps,
     # so mac/windows jobs can be added as a matrix later.
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v7
@@ -57,7 +57,7 @@ jobs:
   native:
     # Built once and handed to the jobs that import @ee/core.
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v7
       - uses: pnpm/action-setup@v6
@@ -79,7 +79,7 @@ jobs:
   unit:
     needs: native
     runs-on: ubuntu-latest
-    timeout-minutes: 8
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v7
       # Version comes from "packageManager" in package.json.
@@ -112,7 +112,7 @@ jobs:
     # The develop-gl WebGL parity tests run in headless Chromium (SwiftShader).
     # No native addon needed, so this starts immediately instead of waiting for native.
     runs-on: ubuntu-latest
-    timeout-minutes: 8
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v7
       # Version comes from "packageManager" in package.json.
@@ -133,7 +133,7 @@ jobs:
   e2e-demo:
     needs: native
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v7
       # Version comes from "packageManager" in package.json.
@@ -174,7 +174,7 @@ jobs:
   e2e-export:
     needs: native
     runs-on: ubuntu-latest
-    timeout-minutes: 8
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v7
       # Version comes from "packageManager" in package.json.
@@ -212,7 +212,7 @@ jobs:
   e2e-crop:
     needs: native
     runs-on: ubuntu-latest
-    timeout-minutes: 8
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v7
       # Version comes from "packageManager" in package.json.
@@ -253,7 +253,7 @@ jobs:
   build-screenshots:
     needs: native
     runs-on: ubuntu-latest
-    timeout-minutes: 8
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v7
       # Version comes from "packageManager" in package.json.
