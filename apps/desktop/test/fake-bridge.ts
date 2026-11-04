@@ -73,6 +73,8 @@ export function createFakeBridge(
   const exportJobs: ExportJob[] = [];
   let exportSequence = 0;
   let exportRequestSequence = 0;
+  // Like the real queue: one photo at a time, jobs in the order they were started.
+  let exportTurn: Promise<void> = Promise.resolve();
   const renderWaiters = new Map<
     string,
     (outcome: { rendered?: unknown; error?: string }) => void
@@ -369,10 +371,12 @@ export function createFakeBridge(
           photoId,
           job: { ...job, photos: job.photos.map((photo) => ({ ...photo })) },
         });
-      void (async () => {
+      const cancelled = (): boolean => job.state === 'cancelled';
+      const run = async (): Promise<void> => {
+        if (cancelled()) return;
         publish('running');
         for (const photo of job.photos) {
-          if (job.state === 'cancelled') break;
+          if (cancelled()) break;
           photo.state = 'rendering';
           progress(photo.photoId);
           const requestId = `render-${++exportRequestSequence}`;
@@ -400,13 +404,14 @@ export function createFakeBridge(
           progress(photo.photoId);
         }
         publish(
-          job.state === 'cancelled'
+          cancelled()
             ? 'cancelled'
             : job.photos.some((photo) => photo.state === 'failed')
               ? 'failed'
               : 'done',
         );
-      })();
+      };
+      exportTurn = exportTurn.then(run);
       return job.id;
     },
     'export:cancel': async (...args) => {
