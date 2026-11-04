@@ -548,7 +548,9 @@ unchanged: the rotated rectangle in source space, whose output is the leveled fr
   rotating, `O` cycles thirds, grid, golden ratio, none.
 - **Keys**: `C` enters (and applies), `Enter` or a double-click inside the frame
   applies, `Esc` cancels, `X` swaps orientation, `Ctrl/Cmd+Alt+R` resets, double-click on
-  the angle slider resets the angle.
+  the angle slider resets the angle. The angle is also typeable: a comma or dot decimal
+  works, Enter or blur commits and stays in crop, and Escape leaves the field (committing
+  through its blur) without cancelling the crop.
 ## Zoom and pan
 
 The photo view is Fit until the user zooms. Zoom is view-only: it never reaches a sidecar, the
@@ -713,7 +715,10 @@ mosaic away from everything before it and a later add covers the area again (`ap
 list order). A face keeps the detector's box next to its padded outline, so it can be switched on and
 off and re-padded after a resume; the padding is stored as `facePadding`. Saving writes the whole list
 into the version's `MosaicOp`, and re-entering Retouch loads it back (a version without `areas` loads
-its shapes as editable adds, wand outlines from before that tool was removed included).
+its shapes as editable adds, wand outlines from before that tool was removed included). The toolbar's
+block size and face padding sliders also take typed values in the same units (px while the photo's
+size is known, % otherwise; % for padding): a draft commits on Enter or blur, is clamped to the
+slider's range and is discarded when it is empty or invalid.
 
 - **Tools.** Retouch always opens on Detect faces with a Rectangle search area in Add mode; nothing is
   remembered from the last session. Detect faces searches a rectangle, or a lasso's bounding box and
