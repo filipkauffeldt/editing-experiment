@@ -125,6 +125,27 @@ exports/             default exportRoot (presets choose folders below it)
   numeric suffixes; ingest never overwrites. Keeping original names uses the source's own base
   name and the same suffix rule; the suffix is decided once per source and base, so a raw/JPEG
   pair and its XMP sidecar keep matching names while two sources race for the same shot.
+- Card discovery: `CardScanner` (`@ee/ingest`, `cards.ts`) runs in the jobs process behind
+  `sources:detectCards`, with no native module and no platform tool. It scans `/media/<user>`,
+  `/run/media/<user>` and `/media` on Linux, `/Volumes` on macOS (symlinks, i.e. the boot volume,
+  are skipped) and the drives D: to Z: on Windows, and keeps volumes that have a `DCIM` folder.
+  Every filesystem call has a timeout and runs concurrently with the others; a call that timed
+  out is not issued again while it is still pending, so a dead network drive holds one libuv
+  thread (the jobs process runs with `UV_THREADPOOL_SIZE=16`) however often the app polls.
+  Images are counted once, in the background, when a mount path first appears; the scanner
+  returns the card at once without `imageCount` and later polls carry it. Windows has no volume
+  label without a native module, so a card there is "Drive E". `EE_CARD_ROOTS` replaces the
+  scanned folders (tests only).
+  The renderer polls every 3 s while the Ingest view is open (`AppStore.watchCards`). Ticking a
+  card (`pickCard`) creates a `CardSource` with `discovered: true`, once per volume: the next
+  time the volume appears it is matched to that source by mount path, else by volume label (a
+  source whose mount path is not a mounted card now), so filters and incremental state survive
+  re-insertion and two cards named `NIKON Z 6` keep separate sources (the second is named
+  `NIKON Z 6 (2)`). A discovered source is ingested only while it is ticked; ticks are not
+  persisted and reset when the card leaves, unless its run is still going. Hand-added card
+  sources are ingested like folders, and a mounted card they already cover is not offered again.
+  The seen-store remembers a card's files by path below the mount point, so a different drive
+  letter or mount path does not make everything new again (older absolute entries still count).
 - `app://thumb|preview` are cached JPEGs. `app://linear/<id>?maxEdge=N` is decoded in the jobs process
   (f16 for raws, f32 for JPEGs), written to `cache/linear` (small LRU) and streamed from
   there by main, with the `LinearImageHeader` in `x-ee-linear-image`. Main only streams
@@ -202,6 +223,7 @@ Key types (names are binding, fields can grow):
 - `SourceConfig` = `FolderSource | CardSource | FtpSource | SftpSource`
   (`FtpSource` covers FTP and FTPS; remote sources have `pollIntervalMs`,
   `remotePath`, `deleteAfterDownload` default false, `credentialRef`).
+  `CardSource.discovered` marks a source created by picking a discovered card.
   `FolderSource` and `CardSource` also have optional `fileTypes` (`both` default),
   `lockFilter` (`all` default) and `incremental` (`true` default); remote sources
   have none of them.

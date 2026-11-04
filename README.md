@@ -197,19 +197,28 @@ Set things up in this order:
    global list and its mode, `Replace existing values` (the default) or
    `Fill empty fields`, and choose the develop preset to apply on import.
    Import presets with **Develop → Presets → Import** first.
-3. **Settings → Sources.** Add a folder, card, FTP or SFTP source, then
-   **Test** and **Save source**. For a local source, set its filters: file
-   types RAW / JPEG / Both, lock state Locked / Unlocked / All, and Incremental
-   (on by default). Anonymous FTP needs no password.
-4. **Settings → Destinations** for upload targets, and **Export… → New
+3. **Insert a card.** Open the **Ingest** view: the inserted cards (volumes with a
+   `DCIM` folder) are listed under **Cards** on their own, with the volume label,
+   mount path and image count. No path to type. The cards are looked for when the
+   view opens; insert or remove one afterwards and press **Rescan cards**
+   (the circular arrow). Tick the cards to ingest; each ticked card has its own
+   filters: file types RAW / JPEG / Both, lock state Locked / Unlocked / All, and
+   Incremental (on by default). A card is never ingested just because it appeared.
+   Linux (`/media`, `/run/media`), macOS (`/Volumes`) and Windows (drives D: to Z:)
+   are scanned; only Linux has been run on a real machine so far.
+4. **Settings → Sources** is the fallback for what is not found on its own:
+   a folder, a card with an unusual mount point, an FTP or SFTP server. **Test** and
+   **Save source**; local sources have the same filters, and these sources are
+   ingested every time. Anonymous FTP needs no password.
+5. **Settings → Destinations** for upload targets, and **Export… → New
    preset** for export presets (Location, File, Content, Then send), then
    **Save preset** and **Set as active**. A preset keeps the photo's current
    base name or renames with a file name template; keep mode only adds `-1`,
    `-2` when a file of that name already exists.
-5. Optional: **Settings → Profiles → Add folder…** for `.dcp`/`.xmp` camera
+6. Optional: **Settings → Profiles → Add folder…** for `.dcp`/`.xmp` camera
    profiles. Adobe's own folders are found automatically on macOS and Windows.
    See [Camera profiles](docs/camera-profiles.md) for the platform details.
-6. Start with **Ingest → Ingest**, then **Library** → **Develop** →
+7. Start with **Ingest → Ingest**, then **Library** → **Develop** →
    **Export…** or **Export & send** (or **Next & send**, Ctrl/⌘+Enter).
 
 ## Keyboard shortcuts
