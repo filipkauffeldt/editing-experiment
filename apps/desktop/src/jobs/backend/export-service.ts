@@ -39,6 +39,11 @@ const MAX_TRACKED_BATCHES = 500;
 const EXIF_TAGS = [
   'EXIF:DateTimeOriginal',
   'EXIF:CreateDate',
+  // Burst order and the zone of the clock live in these; the dates alone lose both.
+  'EXIF:SubSecTimeOriginal',
+  'EXIF:SubSecTimeDigitized',
+  'EXIF:OffsetTimeOriginal',
+  'EXIF:OffsetTimeDigitized',
   'EXIF:Make',
   'EXIF:Model',
   'EXIF:LensModel',
