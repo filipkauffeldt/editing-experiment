@@ -527,7 +527,8 @@ unchanged: the rotated rectangle in source space, whose output is the leveled fr
   Shift/Alt can change mid-drag. Panning and rotating keep the `pivot` (the frame does
   not move); resizing and drawing move it (the image does not move).
 - **Pointer zones** (`renderer/crop-view.ts`, `hitTestFrame`): corners and edges
-  resize; inside the frame pans the image; anywhere outside rotates about the frame
+  resize; inside the frame pans the image, or, while the photo is uncropped (the frame is the
+  whole level image), draws a new frame like the Frame tool; anywhere outside rotates about the frame
   centre (curved arrow cursor), following the pointer's angle, all the way to ±45°:
   constrain-to-image shrinks the frame instead of refusing. The stored corners are
   opposite corners of the *rotated* rectangle, so a wide frame tilted far one way
