@@ -28,6 +28,7 @@
     "test:e2e:demo": "node scripts/ensure-electron.mjs && vitest run --no-file-parallelism apps/desktop/test/poc-demo.e2e.test.ts --testNamePattern='ingests three sources|Photo Mechanic template|code replacement|Lightroom preset and a moved exposure|wires the histogram|crops to 1:1|detects faces|finishes at the export size|edited in the film strip|linear image too|batch exports a retouched photo|full-resolution crop'",
     "test:e2e:crop": "node scripts/ensure-electron.mjs && vitest run --no-file-parallelism apps/desktop/test/poc-demo.e2e.test.ts apps/desktop/test/real-mode.smoke.test.ts --testNamePattern='Lightroom-style crop overlay|real mode smoke'",
     "test:browser": "pnpm --filter @ee/develop-gl exec vitest run --config vitest.browser.config.ts",
+    "test:e2e:launch": "node scripts/ensure-electron.mjs && vitest run --no-file-parallelism apps/desktop/test/app-launch.e2e.test.ts",
     "test:e2e:export": "node scripts/ensure-electron.mjs && vitest run --no-file-parallelism apps/desktop/test/poc-demo.e2e.test.ts --testNamePattern='batch exports three|batch exports and sends|never overwrites'"
   },
   "devDependencies": {
