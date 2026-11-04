@@ -6,6 +6,7 @@ import {
   type IpcHandlers,
 } from '@ee/contracts';
 import type { JobsIncomingMessage, JobsOutgoingMessage } from '../shared/jobs-protocol';
+import { TrashBridge } from '../shared/trash-bridge';
 import { createSecretClient, electronSecretPort, type SecretPort } from '../shared/secret-port';
 import { createBackend, type Backend } from './backend/backend';
 import { createJobsHandlers } from './handlers';
@@ -32,6 +33,8 @@ const secretPort = new Promise<SecretPort>((resolve) => {
   deliverSecretPort = resolve;
 });
 
+const trashBridge = new TrashBridge(send);
+
 let backend: Promise<Backend> | undefined;
 let mockHandlers: Partial<IpcHandlers> | undefined;
 if (mock) {
@@ -39,7 +42,13 @@ if (mock) {
 } else {
   const userDataDir = process.env.EE_USER_DATA_DIR;
   backend = userDataDir
-    ? createBackend({ userDataDir, appVersion, emit, getSecret: createSecretClient(secretPort) })
+    ? createBackend({
+        userDataDir,
+        appVersion,
+        emit,
+        getSecret: createSecretClient(secretPort),
+        trashItem: (path) => trashBridge.trash(path),
+      })
     : Promise.reject(new Error('EE_USER_DATA_DIR is not set'));
   // Surface a failed start on every request instead of as an unhandled rejection.
   backend.catch((error: unknown) => console.error('jobs backend failed to start:', error));
@@ -63,6 +72,9 @@ parentPort.on(
         if (port) deliverSecretPort(electronSecretPort(port));
         return;
       }
+      case 'trash-result':
+        trashBridge.handleResult(data);
+        return;
       case 'invoke': {
         void toIpcResult(async () => {
           const handler = (await handlersFor())[data.channel as InvokeChannel] as

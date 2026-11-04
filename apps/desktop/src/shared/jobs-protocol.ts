@@ -30,8 +30,19 @@ export interface JobsShutdownMessage {
   kind: 'shutdown';
 }
 
+/** Main's answer to a {@link JobsTrashRequestMessage}; `error` is set when the file stayed. */
+export interface JobsTrashResultMessage {
+  kind: 'trash-result';
+  id: number;
+  error?: string;
+}
+
 export type JobsIncomingMessage =
-  JobsInvokeMessage | JobsAppRequestMessage | JobsSecretPortMessage | JobsShutdownMessage;
+  | JobsInvokeMessage
+  | JobsAppRequestMessage
+  | JobsSecretPortMessage
+  | JobsShutdownMessage
+  | JobsTrashResultMessage;
 
 /** Reply to a {@link JobsInvokeMessage}. Failures travel as data (see `IpcResult`). */
 export interface JobsResultMessage {
@@ -68,5 +79,17 @@ export interface JobsEventMessage {
   payload: unknown;
 }
 
+/**
+ * The jobs process asks main to move one file to the system trash. Electron's `shell` is not
+ * available in a utility process. Only the photo deleter sends this, with a path it took from
+ * its own index: the renderer never supplies one.
+ */
+export interface JobsTrashRequestMessage {
+  kind: 'trash-request';
+  id: number;
+  path: string;
+}
+
 /** Messages jobs → main. */
-export type JobsOutgoingMessage = JobsResultMessage | JobsAppResultMessage | JobsEventMessage;
+export type JobsOutgoingMessage =
+  JobsResultMessage | JobsAppResultMessage | JobsEventMessage | JobsTrashRequestMessage;
