@@ -143,7 +143,7 @@ describe('Ingest view cards', () => {
     await user.click(within(row).getByRole('checkbox', { name: 'NIKON_Z9' }));
     await waitFor(() => expect(within(form).getByText(/^1 source\(s\): NIKON_Z9$/)).toBeTruthy());
     await user.click(within(row).getByRole('checkbox', { name: 'NIKON_Z9' }));
-    await user.click(within(form).getByRole('button', { name: 'Ingest', exact: true }));
+    await user.click(within(form).getByRole('button', { name: /^Ingest$/ }));
 
     expect(await within(form).findByText(/Nothing to ingest\. Tick a card/)).toBeTruthy();
   });

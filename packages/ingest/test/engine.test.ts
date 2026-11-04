@@ -334,6 +334,44 @@ describe('startIngest', () => {
     expect(await readdir(destination).catch(() => [])).toEqual([]);
   });
 
+  describe('a card pulled out before ingest starts', () => {
+    it('fails with a message naming the card while the other sources carry on', async () => {
+      const root = await makeTempDir();
+      const destination = join(root, 'destination');
+      const present = join(root, 'media', 'EOS_DIGITAL');
+      const gone = join(root, 'media', 'NIKON Z 6');
+      const folder = join(root, 'folder');
+      await createFile(join(present, 'DCIM', '100EOS', 'IMG_1.CR3'));
+      await createFile(join(folder, '_DSC1.NEF'));
+      const ingested: string[] = [];
+
+      const handle = startIngest(
+        config(
+          [
+            { kind: 'card', id: asSourceId('eos'), name: 'EOS_DIGITAL', mountPath: present },
+            { kind: 'card', id: asSourceId('nikon'), name: 'NIKON Z 6', mountPath: gone },
+            folderSource('folder', folder),
+          ],
+          destination,
+        ),
+        {
+          onFileIngested: async (info: IngestedFileInfo) => {
+            ingested.push(info.sourceFileName);
+          },
+        },
+      );
+      await handle.done;
+
+      const status = new Map(handle.status().map((info) => [info.sourceId, info]));
+      expect(status.get(asSourceId('nikon'))?.state).toBe('failed');
+      expect(status.get(asSourceId('nikon'))?.error).toContain('NIKON Z 6');
+      expect(status.get(asSourceId('nikon'))?.error).toContain(gone);
+      expect(status.get(asSourceId('eos'))?.state).toBe('finished');
+      expect(status.get(asSourceId('folder'))?.state).toBe('finished');
+      expect(ingested.sort()).toEqual(['IMG_1.CR3', '_DSC1.NEF']);
+    });
+  });
+
   describe('a card that comes back', () => {
     const cardAt = (mountPath: string): CardSource => ({
       kind: 'card',

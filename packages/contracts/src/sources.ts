@@ -109,6 +109,17 @@ export interface SftpSource extends RemoteSourceBase {
 /** Any configured ingest source, discriminated by `kind`. */
 export type SourceConfig = FolderSource | CardSource | FtpSource | SftpSource;
 
+/** Arguments of `sources:detectCards`. */
+export interface DetectCardsArgs {
+  /**
+   * Count the images of every card again. The list is returned without waiting for the
+   * counts, so a card is shown before its number is ready.
+   */
+  recount?: boolean;
+  /** Return after the counts that are running have finished, so the list carries them. */
+  waitForCounts?: boolean;
+}
+
 /**
  * A volume with a `DCIM` folder that is mounted now, reported by `sources:detectCards`.
  * `mountPath` is unique among the cards reported together; `volumeLabel` is not (two
@@ -118,8 +129,8 @@ export interface DetectedCard {
   mountPath: string;
   volumeLabel?: string;
   /**
-   * Number of image files found under `DCIM`. The count runs once in the background after a
-   * card first appears, so a new card is reported without it and a later call has it.
+   * Number of image files found under `DCIM`. A count runs in the background, so a card is
+   * reported without it until it is ready (see {@link DetectCardsArgs}).
    */
   imageCount?: number;
 }

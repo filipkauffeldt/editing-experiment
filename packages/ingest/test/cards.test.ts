@@ -316,7 +316,7 @@ describe('CardScanner', () => {
 describe('a card that was found stays until a definite answer', () => {
   const tick = () => new Promise<void>((resolve) => setTimeout(resolve, 0));
 
-  async function foundCard(options: { staleAfterMs?: number; now?: () => number } = {}) {
+  async function foundCard() {
     const fs = new FakeCardFs();
     const card = fs.addCard('/media/filip', 'NIKON_Z9', ['a.NEF', 'b.NEF']);
     const scanner = new CardScanner({
@@ -324,7 +324,6 @@ describe('a card that was found stays until a definite answer', () => {
       user: 'filip',
       fs,
       probeTimeoutMs: 20,
-      ...options,
     });
     const first = await scanner.scan({ waitForCounts: true });
     expect(first).toEqual([{ mountPath: card, volumeLabel: 'NIKON_Z9', imageCount: 2 }]);
@@ -391,20 +390,6 @@ describe('a card that was found stays until a definite answer', () => {
     expect((await scanner.scan()).map((entry) => entry.mountPath)).toEqual([card]);
   });
 
-  it('gives up on a card that stays unknown for longer than staleAfterMs', async () => {
-    let clock = 1_000;
-    const { fs, scanner, card, first } = await foundCard({
-      staleAfterMs: 60_000,
-      now: () => clock,
-    });
-    fs.hang(`${card}/DCIM`);
-
-    clock += 59_000;
-    expect(await scanner.scan()).toEqual(first);
-    clock += 2_000;
-    expect(await scanner.scan()).toEqual([]);
-  });
-
   it('keeps a Windows drive whose probe stalls', async () => {
     const fs = new FakeCardFs(win32.join);
     fs.addCard('', 'E:\\', ['a.NEF']);
@@ -419,5 +404,55 @@ describe('a card that was found stays until a definite answer', () => {
 
     fs.hang(win32.join('E:\\', 'DCIM'));
     expect(await scanner.scan()).toEqual(first);
+  });
+});
+
+describe('recount', () => {
+  const setup = async () => {
+    const fs = new FakeCardFs();
+    const card = fs.addCard('/media/filip', 'NIKON_Z9', ['a.NEF']);
+    const scanner = new CardScanner({ platform: 'linux', user: 'filip', fs, probeTimeoutMs: 20 });
+    expect(await scanner.scan({ waitForCounts: true })).toEqual([
+      { mountPath: card, volumeLabel: 'NIKON_Z9', imageCount: 1 },
+    ]);
+    return { fs, scanner, card };
+  };
+
+  it('counts again on request, lists the card first, and waits for the number on a second call', async () => {
+    const { fs, scanner, card } = await setup();
+    const folder = `${card}/DCIM/100NCZ`;
+    fs.addFile(folder, 'b.NEF');
+    fs.addFile(folder, 'c.NEF');
+    fs.hang(folder);
+
+    // The list does not wait for the count, and the old number is not shown as current.
+    expect(await scanner.scan({ recount: true })).toEqual([
+      { mountPath: card, volumeLabel: 'NIKON_Z9' },
+    ]);
+
+    const counted = scanner.scan({ waitForCounts: true });
+    fs.release(folder);
+    expect(await counted).toEqual([{ mountPath: card, volumeLabel: 'NIKON_Z9', imageCount: 3 }]);
+  });
+
+  it('does not recount without being asked', async () => {
+    const { fs, scanner } = await setup();
+    const before = fs.calls.filter((call) => call.includes('100NCZ')).length;
+
+    await scanner.scan();
+    await scanner.scan({ waitForCounts: true });
+
+    expect(fs.calls.filter((call) => call.includes('100NCZ')).length).toBe(before);
+  });
+
+  it('keeps the last count of a card whose probe is unknown instead of reading it again', async () => {
+    const { fs, scanner, card } = await setup();
+    fs.hang(`${card}/DCIM`);
+    const before = fs.calls.filter((call) => call.includes('100NCZ')).length;
+
+    const cards = await scanner.scan({ recount: true });
+
+    expect(cards).toEqual([{ mountPath: card, volumeLabel: 'NIKON_Z9', imageCount: 1 }]);
+    expect(fs.calls.filter((call) => call.includes('100NCZ')).length).toBe(before);
   });
 });

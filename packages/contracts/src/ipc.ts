@@ -24,7 +24,13 @@ import type { Photo, PhotoVersion } from './photo';
 import type { PhotoProfiles, ProfileIndex, ProfileRequest, ProfileResolution } from './profile';
 import type { Rect } from './geometry';
 import type { FaceDetection, RetouchOp } from './retouch';
-import type { DetectedCard, IngestConfig, SourceConfig, TemplateApplyMode } from './sources';
+import type {
+  DetectCardsArgs,
+  DetectedCard,
+  IngestConfig,
+  SourceConfig,
+  TemplateApplyMode,
+} from './sources';
 
 // ---------------------------------------------------------------------------
 // Request / response payloads
@@ -271,8 +277,11 @@ export interface IpcApi {
   'sources:save': (args: { source: SourceConfig }) => Promise<SourceConfig>;
   'sources:remove': (args: { sourceId: SourceId }) => Promise<void>;
   'sources:test': (args: { source: SourceConfig }) => Promise<ConnectionTestResult>;
-  /** Removable volumes that look like camera cards. Platform specific. */
-  'sources:detectCards': () => Promise<DetectedCard[]>;
+  /**
+   * Volumes that look like camera cards, scanned now. Nothing scans by itself; the renderer
+   * asks when the Ingest view opens and when the user rescans.
+   */
+  'sources:detectCards': (args?: DetectCardsArgs) => Promise<DetectedCard[]>;
 
   // --- destinations (CRUD of upload/export destinations) ---
   'destinations:list': () => Promise<Destination[]>;

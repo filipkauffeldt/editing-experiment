@@ -54,7 +54,8 @@ export function createBackendHandlers(deps: HandlerDeps): IpcHandlers {
     throw new IpcError('internal', `${channel} is served by the main process`);
   };
 
-  // One scanner for the app's life: it remembers image counts so a poll never recounts a card.
+  // One scanner for the app's life: it remembers the cards it found and their counts, so a scan
+  // that times out on a slow reader does not forget a card.
   const cards = cardScannerFromEnv(process.env);
 
   return {
@@ -78,7 +79,7 @@ export function createBackendHandlers(deps: HandlerDeps): IpcHandlers {
       settings.removeSource(sourceId);
     },
     'sources:test': ({ source }) => testSource(source, { getSecret: deps.getSecret }),
-    'sources:detectCards': () => cards.scan(),
+    'sources:detectCards': (args) => cards.scan(args),
 
     'destinations:list': async () => settings.listDestinations(),
     'destinations:save': async ({ destination }) => settings.saveDestination(destination),

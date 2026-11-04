@@ -36,17 +36,9 @@ export interface DetectCardsOptions {
   fs?: CardFileSystem;
   /** How long one filesystem probe may take before its answer is "unknown". Default 2000. */
   probeTimeoutMs?: number;
-  /**
-   * How long a card that was found keeps being listed while every probe of it is unknown
-   * (timed out, still pending or failed). Default 60000. Past that it is taken as gone.
-   */
-  staleAfterMs?: number;
-  /** Clock for `staleAfterMs`; tests inject one. */
-  now?: () => number;
 }
 
 const DEFAULT_PROBE_TIMEOUT_MS = 2000;
-const DEFAULT_STALE_AFTER_MS = 60_000;
 
 const nodeCardFs: CardFileSystem = {
   async list(path) {
@@ -189,12 +181,10 @@ export class CardScanner {
   readonly #roots: string[];
   readonly #drives: string[];
   readonly #timeoutMs: number;
-  readonly #staleAfterMs: number;
-  readonly #now: () => number;
   readonly #user: string;
   readonly #counts = new Map<string, ImageCount>();
-  /** Cards found so far and when a probe last confirmed them. */
-  readonly #cards = new Map<string, { volume: Volume; confirmedAt: number }>();
+  /** Cards found so far, kept while a later probe of them is unknown. */
+  readonly #cards = new Map<string, Volume>();
   readonly #inflight = new Map<string, Promise<Probed<unknown>>>();
 
   constructor(options: DetectCardsOptions = {}) {
@@ -202,25 +192,30 @@ export class CardScanner {
     this.#fs = options.fs ?? nodeCardFs;
     this.#user = options.user ?? currentUser();
     this.#timeoutMs = options.probeTimeoutMs ?? DEFAULT_PROBE_TIMEOUT_MS;
-    this.#staleAfterMs = options.staleAfterMs ?? DEFAULT_STALE_AFTER_MS;
-    this.#now = options.now ?? Date.now;
     this.#roots = options.mountRoots ?? defaultMountRoots(this.#platform, this.#user);
     this.#drives = options.windowsDrives ?? defaultWindowsDrives();
   }
 
   /**
-   * The cards that are mounted now. A card whose images are not counted yet is
-   * returned without `imageCount`; a later scan has it. With `waitForCounts` the
-   * result waits for every count instead.
+   * The cards that are mounted now. A card whose images are not counted yet is returned
+   * without `imageCount`: the list never waits for a count.
+   *
+   * - `recount` starts a new count for every card that answered, so the numbers are never
+   *   older than this scan. A card appearing for the first time is counted either way.
+   * - `waitForCounts` returns once the counts that are running have finished, for the
+   *   caller that wants the numbers after it showed the list.
    *
    * A card that was found before leaves the result only on a definite answer: its `DCIM`
    * folder is not there, or a completed listing of its root no longer has it. A probe that
    * timed out, is still pending or failed is "unknown", and the card stays listed (with
-   * its count) for up to `staleAfterMs`, because a busy USB reader can stall a `stat` for
-   * seconds and a card that flickers out loses the user's pick. A volume never seen before
-   * needs a positive answer to appear.
+   * its last count), because a busy USB reader can stall a `stat` for seconds and a card
+   * that drops out loses the user's pick. A volume never seen before needs a positive
+   * answer to appear. Nothing scans by itself; the app scans when the Ingest view opens and
+   * on request.
    */
-  async scan(options: { waitForCounts?: boolean } = {}): Promise<DetectedCard[]> {
+  async scan(
+    options: { recount?: boolean; waitForCounts?: boolean } = {},
+  ): Promise<DetectedCard[]> {
     const path = pathApi(this.#platform);
     const { volumes, unknownRoots } = await this.#volumes();
 
@@ -231,7 +226,7 @@ export class CardScanner {
       }
     }
     // A root that could not be listed says nothing about its cards; ask each one directly.
-    for (const [mountPath, { volume }] of this.#cards) {
+    for (const [mountPath, volume] of this.#cards) {
       if (volume.root !== undefined && unknownRoots.has(volume.root)) {
         candidates.set(mountPath, volume);
       }
@@ -246,21 +241,20 @@ export class CardScanner {
       })),
     );
 
-    const now = this.#now();
     const found = new Map<string, Volume>();
+    const answered = new Set<string>();
     for (const { volume, result } of probed) {
       const previous = this.#cards.get(volume.mountPath);
       if (result.known) {
         if (result.value) {
-          this.#cards.set(volume.mountPath, { volume, confirmedAt: now });
+          this.#cards.set(volume.mountPath, volume);
           found.set(volume.mountPath, volume);
+          answered.add(volume.mountPath);
         } else {
           this.#cards.delete(volume.mountPath);
         }
-      } else if (previous && now - previous.confirmedAt < this.#staleAfterMs) {
-        found.set(volume.mountPath, previous.volume);
-      } else {
-        this.#cards.delete(volume.mountPath);
+      } else if (previous) {
+        found.set(volume.mountPath, previous);
       }
     }
     // Known cards that no candidate mentioned (listed, then absent from a completed listing) are gone.
@@ -277,7 +271,8 @@ export class CardScanner {
       }
     }
     for (const mountPath of found.keys()) {
-      if (!this.#counts.has(mountPath)) {
+      // A card that did not answer this time is not read again for a number it cannot give.
+      if (!this.#counts.has(mountPath) || (options.recount && answered.has(mountPath))) {
         this.#startCount(mountPath);
       }
     }
@@ -363,19 +358,18 @@ export class CardScanner {
 
   #startCount(mountPath: string): void {
     const path = pathApi(this.#platform);
-    const settled = countImages(this.#fs, path.join(mountPath, 'DCIM'), this.#platform).then(
-      (count) => {
-        if (this.#counts.get(mountPath)?.state === 'pending') {
-          this.#counts.set(mountPath, { state: 'done', count });
-        }
-      },
-      () => {
-        if (this.#counts.get(mountPath)?.state === 'pending') {
-          this.#counts.set(mountPath, { state: 'failed' });
-        }
-      },
+    // A newer count replaces this one; the older result is then ignored.
+    const entry: ImageCount = { state: 'pending', settled: Promise.resolve() };
+    const settle = (next: ImageCount): void => {
+      if (this.#counts.get(mountPath) === entry) {
+        this.#counts.set(mountPath, next);
+      }
+    };
+    entry.settled = countImages(this.#fs, path.join(mountPath, 'DCIM'), this.#platform).then(
+      (count) => settle({ state: 'done', count }),
+      () => settle({ state: 'failed' }),
     );
-    this.#counts.set(mountPath, { state: 'pending', settled });
+    this.#counts.set(mountPath, entry);
   }
 }
 
