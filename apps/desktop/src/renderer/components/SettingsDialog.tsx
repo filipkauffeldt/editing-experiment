@@ -45,6 +45,8 @@ interface SourceFormState {
   incremental: boolean;
   mountPath: string;
   volumeLabel: string;
+  /** Kept when a source picked on the Ingest view is edited here, so it stays a picked card. */
+  discovered: boolean;
   host: string;
   port: string;
   username: string;
@@ -72,6 +74,7 @@ const sourceForm = (
     incremental: DEFAULT_INCREMENTAL,
     mountPath: '',
     volumeLabel: '',
+    discovered: false,
     host: '',
     port: '21',
     username: '',
@@ -99,6 +102,7 @@ const sourceForm = (
       kind: source.kind,
       mountPath: source.mountPath,
       volumeLabel: source.volumeLabel ?? '',
+      discovered: source.discovered ?? false,
       ...sourceFilterValues(source),
     };
   }
@@ -147,6 +151,7 @@ function buildSource(form: SourceFormState): { source: SourceConfig; error?: str
         name,
         mountPath: form.mountPath.trim(),
         volumeLabel: form.volumeLabel.trim() || undefined,
+        ...(form.discovered ? { discovered: true } : {}),
         fileTypes: form.fileTypes,
         lockFilter: form.lockFilter,
         incremental: form.incremental,
