@@ -11,9 +11,16 @@ import type { AppStore } from './store';
 import { setPanHeld, zoomCommands, zoomStore } from './zoom-view';
 import { zoomKeyAction } from './zoom-keys';
 
-/** Focus the caption editor without threading a ref through every panel. */
+/**
+ * Focus the caption editor without threading a ref through every panel: the
+ * caret goes to the start with nothing selected, and the field scrolls to it.
+ */
 export function focusCaptionField(): void {
-  document.querySelector<HTMLTextAreaElement>('[data-caption-input]')?.focus();
+  const field = document.querySelector<HTMLTextAreaElement>('[data-caption-input]');
+  if (!field) return;
+  field.focus();
+  field.setSelectionRange(0, 0);
+  field.scrollTop = 0;
 }
 
 /**
