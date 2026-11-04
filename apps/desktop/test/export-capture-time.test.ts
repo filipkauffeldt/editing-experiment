@@ -9,7 +9,7 @@ import {
 } from '@ee/contracts';
 import { JobEventEmitter, type UploadQueue } from '@ee/export';
 import { ExifToolService, toIsoDate, writeIptc } from '@ee/metadata';
-import { copyFile, mkdtemp, rm, stat } from 'node:fs/promises';
+import { copyFile, mkdtemp, rm, stat, utimes } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import sharp from 'sharp';
@@ -41,6 +41,7 @@ describe('export keeps the camera time', () => {
   let exiftool: ExifToolService;
   let library: PhotoLibrary;
   let service: ExportService;
+  let warnings: string[];
 
   const preset = (metadata: ExportMetadataMode, overrides: Partial<ExportPreset> = {}) =>
     ({
@@ -63,6 +64,7 @@ describe('export keeps the camera time', () => {
   beforeEach(async () => {
     root = await mkdtemp(join(tmpdir(), 'ee-export-time-'));
     library = new PhotoLibrary(new PhotoIndex(':memory:'), () => {});
+    warnings = [];
     service = new ExportService({
       photos: library,
       settings: new SettingsStore(undefined, defaultSettings(root)),
@@ -70,6 +72,7 @@ describe('export keeps the camera time', () => {
       queue: { events: new JobEventEmitter() } as unknown as UploadQueue,
       exportedFiles: new ExportedFileStore(join(root, 'exported-files.json')),
       onEvent: () => {},
+      warn: (message) => warnings.push(message),
     });
   });
   afterEach(() => rm(root, { recursive: true, force: true }));
@@ -228,6 +231,113 @@ describe('export keeps the camera time', () => {
     });
   });
 
+  describe('the modified time', () => {
+    const modified = async (path: string): Promise<number> => (await stat(path)).mtimeMs;
+    const longAgo = new Date('2001-01-01T00:00:00Z');
+
+    it('is the capture time in all and iptc, and the export time in copyright and none', async () => {
+      const source = await cameraJpeg('times');
+      const photo = await addPhoto(source, 'times', INDEXED_CAPTURE_TIME);
+      const captured = Date.parse('2025-03-08T19:45:12+01:00');
+
+      for (const mode of ['all', 'iptc', 'copyright', 'none'] as const) {
+        const before = Date.now();
+        const out = await service.exportOne({
+          photoId: photo.id,
+          preset: preset(mode, { fileNameTemplate: `times-${mode}` }),
+          rendered,
+        });
+        const mtime = await modified(out.path);
+        if (mode === 'all' || mode === 'iptc') expect(mtime, mode).toBe(captured);
+        else expect(mtime, mode).toBeGreaterThanOrEqual(before - 1000);
+      }
+      expect(warnings).toEqual([]);
+    });
+
+    it('leaves the export time on a photo with no capture time or EXIF at all', async () => {
+      const bare = join(root, 'bare.jpg');
+      await sharp({ create: { width: 16, height: 16, channels: 3, background: '#357' } })
+        .jpeg()
+        .toFile(bare);
+      const photo = await addPhoto(bare, 'bare', undefined);
+      const before = Date.now();
+
+      const out = await service.exportOne({ photoId: photo.id, preset: preset('all'), rendered });
+
+      expect(await modified(out.path)).toBeGreaterThanOrEqual(before - 1000);
+      expect((await dateTags(out.path))['ExifIFD:DateTimeOriginal']).toBeUndefined();
+      expect(warnings).toEqual([]);
+    });
+
+    it('leaves the export time when only a date, not a time, is known', async () => {
+      const source = await cameraJpeg('dateonly');
+      const photo = await addPhoto(source, 'dateonly', '2025-03-08');
+      const before = Date.now();
+
+      const out = await service.exportOne({ photoId: photo.id, preset: preset('all'), rendered });
+
+      expect(await modified(out.path)).toBeGreaterThanOrEqual(before - 1000);
+    });
+
+    it('uses the offset tag when the original has one, and local time when it has none', async () => {
+      const withOffset = await cameraJpeg('offset');
+      const withoutOffset = await cameraJpeg('local', {
+        DateTimeOriginal: CAMERA_TIME.DateTimeOriginal,
+        CreateDate: CAMERA_TIME.CreateDate,
+        SubSecTimeOriginal: CAMERA_TIME.SubSecTimeOriginal,
+      });
+      const pinned = await addPhoto(withOffset, 'offset', INDEXED_CAPTURE_TIME);
+      const floating = await addPhoto(withoutOffset, 'local', INDEXED_CAPTURE_TIME);
+
+      const first = await service.exportOne({
+        photoId: pinned.id,
+        preset: preset('all'),
+        rendered,
+      });
+      const second = await service.exportOne({
+        photoId: floating.id,
+        preset: preset('all'),
+        rendered,
+      });
+
+      expect(await modified(first.path)).toBe(Date.parse('2025-03-08T19:45:12+01:00'));
+      // No offset: the clock face on this machine, never shifted by hours.
+      expect(await modified(second.path)).toBe(new Date(2025, 2, 8, 19, 45, 12).getTime());
+    });
+
+    it('trusts a capture time that carries its own zone', async () => {
+      const source = await cameraJpeg('zoned');
+      const photo = await addPhoto(source, 'zoned', '2025-03-08T19:45:12+05:30');
+
+      const out = await service.exportOne({ photoId: photo.id, preset: preset('all'), rendered });
+
+      expect(await modified(out.path)).toBe(Date.parse('2025-03-08T19:45:12+05:30'));
+    });
+
+    it('is set again by a re-export over the earlier file', async () => {
+      const source = await cameraJpeg('re');
+      const photo = await addPhoto(source, 'resend', INDEXED_CAPTURE_TIME);
+      const overwrite = preset('all', { ifExists: 'overwrite' });
+      const first = await service.exportOne({ photoId: photo.id, preset: overwrite, rendered });
+      await utimes(first.path, new Date(), longAgo);
+
+      const second = await service.exportOne({ photoId: photo.id, preset: overwrite, rendered });
+
+      expect(second.path).toBe(first.path);
+      expect(await modified(second.path)).toBe(Date.parse('2025-03-08T19:45:12+01:00'));
+    });
+
+    it('does not touch the original', async () => {
+      const source = await cameraJpeg('orig');
+      await utimes(source, new Date(), longAgo);
+      const photo = await addPhoto(source, 'orig', INDEXED_CAPTURE_TIME);
+
+      await service.exportOne({ photoId: photo.id, preset: preset('all'), rendered });
+
+      expect(await modified(source)).toBe(longAgo.getTime());
+    });
+  });
+
   describe('a real camera raw', () => {
     const nef = sampleNefs()[0] ?? fixtureNefs()[0];
 
@@ -258,6 +368,12 @@ describe('export keeps the camera time', () => {
           expect(exported[tag], tag).toBe(camera[tag]);
         }
         expect(exported['IFD0:ModifyDate']).toBeUndefined();
+        // The raw's own offset (when it has one) pins the instant; otherwise the local clock face.
+        const offset = exported['ExifIFD:OffsetTimeOriginal'];
+        const clock = captureTime!.slice(0, 19);
+        expect((await stat(out.path)).mtimeMs).toBe(
+          offset === undefined ? new Date(clock).getTime() : Date.parse(`${clock}${offset}`),
+        );
       },
       60_000,
     );

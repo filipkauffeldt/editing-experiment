@@ -156,6 +156,7 @@ export async function createBackend(options: BackendOptions): Promise<Backend> {
     queue,
     exportedFiles,
     onEvent: emitJob,
+    warn: (message) => console.warn(message),
   });
   late.exporter = exporter;
   const exports = new ExportQueue({
