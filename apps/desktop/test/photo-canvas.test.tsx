@@ -73,6 +73,12 @@ const linearResponse = (): Response =>
     },
   });
 
+/** The retouch overlay is bigger than the stage (it holds the hit margin); points are read off the stage. */
+const stageOf = (overlay: Element): Element => {
+  if (!overlay.parentElement) throw new Error('the overlay has no stage');
+  return overlay.parentElement;
+};
+
 describe('PhotoCanvas preview', () => {
   let store: AppStore;
   let fake: FakeBridge;
@@ -181,7 +187,7 @@ describe('PhotoCanvas preview', () => {
       store.setRetouchTool('faces');
     });
     const overlay = await screen.findByTestId('retouch-overlay');
-    vi.spyOn(overlay, 'getBoundingClientRect').mockReturnValue({
+    vi.spyOn(stageOf(overlay), 'getBoundingClientRect').mockReturnValue({
       x: 0,
       y: 0,
       width: 400,
@@ -246,7 +252,7 @@ describe('PhotoCanvas preview', () => {
       store.setRetouchFaceArea('lasso');
     });
     const overlay = await screen.findByTestId('retouch-overlay');
-    vi.spyOn(overlay, 'getBoundingClientRect').mockReturnValue({
+    vi.spyOn(stageOf(overlay), 'getBoundingClientRect').mockReturnValue({
       x: 0,
       y: 0,
       width: 400,
@@ -289,7 +295,7 @@ describe('PhotoCanvas preview', () => {
       );
       act(() => store.toggleRetouch());
       const overlay = await screen.findByTestId('retouch-overlay');
-      vi.spyOn(overlay, 'getBoundingClientRect').mockReturnValue({
+      vi.spyOn(stageOf(overlay), 'getBoundingClientRect').mockReturnValue({
         x: 0,
         y: 0,
         width: 400,
@@ -377,6 +383,94 @@ describe('PhotoCanvas preview', () => {
       expect(store.getState().retouch?.areas).toHaveLength(2);
     });
 
+    describe('starting outside the picture', () => {
+      const shapeOf = (index = 0) => {
+        const area = store.getState().retouch?.areas[index];
+        return area?.shape;
+      };
+
+      it('clips a rectangle that starts in the margin to the picture edge', async () => {
+        const overlay = await openOverlay();
+        act(() => store.setRetouchTool('rect'));
+        // From 10 px left of the picture and 15 px above it, into the picture.
+        drag(overlay, [-10, -15], [200, 150]);
+        expect(shapeOf()).toEqual({ type: 'rect', x: 0, y: 0, w: 0.5, h: 0.5 });
+        // Dragging out the other side from inside clips the same way.
+        drag(overlay, [300, 200], [900, 700]);
+        const clipped = shapeOf(1);
+        if (clipped?.type !== 'rect') throw new Error('expected a rectangle');
+        expect(clipped.x).toBeCloseTo(0.75, 9);
+        expect(clipped.y).toBeCloseTo(2 / 3, 9);
+        expect(clipped.x + clipped.w).toBe(1);
+        expect(clipped.y + clipped.h).toBeCloseTo(1, 9);
+      });
+
+      it('clips a lasso to the picture and keeps every point within 0..1', async () => {
+        const overlay = await openOverlay();
+        act(() => store.setRetouchTool('lasso'));
+        fireEvent.pointerDown(overlay, { clientX: -8, clientY: 100, pointerId: 1, button: 0 });
+        for (const [x, y] of [
+          [100, 20],
+          [450, 120],
+          [380, 330],
+          [60, 250],
+        ] as const) {
+          fireEvent.pointerMove(overlay, { clientX: x, clientY: y, pointerId: 1 });
+        }
+        fireEvent.pointerUp(overlay, { clientX: -8, clientY: 160, pointerId: 1, button: 0 });
+        const shape = shapeOf();
+        if (shape?.type !== 'polygon') throw new Error('expected a lasso');
+        for (const point of shape.points) {
+          expect(point.x).toBeGreaterThanOrEqual(0);
+          expect(point.x).toBeLessThanOrEqual(1);
+          expect(point.y).toBeGreaterThanOrEqual(0);
+          expect(point.y).toBeLessThanOrEqual(1);
+        }
+        expect(shape.points.some((point) => point.x === 0)).toBe(true);
+        expect(shape.points.some((point) => point.x === 1)).toBe(true);
+      });
+
+      it('does nothing for a click in the margin, and a click on an area there does not toggle it', async () => {
+        const overlay = await openOverlay();
+        act(() => store.setRetouchTool('rect'));
+        drag(overlay, [20, 20], [200, 150]);
+        expect(store.getState().retouch?.areas[0]?.enabled).toBe(true);
+        // The rectangle reaches (20, 20); a click 5 px outside the picture is not on it.
+        drag(overlay, [-5, 20], [-5, 20]);
+        drag(overlay, [20, -5], [20, -5]);
+        expect(store.getState().retouch?.areas).toHaveLength(1);
+        expect(store.getState().retouch?.areas[0]?.enabled).toBe(true);
+      });
+
+      it('adds nothing for a drag that stays outside the picture, and never runs detection', async () => {
+        const overlay = await openOverlay();
+        const calls = (): number =>
+          fake.calls.filter((call) => call.channel === 'retouch:detectFaces').length;
+        const before = calls();
+        // Detect faces, Rectangle: down the left margin, then along the top margin.
+        drag(overlay, [-10, 20], [-10, 280]);
+        drag(overlay, [20, -10], [380, -10]);
+        // Detect faces, Lasso: around the outside of a corner.
+        act(() => store.setRetouchFaceArea('lasso'));
+        fireEvent.pointerDown(overlay, { clientX: -10, clientY: -10, pointerId: 1, button: 0 });
+        for (const [x, y] of [
+          [-10, -4],
+          [-4, -10],
+          [-10, -10],
+        ] as const) {
+          fireEvent.pointerMove(overlay, { clientX: x, clientY: y, pointerId: 1 });
+        }
+        fireEvent.pointerUp(overlay, { clientX: -10, clientY: -10, pointerId: 1, button: 0 });
+        // Rectangle and Lasso tools.
+        act(() => store.setRetouchTool('rect'));
+        drag(overlay, [-10, 20], [-10, 280]);
+        act(() => store.setRetouchTool('lasso'));
+        drag(overlay, [-10, 20], [-10, 280]);
+        expect(store.getState().retouch?.areas).toHaveLength(0);
+        expect(calls()).toBe(before);
+      });
+    });
+
     it('Subtract with Detect faces removes the faces inside the dragged area and skips detection', async () => {
       const overlay = await openOverlay();
       const calls = fake.calls.filter((call) => call.channel === 'retouch:detectFaces').length;
@@ -440,7 +534,7 @@ describe('PhotoCanvas preview', () => {
     );
     act(() => store.toggleRetouch());
     const overlay = await screen.findByTestId('retouch-overlay');
-    vi.spyOn(overlay, 'getBoundingClientRect').mockReturnValue({
+    vi.spyOn(stageOf(overlay), 'getBoundingClientRect').mockReturnValue({
       x: 0,
       y: 0,
       width: 400,

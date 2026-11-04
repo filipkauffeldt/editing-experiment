@@ -905,6 +905,250 @@ describe.skipIf(!haveDisplay)('zoom and pan (real Electron app)', { timeout: 240
     expect((await view()).zoom).toBe('fit');
   });
 
+  it('starts a retouch drag in the margin outside the photo and clips it to the photo', async () => {
+    await window.mouse.move(2, 2);
+    if ((await view()).zoom !== 'fit') {
+      await window.keyboard.press('z');
+      await waitForZoom('fit');
+    }
+    await window.keyboard.press('r');
+    await window.getByTestId('retouch-toolbar').waitFor();
+    await window.locator('[data-tool="rect"]').click();
+    await settle();
+    // The toolbar settling re-measures the canvas; wait for the photo to stop moving.
+    for (let previous = JSON.stringify(await stageBox()), same = 0; same < 3;) {
+      await settle();
+      const current = JSON.stringify(await stageBox());
+      same = current === previous ? same + 1 : 0;
+      previous = current;
+    }
+
+    const overlay = window.locator('[data-testid="retouch-overlay"]');
+    // The previous test's saved rectangle is loaded back with the session; these tests look at their own.
+    const saved = await overlay.locator('[data-area-kind]').count();
+    /** The rectangles in the session, as fractions of the photo. */
+    const rects = async (): Promise<
+      { x: number; y: number; w: number; h: number; enabled: boolean }[]
+    > => {
+      const found = await overlay.locator('[data-area-kind]').evaluateAll((paths) =>
+        paths.map((path) => ({
+          d: path.getAttribute('d') ?? '',
+          enabled: path.getAttribute('data-area-enabled') === 'true',
+        })),
+      );
+      return found.slice(saved).map(({ d, enabled }) => {
+        const match = /M ([\d.e-]+) ([\d.e-]+) h ([\d.e-]+) v ([\d.e-]+)/.exec(d);
+        if (!match) throw new Error(`unexpected path ${d}`);
+        const [x, y, w, h] = match.slice(1).map(Number) as [number, number, number, number];
+        return { x, y, w, h, enabled };
+      });
+    };
+    const undoAll = async (): Promise<void> => {
+      const undo = window.getByRole('button', { name: 'Undo' });
+      while (await undo.isEnabled()) await undo.click();
+      expect(await rects()).toHaveLength(0);
+    };
+    const drag = async (
+      from: { x: number; y: number },
+      to: { x: number; y: number },
+    ): Promise<void> => {
+      await window.mouse.move(from.x, from.y);
+      await window.mouse.down();
+      await window.mouse.move(to.x, to.y, { steps: 8 });
+      await window.mouse.up();
+      await settle();
+    };
+    /** Where the picture's edges are on the page. */
+    const pictureEdges = async (): Promise<{
+      left: number;
+      top: number;
+      right: number;
+      bottom: number;
+    }> => {
+      const [box, v] = await Promise.all([stageBox(), view()]);
+      const left = box.x + v.x;
+      const top = box.y + v.y;
+      return {
+        left,
+        top,
+        right: left + v.scale * IMAGE.width,
+        bottom: top + v.scale * IMAGE.height,
+      };
+    };
+    const MARGIN = 24;
+    const onePixel = 1.5 / IMAGE.width;
+
+    // Fit leaves the margin free: the photo sits at least that far from the canvas area's edges.
+    const area = await stage().locator('..').boundingBox();
+    if (!area) throw new Error('no canvas area');
+    const fitted = await pictureEdges();
+    expect(fitted.left - area.x).toBeGreaterThanOrEqual(MARGIN - 0.5);
+    expect(fitted.top - area.y).toBeGreaterThanOrEqual(MARGIN - 0.5);
+    expect(area.x + area.width - fitted.right).toBeGreaterThanOrEqual(MARGIN - 0.5);
+    expect(area.y + area.height - fitted.bottom).toBeGreaterThanOrEqual(MARGIN - 0.5);
+
+    const w = fitted.right - fitted.left;
+    const h = fitted.bottom - fitted.top;
+    const inside = { x: fitted.left + w * 0.5, y: fitted.top + h * 0.5 };
+
+    // Left: the rectangle's left edge is exactly 0 and its far corner is under the pointer.
+    await drag({ x: fitted.left - 12, y: fitted.top + h * 0.3 }, inside);
+    const [left] = await rects();
+    expect(left).toMatchObject({ x: 0, enabled: true });
+    expect(Math.abs(left!.y - 0.3)).toBeLessThan(2 / IMAGE.height);
+    expect(Math.abs(left!.x + left!.w - 0.5)).toBeLessThan(onePixel);
+    expect(Math.abs(left!.y + left!.h - 0.5)).toBeLessThan(2 / IMAGE.height);
+    // A click in the margin next to that area does not switch it, and adds nothing.
+    await window.mouse.click(fitted.left - 6, fitted.top + h * 0.4);
+    await settle();
+    expect(await rects()).toEqual([left]);
+    await undoAll();
+
+    // Right, top and bottom.
+    await drag({ x: fitted.right + 12, y: fitted.top + h * 0.7 }, inside);
+    const right = (await rects())[0]!;
+    expect(Math.abs(right.x - 0.5)).toBeLessThan(onePixel);
+    expect(right.x + right.w).toBeCloseTo(1, 9);
+    expect(Math.abs(right.y + right.h - 0.7)).toBeLessThan(2 / IMAGE.height);
+    await undoAll();
+
+    await drag({ x: fitted.left + w * 0.2, y: fitted.top - 12 }, inside);
+    const top = (await rects())[0]!;
+    expect(top).toMatchObject({ y: 0 });
+    expect(Math.abs(top.x + top.w - 0.5)).toBeLessThan(onePixel);
+    expect(Math.abs(top.y + top.h - 0.5)).toBeLessThan(2 / IMAGE.height);
+    await undoAll();
+
+    await drag({ x: fitted.left + w * 0.8, y: fitted.bottom + 12 }, inside);
+    const bottom = (await rects())[0]!;
+    expect(bottom.y + bottom.h).toBeCloseTo(1, 9);
+    expect(Math.abs(bottom.y - 0.5)).toBeLessThan(2 / IMAGE.height);
+    await undoAll();
+
+    // Across the whole photo, margin to margin.
+    await drag(
+      { x: fitted.left - 10, y: fitted.top + h * 0.2 },
+      { x: fitted.right + 10, y: fitted.top + h * 0.6 },
+    );
+    expect(await rects()).toMatchObject([{ x: 0, y: expect.any(Number) as number }]);
+    const across = (await rects())[0]!;
+    expect(across.x + across.w).toBeCloseTo(1, 9);
+    await undoAll();
+
+    // A drag from inside that goes past the edge, out of the margin and out of the window, clips
+    // the same way: the pointer is captured.
+    const viewport = await window.evaluate(() => ({
+      width: document.documentElement.clientWidth,
+      height: document.documentElement.clientHeight,
+    }));
+    await drag(inside, { x: fitted.left - 8, y: fitted.top - 8 });
+    expect(await rects()).toMatchObject([{ x: 0, y: 0 }]);
+    await undoAll();
+    await drag(inside, { x: fitted.left - 200, y: fitted.top - 100 });
+    expect(await rects()).toMatchObject([{ x: 0, y: 0 }]);
+    await undoAll();
+    await drag(inside, { x: viewport.width + 60, y: viewport.height + 60 });
+    const beyond = (await rects())[0]!;
+    expect(beyond.x + beyond.w).toBeCloseTo(1, 9);
+    expect(beyond.y + beyond.h).toBeCloseTo(1, 9);
+    await undoAll();
+    await drag(inside, { x: -40, y: -40 });
+    expect(await rects()).toMatchObject([{ x: 0, y: 0 }]);
+    await undoAll();
+
+    // A click in the margin adds nothing; neither does a drag that stays outside the photo.
+    await window.mouse.click(fitted.left - 10, fitted.top + h / 2);
+    await window.mouse.click(fitted.left + w / 2, fitted.top - 10);
+    await drag(
+      { x: fitted.left - 20, y: fitted.top + h * 0.2 },
+      { x: fitted.left - 4, y: fitted.top + h * 0.8 },
+    );
+    await drag(
+      { x: fitted.left + w * 0.2, y: fitted.bottom + 18 },
+      { x: fitted.left + w * 0.8, y: fitted.bottom + 6 },
+    );
+    expect(await rects()).toHaveLength(0);
+
+    // The lasso gets the same margin.
+    await window.locator('[data-tool="lasso"]').click();
+    await window.mouse.move(fitted.left - 10, fitted.top + h * 0.2);
+    await window.mouse.down();
+    for (const [fx, fy] of [
+      [0.3, 0.1],
+      [0.4, 0.6],
+      [-0.01, 0.7],
+    ] as const) {
+      await window.mouse.move(fitted.left + w * fx, fitted.top + h * fy, { steps: 4 });
+    }
+    await window.mouse.up();
+    await settle();
+    const points = await overlay.locator('[data-area-kind="lasso"]').first().getAttribute('d');
+    const coordinates = [...(points ?? '').matchAll(/[ML] ([\d.e-]+) ([\d.e-]+)/g)].map(
+      (match) => ({ x: Number(match[1]), y: Number(match[2]) }),
+    );
+    expect(coordinates.length).toBeGreaterThanOrEqual(3);
+    for (const point of coordinates) {
+      expect(point.x).toBeGreaterThanOrEqual(0);
+      expect(point.y).toBeGreaterThanOrEqual(0);
+    }
+    expect(coordinates.some((point) => point.x === 0)).toBe(true);
+    await undoAll();
+    await window.locator('[data-tool="rect"]').click();
+
+    // Zoomed, with the photo's left edge panned into view: the margin is there too.
+    await window.mouse.move(inside.x, inside.y);
+    await window.keyboard.press('z');
+    await waitForZoom('100');
+    await waitForFullResolution();
+    await window.mouse.wheel(-6000, 0);
+    await window.waitForFunction(() => {
+      const raw = document
+        .querySelector('[data-testid="photo-canvas"] [data-photo-id]')
+        ?.getAttribute('data-view');
+      return Number(raw?.split(',')[1]) > 40;
+    });
+    await settle();
+    const zoomedEdges = await pictureEdges();
+    const zoomedArea = await stage().boundingBox();
+    if (!zoomedArea) throw new Error('no stage');
+    expect(zoomedEdges.left - zoomedArea.x).toBeGreaterThan(MARGIN + 4);
+    const aim = { x: zoomedEdges.left + 300, y: zoomedArea.y + zoomedArea.height / 2 };
+
+    await drag({ x: zoomedEdges.left - 12, y: aim.y - 40 }, aim);
+    const zoomedRect = (await rects())[0]!;
+    expect(zoomedRect.x).toBe(0);
+    const zoomedView = await view();
+    expect(
+      Math.abs(
+        zoomedRect.x + zoomedRect.w - (aim.x - zoomedEdges.left) / (zoomedView.scale * IMAGE.width),
+      ),
+    ).toBeLessThan(onePixel);
+    expect(
+      Math.abs(
+        zoomedRect.y + zoomedRect.h - (aim.y - zoomedEdges.top) / (zoomedView.scale * IMAGE.height),
+      ),
+    ).toBeLessThan(2 / IMAGE.height);
+    await window.mouse.click(zoomedEdges.left - 6, aim.y - 20);
+    await settle();
+    expect(await rects()).toEqual([zoomedRect]);
+    await undoAll();
+
+    await window.mouse.click(zoomedEdges.left - 10, aim.y);
+    await drag(
+      { x: zoomedEdges.left - 20, y: aim.y - 100 },
+      { x: zoomedEdges.left - 4, y: aim.y + 100 },
+    );
+    expect(await rects()).toHaveLength(0);
+    // Out of the margin and past the canvas, from inside the photo.
+    await drag(aim, { x: zoomedEdges.left - 300, y: aim.y + 80 });
+    expect((await rects())[0]).toMatchObject({ x: 0 });
+    await undoAll();
+
+    await window.keyboard.press('Escape');
+    await window.getByTestId('retouch-toolbar').waitFor({ state: 'detached' });
+    expect((await view()).zoom).toBe('fit');
+  });
+
   it('keeps the crop frame on the picture while zoomed, and resets zoom when the photo changes', async () => {
     await window.keyboard.press('c');
     await window.getByTestId('crop-overlay').waitFor();

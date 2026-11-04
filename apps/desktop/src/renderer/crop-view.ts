@@ -17,10 +17,10 @@ export interface Size {
 /** Margin around the fitted image, in CSS pixels. */
 const FIT_MARGIN = 32;
 
-/** The largest `aspect` rectangle that fits in the container minus a margin. */
-export function fitWithin(container: Size, aspect: number): Size {
-  const availableWidth = Math.max(50, container.width - FIT_MARGIN);
-  const availableHeight = Math.max(50, container.height - FIT_MARGIN);
+/** The largest `aspect` rectangle that fits in the container minus `margin` (both sides together). */
+export function fitWithin(container: Size, aspect: number, margin: number = FIT_MARGIN): Size {
+  const availableWidth = Math.max(50, container.width - margin);
+  const availableHeight = Math.max(50, container.height - margin);
   if (availableWidth / availableHeight > aspect) {
     const height = availableHeight;
     return { width: height * aspect, height };
