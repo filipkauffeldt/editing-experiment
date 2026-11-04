@@ -253,6 +253,25 @@ export function createMockHandlers(world: MockWorld, emit: Emit): Partial<IpcHan
     return photo;
   };
 
+  const dropPhotos = (photoIds: readonly PhotoId[]): { deleted: PhotoId[]; failed: never[] } => {
+    const deleted: PhotoId[] = [];
+    for (const photoId of new Set(photoIds)) {
+      if (photoById(world, photoId)) {
+        world.photos = world.photos.filter((photo) => photo.id !== photoId);
+        world.metadata.delete(photoId);
+        for (const key of [...world.params.keys()]) {
+          if (key.startsWith(`${photoId}:`)) world.params.delete(key);
+        }
+        for (const key of [...world.retouch.keys()]) {
+          if (key.startsWith(`${photoId}:`)) world.retouch.delete(key);
+        }
+        emit('photos:removed', { photoId });
+      }
+      deleted.push(photoId);
+    }
+    return { deleted, failed: [] };
+  };
+
   return {
     // --- ingest ---
     'ingest:start': async ({ config }) => {
@@ -570,25 +589,9 @@ export function createMockHandlers(world: MockWorld, emit: Emit): Partial<IpcHan
     // Mock images are generated SVGs, so there is nothing to cache; accept and ignore.
     'photos:setEditedPreview': async ({ photoId }) => findPhoto(photoId),
     // The mock photos have no files: deleting drops the in-memory photo and its data, like the
-    // real backend minus the trash.
-    'photos:delete': async ({ photoIds }) => {
-      const deleted: PhotoId[] = [];
-      for (const photoId of new Set(photoIds)) {
-        if (photoById(world, photoId)) {
-          world.photos = world.photos.filter((photo) => photo.id !== photoId);
-          world.metadata.delete(photoId);
-          for (const key of [...world.params.keys()]) {
-            if (key.startsWith(`${photoId}:`)) world.params.delete(key);
-          }
-          for (const key of [...world.retouch.keys()]) {
-            if (key.startsWith(`${photoId}:`)) world.retouch.delete(key);
-          }
-          emit('photos:removed', { photoId });
-        }
-        deleted.push(photoId);
-      }
-      return { deleted, failed: [] };
-    },
+    // real backend minus the trash. Removing from the Library is the same here.
+    'photos:delete': async ({ photoIds }) => dropPhotos(photoIds),
+    'photos:removeFromLibrary': async ({ photoIds }) => dropPhotos(photoIds),
     'photos:deleteVersion': async ({ photoId, versionId }) => {
       const photo = findPhoto(photoId);
       const version = photo.versions.find((candidate) => candidate.id === versionId);
