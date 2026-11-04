@@ -1847,6 +1847,36 @@ describe('card discovery', () => {
     expect(store.getState().pickedCards).toEqual([id]);
   });
 
+  it('keeps the tick and the source of a Windows card whose label changes from "Drive E" to its real one', async () => {
+    const { store, fake, mounted, counted } = await setupCards([card('E:\\', 'Drive E')]);
+    await store.refreshCards();
+    await counted();
+    await store.pickCard(store.getState().cards[0]!, true);
+    const [id] = store.getState().pickedCards;
+    const before = store.getState().sources.filter((source) => source.kind === 'card');
+    expect(before).toHaveLength(1);
+
+    // The app was updated: the same card in the same slot now reports its label.
+    mounted.cards = [card('E:\\', 'NIKON Z 6')];
+    await store.refreshCards();
+    await counted();
+
+    expect(store.getState().pickedCards).toEqual([id]);
+    await vi.waitFor(() =>
+      expect(store.getState().sources.filter((source) => source.kind === 'card')).toEqual([
+        // One source, the same id, the new label. Its name is the one it was created with.
+        expect.objectContaining({
+          id,
+          mountPath: 'E:\\',
+          volumeLabel: 'NIKON Z 6',
+          name: 'Drive E',
+        }),
+      ]),
+    );
+    await store.startIngest(store.getState().settings!.ingest);
+    expect(ingestedSources(fake)).toEqual([{ id, mountPath: 'E:\\' }]);
+  });
+
   it('keeps two same-label cards on their own sources when both are remounted', async () => {
     const { store, fake, mounted, counted } = await setupCards([
       card('/media/filip/NIKON Z 6', 'NIKON Z 6'),

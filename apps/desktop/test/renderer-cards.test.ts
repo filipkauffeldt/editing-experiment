@@ -51,6 +51,43 @@ describe('matchCardSources', () => {
     expect(matches.has('/run/media/u/NIKON Z 61')).toBe(false);
   });
 
+  it('matches a card saved as "Drive E" to the same drive letter once it shows its real label', () => {
+    const saved = discovered('a', 'E:\\', 'Drive E');
+
+    const matches = matchCardSources([{ mountPath: 'E:\\', volumeLabel: 'NIKON Z 6' }], [saved]);
+
+    expect(matches.get('E:\\')).toBe(saved);
+    expect(cardSourceFor({ mountPath: 'E:\\', volumeLabel: 'NIKON Z 6' }, saved, [saved])).toEqual({
+      ...saved,
+      volumeLabel: 'NIKON Z 6',
+    });
+  });
+
+  it('does not match a card saved as "Drive E" that now shows its real label in another slot', () => {
+    // The label that was saved is the generic one, so there is nothing to match on: a new source.
+    const saved = discovered('a', 'E:\\', 'Drive E');
+
+    const matches = matchCardSources([{ mountPath: 'F:\\', volumeLabel: 'NIKON Z 6' }], [saved]);
+
+    expect(matches.has('F:\\')).toBe(false);
+  });
+
+  it('keeps two cards with one label on their own sources, matching by mount path', () => {
+    const e = discovered('e', 'E:\\', 'NIKON Z 6');
+    const f = discovered('f', 'F:\\', 'NIKON Z 6');
+
+    const matches = matchCardSources(
+      [
+        { mountPath: 'F:\\', volumeLabel: 'NIKON Z 6' },
+        { mountPath: 'E:\\', volumeLabel: 'NIKON Z 6' },
+      ],
+      [e, f],
+    );
+
+    expect(matches.get('E:\\')).toBe(e);
+    expect(matches.get('F:\\')).toBe(f);
+  });
+
   it('does not take the source of a card that is mounted now', () => {
     const a = discovered('a', '/media/u/NIKON Z 6', 'NIKON Z 6');
 
