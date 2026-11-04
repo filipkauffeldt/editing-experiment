@@ -92,6 +92,12 @@ jobs:
         run: pnpm test:e2e:launch
       # The real-mode smoke test ingests a NEF through the built app; the crop overlay test runs
       # beside it because both come from the existing script.
+      - name: Display size and scaling
+        if: ${{ !cancelled() }}
+        run: |
+          Add-Type -AssemblyName System.Windows.Forms
+          [System.Windows.Forms.Screen]::AllScreens | ForEach-Object { "$($_.DeviceName) $($_.Bounds) primary=$($_.Primary)" }
+          Get-ItemProperty 'HKCU:\Control Panel\Desktop' -Name LogPixels -ErrorAction SilentlyContinue | Out-String
       - name: Real-mode smoke (pnpm test:e2e:crop)
         if: ${{ !cancelled() }}
         run: pnpm test:e2e:crop
