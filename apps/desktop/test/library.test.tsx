@@ -73,20 +73,30 @@ describe('module switch', () => {
     expect(store.getState().module).toBe('develop');
   });
 
-  it('shows the module tabs and marks Retouch while a retouch session is open', async () => {
+  it('shows exactly the three module tabs and marks Develop during retouch', async () => {
     const { store } = await renderApp();
+    const user = userEvent.setup();
     const tabs = within(screen.getByRole('tablist', { name: 'Module' }));
     expect(tabs.getAllByRole('tab').map((tab) => tab.textContent)).toEqual([
       'Ingest',
       'Library',
       'Develop',
-      'Retouch',
     ]);
-    await userEvent.setup().click(tabs.getByRole('tab', { name: 'Retouch' }));
+
+    // R enters retouch; it is Develop with a session open, so Develop stays selected.
+    await user.keyboard('r');
     await waitFor(() => expect(store.getState().retouch).toBeDefined());
-    expect(tabs.getByRole('tab', { name: 'Retouch' }).getAttribute('aria-selected')).toBe('true');
-    expect(tabs.getByRole('tab', { name: 'Develop' }).getAttribute('aria-selected')).toBe('false');
-    await userEvent.setup().click(tabs.getByRole('tab', { name: 'Library' }));
+    expect(tabs.getByRole('tab', { name: 'Develop' }).getAttribute('aria-selected')).toBe('true');
+
+    // The Develop tab is also the way out of the session.
+    await user.click(tabs.getByRole('tab', { name: 'Develop' }));
+    await waitFor(() => expect(store.getState().retouch).toBeUndefined());
+    expect(store.getState().module).toBe('develop');
+
+    // Library still leaves the session and switches module as before.
+    await user.keyboard('r');
+    await waitFor(() => expect(store.getState().retouch).toBeDefined());
+    await user.click(tabs.getByRole('tab', { name: 'Library' }));
     await waitFor(() => expect(store.getState().retouch).toBeUndefined());
     expect(store.getState().module).toBe('library');
   });
