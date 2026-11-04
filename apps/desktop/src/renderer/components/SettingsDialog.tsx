@@ -28,6 +28,7 @@ import {
   SourceFilters,
   sourceFilterValues,
 } from './SourceFilters';
+import { TemplateField } from './TemplateField';
 import { Button } from './ui/Button';
 import styles from './SettingsDialog.module.css';
 
@@ -896,15 +897,14 @@ function DestinationsSection() {
           </>
         )}
 
-        <label className={styles.field}>
-          <span className={styles.label}>Remote path template</span>
-          <input
-            className={styles.input}
-            value={form.remotePathTemplate}
-            placeholder="/incoming/{event}/{fileName}"
-            onChange={(event) => patch({ remotePathTemplate: event.target.value })}
-          />
-        </label>
+        <TemplateField
+          label="Remote path template"
+          context="destination"
+          value={form.remotePathTemplate}
+          placeholder="/incoming/{event}/{fileName}"
+          testId="destination-remote-path-template"
+          onChange={(remotePathTemplate) => patch({ remotePathTemplate })}
+        />
 
         {error && <p className={styles.error}>{error}</p>}
         {status && <p className={styles.status}>{status}</p>}
@@ -1053,15 +1053,14 @@ export function IngestSection() {
             </button>
           </span>
         </label>
-        <label className={styles.field}>
-          <span className={styles.label}>Subfolder template</span>
-          <input
-            className={styles.input}
-            value={subfolder}
-            placeholder="{date}/{sourceName}"
-            onChange={(event) => setSubfolder(event.target.value)}
-          />
-        </label>
+        <TemplateField
+          label="Subfolder template"
+          context="ingest"
+          value={subfolder}
+          placeholder="{date}/{sourceName}"
+          testId="ingest-subfolder-template"
+          onChange={setSubfolder}
+        />
       </div>
 
       <div className={styles.gridTwo}>
@@ -1088,15 +1087,13 @@ export function IngestSection() {
       </div>
 
       {fileNaming === 'rename' && (
-        <label className={styles.field}>
-          <span className={styles.label}>Rename template</span>
-          <input
-            className={styles.input}
-            value={renameTemplate}
-            data-testid="ingest-rename-template"
-            onChange={(event) => setRenameTemplate(event.target.value)}
-          />
-        </label>
+        <TemplateField
+          label="Rename template"
+          context="ingest"
+          value={renameTemplate}
+          testId="ingest-rename-template"
+          onChange={setRenameTemplate}
+        />
       )}
 
       <div className={styles.gridTwo}>

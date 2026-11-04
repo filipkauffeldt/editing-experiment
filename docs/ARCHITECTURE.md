@@ -361,6 +361,11 @@ LibRaw) only; TIFF, PNG, HEIF and WebP are ingested but have no decoded preview.
   `copyright`/`byline` are also written to EXIF `Copyright`/`Artist`, as MWG
   requires them to agree with XMP/IPTC. Raws are never written: their EXIF is
   left alone and the template goes to the sidecar.
+- Template fields (Export folder and file name, Ingest rename and subfolder,
+  and the destination remote path) have a variable picker. Its entries and
+  their per-context availability come from `TEMPLATE_VARIABLES` in
+  `packages/metadata/src/variables.ts`; picking inserts at the caret, and the
+  field reports placeholders its path cannot expand.
 
 ## Linear image format
 

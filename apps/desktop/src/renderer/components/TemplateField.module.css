@@ -1,0 +1,170 @@
+/* Boxed template field plus its floating variable picker (a hairline panel). */
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+
+.label {
+  color: var(--muted);
+  font-size: var(--fs-label);
+}
+
+.row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.input {
+  flex: 1;
+  min-width: 0;
+  height: 26px;
+  padding: 0 7px;
+  border: 1px solid var(--line-strong);
+  background: var(--bg);
+  color: var(--text);
+  font-size: var(--fs-small);
+  user-select: text;
+}
+
+.input:hover {
+  border-color: var(--dim);
+}
+
+.input:focus {
+  border-color: var(--text);
+  outline: none;
+}
+
+.input::placeholder {
+  color: var(--dim);
+}
+
+.trigger {
+  flex: none;
+  height: 26px;
+  padding: 0 8px;
+  border: 1px solid var(--line-strong);
+  background: transparent;
+  color: var(--muted);
+  font-size: var(--fs-label);
+}
+
+.trigger:hover,
+.trigger[aria-expanded='true'] {
+  background: var(--raised);
+  color: var(--text);
+}
+
+.trigger:focus-visible {
+  border-color: var(--text);
+  outline: none;
+}
+
+.unknown {
+  color: var(--muted);
+  font-size: var(--fs-label);
+}
+
+.popover {
+  position: fixed;
+  z-index: 90;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border: 1px solid var(--line-strong);
+  background: var(--panel);
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--line);
+}
+
+.title {
+  color: var(--dim);
+  font-size: var(--fs-label);
+  letter-spacing: var(--tracking-label);
+  text-transform: uppercase;
+}
+
+.filter {
+  flex: 1;
+  min-width: 0;
+  height: 20px;
+  padding: 0 6px;
+  border: 1px solid var(--line-strong);
+  background: var(--bg);
+  color: var(--text);
+  font-size: var(--fs-small);
+}
+
+.filter:focus {
+  border-color: var(--text);
+  outline: none;
+}
+
+.filter::placeholder {
+  color: var(--dim);
+}
+
+.list {
+  min-height: 0;
+  overflow: auto;
+}
+
+.item {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  width: 100%;
+  padding: 5px 8px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--text);
+  text-align: left;
+}
+
+.item:hover,
+.item:focus-visible {
+  border-color: var(--line-strong);
+  background: var(--raised);
+  outline: none;
+}
+
+.variable {
+  font-family: var(--font-mono);
+  font-size: var(--fs-mono);
+  font-variant-numeric: tabular-nums;
+}
+
+.description {
+  color: var(--muted);
+  font-size: var(--fs-label);
+  line-height: 1.35;
+}
+
+.aliases {
+  color: var(--dim);
+}
+
+.example {
+  overflow: hidden;
+  color: var(--dim);
+  font-family: var(--font-mono);
+  font-size: var(--fs-label);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.empty {
+  padding: 10px 8px;
+  color: var(--dim);
+  font-size: var(--fs-small);
+}
