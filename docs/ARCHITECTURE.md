@@ -184,9 +184,14 @@ exports/             default exportRoot (presets choose folders below it)
   carries the ops key (`retouchOpsKey`) the jobs process expects; the renderer echoes the key of the
   ops it applied and the jobs process rejects a stale or mosaic-less render.
 - Delete: `photos:delete` takes photo ids only. `PhotoDeleter` (jobs process) resolves the paths from
-  the index and refuses a photo unless the photo file and its sidecar lie inside the ingest destination
-  (real paths, so a symlink cannot lead out) and not inside any configured card or folder source; the
-  sidecar must be the photo itself or its sibling `<name>.xmp`. The files go to the system trash through
+  the index. Every indexed photo is a copy under an ingest destination, and the destination changes
+  from job to job, so the current destination setting is not consulted. It refuses a path inside any
+  configured card or folder source (written and real path, so a symlink cannot lead into one) and a
+  photo whose path is the file it was ingested from (the index records each ingested photo's source
+  file in a `source_path` column, not part of `Photo`; photos found by the startup scan name
+  themselves as their source, are copies by construction, and have none recorded; a row made before
+  the column existed has none either and is only covered by the source-folder rule). The sidecar
+  must be the photo itself or its sibling `<name>.xmp`, and nothing may be a folder. The files go to the system trash through
   `shell.trashItem`, which only exists in main, so the jobs process sends a `trash-request` message and
   main answers by id (`shared/trash-bridge.ts`, `main/trash.ts`). There is no fallback to a permanent
   delete: when trashing fails the file and the entry stay and the photo is named in the result. Per

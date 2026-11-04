@@ -10,6 +10,7 @@ import { sidecarPathFor } from '@ee/metadata';
 import { lstat, realpath } from 'node:fs/promises';
 import { basename, dirname, isAbsolute, join, relative, resolve } from 'node:path';
 import { normalizeExportPath } from './exported-files';
+import { RECOVERED_SOURCE } from './reconcile';
 import type { PhotoLibrary } from './photo-library';
 import type { SettingsStore } from './settings-store';
 
@@ -22,8 +23,8 @@ export type TrashItem = (path: string) => Promise<void>;
 
 export interface PhotoDeleterDeps {
   photos: PhotoLibrary;
-  /** The ingest destination and the configured sources, read fresh for every delete. */
-  settings: Pick<SettingsStore, 'get' | 'listSources'>;
+  /** The configured sources, read fresh for every delete. */
+  settings: Pick<SettingsStore, 'listSources'>;
   trash: TrashItem;
   /**
    * Called once the entry is gone, for the state other services keep about the photo (cached
@@ -74,8 +75,14 @@ async function realDirectory(directory: string): Promise<string> {
  *
  * Safety (AGENTS.md: never modify or delete an original on a source):
  * - It takes photo ids and resolves the paths from the index itself.
- * - A path is only trashed when it lies inside the ingest destination (real path, so a symlinked
- *   folder cannot point out of it) and not inside any configured card or folder source.
+ * - Every indexed photo was indexed as a copy under an ingest destination (by ingest, or by the
+ *   startup scan of that folder), and the destination changes from job to job, so the current
+ *   destination setting is not consulted. What is refused: a path inside any configured card or
+ *   folder source (written path and real path, so a symlink cannot lead into one), and a photo
+ *   whose path is the very file it was ingested from (the index records the source file of
+ *   every ingested photo; those found by the startup scan have none and are copies by
+ *   construction). The sidecar must be the photo itself or its sibling `<name>.xmp`, and
+ *   nothing may be a folder.
  *
  * Order, per photo and under the photo's lock so no edit lands half way:
  * 1. the XMP sidecar to the trash, then the photo file. A sidecar left behind would be picked up
@@ -108,14 +115,15 @@ export class PhotoDeleter {
     const { photos } = this.deps;
     return photos.withLock(photoId, async () => {
       let photo: Photo;
+      let sourcePath: string | undefined;
       try {
-        photo = photos.get(photoId);
+        ({ photo, sourcePath } = photos.record(photoId));
       } catch (error) {
         // Not in the index: already deleted (a repeated request, another window).
         if (error instanceof IpcError && error.code === 'not_found') return;
         throw error;
       }
-      const targets = await this.resolveTargets(photo);
+      const targets = await this.resolveTargets(photo, sourcePath);
       if (targets.sidecar !== undefined)
         await this.trashIfPresent(targets.sidecar, photo, 'sidecar');
       await this.trashIfPresent(targets.photo, photo, 'photo');
@@ -154,16 +162,11 @@ export class PhotoDeleter {
    * The files to trash for a photo, or an error naming why not. Everything is
    * checked before the first file moves.
    */
-  private async resolveTargets(photo: Photo): Promise<Targets> {
+  private async resolveTargets(photo: Photo, sourcePath: string | undefined): Promise<Targets> {
     const name = photo.fileName;
     const refuse = (why: string): never => {
       throw new Error(`${name} was not deleted: ${why}`);
     };
-    const { settings } = this.deps;
-    const destination = settings.get().ingest.destination.path;
-    if (destination === '' || !isAbsolute(destination)) {
-      return refuse('the ingest destination is not a folder on this computer');
-    }
     if (!isAbsolute(photo.path)) return refuse('its path is not absolute');
 
     const path = resolve(photo.path);
@@ -173,9 +176,8 @@ export class PhotoDeleter {
       return refuse('its sidecar is not next to it');
     }
 
-    const destinationRoots = await this.roots([destination]);
     const sourceRoots = await this.roots(
-      localSourcePaths(settings.listSources()).filter(
+      localSourcePaths(this.deps.settings.listSources()).filter(
         (source) => source !== '' && isAbsolute(source),
       ),
     );
@@ -187,9 +189,6 @@ export class PhotoDeleter {
         if (source !== undefined) {
           return refuse('it is inside a card or folder source, which is never changed');
         }
-        if (!destinationRoots.some((root) => isBelow(root, candidate))) {
-          return refuse('it is not inside the ingest destination');
-        }
       }
       try {
         if ((await lstat(file)).isDirectory()) return refuse('it is a folder');
@@ -198,6 +197,14 @@ export class PhotoDeleter {
       }
     };
 
+    // The original is not a copy. Recovered photos record themselves as their own source.
+    if (
+      sourcePath !== undefined &&
+      photo.sourceId !== RECOVERED_SOURCE &&
+      normalize(resolve(sourcePath)) === normalize(path)
+    ) {
+      return refuse('it is the original file it was ingested from, not an ingested copy');
+    }
     await check(path);
     if (sidecar !== path) await check(sidecar);
     return { ...(sidecar === path ? {} : { sidecar }), photo: path };

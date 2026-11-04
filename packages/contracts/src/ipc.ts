@@ -289,8 +289,8 @@ export interface IpcApi {
   'photos:setLabels': (args: SetPhotoLabelsArgs) => Promise<Photo[]>;
   /**
    * Move photos to the system trash and drop them from the Library. Takes ids only: the
-   * backend resolves the paths from its index and refuses any that is not an ingested copy
-   * in the ingest destination (never a file of a card or folder source). The photo file and
+   * backend resolves the paths from its index and refuses any that is inside a card or
+   * folder source or is the original file a photo was ingested from. The photo file and
    * its XMP sidecar go to the trash; backup copies and exported files are not touched. The
    * trash comes first and the entry is dropped only after it worked; if trashing fails
    * the file and the entry both stay. There is no fallback to a permanent delete.

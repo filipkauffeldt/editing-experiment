@@ -40,8 +40,8 @@ export class PhotoLibrary {
   }
 
   /** Index a newly ingested photo and announce it. */
-  add(photo: Photo, templatePath?: string): void {
-    this.index.save(photo, templatePath);
+  add(photo: Photo, templatePath?: string, sourcePath?: string): void {
+    this.index.save(photo, templatePath, sourcePath);
     this.emit('photos:added', photo);
   }
 

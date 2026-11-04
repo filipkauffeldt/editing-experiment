@@ -24,6 +24,7 @@ import type { PhotoLibrary } from './photo-library';
 import type { PreviewSource } from './image-ops';
 import type { PreviewCache } from './previews';
 import { developVersionId, versionsEdited } from './edit-service';
+import { RECOVERED_SOURCE } from './reconcile';
 
 export interface IngestPipelineDeps {
   photos: PhotoLibrary;
@@ -294,7 +295,12 @@ export function createOnFileIngested(
     // Reconciliation and a normal ingest can reach the same file; index it once.
     if (photos.hasPath(info.path)) return;
     try {
-      photos.add(photo, templatePath);
+      // Recovered photos name themselves as their source; only a real source file is recorded.
+      photos.add(
+        photo,
+        templatePath,
+        info.sourceId === RECOVERED_SOURCE ? undefined : info.sourcePath,
+      );
     } catch (error) {
       // The file is copied and verified but will not show up; say so, and where it is.
       problem(

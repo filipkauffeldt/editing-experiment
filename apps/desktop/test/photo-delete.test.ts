@@ -90,9 +90,9 @@ interface Harness {
   events: { channel: string; payload: unknown }[];
 }
 
-async function start(root: string, trash: FakeTrash): Promise<Harness> {
+async function start(root: string, trash: FakeTrash, destinationName = 'ingest'): Promise<Harness> {
   const source = join(root, 'card');
-  const destination = join(root, 'ingest');
+  const destination = join(root, destinationName);
   const backup = join(root, 'backup');
   const userData = join(root, 'userdata');
   for (const dir of [source, destination, backup]) await mkdir(dir, { recursive: true });
@@ -345,25 +345,117 @@ describe('deleting photos (real backend, real folders)', { timeout: 120_000 }, (
     }
   });
 
-  it('refuses photos after the ingest destination moved elsewhere', async () => {
+  it('deletes a photo ingested into an earlier destination after the setting changed', async () => {
+    const root = await tempDir();
+    const trash = new FakeTrash(join(root, 'trash'));
+    const harness = await start(root, trash, 'job-a');
+    try {
+      await jpeg(join(harness.source, 'a.jpg'));
+      const [photo] = await ingestCard(harness, 1);
+      // The next job: another destination.
+      const { ingest } = await harness.handlers['settings:get']();
+      await harness.handlers['settings:set']({
+        ingest: { ...ingest, destination: { path: join(root, 'job-b') } },
+      });
+
+      expect(await harness.handlers['photos:delete']({ photoIds: [photo!.id] })).toEqual({
+        deleted: [photo!.id],
+        failed: [],
+      });
+      expect(await exists(photo!.path)).toBe(false);
+      expect(trash.calls).toEqual([photo!.path]);
+    } finally {
+      await harness.backend.dispose();
+    }
+  });
+
+  it('deletes an indexed copy while the destination setting is empty', async () => {
+    const root = await tempDir();
+    const trash = new FakeTrash(join(root, 'trash'));
+    const first = await start(root, trash);
+    let photo: Photo;
+    try {
+      await jpeg(join(first.source, 'a.jpg'));
+      [photo] = (await ingestCard(first, 1)) as [Photo];
+    } finally {
+      await first.backend.dispose();
+    }
+    // A settings file that names no destination (edited by hand; the API refuses to save one).
+    const file = join(root, 'userdata', 'settings.json');
+    const saved = JSON.parse(await readFile(file, 'utf8'));
+    saved.ingest.destination = { path: '' };
+    await writeFile(file, JSON.stringify(saved));
+
+    const backend = await createBackend({
+      userDataDir: join(root, 'userdata'),
+      appVersion: 'test',
+      homeDir: root,
+      emit: () => {},
+      getSecret: async () => ({}),
+      trashItem: trash.trash,
+    });
+    try {
+      const handlers = backend.handlers as IpcHandlers;
+      expect((await handlers['settings:get']()).ingest.destination.path).toBe('');
+      expect(await handlers['photos:delete']({ photoIds: [photo.id] })).toEqual({
+        deleted: [photo.id],
+        failed: [],
+      });
+      expect(await exists(photo.path)).toBe(false);
+    } finally {
+      await backend.dispose();
+    }
+  });
+
+  it('records the file a photo was ingested from, and keeps it for a photo found by the scan', async () => {
     const root = await tempDir();
     const trash = new FakeTrash(join(root, 'trash'));
     const harness = await start(root, trash);
     try {
       await jpeg(join(harness.source, 'a.jpg'));
-      const [photo] = await ingestCard(harness, 1);
-      const { ingest } = await harness.handlers['settings:get']();
-      await harness.handlers['settings:set']({
-        ingest: { ...ingest, destination: { path: join(root, 'elsewhere') } },
-      });
-
-      const result = await harness.handlers['photos:delete']({ photoIds: [photo!.id] });
-
-      expect(result.failed[0]!.message).toMatch(/not inside the ingest destination/);
-      expect(trash.calls).toEqual([]);
-      expect(await exists(photo!.path)).toBe(true);
+      await jpeg(join(harness.destination, 'found.jpg'));
+      await ingestCard(harness, 1);
+      expect(await harness.backend.reconcile()).toBe(1);
     } finally {
       await harness.backend.dispose();
+    }
+    const index = new PhotoIndex(join(root, 'userdata', 'index.sqlite'));
+    try {
+      const records = index.list().map((photo) => index.get(photo.id)!);
+      const byName = Object.fromEntries(records.map((r) => [r.photo.fileName, r]));
+      expect(byName['a.jpg']!.sourcePath).toBe(join(root, 'card', 'a.jpg'));
+      expect(byName['found.jpg']!.photo.sourceId).toBe('recovered');
+      expect(byName['found.jpg']!.sourcePath).toBeUndefined();
+    } finally {
+      index.close();
+    }
+  });
+
+  it('opens an index made before the source column existed', async () => {
+    const root = await tempDir();
+    const file = join(root, 'old.sqlite');
+    const { DatabaseSync } = await import('node:sqlite');
+    const old = new DatabaseSync(file);
+    old.exec(`CREATE TABLE photos (seq INTEGER PRIMARY KEY AUTOINCREMENT, id TEXT NOT NULL UNIQUE,
+      source_id TEXT NOT NULL, path TEXT NOT NULL, template_path TEXT, json TEXT NOT NULL);`);
+    const photo = { id: 'old', path: '/x/a.jpg', fileName: 'a.jpg', sourceId: 'card' };
+    old
+      .prepare('INSERT INTO photos (id, source_id, path, json) VALUES (?, ?, ?, ?)')
+      .run('old', 'card', '/x/a.jpg', JSON.stringify(photo));
+    old.close();
+
+    const index = new PhotoIndex(file);
+    try {
+      expect(index.get(asPhotoId('old'))).toMatchObject({ photo: { fileName: 'a.jpg' } });
+      expect(index.get(asPhotoId('old'))!.sourcePath).toBeUndefined();
+      index.save(
+        { ...index.get(asPhotoId('old'))!.photo, id: asPhotoId('new') },
+        undefined,
+        '/card/b.jpg',
+      );
+      expect(index.get(asPhotoId('new'))!.sourcePath).toBe('/card/b.jpg');
+    } finally {
+      index.close();
     }
   });
 
@@ -486,6 +578,37 @@ describe.skipIf(!nef)('deleting a raw with its XMP sidecar', { timeout: 180_000 
     }
   });
 
+  it('deletes a raw and its sidecar after the destination setting changed, and it stays gone after a restart', async () => {
+    const root = await tempDir();
+    const trash = new FakeTrash(join(root, 'trash'));
+    const first = await start(root, trash, 'job-a');
+    let photo: Photo;
+    try {
+      photo = await ingestRaw(first);
+      const { ingest } = await first.handlers['settings:get']();
+      await first.handlers['settings:set']({
+        ingest: { ...ingest, destination: { path: join(root, 'job-b') } },
+      });
+
+      const result = await first.handlers['photos:delete']({ photoIds: [photo.id] });
+
+      expect(result.deleted).toEqual([photo.id]);
+      expect(await readdir(join(root, 'job-a'))).toEqual([]);
+      expect(trash.calls).toEqual([photo.sidecarPath, photo.path]);
+    } finally {
+      await first.backend.dispose();
+    }
+
+    // Back on the old destination, whose folder the startup scan reads: nothing is indexed.
+    const second = await start(root, trash, 'job-a');
+    try {
+      expect(await second.backend.reconcile()).toBe(0);
+      expect(await second.handlers['photos:list']()).toEqual([]);
+    } finally {
+      await second.backend.dispose();
+    }
+  });
+
   it('leaves everything in place when only the sidecar cannot be trashed, and nothing is re-indexed', async () => {
     const root = await tempDir();
     const trash = new FakeTrash(join(root, 'trash'));
@@ -587,10 +710,7 @@ describe('PhotoDeleter path safety (forged index entries)', () => {
     ];
     const deleter = new PhotoDeleter({
       photos: library,
-      settings: {
-        get: () => ({ ingest: { destination: { path: destination } } }) as never,
-        listSources: () => sources,
-      },
+      settings: { listSources: () => sources },
       trash: trash.trash,
       onRemoved: async (photoId) => {
         removed.push(photoId);
@@ -600,12 +720,17 @@ describe('PhotoDeleter path safety (forged index entries)', () => {
     return { deleter, library, trash, destination, sourceDir, root, removed };
   }
 
-  const forge = (id: string, path: string, sidecarPath = path): Photo => ({
+  const forge = (
+    id: string,
+    path: string,
+    sidecarPath = path,
+    sourceId = asSourceId('card'),
+  ): Photo => ({
     id: asPhotoId(id),
     path,
     sidecarPath,
     fileName: basename(path),
-    sourceId: asSourceId('card'),
+    sourceId,
     tagged: false,
     colorClass: 0,
     rating: 0,
@@ -619,7 +744,7 @@ describe('PhotoDeleter path safety (forged index entries)', () => {
     versions: [],
   });
 
-  it('trashes a photo inside the destination', async () => {
+  it('trashes an ingested copy', async () => {
     const s = await setup();
     const path = join(s.destination, 'sub', 'ok.jpg');
     await mkdir(join(s.destination, 'sub'));
@@ -635,34 +760,18 @@ describe('PhotoDeleter path safety (forged index entries)', () => {
   });
 
   it.each([
+    ['a file of the card', (s: Setup) => join(s.sourceDir, 'a.jpg'), /card or folder source/],
     [
-      'a file of the card',
-      (s: Setup) => join(s.sourceDir, 'a.jpg'),
-      /not inside the ingest destination|card or folder source/,
-    ],
-    [
-      'a path outside everything',
-      (s: Setup) => join(s.root, 'elsewhere', 'a.jpg'),
-      /not inside the ingest destination/,
-    ],
-    [
-      'a ".." escape out of the destination',
+      'a ".." path that leads into the card',
       (s: Setup) => join(s.destination, '..', 'card', 'a.jpg'),
-      /card or folder source|not inside the ingest destination/,
+      /card or folder source/,
     ],
-    [
-      'the destination folder itself',
-      (s: Setup) => s.destination,
-      /not inside the ingest destination/,
-    ],
+    ['a folder', (s: Setup) => s.destination, /it is a folder/],
     ['a relative path', () => 'a.jpg', /not absolute/],
   ])('refuses %s and touches nothing', async (_name, pathFor, message) => {
     const s = await setup();
     const path = pathFor(s);
-    await mkdir(join(s.root, 'elsewhere'), { recursive: true });
-    for (const file of [join(s.sourceDir, 'a.jpg'), join(s.root, 'elsewhere', 'a.jpg')]) {
-      await writeFile(file, 'original');
-    }
+    await writeFile(join(s.sourceDir, 'a.jpg'), 'original');
     s.library.add(forge('bad', path));
 
     const result = await s.deleter.delete({ photoIds: [asPhotoId('bad')] });
@@ -675,7 +784,48 @@ describe('PhotoDeleter path safety (forged index entries)', () => {
     expect(await readFile(join(s.sourceDir, 'a.jpg'), 'utf8')).toBe('original');
   });
 
-  it('refuses a symlinked folder in the destination that leads into the card', async () => {
+  it('trashes a copy in any folder that is not a source, whatever the destination setting is', async () => {
+    const s = await setup();
+    const path = join(s.root, 'older-job', 'a.jpg');
+    await mkdir(join(s.root, 'older-job'));
+    await writeFile(path, 'x');
+    s.library.add(forge('older', path), undefined, join(s.sourceDir, 'a.jpg'));
+
+    expect((await s.deleter.delete({ photoIds: [asPhotoId('older')] })).deleted).toEqual([
+      asPhotoId('older'),
+    ]);
+    expect(await exists(path)).toBe(false);
+  });
+
+  it('refuses a photo whose path is the file it was ingested from, even when its source is no longer configured', async () => {
+    const s = await setup();
+    // A folder that is not a configured source (it was removed from the settings).
+    const folder = join(s.root, 'old-card');
+    await mkdir(folder);
+    const path = join(folder, 'a.jpg');
+    await writeFile(path, 'original');
+    s.library.add(forge('orig', path, path, asSourceId('old-card')), undefined, path);
+
+    const result = await s.deleter.delete({ photoIds: [asPhotoId('orig')] });
+
+    expect(result.deleted).toEqual([]);
+    expect(result.failed[0]!.message).toMatch(/original file it was ingested from/);
+    expect(s.trash.calls).toEqual([]);
+    expect(await readFile(path, 'utf8')).toBe('original');
+  });
+
+  it('does not read a recovered photo as an original, though it names itself as its source', async () => {
+    const s = await setup();
+    const path = join(s.destination, 'found.jpg');
+    await writeFile(path, 'x');
+    s.library.add(forge('rec', path, path, asSourceId('recovered')), undefined, path);
+
+    expect((await s.deleter.delete({ photoIds: [asPhotoId('rec')] })).deleted).toEqual([
+      asPhotoId('rec'),
+    ]);
+  });
+
+  it('refuses a symlinked folder that leads into the card', async () => {
     const s = await setup();
     await writeFile(join(s.sourceDir, 'a.jpg'), 'original');
     await symlink(s.sourceDir, join(s.destination, 'link'));
