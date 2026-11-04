@@ -159,6 +159,21 @@ export interface SetPhotoLabelsArgs {
   rating?: number;
 }
 
+/** Arguments of `photos:delete`. Only ids: the backend resolves every path itself. */
+export interface DeletePhotosArgs {
+  photoIds: PhotoId[];
+}
+
+/**
+ * Outcome of `photos:delete`; a partial failure does not reject. `deleted` holds the photos
+ * that are gone from the Library (their files are in the system trash, or were already
+ * missing). `failed` holds the ones that stay, each with the reason.
+ */
+export interface DeletePhotosResult {
+  deleted: PhotoId[];
+  failed: { photoId: PhotoId; message: string }[];
+}
+
 /** Arguments of `photos:setEditedPreview`. */
 export interface SetEditedPreviewArgs {
   photoId: PhotoId;
@@ -272,6 +287,15 @@ export interface IpcApi {
   'photos:deleteVersion': (args: DeleteVersionArgs) => Promise<Photo>;
   /** Persist tag and colour class in the index and in the sidecar (or embedded XMP). */
   'photos:setLabels': (args: SetPhotoLabelsArgs) => Promise<Photo[]>;
+  /**
+   * Move photos to the system trash and drop them from the Library. Takes ids only: the
+   * backend resolves the paths from its index and refuses any that is not an ingested copy
+   * in the ingest destination (never a file of a card or folder source). The photo file and
+   * its XMP sidecar go to the trash; backup copies and exported files are not touched. The
+   * trash comes first and the entry is dropped only after it worked; if trashing fails
+   * the file and the entry both stay. There is no fallback to a permanent delete.
+   */
+  'photos:delete': (args: DeletePhotosArgs) => Promise<DeletePhotosResult>;
   /**
    * Store the edited thumbnail and preview rendered by the renderer. Resolves with
    * the photo as it is now; `previewStale` is still set when the render was refused
@@ -390,6 +414,8 @@ export interface IpcApi {
 export interface IpcEvents {
   'photos:added': Photo;
   'photos:updated': Photo;
+  /** A photo left the Library (deleted). Sent for every photo `photos:delete` removed. */
+  'photos:removed': { photoId: PhotoId };
   'jobs:event': JobEvent;
 }
 
@@ -406,6 +432,7 @@ export const INVOKE_CHANNELS = [
   'photos:createVersion',
   'photos:deleteVersion',
   'photos:setLabels',
+  'photos:delete',
   'photos:setEditedPreview',
   'ingest:start',
   'ingest:stop',
@@ -459,6 +486,7 @@ export const INVOKE_CHANNELS = [
 export const EVENT_CHANNELS = [
   'photos:added',
   'photos:updated',
+  'photos:removed',
   'jobs:event',
 ] as const satisfies readonly (keyof IpcEvents)[];
 

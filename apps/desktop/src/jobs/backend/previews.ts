@@ -114,6 +114,15 @@ export class PreviewCache {
     ]);
   }
 
+  /** Drop every cached JPEG of a photo: camera previews, edited ones and the marker. */
+  async removeAll(photoId: PhotoId): Promise<void> {
+    await this.removeEdited(photoId);
+    await Promise.all([
+      rm(this.pathFor('thumb', photoId), { force: true }),
+      rm(this.pathFor('preview', photoId), { force: true }),
+    ]);
+  }
+
   /**
    * The file to serve for a photo. `retouchKey` is what the photo's retouching
    * is now ('' when it has none).

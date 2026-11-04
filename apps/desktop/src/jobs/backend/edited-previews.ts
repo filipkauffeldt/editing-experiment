@@ -87,6 +87,12 @@ export class EditedPreviews {
     this.saved.set(photoId, paramsKey(params));
   }
 
+  /** The photo was deleted: forget what was tracked for it. */
+  forget(photoId: PhotoId): void {
+    this.newest.delete(photoId);
+    this.saved.delete(photoId);
+  }
+
   /** Store a render, unless it is out of date. Resolves with the photo as it is now. */
   async set(args: SetEditedPreviewArgs): Promise<Photo> {
     assertImage('thumb', args.thumb);

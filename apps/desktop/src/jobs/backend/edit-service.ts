@@ -91,6 +91,11 @@ export class EditService {
     return { ...(await known) };
   }
 
+  /** The photo was deleted: forget its cached raw defaults. */
+  forget(photoId: PhotoId): void {
+    this.defaults.delete(photoId);
+  }
+
   async getParams(ref: VersionRef): Promise<EditParams> {
     const photo = this.photos.get(ref.photoId);
     this.assertDevelopVersion(ref);

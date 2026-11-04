@@ -29,6 +29,7 @@ export class PhotoIndex {
   private readonly templateStatement: StatementSync;
   private readonly pathsStatement: StatementSync;
   private readonly hasPathStatement: StatementSync;
+  private readonly removeStatement: StatementSync;
 
   constructor(filePath: string) {
     if (filePath !== ':memory:') mkdirSync(dirname(filePath), { recursive: true });
@@ -57,6 +58,7 @@ export class PhotoIndex {
       'SELECT json, template_path FROM photos WHERE source_id = ? ORDER BY seq',
     );
     this.templateStatement = this.db.prepare('UPDATE photos SET template_path = ? WHERE id = ?');
+    this.removeStatement = this.db.prepare('DELETE FROM photos WHERE id = ?');
     this.hasPathStatement = this.db.prepare('SELECT 1 FROM photos WHERE path = ? LIMIT 1');
     this.pathsStatement = this.db.prepare(
       "SELECT json_extract(json, '$.path') AS path FROM photos",
@@ -88,6 +90,11 @@ export class PhotoIndex {
       ? this.listStatement.all()
       : this.listBySourceStatement.all(sourceId)) as unknown as Row[];
     return rows.map((row) => toRecord(row).photo);
+  }
+
+  /** Drop a photo's entry. Returns whether there was one. */
+  remove(photoId: PhotoId): boolean {
+    return Number(this.removeStatement.run(photoId).changes) > 0;
   }
 
   hasPath(path: string): boolean {

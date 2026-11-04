@@ -53,6 +53,16 @@ export class PhotoLibrary {
     return next;
   }
 
+  /**
+   * Drop a photo from the index and announce it. Callers hold the photo's lock, so no edit is
+   * half done; one queued behind it finds no photo (`not_found`) instead of writing.
+   */
+  remove(photoId: PhotoId): boolean {
+    const removed = this.index.remove(photoId);
+    if (removed) this.emit('photos:removed', { photoId });
+    return removed;
+  }
+
   setTemplatePath(photoId: PhotoId, templatePath: string | undefined): void {
     this.index.setTemplatePath(photoId, templatePath);
   }

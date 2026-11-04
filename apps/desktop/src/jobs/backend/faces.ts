@@ -61,10 +61,14 @@ export class FaceService {
         'face detection model not found; run `pnpm fetch-retouch` or set EE_YUNET_MODEL_PATH',
       );
     }
-    const photo = this.photos.get(photoId);
-    const image = isRawPath(photo.path)
-      ? await decodeEmbeddedPreview(photo.path)
-      : await decodeImageFile(photo.path);
+    // Under the photo's lock: a delete waits for the decode, and one that came first leaves
+    // no photo to read (a file open during a trash fails on Windows).
+    const image = await this.photos.withLock(photoId, async () => {
+      const photo = this.photos.get(photoId);
+      return isRawPath(photo.path)
+        ? decodeEmbeddedPreview(photo.path)
+        : decodeImageFile(photo.path);
+    });
     return detectFaces(image.rgba, image.width, image.height, region, {
       modelPath: this.modelPath,
     });
