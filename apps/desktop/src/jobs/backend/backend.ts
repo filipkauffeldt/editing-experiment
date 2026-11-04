@@ -17,6 +17,7 @@ import { createOnFileIngested } from './ingest-pipeline';
 import { IngestService } from './ingest-service';
 import { userDataLayout, type UserDataLayout } from './layout';
 import { MetadataService } from './metadata-service';
+import { PhotoDeleter, type TrashItem } from './photo-deleter';
 import { PhotoIndex } from './photo-index';
 import { PhotoLibrary, type Emit } from './photo-library';
 import { PresetStore } from './presets';
@@ -36,6 +37,13 @@ export interface BackendOptions {
   emit: Emit;
   /** Fetches secrets from the main process (see `shared/secret-port.ts`). */
   getSecret: GetSecret;
+  /**
+   * Moves a file to the system trash. Electron's `shell` is not available in the utility
+   * process, so the real one asks the main process (`shared/trash-bridge.ts`). It must reject
+   * when it cannot trash: nothing here ever deletes a photo permanently. Without one, every
+   * delete fails and keeps the photo.
+   */
+  trashItem?: TrashItem;
   /** Home directory for the default ingest destination. */
   homeDir?: string;
   /** Overrides where the YuNet model is looked up. */
@@ -167,6 +175,23 @@ export async function createBackend(options: BackendOptions): Promise<Backend> {
   clearInterruptedExportStates(photos);
   queue.start();
 
+  const deleter = new PhotoDeleter({
+    photos,
+    settings,
+    trash:
+      options.trashItem ??
+      (() => Promise.reject(new Error('the system trash is not available here'))),
+    onRemoved: async (photoId) => {
+      // The entry is gone, so none of these can write for the photo again.
+      editedPreviews.forget(photoId);
+      edits.forget(photoId);
+      exports.photoRemoved(photoId);
+      exporter.discard(photoId);
+      await Promise.all([previews.removeAll(photoId), apps.forget(photoId)]);
+    },
+    warn: (message) => console.warn(message),
+  });
+
   // Pick up files that were copied but never indexed (crash or failed index write).
   const reconcileAbort = new AbortController();
   const reconcile = async (): Promise<number> => {
@@ -210,6 +235,7 @@ export async function createBackend(options: BackendOptions): Promise<Backend> {
       emit,
       getSecret,
       photos,
+      deleter,
       settings,
       metadata,
       edits,

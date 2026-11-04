@@ -1,0 +1,17 @@
+.spacer {
+  flex: 1;
+}
+
+.text {
+  margin: 0 0 8px;
+  color: var(--text);
+  font-size: var(--fs-base);
+  line-height: 1.5;
+}
+
+.note {
+  margin: 0;
+  color: var(--muted);
+  font-size: var(--fs-small);
+  line-height: 1.5;
+}

@@ -11,7 +11,9 @@ import type {
   JobsOutgoingMessage,
   JobsSecretPortMessage,
   JobsShutdownMessage,
+  JobsTrashRequestMessage,
 } from '../shared/jobs-protocol';
+import { serveTrashRequest } from '../shared/trash-bridge';
 
 interface Pending {
   resolve(value: unknown): void;
@@ -28,6 +30,11 @@ export interface JobsClientOptions {
    */
   onStart?: (client: JobsClient) => void;
   restart?: RestartPolicyOptions;
+  /**
+   * Moves a file to the system trash (`shell.trashItem`) when the jobs process asks. Without
+   * it every request is answered with an error, so a photo is never deleted permanently.
+   */
+  trashItem?: (path: string) => Promise<void>;
 }
 
 /**
@@ -141,6 +148,15 @@ export class JobsClient {
     clearTimeout(timer);
   }
 
+  private async trash(request: JobsTrashRequestMessage): Promise<void> {
+    const trashItem =
+      this.options.trashItem ??
+      (() => Promise.reject(new Error('this build cannot move files to the trash')));
+    const reply = await serveTrashRequest(request, trashItem);
+    // The process may have restarted meanwhile; its pending request died with it.
+    if (!this.exited) this.child.postMessage(reply satisfies JobsIncomingMessage);
+  }
+
   /** Test hook: pid of the current jobs process. */
   get pid(): number | undefined {
     return this.child.pid;
@@ -160,6 +176,10 @@ export class JobsClient {
   private receive(message: JobsOutgoingMessage): void {
     if (message.kind === 'event') {
       this.onEvent(message.channel, message.payload);
+      return;
+    }
+    if (message.kind === 'trash-request') {
+      void this.trash(message);
       return;
     }
     const pending = this.pending.get(message.id);

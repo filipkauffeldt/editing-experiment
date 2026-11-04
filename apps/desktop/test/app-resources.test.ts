@@ -1,8 +1,8 @@
 // @vitest-environment node
-import { appUrl, asPhotoId } from '@ee/contracts';
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { appUrl, asPhotoId, asSourceId } from '@ee/contracts';
+import { mkdir, mkdtemp, readdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { basename, join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { AppResources } from '../src/jobs/backend/app-resources';
 import { PhotoIndex } from '../src/jobs/backend/photo-index';
@@ -63,5 +63,69 @@ describe('AppResources id validation', () => {
 
   it('still answers 404 for a well-formed id that is not cached', async () => {
     expect((await apps.resolve(appUrl.thumb(asPhotoId('unknown')))).status).toBe(404);
+  });
+});
+
+describe('AppResources.forget', () => {
+  let root: string;
+  afterEach(() => rm(root, { recursive: true, force: true }));
+
+  it('removes the decoded images of a deleted photo and discards a decode still running', async () => {
+    root = await mkdtemp(join(tmpdir(), 'ee-apps-forget-'));
+    const cache = join(root, 'cache');
+    const library = new PhotoLibrary(new PhotoIndex(':memory:'), () => {});
+    const file = join(root, 'a.NEF');
+    await writeFile(file, 'raw');
+    const photo = (id: string) => ({
+      id: asPhotoId(id),
+      path: file,
+      sidecarPath: join(root, 'a.xmp'),
+      fileName: 'a.NEF',
+      sourceId: asSourceId('s'),
+      tagged: false,
+      colorClass: 0,
+      rating: 0,
+      status: {
+        ingest: 'done' as const,
+        edited: false,
+        metadataDiffersFromTemplate: false,
+        export: 'none' as const,
+        upload: 'none' as const,
+      },
+      versions: [],
+    });
+    library.add(photo('p1'));
+    library.add(photo('p2'));
+    let release: () => void = () => {};
+    const gate = new Promise<void>((resolve) => (release = resolve));
+    const apps = new AppResources({
+      photos: library,
+      previews: new PreviewCache(join(cache, 'thumb'), join(cache, 'preview')),
+      linearDir: join(cache, 'linear'),
+      decode: async (_path, options) => {
+        if (options.maxEdge === 64) await gate;
+        return {
+          data: new Uint8Array(16),
+          header: { width: 1, height: 1, sourceWidth: 1, sourceHeight: 1 } as never,
+        } as never;
+      },
+    });
+    await apps.init();
+
+    // One finished decode and one still running for p1; one finished for p2.
+    const cached = await apps.resolve('app://linear/p1?maxEdge=32');
+    const other = await apps.resolve('app://linear/p2?maxEdge=32');
+    const running = apps.resolve('app://linear/p1?maxEdge=64');
+    expect(cached.status).toBe(200);
+    expect(await readdir(join(cache, 'linear'))).toHaveLength(2);
+
+    await apps.forget('p1');
+    release();
+    const late = await running;
+
+    // The cached file went at once; the late decode wrote nothing that stays, and p2 is untouched.
+    expect(late.status).toBe(500);
+    expect(await readdir(join(cache, 'linear'))).toEqual([basename(other.file!)]);
+    expect((await apps.resolve('app://linear/p2?maxEdge=32')).file).toBe(other.file);
   });
 });

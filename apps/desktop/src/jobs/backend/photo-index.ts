@@ -8,11 +8,18 @@ export interface PhotoRecord {
   photo: Photo;
   /** The metadata template applied at ingest (or last applied by the user). */
   templatePath?: string;
+  /**
+   * The file the photo was ingested from, as ingest saw it (a path on the server for a remote
+   * source). Absent for photos found by the startup scan and for photos indexed before this was
+   * recorded.
+   */
+  sourcePath?: string;
 }
 
 interface Row {
   json: string;
   template_path: string | null;
+  source_path: string | null;
 }
 
 /**
@@ -29,6 +36,7 @@ export class PhotoIndex {
   private readonly templateStatement: StatementSync;
   private readonly pathsStatement: StatementSync;
   private readonly hasPathStatement: StatementSync;
+  private readonly removeStatement: StatementSync;
 
   constructor(filePath: string) {
     if (filePath !== ':memory:') mkdirSync(dirname(filePath), { recursive: true });
@@ -41,22 +49,36 @@ export class PhotoIndex {
         source_id TEXT NOT NULL,
         path TEXT NOT NULL,
         template_path TEXT,
+        source_path TEXT,
         json TEXT NOT NULL
       );
       CREATE INDEX IF NOT EXISTS photos_source ON photos (source_id, seq);
       CREATE INDEX IF NOT EXISTS photos_path ON photos (path);
     `);
+    // An index made before `source_path` existed gets the column; its rows have none.
+    const columns = this.db.prepare('PRAGMA table_info(photos)').all() as unknown as {
+      name: string;
+    }[];
+    if (!columns.some((column) => column.name === 'source_path')) {
+      this.db.exec('ALTER TABLE photos ADD COLUMN source_path TEXT');
+    }
     this.upsertStatement = this.db.prepare(
-      `INSERT INTO photos (id, source_id, path, template_path, json) VALUES (?, ?, ?, ?, ?)
+      `INSERT INTO photos (id, source_id, path, template_path, source_path, json)
+       VALUES (?, ?, ?, ?, ?, ?)
        ON CONFLICT(id) DO UPDATE SET json = excluded.json, source_id = excluded.source_id,
          path = excluded.path`,
     );
-    this.getStatement = this.db.prepare('SELECT json, template_path FROM photos WHERE id = ?');
-    this.listStatement = this.db.prepare('SELECT json, template_path FROM photos ORDER BY seq');
+    this.getStatement = this.db.prepare(
+      'SELECT json, template_path, source_path FROM photos WHERE id = ?',
+    );
+    this.listStatement = this.db.prepare(
+      'SELECT json, template_path, source_path FROM photos ORDER BY seq',
+    );
     this.listBySourceStatement = this.db.prepare(
-      'SELECT json, template_path FROM photos WHERE source_id = ? ORDER BY seq',
+      'SELECT json, template_path, source_path FROM photos WHERE source_id = ? ORDER BY seq',
     );
     this.templateStatement = this.db.prepare('UPDATE photos SET template_path = ? WHERE id = ?');
+    this.removeStatement = this.db.prepare('DELETE FROM photos WHERE id = ?');
     this.hasPathStatement = this.db.prepare('SELECT 1 FROM photos WHERE path = ? LIMIT 1');
     this.pathsStatement = this.db.prepare(
       "SELECT json_extract(json, '$.path') AS path FROM photos",
@@ -64,12 +86,13 @@ export class PhotoIndex {
   }
 
   /** Insert, or replace the stored photo while keeping its position. */
-  save(photo: Photo, templatePath?: string): void {
+  save(photo: Photo, templatePath?: string, sourcePath?: string): void {
     this.upsertStatement.run(
       photo.id,
       photo.sourceId,
       photo.path,
       templatePath ?? null,
+      sourcePath ?? null,
       JSON.stringify(photo),
     );
   }
@@ -88,6 +111,11 @@ export class PhotoIndex {
       ? this.listStatement.all()
       : this.listBySourceStatement.all(sourceId)) as unknown as Row[];
     return rows.map((row) => toRecord(row).photo);
+  }
+
+  /** Drop a photo's entry. Returns whether there was one. */
+  remove(photoId: PhotoId): boolean {
+    return Number(this.removeStatement.run(photoId).changes) > 0;
   }
 
   hasPath(path: string): boolean {
@@ -122,5 +150,6 @@ function toRecord(row: Row): PhotoRecord {
   return {
     photo,
     ...(row.template_path === null ? {} : { templatePath: row.template_path }),
+    ...(row.source_path === null ? {} : { sourcePath: row.source_path }),
   };
 }

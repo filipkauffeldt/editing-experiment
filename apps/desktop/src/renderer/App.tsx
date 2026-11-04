@@ -3,10 +3,12 @@ import styles from './App.module.css';
 import { BatchCaptionDialog } from './components/BatchCaptionDialog';
 import { CopyMetadataDialog } from './components/CopyMetadataDialog';
 import { CopySettingsDialog } from './components/CopySettingsDialog';
+import { DeletePhotosDialog } from './components/DeletePhotosDialog';
 import { DevelopView } from './components/DevelopView';
 import { ExportDialog } from './components/ExportDialog';
 import { IngestView } from './components/IngestView';
 import { LibraryView } from './components/LibraryView';
+import { PhotoMenu } from './components/PhotoMenu';
 import { SettingsDialog } from './components/SettingsDialog';
 import { ShortcutsOverlay } from './components/ShortcutsOverlay';
 import { Toasts } from './components/Toasts';
@@ -37,6 +39,8 @@ function Shell() {
       {state.metadataCopyOpen && <CopyMetadataDialog />}
       {state.dialog && <SettingsDialog />}
       {state.exportOpen && <ExportDialog />}
+      {state.deleteRequest && <DeletePhotosDialog />}
+      <PhotoMenu />
     </div>
   );
 }

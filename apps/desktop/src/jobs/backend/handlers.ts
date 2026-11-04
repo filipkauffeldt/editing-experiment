@@ -12,6 +12,7 @@ import type { FaceService } from './faces';
 import type { IngestService } from './ingest-service';
 import type { LabelService } from './label-service';
 import type { MetadataService } from './metadata-service';
+import type { PhotoDeleter } from './photo-deleter';
 import type { PresetStore } from './presets';
 import type { ProfileLibrary } from './profiles';
 import type { SettingsStore } from './settings-store';
@@ -21,6 +22,7 @@ export interface HandlerDeps {
   emit: Emit;
   getSecret: GetSecret;
   photos: PhotoLibrary;
+  deleter: PhotoDeleter;
   settings: SettingsStore;
   metadata: MetadataService;
   edits: EditService;
@@ -66,6 +68,7 @@ export function createBackendHandlers(deps: HandlerDeps): IpcHandlers {
     'photos:createVersion': (args) => edits.createVersion(args),
     'photos:deleteVersion': (args) => edits.deleteVersion(args),
     'photos:setLabels': (args) => labels.setLabels(args),
+    'photos:delete': (args) => deps.deleter.delete(args),
     'photos:setEditedPreview': async (args) => editedPreviews.set(args),
 
     'ingest:start': ({ config }) => ingest.start(config),

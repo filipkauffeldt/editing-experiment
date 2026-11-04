@@ -11,6 +11,10 @@ export type ChannelHost = 'main' | 'jobs';
  *
  * Main serves what needs Electron APIs (dialogs, `safeStorage`, window state);
  * everything else runs in the jobs utility process so the main process stays thin.
+ *
+ * `photos:delete` is a jobs channel although the trash is Electron's `shell`: the jobs process
+ * owns the index and decides what may be deleted, then asks main to trash each file over a
+ * message (`shared/trash-bridge.ts`). Main never receives a path from the renderer.
  */
 export const NAMESPACE_HOST: Record<IpcNamespace, ChannelHost> = {
   system: 'jobs',

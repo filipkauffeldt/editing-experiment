@@ -67,6 +67,8 @@ export interface AppResourcesOptions {
 export class AppResources {
   private readonly entries = new Map<string, LinearEntry>();
   private readonly inFlight = new Map<string, Promise<LinearEntry>>();
+  /** In-flight decodes of a deleted photo: their result is thrown away when they finish. */
+  private readonly discarded = new Set<string>();
   private readonly lensShots = new Map<string, Promise<LensShotInfo | undefined>>();
   private readonly maxEntries: number;
   private readonly maxBytes: number;
@@ -82,6 +84,20 @@ export class AppResources {
   async init(): Promise<void> {
     await rm(this.options.linearDir, { recursive: true, force: true });
     await mkdir(this.options.linearDir, { recursive: true });
+  }
+
+  /**
+   * The photo was deleted: drop its decoded images and discard decodes still running, so a late
+   * one cannot leave a cache file (or an entry) behind for a photo that no longer exists.
+   */
+  async forget(photoId: string): Promise<void> {
+    const prefix = `${photoId}|`;
+    for (const key of this.inFlight.keys()) if (key.startsWith(prefix)) this.discarded.add(key);
+    for (const [key, entry] of [...this.entries]) {
+      if (!key.startsWith(prefix)) continue;
+      this.entries.delete(key);
+      await rm(entry.file, { force: true }).catch(() => undefined);
+    }
   }
 
   async resolve(rawUrl: string): Promise<AppBackendResponse> {
@@ -210,11 +226,18 @@ export class AppResources {
       await rename(temp, file);
       const lens = await this.lensShot(path, image.header);
       const header = lens === undefined ? image.header : { ...image.header, lens };
+      if (this.discarded.delete(key)) {
+        await rm(file, { force: true }).catch(() => undefined);
+        throw new IpcError('not_found', 'the photo was deleted');
+      }
       const entry: LinearEntry = { file, bytes: image.data.byteLength, header };
       this.entries.set(key, entry);
       await this.evict(entry);
       return entry;
-    })().finally(() => this.inFlight.delete(key));
+    })().finally(() => {
+      this.inFlight.delete(key);
+      this.discarded.delete(key);
+    });
     this.inFlight.set(key, run);
     return run;
   }

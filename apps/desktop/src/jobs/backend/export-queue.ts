@@ -139,6 +139,32 @@ export class ExportQueue {
     this.changed(job, 'state');
   }
 
+  /**
+   * A photo was deleted: its queued exports are cancelled with a reason instead of failing later
+   * on a missing file, and a render being waited for is dropped. An export already encoding
+   * finishes or fails on its own; the exported file is not touched.
+   */
+  photoRemoved(photoId: ExportJob['photoIds'][number]): void {
+    for (const job of this.jobs) {
+      if (terminal(job.state)) continue;
+      for (const photo of job.photos) {
+        if (photo.photoId !== photoId) continue;
+        if (photo.state === 'queued') {
+          photo.state = 'cancelled';
+          photo.error = 'the photo was deleted';
+          this.changed(job, 'progress', photoId);
+        } else if (photo.state === 'rendering' && this.pendingRender?.jobId === job.id) {
+          const pending = this.pendingRender;
+          this.pendingRender = undefined;
+          clearTimeout(pending.timer);
+          pending.reject(new Error('the photo was deleted'));
+        }
+      }
+    }
+    // Nothing left to render: let a job whose only photos were this one end.
+    void this.pump();
+  }
+
   /** The renderer is listening again (after a reload or an app restart). */
   markRendererReady(): void {
     this.rendererReady = true;

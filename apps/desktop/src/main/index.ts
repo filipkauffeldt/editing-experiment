@@ -6,7 +6,7 @@ import {
   type InvokeChannel,
   type IpcHandlers,
 } from '@ee/contracts';
-import { BrowserWindow, MessageChannelMain, app, ipcMain, safeStorage } from 'electron';
+import { BrowserWindow, MessageChannelMain, app, ipcMain, safeStorage, shell } from 'electron';
 import { join } from 'node:path';
 import { credentialsHandlers, dialogHandlers, settingsHandlers } from './handlers';
 import { CredentialStore, credentialHandlers } from './credentials';
@@ -15,6 +15,7 @@ import { handleAppProtocol, registerAppScheme } from './protocol';
 import { hostFor } from '../shared/routing';
 import { electronSecretPort, serveSecrets } from '../shared/secret-port';
 import { installApplicationMenu } from './menu';
+import { createTrashItem } from './trash';
 import { createMainWindow } from './window';
 
 const mock = process.env.EE_MOCK === '1';
@@ -60,6 +61,8 @@ void app.whenReady().then(() => {
     mock,
     appVersion: app.getVersion(),
     userDataDir,
+    // Utility processes have no `shell`; the deleter in the jobs process asks for each file.
+    trashItem: createTrashItem((path) => shell.trashItem(path)),
     // A restarted jobs process needs a fresh port: the old one died with it.
     onStart: (client) => {
       if (!credentials) return;

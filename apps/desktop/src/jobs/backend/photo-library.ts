@@ -40,8 +40,8 @@ export class PhotoLibrary {
   }
 
   /** Index a newly ingested photo and announce it. */
-  add(photo: Photo, templatePath?: string): void {
-    this.index.save(photo, templatePath);
+  add(photo: Photo, templatePath?: string, sourcePath?: string): void {
+    this.index.save(photo, templatePath, sourcePath);
     this.emit('photos:added', photo);
   }
 
@@ -51,6 +51,16 @@ export class PhotoLibrary {
     this.index.save(next);
     this.emit('photos:updated', next);
     return next;
+  }
+
+  /**
+   * Drop a photo from the index and announce it. Callers hold the photo's lock, so no edit is
+   * half done; one queued behind it finds no photo (`not_found`) instead of writing.
+   */
+  remove(photoId: PhotoId): boolean {
+    const removed = this.index.remove(photoId);
+    if (removed) this.emit('photos:removed', { photoId });
+    return removed;
   }
 
   setTemplatePath(photoId: PhotoId, templatePath: string | undefined): void {

@@ -91,6 +91,8 @@ export class EditedPreviewScheduler {
   private readonly failedAt = new Map<PhotoId, number>();
   /** Photos found to have no edits since their last edit; not looked at again. */
   private readonly noEdits = new Set<PhotoId>();
+  /** Deleted photos: a late failure for one is not worth a message. */
+  private readonly dropped = new Set<PhotoId>();
   private visible: ReadonlySet<PhotoId> = new Set();
   private selected: PhotoId | undefined;
   private lastRevision = 0;
@@ -132,6 +134,25 @@ export class EditedPreviewScheduler {
     this.failedAt.delete(photoId);
     this.noEdits.delete(photoId);
     this.enqueue(job, 'urgent');
+  }
+
+  /**
+   * The photo was deleted: nothing more is drawn or stored for it. A render in flight is
+   * discarded when it ends, and its failure is not reported.
+   */
+  drop(photoId: PhotoId): void {
+    const job = this.jobs.get(photoId);
+    if (job) {
+      if (job.timer !== undefined) clearTimeout(job.timer);
+      job.timer = undefined;
+      job.queued = undefined;
+      // The run in flight sees a newer revision and does not store its render.
+      job.revision = this.nextRevision();
+      this.jobs.delete(photoId);
+    }
+    this.failedAt.delete(photoId);
+    this.noEdits.delete(photoId);
+    this.dropped.add(photoId);
   }
 
   /** Skip the rest of the wait for a photo whose edit is still settling. */
@@ -358,7 +379,7 @@ export class EditedPreviewScheduler {
         }, deps.debounceMs ?? 750);
       }
     } catch (error) {
-      if (this.disposed) return;
+      if (this.disposed || this.dropped.has(job.photoId)) return;
       this.noteFailure(job.photoId);
       deps.onError(photo, error);
     }
