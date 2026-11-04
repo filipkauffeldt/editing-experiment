@@ -12,7 +12,12 @@ import {
   type TemplateApplyMode,
 } from '@ee/contracts';
 import { existsSync, readFileSync, renameSync } from 'node:fs';
-import { DEFAULT_FILE_NAMING, DEFAULT_TEMPLATE_MODE } from '../../shared/settings';
+import {
+  DEFAULT_FILE_NAMING,
+  DEFAULT_TEMPLATE_MODE,
+  sanitizeCopyMetadataFields,
+  sanitizeCopySettingGroups,
+} from '../../shared/settings';
 import { writeJsonAtomic } from './atomic-json';
 
 interface PersistedState extends AppSettings {
@@ -143,6 +148,12 @@ function pathList(value: unknown): string[] | undefined {
   return [...new Set(value)];
 }
 
+function assertStringList(value: unknown, name: string): asserts value is string[] {
+  if (!Array.isArray(value) || value.some((item) => typeof item !== 'string')) {
+    throw new IpcError('invalid_argument', `${name} must be a list of strings`);
+  }
+}
+
 function assertSettingsPatch(patch: Partial<AppSettings>): void {
   if (patch.ingest !== undefined) assertIngest(patch.ingest);
   if (
@@ -172,6 +183,12 @@ function assertSettingsPatch(patch: Partial<AppSettings>): void {
   }
   if (patch.codeReplacementPaths !== undefined && !isPathList(patch.codeReplacementPaths)) {
     throw new IpcError('invalid_argument', 'codeReplacementPaths must be a list of file paths');
+  }
+  if (patch.copyMetadataFields !== undefined) {
+    assertStringList(patch.copyMetadataFields, 'copyMetadataFields');
+  }
+  if (patch.copySettingGroups !== undefined) {
+    assertStringList(patch.copySettingGroups, 'copySettingGroups');
   }
 }
 
@@ -290,6 +307,23 @@ export class SettingsStore {
         defaults.codeReplacementPaths ??
         [];
 
+      const copyMetadataFields = sanitizeCopyMetadataFields(parsed.copyMetadataFields);
+      const copySettingGroups = sanitizeCopySettingGroups(parsed.copySettingGroups);
+      // Rewrite a selection that lost a removed field/group or was not a list at
+      // all, so the file keeps only what the dialog can tick.
+      if (
+        parsed.copyMetadataFields !== undefined &&
+        JSON.stringify(copyMetadataFields) !== JSON.stringify(parsed.copyMetadataFields)
+      ) {
+        migrated = true;
+      }
+      if (
+        parsed.copySettingGroups !== undefined &&
+        JSON.stringify(copySettingGroups) !== JSON.stringify(parsed.copySettingGroups)
+      ) {
+        migrated = true;
+      }
+
       const rawSources = Array.isArray(parsed.sources) ? parsed.sources : [];
       if (rawSources.some((source) => isObject(source) && 'lockedOnly' in source)) {
         migrated = true;
@@ -311,6 +345,8 @@ export class SettingsStore {
           : {}),
         metadataTemplates,
         codeReplacementPaths,
+        ...(copyMetadataFields === undefined ? {} : { copyMetadataFields }),
+        ...(copySettingGroups === undefined ? {} : { copySettingGroups }),
         sources: rawSources.map(migrateSource),
         destinations: Array.isArray(parsed.destinations)
           ? (parsed.destinations as Destination[])
@@ -339,6 +375,12 @@ export class SettingsStore {
         : { profileFolders: this.state.profileFolders }),
       metadataTemplates: this.state.metadataTemplates ?? [],
       codeReplacementPaths: this.state.codeReplacementPaths ?? [],
+      ...(this.state.copyMetadataFields === undefined
+        ? {}
+        : { copyMetadataFields: this.state.copyMetadataFields }),
+      ...(this.state.copySettingGroups === undefined
+        ? {}
+        : { copySettingGroups: this.state.copySettingGroups }),
     };
   }
 
@@ -358,6 +400,12 @@ export class SettingsStore {
         : {}),
       ...(patch.codeReplacementPaths !== undefined
         ? { codeReplacementPaths: [...new Set(patch.codeReplacementPaths)] }
+        : {}),
+      ...(patch.copyMetadataFields !== undefined
+        ? { copyMetadataFields: sanitizeCopyMetadataFields(patch.copyMetadataFields) ?? [] }
+        : {}),
+      ...(patch.copySettingGroups !== undefined
+        ? { copySettingGroups: sanitizeCopySettingGroups(patch.copySettingGroups) ?? [] }
         : {}),
     };
     this.save();

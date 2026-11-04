@@ -1,4 +1,9 @@
-import type { ApplyDevelopSettingsArgs, EditParams, EditPreset } from './develop';
+import type {
+  ApplyDevelopSettingsArgs,
+  DevelopSettingGroupId,
+  EditParams,
+  EditPreset,
+} from './develop';
 import type {
   CredentialSecret,
   DeliverExportRenderArgs,
@@ -215,6 +220,16 @@ export interface AppSettings {
    * and passed to ingest.
    */
   codeReplacementPaths?: string[];
+  /**
+   * Fields last ticked and confirmed in the Copy Metadata dialog. Absent means
+   * nothing was remembered yet, so the dialog keeps its default ticks.
+   */
+  copyMetadataFields?: (keyof IptcFields)[];
+  /**
+   * Develop groups last ticked and confirmed in the Copy/Sync Settings dialog.
+   * Absent means nothing was remembered yet, so the dialog keeps its default ticks.
+   */
+  copySettingGroups?: DevelopSettingGroupId[];
 }
 
 /** Arguments of `dialog:pick`. */

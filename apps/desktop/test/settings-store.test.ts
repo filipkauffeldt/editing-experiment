@@ -100,6 +100,117 @@ describe('SettingsStore metadata templates', () => {
   });
 });
 
+describe('SettingsStore copy selections', () => {
+  it('round-trips the last confirmed selections through the settings file', async () => {
+    const file = join(await tempDir(), 'settings.json');
+    const store = new SettingsStore(file, defaults);
+    expect(store.get().copyMetadataFields).toBeUndefined();
+    expect(store.get().copySettingGroups).toBeUndefined();
+
+    store.set({
+      copyMetadataFields: ['headline', 'city', 'headline'],
+      copySettingGroups: ['basicTone', 'crop'],
+    });
+    expect(store.get().copyMetadataFields).toEqual(['headline', 'city']);
+    expect(store.get().copySettingGroups).toEqual(['basicTone', 'crop']);
+
+    const reopened = new SettingsStore(file, defaults);
+    expect(reopened.get().copyMetadataFields).toEqual(['headline', 'city']);
+    expect(reopened.get().copySettingGroups).toEqual(['basicTone', 'crop']);
+    const saved = JSON.parse(await readFile(file, 'utf8')) as Record<string, unknown>;
+    expect(saved.copyMetadataFields).toEqual(['headline', 'city']);
+    expect(saved.copySettingGroups).toEqual(['basicTone', 'crop']);
+  });
+
+  it('keeps an empty confirmed selection distinct from nothing remembered', async () => {
+    const file = join(await tempDir(), 'settings.json');
+    const store = new SettingsStore(file, defaults);
+    store.set({ copyMetadataFields: [], copySettingGroups: [] });
+
+    const reopened = new SettingsStore(file, defaults);
+    expect(reopened.get().copyMetadataFields).toEqual([]);
+    expect(reopened.get().copySettingGroups).toEqual([]);
+  });
+
+  it('loads settings written before the selections existed with nothing remembered', async () => {
+    const file = join(await tempDir(), 'settings.json');
+    await writeFile(
+      file,
+      JSON.stringify({
+        version: 2,
+        ingest: {
+          destination: { path: '/ingest' },
+          renameTemplate: '{date}',
+          metadataTemplateMode: 'replace',
+          fileNaming: 'rename',
+        },
+        exportRoot: '/exports',
+        exportPresets: defaults.exportPresets,
+        activePresetId: defaults.activePresetId,
+        metadataTemplates: ['/templates/a.XMP'],
+        codeReplacementPaths: [],
+        sources: [],
+        destinations: [],
+      }),
+    );
+
+    const store = new SettingsStore(file, defaults);
+    expect(store.get().copyMetadataFields).toBeUndefined();
+    expect(store.get().copySettingGroups).toBeUndefined();
+    expect(store.get().metadataTemplates).toEqual(['/templates/a.XMP']);
+  });
+
+  it('drops field keys and groups that no longer exist', async () => {
+    const file = join(await tempDir(), 'settings.json');
+    await writeFile(
+      file,
+      JSON.stringify({
+        ...defaults,
+        copyMetadataFields: ['headline', 'retiredField', 'city'],
+        copySettingGroups: ['detail', 'retiredGroup'],
+        sources: [],
+        destinations: [],
+      }),
+    );
+
+    const store = new SettingsStore(file, defaults);
+    expect(store.get().copyMetadataFields).toEqual(['headline', 'city']);
+    expect(store.get().copySettingGroups).toEqual(['detail']);
+    const saved = JSON.parse(await readFile(file, 'utf8')) as Record<string, unknown>;
+    expect(saved.copyMetadataFields).toEqual(['headline', 'city']);
+    expect(saved.copySettingGroups).toEqual(['detail']);
+  });
+
+  it('reads corrupt stored selections as nothing remembered instead of failing', async () => {
+    const file = join(await tempDir(), 'settings.json');
+    await writeFile(
+      file,
+      JSON.stringify({
+        ...defaults,
+        copyMetadataFields: 'headline',
+        copySettingGroups: { id: 'detail' },
+        sources: [],
+        destinations: [],
+      }),
+    );
+
+    const store = new SettingsStore(file, defaults);
+    expect(store.get().copyMetadataFields).toBeUndefined();
+    expect(store.get().copySettingGroups).toBeUndefined();
+    const saved = JSON.parse(await readFile(file, 'utf8')) as Record<string, unknown>;
+    expect(saved.copyMetadataFields).toBeUndefined();
+    expect(saved.copySettingGroups).toBeUndefined();
+  });
+
+  it('rejects a malformed selection passed to settings:set', () => {
+    const store = new SettingsStore(undefined, defaults);
+    expect(() => store.set({ copyMetadataFields: 'headline' as never })).toThrow(
+      /copyMetadataFields/,
+    );
+    expect(() => store.set({ copySettingGroups: [1] as never })).toThrow(/copySettingGroups/);
+  });
+});
+
 describe('SettingsStore file naming', () => {
   it('defaults to rename for a fresh install', () => {
     const store = new SettingsStore(undefined, defaults);

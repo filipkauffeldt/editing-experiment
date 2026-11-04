@@ -88,7 +88,7 @@ Electron dependency (`createBackend({ userDataDir, emit, getSecret })`), so inte
 in plain Node. Files under Electron's `userData`:
 
 ```
-settings.json        sources, destinations, ingest options, metadata templates, code replacements, export presets, active preset, profile folders
+settings.json        sources, destinations, ingest options, metadata templates, code replacements, export presets, active preset, profile folders, last copy selections
 index.sqlite         photo index (cache; sidecars are the source of truth)
 seen.sqlite          files already ingested per source
 uploads.sqlite       upload queue
@@ -575,7 +575,10 @@ off by default. Retouch is not a develop setting, so it is never copied; mosaics
 stay with each photo.
 
 - **Copy settings** (`Shift+Ctrl/Cmd+C`) opens the group dialog for the active photo and
-  remembers its settings (as shown, including raw defaults) with the chosen groups.
+  remembers its settings (as shown, including raw defaults) with the chosen groups. The
+  dialog opens with the groups last confirmed there (Copy or Sync), or the default groups
+  when none was saved; Cancel/×/Esc leave that stored choice alone. The choice is global
+  and lives in settings, not per photo.
 - **Paste settings** (`Shift+Ctrl/Cmd+V`) applies that snapshot to the selection in the
   Library or Develop. **Sync…** in the Library bottom bar opens the same dialog with
   the active photo as the source and applies it to the whole selection.
@@ -611,11 +614,14 @@ the film strip (or the open photo) and keeps the existing Fill empty / Replace a
 
 **Copy…** opens a field picker grouped like the panel sections (Caption, Credits,
 Location, Event / job). It snapshots the checked fields from the active photo, including
-explicit empty values, in `AppState.copiedMetadata`. **Paste** writes exactly that partial
-field set to the selected photos through `metadata:writeFields` (the normal `writeIptc`
-path, so raws go to their XMP sidecar and are never written). Fields that were not copied
-stay untouched and code replacements are not re-expanded on paste. `metadata:writeFields`
-also refreshes each photo's `metadataDiffersFromTemplate` status.
+explicit empty values, in `AppState.copiedMetadata`. The picker opens with the fields last
+confirmed there, or every field when none was saved; Cancel/×/Esc leave the stored choice
+alone. The choice is global and lives in settings, not per photo. **Paste** writes exactly
+that partial field set to the selected photos through `metadata:writeFields` (the normal
+`writeIptc` path, so raws go to their XMP sidecar and are never written), independent of
+what is ticked later. Fields that were not copied stay untouched and code replacements are
+not re-expanded on paste. `metadata:writeFields` also refreshes each photo's
+`metadataDiffersFromTemplate` status.
 
 ## Export model
 

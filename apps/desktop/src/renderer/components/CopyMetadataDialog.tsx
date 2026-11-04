@@ -17,7 +17,13 @@ export function CopyMetadataDialog() {
   const state = useAppState();
   const photo = activePhoto(state);
   const fields = photo ? (state.metadata[photo.id] ?? {}) : {};
-  const [checked, setChecked] = useState<MetadataFieldName[]>(() => [...METADATA_FIELD_NAMES]);
+  // The last confirmed Copy, or every field when nothing was remembered yet.
+  const remembered = state.settings?.copyMetadataFields;
+  const [checked, setChecked] = useState<MetadataFieldName[]>(() =>
+    remembered === undefined
+      ? [...METADATA_FIELD_NAMES]
+      : METADATA_FIELD_NAMES.filter((name) => remembered.includes(name)),
+  );
   const selected = new Set(checked);
   const targetCount = Math.max(1, state.selection.length);
 

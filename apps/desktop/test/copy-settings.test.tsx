@@ -1,4 +1,5 @@
-import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { DEFAULT_COPY_SETTING_GROUPS } from '@ee/contracts';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, describe, expect, it } from 'vitest';
 import { App } from '../src/renderer/App';
 import { activePhoto, createAppStore, type AppStore } from '../src/renderer/store';
@@ -31,6 +32,11 @@ const thumbnail = (fileName: string): HTMLElement => {
 const applyCalls = (fake: FakeBridge) =>
   fake.calls.filter((call) => call.channel === 'develop:applySettings');
 
+const openCopySettings = async (): Promise<HTMLElement> => {
+  fireEvent.keyDown(window, { key: 'C', ctrlKey: true, shiftKey: true });
+  return screen.findByTestId('copy-settings-dialog');
+};
+
 function altGraphKeyDown(init: KeyboardEventInit): void {
   const event = new KeyboardEvent('keydown', init);
   Object.defineProperty(event, 'getModifierState', {
@@ -52,6 +58,58 @@ describe('copy and paste develop settings', () => {
     expect(screen.getByTestId('copy-settings-dialog').textContent).toContain(
       'Retouch is never copied',
     );
+  });
+
+  it('shows no ticks for a stored empty selection instead of the defaults', async () => {
+    const { store } = await renderApp();
+    await store.saveSettings({ copySettingGroups: [] });
+
+    await openCopySettings();
+    expect((screen.getByTestId('copy-group-basicTone') as HTMLInputElement).checked).toBe(false);
+    expect((screen.getByTestId('copy-group-crop') as HTMLInputElement).checked).toBe(false);
+    expect((screen.getByTestId('copy-settings-confirm') as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  it('remembers the confirmed ticks and keeps them after Cancel, Close and Escape', async () => {
+    const { store } = await renderApp();
+
+    await openCopySettings();
+    fireEvent.click(screen.getByTestId('copy-group-detail'));
+    fireEvent.click(screen.getByTestId('copy-group-crop'));
+    fireEvent.click(screen.getByTestId('copy-settings-confirm'));
+    const remembered = DEFAULT_COPY_SETTING_GROUPS.filter((id) => id !== 'detail');
+    await waitFor(() =>
+      expect(store.getState().settings?.copySettingGroups).toEqual([...remembered, 'crop']),
+    );
+
+    // A new open starts from the confirmed ticks, not the defaults.
+    await openCopySettings();
+    expect((screen.getByTestId('copy-group-crop') as HTMLInputElement).checked).toBe(true);
+    expect((screen.getByTestId('copy-group-detail') as HTMLInputElement).checked).toBe(false);
+    expect((screen.getByTestId('copy-group-basicTone') as HTMLInputElement).checked).toBe(true);
+
+    // Select none changes only the open dialog; Cancel throws it away.
+    fireEvent.click(screen.getByRole('button', { name: 'Select none' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+    await openCopySettings();
+    expect((screen.getByTestId('copy-group-crop') as HTMLInputElement).checked).toBe(true);
+    expect((screen.getByTestId('copy-group-detail') as HTMLInputElement).checked).toBe(false);
+    expect((screen.getByTestId('copy-group-basicTone') as HTMLInputElement).checked).toBe(true);
+
+    // The × does the same as Cancel.
+    fireEvent.click(screen.getByRole('button', { name: 'Select all' }));
+    const dialog = screen.getByTestId('copy-settings-dialog');
+    fireEvent.click(within(dialog).getByLabelText('Close'));
+    await openCopySettings();
+    expect((screen.getByTestId('copy-group-crop') as HTMLInputElement).checked).toBe(true);
+    expect((screen.getByTestId('copy-group-detail') as HTMLInputElement).checked).toBe(false);
+
+    // Escape does too.
+    fireEvent.click(screen.getByTestId('copy-group-crop'));
+    fireEvent.keyDown(document, { key: 'Escape' });
+    await openCopySettings();
+    expect((screen.getByTestId('copy-group-crop') as HTMLInputElement).checked).toBe(true);
+    expect((screen.getByTestId('copy-group-detail') as HTMLInputElement).checked).toBe(false);
   });
 
   it('copies the active photo and pastes the chosen groups onto three photos', async () => {
@@ -109,6 +167,12 @@ describe('copy and paste develop settings', () => {
     fireEvent.click(screen.getByTestId('copy-settings-confirm'));
     await waitFor(() => expect(applyCalls(fake)).toHaveLength(1));
     expect((applyCalls(fake)[0]!.args[0] as { photoIds: string[] }).photoIds).toHaveLength(3);
+    // Sync is the same dialog and remembers the confirmed ticks too.
+    await waitFor(() =>
+      expect(store.getState().settings?.copySettingGroups).toEqual([
+        ...DEFAULT_COPY_SETTING_GROUPS,
+      ]),
+    );
   });
 
   it('pastes the previously edited photo with Ctrl+Alt+V, but not with AltGr', async () => {
