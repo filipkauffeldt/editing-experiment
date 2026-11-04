@@ -64,3 +64,30 @@ describe('trash bridge between the jobs process and main', () => {
     expect(trash).not.toHaveBeenCalled();
   });
 });
+
+describe('main trash function', () => {
+  it('uses the system trash unless a test folder is set, and then only moves the file there', async () => {
+    const { mkdtemp, readdir, readFile, rm, writeFile } = await import('node:fs/promises');
+    const { tmpdir } = await import('node:os');
+    const { join } = await import('node:path');
+    const { createTrashItem } = await import('../src/main/trash');
+
+    const system = vi.fn(async () => {});
+    await createTrashItem(system, {})('/a.jpg');
+    expect(system).toHaveBeenCalledWith('/a.jpg');
+
+    const root = await mkdtemp(join(tmpdir(), 'ee-trash-'));
+    try {
+      await writeFile(join(root, 'photo.jpg'), 'pixels');
+      const trashItem = createTrashItem(system, { EE_TRASH_DIR: join(root, 'trash') });
+      await trashItem(join(root, 'photo.jpg'));
+      expect(system).toHaveBeenCalledTimes(1);
+      expect(await readdir(root)).toEqual(['trash']);
+      const [moved] = await readdir(join(root, 'trash'));
+      expect(moved).toMatch(/photo\.jpg$/);
+      expect(await readFile(join(root, 'trash', moved!), 'utf8')).toBe('pixels');
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+});
