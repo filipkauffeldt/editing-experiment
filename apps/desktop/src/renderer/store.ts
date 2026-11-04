@@ -707,16 +707,21 @@ export class AppStore {
   private beforeUnload: (() => void) | undefined;
   private toastId = 0;
   private started = false;
-  private finishing = false;
   /** Replaced on `init` after a `dispose`, because a disposed scheduler ignores everything. */
   private editedPreviews: EditedPreviewScheduler | undefined;
   private readonly renderEditedPreview: EditedPreviewRenderer | undefined;
   private editedPreviewErrorShown = false;
   private renderChain: Promise<void> = Promise.resolve();
-  private readonly exportWaiters = new Map<
-    ExportJobId,
-    { resolve(): void; reject(error: Error): void }
-  >();
+  /**
+   * Photos with a Next & send that has not been rendered yet, so a double press (or a press on
+   * the last photo, where the selection does not move) does not export one photo twice. The value
+   * is the job once `export:start` has answered.
+   */
+  private readonly pendingSends = new Map<PhotoId, ExportJobId | undefined>();
+  /** Next & send jobs whose failure is reported by a toast, with the photo they carry. */
+  private readonly backgroundSends = new Map<ExportJobId, Photo>();
+  /** Hands Next & send exports to the jobs process one at a time, in the order they were pressed. */
+  private sendChain: Promise<void> = Promise.resolve();
 
   private readonly confirm: (message: string) => boolean;
 
@@ -835,6 +840,8 @@ export class AppStore {
     this.cancelPhotoFlush();
     this.flushQueuedPhotos();
     await this.flushPendingEdits();
+    // A Next & send that is still being handed over must reach the jobs process before teardown.
+    await this.sendChain;
   };
 
   private async loadAll(): Promise<void> {
@@ -3018,69 +3025,51 @@ export class AppStore {
     return this.state.exportJobs.find((job) => job.id === jobId);
   }
 
-  private settleExportJob(job: ExportJob): void {
-    if (job.state === 'failed') {
-      const failed = job.photos.filter((photo) => photo.state === 'failed');
-      const detail = failed.find((photo) => photo.error !== undefined)?.error;
-      throw new Error(detail ?? `${failed.length} photo(s) could not be exported`);
-    }
-    if (job.state === 'cancelled') throw new Error('the export was cancelled');
+  /** Why an export job failed, or `undefined` while it has not. A cancelled job is the user's own doing. */
+  private exportJobError(job: ExportJob): string | undefined {
+    if (job.state !== 'failed') return undefined;
+    const failed = job.photos.filter((photo) => photo.state === 'failed');
+    return (
+      failed.find((photo) => photo.error !== undefined)?.error ??
+      `${failed.length} photo(s) could not be exported`
+    );
   }
 
-  private notifyExportWaiter(job: ExportJob): void {
+  /**
+   * Follow a Next & send job: free its photo for another press once the render is taken, and
+   * toast a failure, which the user is no longer looking at.
+   */
+  private reportBackgroundSend(job: ExportJob): void {
+    const photo = this.backgroundSends.get(job.id);
+    if (!photo) return;
+    const progress = job.photos.find((candidate) => candidate.photoId === photo.id);
+    const rendered =
+      progress !== undefined && progress.state !== 'queued' && progress.state !== 'rendering';
+    if (rendered || exportJobTerminal(job)) {
+      if (this.pendingSends.get(photo.id) === job.id) this.pendingSends.delete(photo.id);
+    }
     if (!exportJobTerminal(job)) return;
-    const waiter = this.exportWaiters.get(job.id);
-    if (!waiter) return;
-    this.exportWaiters.delete(job.id);
-    waiter.resolve();
+    this.backgroundSends.delete(job.id);
+    const error = this.exportJobError(job);
+    if (error !== undefined) this.toast('error', `Could not export ${photo.fileName}: ${error}`);
   }
 
   private async refreshExportJobs(): Promise<ExportJob[]> {
     const jobs = await this.bridge.invoke('export:list');
     this.set({ exportJobs: jobs });
-    for (const job of jobs) this.notifyExportWaiter(job);
+    for (const job of jobs) this.reportBackgroundSend(job);
     return jobs;
   }
 
-  private waitForExportJob(jobId: ExportJobId): Promise<void> {
-    const existing = this.exportJob(jobId);
-    if (existing && exportJobTerminal(existing)) {
-      try {
-        this.settleExportJob(existing);
-        return Promise.resolve();
-      } catch (error) {
-        return Promise.reject(error);
-      }
-    }
-    return new Promise<void>((resolve, reject) => {
-      this.exportWaiters.set(jobId, {
-        resolve: () => {
-          const job = this.exportJob(jobId);
-          try {
-            if (job) this.settleExportJob(job);
-            resolve();
-          } catch (error) {
-            reject(error);
-          }
-        },
-        reject,
-      });
-      // A job can finish between the invoke returning and this registration.
-      const after = this.exportJob(jobId);
-      if (after && exportJobTerminal(after)) {
-        const waiter = this.exportWaiters.get(jobId);
-        this.exportWaiters.delete(jobId);
-        waiter?.resolve();
-      }
-    });
-  }
-
-  private async runExport(options: {
+  /**
+   * What an export needs before it can start, checked without waiting for anything: the photos in
+   * the order of the list, and the preset. Says why with a toast, and `undefined`, when it cannot.
+   */
+  private planExport(options: {
     photoIds?: readonly PhotoId[];
     presetId?: PresetId;
     send: boolean;
-    wait?: boolean;
-  }): Promise<ExportJobId | undefined> {
+  }): { photoIds: PhotoId[]; presetId: PresetId } | undefined {
     const photoIds = this.orderedPhotoIds(options.photoIds ?? exportPhotoIds(this.state));
     if (photoIds.length === 0) {
       this.toast('error', 'Select at least one photo to export');
@@ -3106,19 +3095,25 @@ export class AppStore {
         return undefined;
       }
     }
+    return { photoIds, presetId };
+  }
+
+  private async runExport(options: {
+    photoIds?: readonly PhotoId[];
+    presetId?: PresetId;
+    send: boolean;
+  }): Promise<void> {
+    const plan = this.planExport(options);
+    if (!plan) return;
     try {
-      await this.settleBeforeExport(photoIds);
-      const jobId = await this.bridge.invoke('export:start', {
-        photoIds,
-        presetId,
+      await this.settleBeforeExport(plan.photoIds);
+      await this.bridge.invoke('export:start', {
+        ...plan,
         ...(options.send ? { forceTop: true } : { send: [] }),
       });
       await this.refreshExportJobs();
-      if (options.wait) await this.waitForExportJob(jobId);
-      return jobId;
     } catch (cause) {
       this.toast('error', `Export failed: ${messageOf(cause)}`);
-      return undefined;
     }
   }
 
@@ -3129,16 +3124,17 @@ export class AppStore {
     try {
       const photo = this.photoById.get(request.photoId);
       if (!photo) throw new Error(`no photo ${request.photoId}`);
-      await this.settleBeforeExport([photo.id]);
-      // Re-read after a retouch commit: the captured photo predates the new version.
+      // No crop or retouch session is settled here: the export was settled when it was started, and
+      // a session the user has opened on this photo since is not what they asked to send.
       const latest = this.photoById.get(photo.id) ?? photo;
       const versionId = activeDevelopVersion(latest)?.id;
       await Promise.all([
         this.saveMetadata(latest.id),
         this.flushDevelopParams(latest.id, versionId),
       ]);
+      // A photo that was selected and sent before its settings were read has none in the store yet.
       const params = withDefaults(
-        this.state.editParams[editParamsKey(latest.id, versionId)] ?? {},
+        await this.currentParams(latest.id),
         await this.loadDefaults(latest.id),
       );
       const ops = request.version === 'top' ? (topRetouchVersion(latest)?.ops ?? []) : [];
@@ -3176,23 +3172,52 @@ export class AppStore {
     await this.runExport({ send, presetId });
   };
 
-  /** Export the active photo with the active preset, then advance to the next one. */
-  readonly nextAndSend = async (): Promise<void> => {
-    if (this.finishing) return;
+  /**
+   * Send the active photo with the active preset and move on at once. The export and the upload
+   * run in the background; a failure comes back as a toast naming the file. The returned promise
+   * settles when the export has been handed to the jobs process, not when it is done.
+   *
+   * What is exported is what the store holds when the render is taken, not what the sidecar
+   * holds: the settings and captions the user typed stay in the store when the selection moves,
+   * and the render path writes them out first.
+   */
+  readonly nextAndSend = (): Promise<void> => {
     const photo = activePhoto(this.state);
-    if (!photo) return;
+    // Still waiting for an earlier press on this photo (a double press, or the last photo).
+    if (!photo || this.pendingSends.has(photo.id)) return Promise.resolve();
+    const plan = this.planExport({ photoIds: [photo.id], send: true });
+    if (!plan) return Promise.resolve();
+    // The order as it is now: a filter that changes later cannot skip or strand the move.
     const order = this.getVisiblePhotos();
-    const exportedIndex = order.findIndex((candidate) => candidate.id === photo.id);
-    this.finishing = true;
-    try {
-      const jobId = await this.runExport({ photoIds: [photo.id], send: true, wait: true });
-      if (jobId === undefined) return;
-      const next = exportedIndex >= 0 ? order[exportedIndex + 1] : undefined;
-      if (next) this.select(next.id);
-    } finally {
-      this.finishing = false;
-    }
+    const index = order.findIndex((candidate) => candidate.id === photo.id);
+    const next = index >= 0 ? order[index + 1] : undefined;
+    this.pendingSends.set(photo.id, undefined);
+    // Applies a draft crop and saves unsaved mosaic shapes first; it waits for those.
+    if (next) this.select(next.id);
+    const start = this.sendChain.then(() => this.startSend(photo, plan.presetId));
+    this.sendChain = start;
+    return start;
   };
+
+  /** Never rejects: a failure is a toast, and the chain behind it must carry on. */
+  private async startSend(photo: Photo, presetId: PresetId): Promise<void> {
+    try {
+      await this.settleBeforeExport([photo.id]);
+      const jobId = await this.bridge.invoke('export:start', {
+        photoIds: [photo.id],
+        presetId,
+        forceTop: true,
+      });
+      this.backgroundSends.set(jobId, photo);
+      this.pendingSends.set(photo.id, jobId);
+      // The job's own events may have come in before its id did.
+      const known = this.exportJob(jobId);
+      if (known) this.reportBackgroundSend(known);
+    } catch (cause) {
+      this.pendingSends.delete(photo.id);
+      this.toast('error', `Could not export ${photo.fileName}: ${messageOf(cause)}`);
+    }
+  }
 
   readonly openExportDialog = (): void => this.set({ exportOpen: true, dialog: undefined });
   readonly closeExportDialog = (): void => this.set({ exportOpen: false });
@@ -3622,7 +3647,7 @@ export class AppStore {
             ? this.state.exportJobs.map((job) => (job.id === event.job.id ? event.job : job))
             : [event.job, ...this.state.exportJobs],
         });
-        this.notifyExportWaiter(event.job);
+        this.reportBackgroundSend(event.job);
         break;
       }
       case 'ingest.progress': {

@@ -1249,6 +1249,44 @@ describe.skipIf(nefs.length === 0 || !haveDisplay)(
       }
     }, 180_000);
 
+    it('moves on at once with Next & send pressed three times in a row, and sends all three in order', async () => {
+      const order = await window
+        .locator('[data-testid="film-strip"] button[title]')
+        .evaluateAll((buttons) =>
+          buttons.map((button) => (button.getAttribute('title') ?? '').split(/[\s(]/)[0]!),
+        );
+      const [first, second, third, fourth] = order;
+      const chosen = [first!, second!, third!].map((name) =>
+        photos.find((photo) => photo.fileName === name)!,
+      );
+      const jobsBefore = (await invoke<ExportJob[]>('export:list')).length;
+      await selectPhoto(first!);
+
+      for (let press = 0; press < 3; press++) await window.keyboard.press('Control+Enter');
+      // Back on the keyboard at once: the view is on the photo after the three.
+      await window.waitForFunction(
+        (name) =>
+          document.querySelector('[data-testid="photo-view"]')?.textContent?.includes(name) ??
+          false,
+        fourth!,
+      );
+
+      const jobs = await waitFor('three finished jobs', async () => {
+        const all = await invoke<ExportJob[]>('export:list');
+        const added = all.slice(0, all.length - jobsBefore).reverse();
+        return added.length === 3 && added.every((job) => job.state === 'done') ? added : undefined;
+      });
+      expect(jobs.map((job) => job.photoIds)).toEqual(chosen.map((photo) => [photo.id]));
+      await waitFor('the three uploads to finish', async () => {
+        const items = await invoke<UploadItem[]>('upload:list');
+        return jobs.every((job) =>
+          items.some((item) => item.localPath === job.photos[0]!.path && item.state === 'done'),
+        )
+          ? items
+          : undefined;
+      });
+    }, 180_000);
+
     it('never overwrites an ingested original when exporting into its folder', async () => {
       const photo = photos.find((candidate) => candidate.fileName === 'cardB_001.jpg')!;
       const original = readFileSync(photo.path);
