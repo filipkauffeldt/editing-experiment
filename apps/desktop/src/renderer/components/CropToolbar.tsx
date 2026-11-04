@@ -1,6 +1,8 @@
+import { MAX_CROP_ANGLE } from '@ee/develop-gl';
 import { CROP_ASPECTS, cropAspectRatio, type CropOverlayKind, type CropSession } from '../store';
 import { useAppStore } from '../store-context';
 import { CheckIcon } from './icons';
+import { NumberField } from './ui/NumberField';
 import styles from './PhotoCanvas.module.css';
 
 const OVERLAY_LABELS: Record<CropOverlayKind, string> = {
@@ -32,12 +34,23 @@ export function CropToolbar({ session }: { session: CropSession }) {
               </button>
             ))}
           </div>
-          <label className={styles.control}>
-            <span>Angle {session.crop.angle.toFixed(1)}°</span>
+          <div className={styles.control}>
+            <span>Angle</span>
+            <NumberField
+              label="Angle in degrees"
+              value={session.crop.angle}
+              min={-MAX_CROP_ANGLE}
+              max={MAX_CROP_ANGLE}
+              step={0.1}
+              formatValue={(angle) => angle.toFixed(1)}
+              suffix="°"
+              inputMode="decimal"
+              onCommit={(angle) => store.setCropAngle(angle)}
+            />
             <input
               type="range"
-              min={-45}
-              max={45}
+              min={-MAX_CROP_ANGLE}
+              max={MAX_CROP_ANGLE}
               step={0.1}
               value={session.crop.angle}
               aria-label="Straighten angle"
@@ -45,7 +58,7 @@ export function CropToolbar({ session }: { session: CropSession }) {
               onChange={(event) => store.setCropAngle(Number(event.target.value))}
               onDoubleClick={() => store.setCropAngle(0)}
             />
-          </label>
+          </div>
         </div>
         <div className={styles.cropRow}>
           <div className={styles.actions}>

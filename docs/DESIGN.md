@@ -58,6 +58,9 @@ Built in `components/ui/`:
   knob), a 1 px white fill from neutral to the value, the value right-aligned in mono and
   typeable. Double-click resets. Temperature and tint tracks carry the desaturated gradients
   (3 px so the colour reads).
+- **NumberField**: the same mono, right-aligned value at a fixed width next to a toolbar slider
+  (retouch block size and face padding, crop angle), keeping a local draft until Enter or blur.
+  It commits a parsed, clamped value; an empty or invalid draft restores the current value.
 - **PanelSection**: title on the left (10 px label), then a small square on/off switch (a 1 px
   outlined 13 px square with a filled 5 px square). Collapsible; the caret is a rotated
   border. In Develop the switch parks a section's slider values and resets them to neutral, so

@@ -1,0 +1,37 @@
+/* A fixed-width value next to a slider, in the Slider number field's style. */
+.group {
+  display: inline-flex;
+  flex: none;
+  align-items: baseline;
+  gap: 3px;
+}
+
+.field {
+  width: 48px;
+  height: 16px;
+  padding: 0;
+  border: 0;
+  border-bottom: 1px solid transparent;
+  background: transparent;
+  color: var(--text);
+  text-align: right;
+  user-select: text;
+}
+
+.field:hover:not(:disabled) {
+  border-bottom-color: var(--line-strong);
+}
+
+.field:focus {
+  border-bottom-color: var(--text);
+  outline: none;
+}
+
+.field:disabled {
+  color: var(--dim);
+}
+
+.suffix {
+  color: var(--muted);
+  white-space: nowrap;
+}
