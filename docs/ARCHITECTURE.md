@@ -89,7 +89,7 @@ in plain Node. Files under Electron's `userData`:
 
 ```
 settings.json        sources, destinations, ingest options, metadata templates, code replacements, export presets, active preset, profile folders, last copy selections
-index.sqlite         photo index (cache; sidecars are the source of truth)
+index.sqlite         photo index and the paths removed from the Library (cache; sidecars are the source of truth)
 seen.sqlite          files already ingested per source
 uploads.sqlite       upload queue
 export-jobs.json     resumable export batches (queued photos survive a restart)
@@ -205,6 +205,20 @@ exports/             default exportRoot (presets choose folders below it)
   photo it finds is a file without an entry, which a successful delete never leaves. The seen store is
   keyed on the source file, so the same card ingested again does not bring a deleted photo back.
   `EE_TRASH_DIR` (tests only) makes main move files into that folder instead of the system trash.
+- Remove from Library: `photos:removeFromLibrary` takes photo ids only and is for photos whose files were
+  deleted outside the app (nothing detects that; the user asks). `PhotoDeleter.removeFromLibrary` takes
+  the same road as a delete after the files: under the photo's lock it drops the index row (`photos:removed`
+  is emitted) and calls `onRemoved` for the cached previews, decoded images, tracked revisions and queued
+  exports, and it reports each photo in the shape of `photos:delete`; an id the index no longer has counts as
+  removed. **It never touches the disk**: no trash, no delete, no move, no write, and no read either, not
+  even to see whether the file exists, so it works with the destination drive unplugged. The photo and its
+  sidecar stay exactly as they are, and edits that were still queued behind it find no photo (`not_found`)
+  and write nothing. Because the startup reconcile would index a file that is still there again (as
+  "Recovered"), the removal also records the photo's path in the index database's `removed_paths` table
+  (created if missing, so an older index opens), in the same transaction as the row. `reconcileDestination`
+  skips those paths. When ingest indexes a new file at exactly such a path (`PhotoLibrary.add`), the
+  path is dropped from the table, so the new photo is not hidden. `photos:delete` does not record a path:
+  its files are in the trash, and a file that turns up there later is a new one.
 - On quit, main asks the jobs process to shut down (stop ingest, close the upload queue, ExifTool and
   the databases) and kills it only after a timeout.
 
@@ -733,11 +747,14 @@ Design tokens and component rules are in `docs/DESIGN.md`.
 - **Folders** come from `libraryFolders(photos)`: the directory of each photo's `path`, which is
   always the ingest copy. Sources are not consulted.
 - **Delete** (`AppState.deleteRequest`): the Delete key (and Backspace on macOS, where the "delete" key
-  reports it) and a right-click menu with one item, "Delete…", on the grid and the film strip. It acts on
+  reports it) and a right-click menu with two items, "Delete…" and "Remove from Library…", on the grid and
+  the film strip (the menu measures itself to stay inside the window). Both act on
   the Library's selection and on the open photo in Develop; a right-click on a photo outside the
   selection selects it first. It does nothing in a text field, behind a dialog, in Ingest or during crop
   and retouch. A dialog states the count and that the files go to the system trash; Enter confirms, Esc
-  cancels. Photos the backend reports as deleted leave the list, the selection moves to the next photo
+  cancels. "Remove from Library…" has no shortcut and opens the same dialog in the `library` mode
+  (`DeleteRequest.mode`): it states the count and that files on disk are not touched while the photos' edits
+  and ratings in the app go, and it calls `photos:removeFromLibrary`. Photos the backend reports as deleted leave the list, the selection moves to the next photo
   (the previous one at the end), Develop returns to the Library when none is left, and the renderer
   drops what it kept for them: pending debounced saves, cached metadata and settings, a crop or retouch
   session, scheduled thumbnails. Photos that failed stay and are named in an error.
