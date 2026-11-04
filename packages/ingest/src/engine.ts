@@ -76,6 +76,8 @@ export function startIngest(config: IngestConfig, hooks: IngestHooks = {}): Inge
   const copier: FileCopier = hooks.fileCopier ?? nodeFileCopier;
   const retryBaseDelayMs = hooks.retryBaseDelayMs ?? 250;
   const retryMaxDelayMs = hooks.retryMaxDelayMs ?? 5_000;
+  /** Keep-mode names chosen in this run, shared by every source racing for them. */
+  const baseNames = new Map<string, string>();
 
   let ownedStore: SqliteSeenStore | undefined;
   let seenStore: SeenStore;
@@ -232,6 +234,7 @@ export function startIngest(config: IngestConfig, hooks: IngestHooks = {}): Inge
             copier,
             signal,
             now: now(),
+            baseNames,
           },
         );
 
@@ -309,6 +312,7 @@ export function startIngest(config: IngestConfig, hooks: IngestHooks = {}): Inge
       expandTemplate,
       copier,
       now,
+      baseNames,
       nextSeq: () => {
         job.seq += 1;
         return job.seq;

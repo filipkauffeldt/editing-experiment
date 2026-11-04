@@ -37,6 +37,8 @@ export interface RemotePollerDeps {
   expandTemplate: ExpandTemplate;
   copier: FileCopier;
   now: () => Date;
+  /** Keep-mode names already chosen in this run, shared with the other sources. */
+  baseNames: Map<string, string>;
   nextSeq(): number;
   connect: RemoteConnectionFactory;
   callbacks: RemotePollerCallbacks;
@@ -137,6 +139,7 @@ async function ingestRemoteEntry(
         copier: deps.copier,
         signal: deps.signal,
         now: deps.now(),
+        baseNames: deps.baseNames,
       },
     );
 

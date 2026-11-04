@@ -132,6 +132,7 @@ describe('ingest metadata template and develop preset', { timeout: 120_000 }, ()
             harness,
             {
               destination: { path: harness.destination },
+              fileNaming: 'rename',
               renameTemplate: '{filenamebase}',
               metadataTemplatePath: template,
               metadataTemplateMode: mode,
@@ -177,6 +178,7 @@ describe('ingest metadata template and develop preset', { timeout: 120_000 }, ()
           harness,
           {
             destination: { path: harness.destination },
+            fileNaming: 'rename',
             renameTemplate: '{filenamebase}',
             metadataTemplatePath: template,
             metadataTemplateMode: 'replace',
@@ -226,6 +228,7 @@ describe('ingest metadata template and develop preset', { timeout: 120_000 }, ()
           harness,
           {
             destination: { path: harness.destination },
+            fileNaming: 'rename',
             renameTemplate: '{filenamebase}',
             metadataTemplatePath: template,
             metadataTemplateMode: 'replace',
@@ -264,6 +267,7 @@ describe('ingest metadata template and develop preset', { timeout: 120_000 }, ()
           harness,
           {
             destination: { path: harness.destination },
+            fileNaming: 'rename',
             renameTemplate: '{filenamebase}',
             developPresetId: preset.id,
           },
@@ -310,6 +314,7 @@ describe('ingest metadata template and develop preset', { timeout: 120_000 }, ()
           harness,
           {
             destination: { path: harness.destination },
+            fileNaming: 'rename',
             renameTemplate: '{filenamebase}',
             developPresetId: preset.id,
           },
@@ -350,6 +355,7 @@ describe('ingest metadata template and develop preset', { timeout: 120_000 }, ()
           harness,
           {
             destination: { path: harness.destination },
+            fileNaming: 'rename',
             renameTemplate: '{filenamebase}',
             developPresetId: asPresetId('deleted-preset'),
           },

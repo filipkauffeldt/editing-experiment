@@ -43,6 +43,7 @@ function config(one: FolderSource, destination: string): IngestConfig {
   return {
     sources: [one],
     destination: { path: destination },
+    fileNaming: 'rename',
     renameTemplate: '{filenamebase}',
   };
 }

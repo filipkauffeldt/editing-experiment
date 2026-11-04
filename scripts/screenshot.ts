@@ -364,6 +364,7 @@ async function runReal(outDir: string): Promise<void> {
     await invoke('settings:set', {
       ingest: {
         destination: { path: join(temp, 'ingest') },
+        fileNaming: 'rename',
         renameTemplate: '{sourceName}_{seq:3}',
       },
       exportRoot: join(temp, 'exports'),
@@ -394,6 +395,7 @@ async function runReal(outDir: string): Promise<void> {
       config: {
         sources: [{ id: 'shots-card', kind: 'folder', name: 'shots', path: source }],
         destination: { path: join(temp, 'ingest') },
+        fileNaming: 'rename',
         renameTemplate: '{sourceName}_{seq:3}',
       },
     });

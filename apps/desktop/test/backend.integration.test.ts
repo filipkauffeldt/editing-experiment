@@ -259,6 +259,7 @@ describe.skipIf(nefs.length === 0)(
           ftpSource(),
         ],
         destination: { path: ingestDest!, subfolderTemplate: '{sourceName}' },
+        fileNaming: 'rename',
         renameTemplate: '{sourceName}_{seq:3}',
         metadataTemplatePath: templatePath,
       };

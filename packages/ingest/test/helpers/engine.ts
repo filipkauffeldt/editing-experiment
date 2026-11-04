@@ -8,6 +8,7 @@ export function ingestConfig(
   return {
     sources: Array.isArray(source) ? source : [source],
     destination: { path: destination },
+    fileNaming: 'rename',
     renameTemplate: '{filenamebase}_{seq:2}',
   };
 }

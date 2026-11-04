@@ -100,6 +100,77 @@ describe('SettingsStore metadata templates', () => {
   });
 });
 
+describe('SettingsStore ingest file naming', () => {
+  it('defaults to rename for a fresh install', () => {
+    const store = new SettingsStore(undefined, defaults);
+    expect(store.get().ingest.fileNaming).toBe('rename');
+  });
+
+  it('migrates settings written before the choice to rename and keeps the template', async () => {
+    const file = join(await tempDir(), 'settings.json');
+    await writeFile(
+      file,
+      JSON.stringify({
+        version: 2,
+        ingest: {
+          destination: { path: '/ingest' },
+          renameTemplate: '{date}_{event}',
+        },
+        sources: [],
+        destinations: [],
+      }),
+    );
+
+    const store = new SettingsStore(file, defaults);
+    expect(store.get().ingest).toMatchObject({
+      fileNaming: 'rename',
+      renameTemplate: '{date}_{event}',
+    });
+
+    const saved = JSON.parse(await readFile(file, 'utf8')) as {
+      ingest: Record<string, unknown>;
+    };
+    expect(saved.ingest.fileNaming).toBe('rename');
+  });
+
+  it('round-trips keep-original and retains the template when switching back', async () => {
+    const file = join(await tempDir(), 'settings.json');
+    const store = new SettingsStore(file, defaults);
+    store.set({ ingest: { ...defaults.ingest, fileNaming: 'keep' } });
+
+    let reopened = new SettingsStore(file, defaults);
+    expect(reopened.get().ingest).toMatchObject({
+      fileNaming: 'keep',
+      renameTemplate: defaults.ingest.renameTemplate,
+    });
+
+    // Switching back still has the template the user wrote before.
+    reopened.set({
+      ingest: {
+        ...reopened.get().ingest,
+        fileNaming: 'rename',
+        renameTemplate: '{event}_{seq:3}',
+      },
+    });
+
+    reopened = new SettingsStore(file, defaults);
+    expect(reopened.get().ingest).toMatchObject({
+      fileNaming: 'rename',
+      renameTemplate: '{event}_{seq:3}',
+    });
+  });
+
+  it('requires a rename template only while renaming', () => {
+    const store = new SettingsStore(undefined, defaults);
+    expect(() =>
+      store.set({ ingest: { ...defaults.ingest, fileNaming: 'rename', renameTemplate: ' ' } }),
+    ).toThrowError(/rename template/);
+
+    store.set({ ingest: { ...defaults.ingest, fileNaming: 'keep', renameTemplate: '' } });
+    expect(store.get().ingest.fileNaming).toBe('keep');
+  });
+});
+
 describe('SettingsStore', () => {
   it('starts from defaults and survives a restart', async () => {
     const file = join(await tempDir(), 'settings.json');

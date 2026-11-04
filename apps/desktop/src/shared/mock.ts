@@ -134,6 +134,7 @@ export function mockSettings(): AppSettings {
     ingest: {
       destination: { path: '/mock/ingested', subfolderTemplate: '{date}/{sourceName}' },
       backupDestination: { path: '/mock/backup' },
+      fileNaming: 'rename',
       renameTemplate: '{date}_{event}_{seq:4}',
       metadataTemplatePath: MOCK_TEMPLATE_PATH,
       metadataTemplateMode: 'replace',
