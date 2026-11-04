@@ -190,20 +190,41 @@ export function overPicture(layout: ViewLayout, image: Size, point: Point): bool
 }
 
 /**
+ * One wheel event's delta on one axis in CSS pixels. DOM_DELTA_LINE (a notch is three lines) and
+ * DOM_DELTA_PAGE are what a mouse wheel outside the trackpad can send.
+ */
+export function wheelPixels(delta: number, deltaMode: number): number {
+  return deltaMode === 1 ? delta * 33 : deltaMode === 2 ? delta * 100 : delta;
+}
+
+/**
  * The zoom factor of one wheel event. A mouse notch (|deltaY| around 100) is one {@link ZOOM_STEP};
  * a trackpad pinch, which Chromium sends as a stream of small Ctrl+wheel deltas, zooms smoothly.
  */
 export function wheelZoomFactor(event: { deltaY: number; deltaMode: number }): number {
-  // DOM_DELTA_LINE (a notch is three lines) and DOM_DELTA_PAGE, in the pixels of a mouse notch.
-  const pixels =
-    event.deltaMode === 1
-      ? event.deltaY * 33
-      : event.deltaMode === 2
-        ? event.deltaY * 100
-        : event.deltaY;
+  const pixels = wheelPixels(event.deltaY, event.deltaMode);
   const notch = Math.abs(pixels) >= 50;
   const clamped = clamp(pixels, -120, 120);
   return Math.exp(-clamped * (notch ? Math.log(ZOOM_STEP) / 100 : 0.01));
+}
+
+/**
+ * The picture delta one plain wheel event pans by: the view moves down the photo when the wheel
+ * scrolls down, so the wheel delta is negated. Both axes count. Shift pans sideways; Chromium on
+ * Linux and Windows can send Shift+wheel as a vertical delta, so fall back to `deltaY` when the
+ * platform left `deltaX` empty.
+ */
+export function wheelPanDelta(event: {
+  deltaX: number;
+  deltaY: number;
+  deltaMode: number;
+  shiftKey: boolean;
+}): Point {
+  const pan = (value: number): number => (value === 0 ? 0 : -value);
+  const x = wheelPixels(event.deltaX, event.deltaMode);
+  const y = wheelPixels(event.deltaY, event.deltaMode);
+  if (!event.shiftKey) return { x: pan(x), y: pan(y) };
+  return { x: pan(x !== 0 ? x : y), y: 0 };
 }
 
 /** The stage-relative picture coordinate (0..1) of a screen point; used by the overlays. */
