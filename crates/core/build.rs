@@ -6,6 +6,15 @@ fn main() {
     build_libraw();
 }
 
+/// LibRaw's `*_ph.cpp` files are stubs for builds *without* post-processing, write or
+/// pre-processing support. This build has all of those, so the stubs would define every
+/// function a second time. GNU ld happens to pick the real objects out of the archive first;
+/// the MSVC linker rejects the duplicates (LNK2005).
+fn is_placeholder(path: &Path) -> bool {
+    path.file_stem()
+        .is_some_and(|stem| stem.to_string_lossy().ends_with("_ph"))
+}
+
 /// Recursively collects `.cpp` files, sorted so builds are reproducible.
 fn collect_sources(dir: &Path, out: &mut Vec<PathBuf>) {
     let mut entries: Vec<PathBuf> = fs::read_dir(dir)
@@ -16,7 +25,7 @@ fn collect_sources(dir: &Path, out: &mut Vec<PathBuf>) {
     for path in entries {
         if path.is_dir() {
             collect_sources(&path, out);
-        } else if path.extension().is_some_and(|ext| ext == "cpp") {
+        } else if path.extension().is_some_and(|ext| ext == "cpp") && !is_placeholder(&path) {
             out.push(path);
         }
     }
