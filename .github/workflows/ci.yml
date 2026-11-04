@@ -330,11 +330,13 @@ jobs:
       - name: Fetch fixtures
         if: ${{ !cancelled() }}
         run: node scripts/fetch-fixtures.ts
-      - name: Rust tests and clippy
+      # One command per step: PowerShell only fails a step on the exit code of its last command.
+      - name: cargo test
         if: ${{ !cancelled() }}
-        run: |
-          cargo test
-          cargo clippy --all-targets -- -D warnings
+        run: cargo test
+      - name: cargo clippy
+        if: ${{ !cancelled() }}
+        run: cargo clippy --all-targets -- -D warnings
       - name: Unit tests
         if: ${{ !cancelled() }}
         run: pnpm test:unit
