@@ -6,6 +6,7 @@ export function testPreset(overrides: Partial<ExportPreset> = {}): ExportPreset 
     id: asPresetId('test-preset'),
     name: 'Test',
     folderTemplate: 'Export/{preset}',
+    fileNaming: 'rename',
     fileNameTemplate: '{filenamebase}',
     ifExists: 'overwrite',
     format: 'jpeg',

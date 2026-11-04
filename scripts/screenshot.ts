@@ -373,6 +373,7 @@ async function runReal(outDir: string): Promise<void> {
           id: 'shots-preset',
           name: 'Sportfotografen',
           folderTemplate: '{folder}/Export/{preset}',
+          fileNaming: 'rename',
           fileNameTemplate: '{filenamebase}',
           ifExists: 'suffix',
           format: 'jpeg',

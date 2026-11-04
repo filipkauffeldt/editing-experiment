@@ -1,5 +1,5 @@
 import type { DestinationId, ExportJobId, PhotoId, PresetId, UploadId } from './ids';
-import type { FtpSecurity, RemoteEndpoint } from './sources';
+import type { FileNamingMode, FtpSecurity, RemoteEndpoint } from './sources';
 
 /**
  * Which metadata is embedded in the exported JPEG.
@@ -49,7 +49,15 @@ export interface ExportPreset {
    * `{variables}` come from `@ee/metadata`; `{preset}` expands to the preset name.
    */
   folderTemplate: string;
-  /** File name template (without a directory); `.jpg` is appended when missing. */
+  /**
+   * `rename` builds the file name from `fileNameTemplate`; `keep` uses the
+   * photo's current base name with the export format's extension.
+   */
+  fileNaming: FileNamingMode;
+  /**
+   * File name template (without a directory); `.jpg` is appended when missing.
+   * Retained while `fileNaming` is `keep`, so switching back restores it.
+   */
   fileNameTemplate: string;
   ifExists: ExportIfExists;
   format: ExportFormat;

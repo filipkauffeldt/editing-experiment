@@ -363,6 +363,13 @@ export function resolveExportFolder(
 }
 
 export function resolveExportFileName(preset: ExportPreset, context: CaptionContext): string {
+  if (preset.fileNaming === 'keep') {
+    // The photo's current base name with the export format's extension. A raw
+    // and its JPEG pair share that base, so `ifExists` decides which wins.
+    const kept = `${context.fileNameBase}.jpg`;
+    assertSafeFileName(kept);
+    return kept;
+  }
   const expanded = expandTemplate(preset.fileNameTemplate, preset, context).trim();
   if (expanded === '') throw new IpcError('invalid_argument', 'the file name template is empty');
   // A template without an extension gets the preset's JPEG extension; an explicit

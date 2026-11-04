@@ -1,3 +1,4 @@
+import type { ExportPreset } from '@ee/contracts';
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -68,5 +69,38 @@ describe('explicit file naming', () => {
     );
     await user.click(screen.getByRole('button', { name: 'Save' }));
     expect(await screen.findByText('Rename template is required')).toBeTruthy();
+  });
+
+  it('chooses keep or rename per export preset and keeps the template when toggling', async () => {
+    const { fake } = await renderApp();
+    fireEvent.click(screen.getByTestId('open-export'));
+    await screen.findByTestId('export-dialog');
+
+    const naming = screen.getByTestId('export-file-naming') as HTMLSelectElement;
+    const template = screen.getByTestId('filename-template') as HTMLInputElement;
+    expect(naming.value).toBe('rename');
+    expect(template.value).not.toBe('');
+
+    fireEvent.change(template, { target: { value: '{event}_{date}' } });
+    fireEvent.change(naming, { target: { value: 'keep' } });
+    await waitFor(() => expect(screen.queryByTestId('filename-template')).toBeNull());
+
+    fireEvent.click(screen.getByRole('button', { name: 'Save preset' }));
+    await waitFor(() => {
+      const call = fake.calls
+        .filter((candidate) => candidate.channel === 'exportPresets:save')
+        .at(-1);
+      expect((call?.args[0] as { preset: ExportPreset }).preset).toMatchObject({
+        fileNaming: 'keep',
+        fileNameTemplate: '{event}_{date}',
+      });
+    });
+
+    fireEvent.change(screen.getByTestId('export-file-naming'), { target: { value: 'rename' } });
+    await waitFor(() =>
+      expect((screen.getByTestId('filename-template') as HTMLInputElement).value).toBe(
+        '{event}_{date}',
+      ),
+    );
   });
 });

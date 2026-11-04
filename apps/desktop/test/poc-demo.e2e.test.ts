@@ -490,6 +490,7 @@ describe.skipIf(nefs.length === 0 || !haveDisplay)(
         id: asPresetId('poc-main'),
         name: 'Sportfotografen',
         folderTemplate: '{folder}/Export/{preset}',
+        fileNaming: 'rename',
         fileNameTemplate: '{filenamebase}',
         ifExists: 'suffix',
         format: 'jpeg',

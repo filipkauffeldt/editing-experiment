@@ -85,6 +85,7 @@ describe('ExportService', () => {
     id: asPresetId('test'),
     name: 'Test',
     folderTemplate: join(root, 'exports'),
+    fileNaming: 'rename',
     fileNameTemplate: '{filenamebase}',
     metadata: 'iptc',
     sendTo: [destination.id],
@@ -215,6 +216,27 @@ describe('ExportService', () => {
     const exported = await exporting;
     expect(exported.path.endsWith('locked.jpg')).toBe(true);
     expect(library.get(photo.id).status.export).toBe('done');
+  });
+
+  it('keeps the original base name and suffixes a repeat export', async () => {
+    const photo = await addPhoto('DSC_0001');
+    const kept = preset({
+      fileNaming: 'keep',
+      folderTemplate: join(root, 'kept'),
+      // Kept in the preset but ignored while keeping names.
+      fileNameTemplate: '{event}_{seq}',
+      ifExists: 'suffix',
+      metadata: 'none',
+      sendTo: [],
+    });
+
+    const first = await service.exportOne({ photoId: photo.id, preset: kept, rendered });
+    expect(basename(first.path)).toBe('DSC_0001.jpg');
+
+    const second = await service.exportOne({ photoId: photo.id, preset: kept, rendered });
+    expect(basename(second.path)).toBe('DSC_0001-1.jpg');
+    expect((await readFile(first.path)).length).toBeGreaterThan(0);
+    expect((await readFile(second.path)).length).toBeGreaterThan(0);
   });
 
   it('never writes over the ingested JPEG original, even with overwrite', async () => {

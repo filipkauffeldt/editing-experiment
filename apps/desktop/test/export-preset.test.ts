@@ -77,6 +77,18 @@ describe('export preset paths', () => {
     ).toThrowError(/file name/i);
   });
 
+  it('uses the photo base name with .jpg when keeping original names', () => {
+    expect(
+      resolveExportFileName(
+        preset({ fileNaming: 'keep', fileNameTemplate: '{event}_{seq}' }),
+        context(),
+      ),
+    ).toBe('A1.jpg');
+    expect(
+      resolveExportFileName(preset({ fileNaming: 'keep', fileNameTemplate: ' ' }), context()),
+    ).toBe('A1.jpg');
+  });
+
   it('carries the preset id when the name is only punctuation', () => {
     expect(
       resolveExportFolder(
