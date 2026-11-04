@@ -14,13 +14,10 @@ interface Backend {
   roundTripMs: number;
 }
 
-type Tab = AppModule | 'retouch';
-
-const TABS: { id: Tab; label: string; hint: string }[] = [
+const TABS: { id: AppModule; label: string; hint: string }[] = [
   { id: 'ingest', label: 'Ingest', hint: 'Ingest sources and progress' },
   { id: 'library', label: 'Library', hint: 'Library grid (G)' },
   { id: 'develop', label: 'Develop', hint: 'Develop (D)' },
-  { id: 'retouch', label: 'Retouch', hint: 'Retouch (R)' },
 ];
 
 /** Top bar: app mark, module switch and right-aligned status dots. */
@@ -58,12 +55,11 @@ export function TopBar({ className, loadError }: { className?: string; loadError
   const filesDone = running.reduce((sum, { run }) => sum + run.filesDone, 0);
   const filesTotal = running.reduce((sum, { run }) => sum + run.filesTotal, 0);
   const failed = summary.failed + runs.filter(({ run }) => run.state === 'failed').length;
-  const active: Tab = state.retouch ? 'retouch' : state.module;
+  const active: AppModule = state.retouch ? 'develop' : state.module;
 
-  const choose = (tab: Tab): void => {
-    if (tab === 'retouch') store.openRetouchModule();
+  const choose = (tab: AppModule): void => {
     // Retouch is Develop with a session open, so the Develop tab is also the way out of it.
-    else if (tab === 'develop' && state.retouch) void store.requestExitRetouch();
+    if (tab === 'develop' && state.retouch) void store.requestExitRetouch();
     else store.setModule(tab);
   };
 

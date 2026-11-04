@@ -82,7 +82,7 @@ Built in `components/ui/`:
 
 ## Layout
 
-- **Top bar** (36 px): app mark, module switch (**Ingest · Library · Develop · Retouch**) and
+- **Top bar** (36 px): app mark, module switch (**Ingest · Library · Develop**) and
   right-aligned status dots (ingesting, FTP watching, sending N, failed N), then shortcuts and
   settings.
 - **Bottom action bar** (40 px): contextual actions on the right, summary and keyboard hints on
@@ -95,7 +95,7 @@ Built in `components/ui/`:
 | Ingest  |     | sources with progress, ingest settings                                             |
 | Library | `G` | folders and collections, virtualised grid, inspector; `E` opens the loupe          |
 | Develop | `D` | metadata, photo, develop sliders, film strip                                       |
-| Retouch |     | the retouch session on the Develop layout (`R`, or the tab); leaving it saves first |
+| Retouch | `R` | the retouch session on the Develop layout (`R`, or the Retouch button); leaving it saves first |
 
 The Library's **Folders** are the local ingest copies only. They are derived from each photo's
 own path (always its copy in the ingest destination), never from the configured sources, so a

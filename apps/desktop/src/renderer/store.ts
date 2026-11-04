@@ -1291,12 +1291,6 @@ export class AppStore {
     }
   };
 
-  /** Retouch module: Develop with the retouch session open on the selected photo. */
-  readonly openRetouchModule = (): void => {
-    this.setModule('develop');
-    if (!this.state.retouch) this.toggleRetouch();
-  };
-
   // ------------------------------------------------------------------ library
 
   private setLibrary(patch: Partial<LibraryState>): void {

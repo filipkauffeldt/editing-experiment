@@ -230,7 +230,7 @@ async function runMock(outDir: string): Promise<void> {
     await shoot('20-library-loupe.png');
     await window.keyboard.press('g');
 
-    // Retouch module: the retouch session on the Develop layout.
+    // Retouch session: the retouch on the Develop layout.
     await window.keyboard.press('d');
     await window.locator('[data-testid="film-strip"]').waitFor();
     await window.keyboard.press('r');
