@@ -579,6 +579,206 @@ describe.skipIf(!haveDisplay)('zoom and pan (real Electron app)', { timeout: 240
     await waitForZoom('fit');
   });
 
+  it('fits the whole photo below the retouch toolbar and draws where the pointer is', async () => {
+    await window.mouse.move(2, 2);
+    if ((await view()).zoom !== 'fit') {
+      await window.keyboard.press('z');
+      await waitForZoom('fit');
+    }
+    const canvas = await window.locator('[data-testid="photo-canvas"]').boundingBox();
+    if (!canvas) throw new Error('photo canvas has no bounds');
+    const developStage = await stageBox();
+    const boxes = async (): Promise<{ toolbar: Box; stage: Box }> => {
+      const [toolbar, stage] = await Promise.all([
+        window.getByTestId('retouch-toolbar').boundingBox(),
+        stageBox(),
+      ]);
+      if (!toolbar) throw new Error('retouch toolbar has no bounds');
+      return { toolbar, stage };
+    };
+    const expectSameBox = (actual: Box, expected: Box): void => {
+      expect(actual.x).toBeCloseTo(expected.x, 0);
+      expect(actual.y).toBeCloseTo(expected.y, 0);
+      expect(actual.width).toBeCloseTo(expected.width, 0);
+      expect(actual.height).toBeCloseTo(expected.height, 0);
+    };
+    const expectInsideCanvas = (stage: Box): void => {
+      expect(stage.x).toBeGreaterThanOrEqual(canvas.x - 0.5);
+      expect(stage.y).toBeGreaterThanOrEqual(canvas.y - 0.5);
+      expect(stage.x + stage.width).toBeLessThanOrEqual(canvas.x + canvas.width + 0.5);
+      expect(stage.y + stage.height).toBeLessThanOrEqual(canvas.y + canvas.height + 0.5);
+    };
+    /** Fit centres the photo in the area the toolbar leaves, not in the whole canvas. */
+    const expectCentredBelowToolbar = (stage: Box, toolbar: Box): void => {
+      const top = toolbar.y + toolbar.height;
+      const bottom = canvas.y + canvas.height;
+      expect(stage.y).toBeGreaterThanOrEqual(top - 0.5);
+      expect(Math.abs(stage.y - top - (bottom - top - stage.height) / 2)).toBeLessThan(1.5);
+    };
+    const waitForFitBelowToolbar = async (): Promise<void> => {
+      await window.waitForFunction(() => {
+        const toolbar = document
+          .querySelector('[data-testid="retouch-toolbar"]')
+          ?.getBoundingClientRect();
+        const stage = document
+          .querySelector('[data-testid="photo-canvas"] [data-photo-id]')
+          ?.getBoundingClientRect();
+        return toolbar !== undefined && stage !== undefined && stage.top >= toolbar.bottom - 0.5;
+      });
+      await settle();
+    };
+    const waitForMosaic = async (): Promise<void> => {
+      await window.waitForFunction(
+        () =>
+          Number(
+            document
+              .querySelector('[data-testid="mosaic-canvas"]')
+              ?.getAttribute('data-mosaic-version'),
+          ) > 0,
+      );
+    };
+
+    await window.keyboard.press('r');
+    await window.getByTestId('retouch-toolbar').waitFor();
+    await waitForFitBelowToolbar();
+    const faces = await boxes();
+    expect(faces.stage.y).toBeGreaterThanOrEqual(faces.toolbar.y + faces.toolbar.height - 0.5);
+    expectInsideCanvas(faces.stage);
+    expectCentredBelowToolbar(faces.stage, faces.toolbar);
+    // The whole picture, not a crop of it, in the space below the toolbar.
+    expect(faces.stage.width / faces.stage.height).toBeCloseTo(IMAGE.width / IMAGE.height, 2);
+
+    // The mode and tool change the hint and the controls that apply, but not the toolbar's
+    // height or the photo's box.
+    await window.locator('[data-mode="subtract"]').click();
+    await settle();
+    const subtract = await boxes();
+    expectSameBox(subtract.stage, faces.stage);
+    expect(subtract.toolbar.height).toBeCloseTo(faces.toolbar.height, 0);
+
+    await window.locator('[data-tool="rect"]').click();
+    await settle();
+    const rect = await boxes();
+    expectSameBox(rect.stage, faces.stage);
+    expect(rect.toolbar.height).toBeCloseTo(faces.toolbar.height, 0);
+    expectInsideCanvas(rect.stage);
+    expectCentredBelowToolbar(rect.stage, rect.toolbar);
+    expect(rect.stage.width / rect.stage.height).toBeCloseTo(IMAGE.width / IMAGE.height, 2);
+
+    await window.locator('[data-mode="add"]').click();
+    await settle();
+    expectSameBox((await boxes()).stage, faces.stage);
+
+    // A rectangle drawn after the layout change lands where the pointer is, in picture pixels.
+    const from = {
+      x: rect.stage.x + rect.stage.width * 0.2,
+      y: rect.stage.y + rect.stage.height * 0.3,
+    };
+    const to = {
+      x: rect.stage.x + rect.stage.width * 0.7,
+      y: rect.stage.y + rect.stage.height * 0.8,
+    };
+    await window.mouse.move(from.x, from.y);
+    await window.mouse.down();
+    await window.mouse.move(to.x, to.y, { steps: 8 });
+    await window.mouse.up();
+    await window.waitForSelector('[data-testid="retouch-overlay"] [data-area-kind="rect"]');
+
+    const d = await window
+      .locator('[data-testid="retouch-overlay"] [data-area-kind="rect"]')
+      .first()
+      .getAttribute('d');
+    const match = /M ([\d.e-]+) ([\d.e-]+) h ([\d.e-]+) v ([\d.e-]+)/.exec(d ?? '');
+    if (!match) throw new Error(`unexpected path ${d}`);
+    const [x, y, w, h] = match.slice(1).map(Number) as [number, number, number, number];
+    const expected = {
+      x: (from.x - rect.stage.x) / rect.stage.width,
+      y: (from.y - rect.stage.y) / rect.stage.height,
+      w: (to.x - from.x) / rect.stage.width,
+      h: (to.y - from.y) / rect.stage.height,
+    };
+    const onePixel = 2 / IMAGE.width;
+    expect(Math.abs(x - expected.x)).toBeLessThan(onePixel);
+    expect(Math.abs(y - expected.y)).toBeLessThan(2 / IMAGE.height);
+    expect(Math.abs(w - expected.w)).toBeLessThan(onePixel * 2);
+    expect(Math.abs(h - expected.h)).toBeLessThan(4 / IMAGE.height);
+
+    // The first area adds the count and the discard action: both already have their room.
+    await waitForMosaic();
+    await settle();
+    expectSameBox((await boxes()).stage, faces.stage);
+
+    // Removing that first area gives the room back to the same controls.
+    await window.getByRole('button', { name: 'Undo' }).click();
+    await settle();
+    expectSameBox((await boxes()).stage, faces.stage);
+
+    // The same holds at 100%, where the stage is the whole measured canvas area.
+    await window.mouse.move(
+      rect.stage.x + rect.stage.width / 2,
+      rect.stage.y + rect.stage.height / 2,
+    );
+    await window.keyboard.press('z');
+    await waitForZoom('100');
+    await waitForFullResolution();
+    const zoomed = await boxes();
+    const zoomedView = await view();
+    const expectViewUnchanged = async (): Promise<void> => {
+      const current = await view();
+      expect(current.scale).toBeCloseTo(zoomedView.scale, 6);
+      expect(current.x).toBeCloseTo(zoomedView.x, 0);
+      expect(current.y).toBeCloseTo(zoomedView.y, 0);
+    };
+
+    await window.locator('[data-tool="faces"]').click();
+    await settle();
+    expectSameBox((await boxes()).stage, zoomed.stage);
+    expect((await boxes()).toolbar.height).toBeCloseTo(zoomed.toolbar.height, 0);
+    await expectViewUnchanged();
+    await window.locator('[data-tool="rect"]').click();
+    await settle();
+    expectSameBox((await boxes()).stage, zoomed.stage);
+    expect((await boxes()).toolbar.height).toBeCloseTo(zoomed.toolbar.height, 0);
+    await expectViewUnchanged();
+
+    const zoomedFrom = {
+      x: zoomed.stage.x + zoomed.stage.width * 0.35,
+      y: zoomed.stage.y + zoomed.stage.height * 0.35,
+    };
+    const zoomedTo = {
+      x: zoomed.stage.x + zoomed.stage.width * 0.65,
+      y: zoomed.stage.y + zoomed.stage.height * 0.65,
+    };
+    await window.mouse.move(zoomedFrom.x, zoomedFrom.y);
+    await window.mouse.down();
+    await window.mouse.move(zoomedTo.x, zoomedTo.y, { steps: 6 });
+    await window.mouse.up();
+    await window.waitForSelector('[data-testid="retouch-overlay"] [data-area-kind="rect"]');
+    await waitForMosaic();
+    await settle();
+    expectSameBox((await boxes()).stage, zoomed.stage);
+    expect((await boxes()).toolbar.height).toBeCloseTo(zoomed.toolbar.height, 0);
+    await expectViewUnchanged();
+
+    // Remove the test rectangle again, so the photo is left as the later tests expect it.
+    await window.getByRole('button', { name: 'Undo' }).click();
+
+    // Leaving Retouch returns the photo to the full develop canvas.
+    await window.keyboard.press('Escape');
+    await window.getByTestId('retouch-toolbar').waitFor({ state: 'detached' });
+    await window.waitForFunction((height) => {
+      const stage = document
+        .querySelector('[data-testid="photo-canvas"] [data-photo-id]')
+        ?.getBoundingClientRect();
+      return stage !== undefined && Math.abs(stage.height - height) <= 1;
+    }, developStage.height);
+    await settle();
+    const after = await stageBox();
+    expect(after.width).toBeCloseTo(developStage.width, 0);
+    expect(after.height).toBeCloseTo(developStage.height, 0);
+    expect(after.y).toBeCloseTo(developStage.y, 0);
+  });
+
   it('draws a retouch rectangle on the face while zoomed, and the stored shape is that region', async () => {
     await window.keyboard.press('r');
     await window.getByTestId('retouch-toolbar').waitFor();
@@ -596,7 +796,6 @@ describe.skipIf(!haveDisplay)('zoom and pan (real Electron app)', { timeout: 240
 
     // Scroll pans the zoomed view; a rectangle drawn afterwards must still land on the face.
     await window.mouse.wheel(0, 40);
-    await settle();
 
     // Where the face really is on screen: the white square in a screenshot.
     const { shot, origin } = await shoot();
@@ -650,16 +849,13 @@ describe.skipIf(!haveDisplay)('zoom and pan (real Electron app)', { timeout: 240
     await window.mouse.move(2, 2);
     await settle();
     const mosaicked = (await shoot()).shot;
-    // The toolbar over the top of the canvas changes too (the area count); only look beneath it.
-    const toolbar = await window.getByTestId('retouch-toolbar').boundingBox();
-    const below = Math.ceil((toolbar?.y ?? 0) + (toolbar?.height ?? 0) - origin.y) + 2;
     const stillWhite = boundsOf(mosaicked, isWhite);
     const changed = (() => {
       let minX = Infinity;
       let minY = Infinity;
       let maxX = -1;
       let maxY = -1;
-      for (let py = Math.max(0, below); py < shot.height; py++) {
+      for (let py = 0; py < shot.height; py++) {
         for (let px = 0; px < shot.width; px++) {
           const at = (py * shot.width + px) * 4;
           const diff =
