@@ -596,6 +596,32 @@ describe.skipIf(!haveDisplay)('zoom and pan (real Electron app)', { timeout: 240
 
     // Scroll pans the zoomed view; a rectangle drawn afterwards must still land on the face.
     await window.mouse.wheel(0, 40);
+
+    // The first area adds the area count to the toolbar, which wraps it to one more row and
+    // moves the photo. Draw a throwaway area first, so the toolbar keeps its height while the
+    // face is measured and the loop below compares two screenshots of the same layout.
+    const beforeAnchor = await stageBox();
+    const anchorFrom = {
+      x: beforeAnchor.x + 24,
+      y: beforeAnchor.y + beforeAnchor.height - 70,
+    };
+    const anchorTo = {
+      x: beforeAnchor.x + 100,
+      y: beforeAnchor.y + beforeAnchor.height - 16,
+    };
+    await window.mouse.move(anchorFrom.x, anchorFrom.y);
+    await window.mouse.down();
+    await window.mouse.move(anchorTo.x, anchorTo.y, { steps: 5 });
+    await window.mouse.up();
+    await window.waitForSelector('[data-testid="retouch-overlay"] [data-area-kind="rect"]');
+    await window.waitForFunction(
+      () =>
+        Number(
+          document
+            .querySelector('[data-testid="mosaic-canvas"]')
+            ?.getAttribute('data-mosaic-version'),
+        ) > 0,
+    );
     await settle();
 
     // Where the face really is on screen: the white square in a screenshot.
@@ -620,7 +646,7 @@ describe.skipIf(!haveDisplay)('zoom and pan (real Electron app)', { timeout: 240
 
     const d = await window
       .locator('[data-testid="retouch-overlay"] [data-area-kind="rect"]')
-      .first()
+      .last()
       .getAttribute('d');
     const match = /M ([\d.e-]+) ([\d.e-]+) h ([\d.e-]+) v ([\d.e-]+)/.exec(d ?? '');
     if (!match) throw new Error(`unexpected path ${d}`);

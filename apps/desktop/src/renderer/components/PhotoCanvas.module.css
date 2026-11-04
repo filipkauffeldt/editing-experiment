@@ -12,10 +12,21 @@
 .canvasWrap {
   position: relative;
   display: flex;
-  align-items: center;
-  justify-content: center;
+  flex-direction: column;
   width: 100%;
   height: 100%;
+  min-height: 0;
+  overflow: hidden;
+}
+
+/* The photo's own area below the retouch toolbar; the canvas is measured from this. */
+.canvasArea {
+  position: relative;
+  display: flex;
+  flex: 1;
+  align-items: center;
+  justify-content: center;
+  min-width: 0;
   min-height: 0;
   overflow: hidden;
 }
@@ -122,10 +133,7 @@
 }
 
 .toolbar {
-  position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
+  flex: none;
   display: flex;
   flex-wrap: wrap;
   align-items: center;
@@ -136,17 +144,6 @@
   color: var(--text);
   font-size: var(--fs-small);
   z-index: 3;
-  /* Let a drag that starts on the toolbar background reach the image; the
-     controls themselves stay clickable. On narrow windows the toolbar wraps
-     over more of the image and used to swallow the first drag. */
-  pointer-events: none;
-}
-
-.toolbar button,
-.toolbar input,
-.toolbar label,
-.toolbar select {
-  pointer-events: auto;
 }
 
 .tools,

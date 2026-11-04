@@ -1168,207 +1168,210 @@ function CanvasForPhoto({ photo }: { photo: Photo }) {
     : '0 0 1 1';
 
   return (
-    <div className={styles.canvasWrap} data-testid="photo-canvas" ref={containerRef}>
-      <div
-        className={styles.stage}
-        style={{
-          width: `${Math.round(stage.width)}px`,
-          height: `${Math.round(stage.height)}px`,
-        }}
-        data-photo-id={photo.id}
-        data-mode={cropSession ? 'crop' : session ? 'retouch' : 'develop'}
-        data-zoom={zoomed ? Math.round(zoomPercent(zoom.layout.scale, dpr)) : 'fit'}
-        data-view={`${stageLayout.scale},${stageLayout.offset.x},${stageLayout.offset.y}`}
-      >
-        {/*
-         * The cached image is of the edited photo (cropped, or a placeholder while a
-         * mosaic is still being drawn). While a crop or retouch is edited the stage is
-         * the whole uncropped image, so it would be stretched to the wrong shape;
-         * the GL canvas draws the uncropped image on its own.
-         */}
-        {previewSource !== 'none' && !editing && (
-          <img
-            className={styles.image}
-            src={
-              previewSource === 'thumb'
-                ? appUrl.thumb(photo.id, image.previewRevision)
-                : appUrl.preview(photo.id, image.previewRevision)
-            }
-            alt={photo.fileName}
-            draggable={false}
-            data-testid="preview-image"
-            data-visible={!firstFrame && !contextLost ? 'true' : 'false'}
-            style={{ opacity: firstFrame || contextLost ? 0 : 1 }}
-            onLoad={() => setPreviewLoaded(true)}
-            onError={() => {
-              setPreviewLoaded(false);
-              setPreviewSource((source) => (source === 'preview' ? 'thumb' : 'none'));
-            }}
-          />
-        )}
-        <canvas
-          ref={canvasRef}
-          className={styles.canvas}
-          data-visible={firstFrame && !contextLost ? 'true' : 'false'}
-          style={{ opacity: firstFrame && !contextLost ? 1 : 0 }}
-          data-testid="develop-canvas"
-          data-ready={loaded !== null && !contextLost ? 'true' : 'false'}
-          data-render-version={renderVersion}
-          data-image-width={loaded?.header.width}
-          aria-label={`Developed preview of ${photo.fileName}`}
-        />
-        <canvas
-          ref={mosaicRef}
-          className={styles.mosaic}
-          aria-hidden
-          data-testid="mosaic-canvas"
-          data-mosaic-version={mosaicVersion}
-        />
-        {!editing && loaded && viewMode.wbPicker && (
-          <div
-            className={styles.pickerLayer}
-            data-testid="wb-picker-layer"
-            onPointerMove={(event) => setPickerPoint(pickerFrom(event))}
-            onPointerLeave={() => setPickerPoint(null)}
-            onClick={pickWhiteBalance}
-          >
-            <span className={styles.pickerHint}>Click a neutral area · Esc cancels</span>
-          </div>
-        )}
-        {!editing && viewMode.wbPicker && pickerPoint && (
-          <div
-            className={styles.loupe}
-            data-testid="wb-loupe"
-            style={{
-              left: `${Math.min(stage.width - 116, Math.max(8, pictureBox.x + pickerPoint.x * pictureBox.w + 18))}px`,
-              top: `${Math.min(stage.height - 116, Math.max(8, pictureBox.y + pickerPoint.y * pictureBox.h + 18))}px`,
-              backgroundImage: `url("${appUrl.preview(photo.id, image.previewRevision)}")`,
-              backgroundSize: `${pictureBox.w * 4}px ${pictureBox.h * 4}px`,
-              backgroundPosition: `${-(pickerPoint.x * pictureBox.w * 4 - 54)}px ${-(pickerPoint.y * pictureBox.h * 4 - 54)}px`,
-            }}
-          />
-        )}
-        {!editing && viewMode.beforeAfter === 'split' && (
-          <>
-            <span className={`${styles.splitLabel} ${styles.splitLabelLeft}`}>Before</span>
-            <span
-              className={`${styles.splitLabel} ${styles.splitLabelRight}`}
-              style={{ left: `calc(${viewMode.split * 100}% + 8px)` }}
-            >
-              After
-            </span>
-            <div
-              className={styles.splitDivider}
-              style={{ left: `${viewMode.split * 100}%` }}
-              data-testid="split-divider"
-              role="separator"
-              aria-orientation="vertical"
-              aria-valuenow={Math.round(viewMode.split * 100)}
-              onPointerDown={(event) => {
-                event.preventDefault();
-                event.currentTarget.setPointerCapture(event.pointerId);
-                setSplitting(true);
-              }}
-              onPointerMove={(event) => {
-                if (!splitting) return;
-                const stage = event.currentTarget.parentElement;
-                if (!stage) return;
-                const rect = stage.getBoundingClientRect();
-                setSplit((event.clientX - rect.left) / Math.max(1, rect.width));
-              }}
-              onPointerUp={(event) => {
-                setSplitting(false);
-                if (event.currentTarget.hasPointerCapture(event.pointerId))
-                  event.currentTarget.releasePointerCapture(event.pointerId);
-              }}
-              onPointerCancel={() => setSplitting(false)}
-            />
-          </>
-        )}
-        {committedMosaic && !session && (
-          <div className={styles.versionBadge} data-testid="retouch-version-indicator">
-            <PenIcon size={10} /> Retouch version
-          </div>
-        )}
-        {cropSession && <CropOverlay session={cropSession} stage={stage} layout={stageLayout} />}
-        {cropSession && <CropToolbar session={cropSession} />}
-        {session && (
-          <svg
-            ref={overlayRef}
-            className={styles.overlay}
-            viewBox={overlayBox}
-            preserveAspectRatio="none"
-            onPointerDown={onPointerDown}
-            onPointerMove={onPointerMove}
-            onPointerUp={onPointerUp}
-            onPointerCancel={onPointerUp}
-            data-testid="retouch-overlay"
-          >
-            {session.areas.map((area, index) => {
-              const shape = areaShape(area, session.facePadding, lensContext);
-              const bounds = shapeBox(shape);
-              return (
-                <path
-                  key={`area-${index}`}
-                  d={shapePath(shape)}
-                  className={`${styles.area} ${area.enabled ? styles.areaOn : styles.areaOff} ${
-                    area.mode === 'subtract' ? styles.areaSubtract : ''
-                  } ${area.kind === 'face' ? styles.areaFace : ''}`}
-                  data-area-index={index}
-                  data-area-kind={area.kind}
-                  data-area-mode={area.mode}
-                  data-area-enabled={area.enabled ? 'true' : 'false'}
-                  {...(area.kind === 'face'
-                    ? {
-                        'data-face-index': index,
-                        'data-face-box': `${bounds.x},${bounds.y},${bounds.w},${bounds.h}`,
-                      }
-                    : {})}
-                >
-                  <title>
-                    {area.kind === 'face'
-                      ? `Face${area.face?.score === undefined ? '' : ` · ${(area.face.score * 100).toFixed(0)}%`}`
-                      : area.kind === 'lasso'
-                        ? 'Lasso'
-                        : 'Rectangle'}
-                    {area.mode === 'subtract' ? ' · subtract' : ''}
-                    {area.enabled ? ' · on' : ' · off'}
-                  </title>
-                </path>
-              );
-            })}
-            {rectsInPreview.map((shape, index) => (
-              <path
-                key={`draft-${index}`}
-                d={shapePath(shape)}
-                className={`${styles.shape} ${drawMode.current === 'subtract' ? styles.areaSubtract : ''}`}
-              />
-            ))}
-            {draftPoints.length > 1 && (
-              <polyline
-                className={`${styles.shape} ${drawMode.current === 'subtract' ? styles.areaSubtract : ''}`}
-                points={draftPoints.map((point) => `${point.x},${point.y}`).join(' ')}
-              />
-            )}
-          </svg>
-        )}
-        {zoom.panHeld && (
-          <div
-            className={`${styles.panLayer} ${zoom.dragging ? styles.panDragging : ''}`}
-            data-testid="pan-layer"
-            {...zoom.panHandlers}
-          />
-        )}
-        {contextLost && <div className={styles.notice}>Restoring the graphics context…</div>}
-        {!firstFrame && !previewLoaded && !error && (
-          <div className={styles.notice}>
-            {linearUnavailable ? 'Preview unavailable' : 'Loading…'}
-          </div>
-        )}
-        {error && <div className={`${styles.notice} ${styles.error}`}>{error}</div>}
-      </div>
-      {/* Outside the stage: the stage is only as wide as the photo, a portrait one would clip it. */}
+    <div className={styles.canvasWrap} data-testid="photo-canvas">
+      {/* In flow above the photo, so the canvas area below it fits the space the toolbar leaves
+          however many rows it wraps to. */}
       <Toolbar photo={photo} />
+      <div className={styles.canvasArea} ref={containerRef}>
+        <div
+          className={styles.stage}
+          style={{
+            width: `${Math.round(stage.width)}px`,
+            height: `${Math.round(stage.height)}px`,
+          }}
+          data-photo-id={photo.id}
+          data-mode={cropSession ? 'crop' : session ? 'retouch' : 'develop'}
+          data-zoom={zoomed ? Math.round(zoomPercent(zoom.layout.scale, dpr)) : 'fit'}
+          data-view={`${stageLayout.scale},${stageLayout.offset.x},${stageLayout.offset.y}`}
+        >
+          {/*
+           * The cached image is of the edited photo (cropped, or a placeholder while a
+           * mosaic is still being drawn). While a crop or retouch is edited the stage is
+           * the whole uncropped image, so it would be stretched to the wrong shape;
+           * the GL canvas draws the uncropped image on its own.
+           */}
+          {previewSource !== 'none' && !editing && (
+            <img
+              className={styles.image}
+              src={
+                previewSource === 'thumb'
+                  ? appUrl.thumb(photo.id, image.previewRevision)
+                  : appUrl.preview(photo.id, image.previewRevision)
+              }
+              alt={photo.fileName}
+              draggable={false}
+              data-testid="preview-image"
+              data-visible={!firstFrame && !contextLost ? 'true' : 'false'}
+              style={{ opacity: firstFrame || contextLost ? 0 : 1 }}
+              onLoad={() => setPreviewLoaded(true)}
+              onError={() => {
+                setPreviewLoaded(false);
+                setPreviewSource((source) => (source === 'preview' ? 'thumb' : 'none'));
+              }}
+            />
+          )}
+          <canvas
+            ref={canvasRef}
+            className={styles.canvas}
+            data-visible={firstFrame && !contextLost ? 'true' : 'false'}
+            style={{ opacity: firstFrame && !contextLost ? 1 : 0 }}
+            data-testid="develop-canvas"
+            data-ready={loaded !== null && !contextLost ? 'true' : 'false'}
+            data-render-version={renderVersion}
+            data-image-width={loaded?.header.width}
+            aria-label={`Developed preview of ${photo.fileName}`}
+          />
+          <canvas
+            ref={mosaicRef}
+            className={styles.mosaic}
+            aria-hidden
+            data-testid="mosaic-canvas"
+            data-mosaic-version={mosaicVersion}
+          />
+          {!editing && loaded && viewMode.wbPicker && (
+            <div
+              className={styles.pickerLayer}
+              data-testid="wb-picker-layer"
+              onPointerMove={(event) => setPickerPoint(pickerFrom(event))}
+              onPointerLeave={() => setPickerPoint(null)}
+              onClick={pickWhiteBalance}
+            >
+              <span className={styles.pickerHint}>Click a neutral area · Esc cancels</span>
+            </div>
+          )}
+          {!editing && viewMode.wbPicker && pickerPoint && (
+            <div
+              className={styles.loupe}
+              data-testid="wb-loupe"
+              style={{
+                left: `${Math.min(stage.width - 116, Math.max(8, pictureBox.x + pickerPoint.x * pictureBox.w + 18))}px`,
+                top: `${Math.min(stage.height - 116, Math.max(8, pictureBox.y + pickerPoint.y * pictureBox.h + 18))}px`,
+                backgroundImage: `url("${appUrl.preview(photo.id, image.previewRevision)}")`,
+                backgroundSize: `${pictureBox.w * 4}px ${pictureBox.h * 4}px`,
+                backgroundPosition: `${-(pickerPoint.x * pictureBox.w * 4 - 54)}px ${-(pickerPoint.y * pictureBox.h * 4 - 54)}px`,
+              }}
+            />
+          )}
+          {!editing && viewMode.beforeAfter === 'split' && (
+            <>
+              <span className={`${styles.splitLabel} ${styles.splitLabelLeft}`}>Before</span>
+              <span
+                className={`${styles.splitLabel} ${styles.splitLabelRight}`}
+                style={{ left: `calc(${viewMode.split * 100}% + 8px)` }}
+              >
+                After
+              </span>
+              <div
+                className={styles.splitDivider}
+                style={{ left: `${viewMode.split * 100}%` }}
+                data-testid="split-divider"
+                role="separator"
+                aria-orientation="vertical"
+                aria-valuenow={Math.round(viewMode.split * 100)}
+                onPointerDown={(event) => {
+                  event.preventDefault();
+                  event.currentTarget.setPointerCapture(event.pointerId);
+                  setSplitting(true);
+                }}
+                onPointerMove={(event) => {
+                  if (!splitting) return;
+                  const stage = event.currentTarget.parentElement;
+                  if (!stage) return;
+                  const rect = stage.getBoundingClientRect();
+                  setSplit((event.clientX - rect.left) / Math.max(1, rect.width));
+                }}
+                onPointerUp={(event) => {
+                  setSplitting(false);
+                  if (event.currentTarget.hasPointerCapture(event.pointerId))
+                    event.currentTarget.releasePointerCapture(event.pointerId);
+                }}
+                onPointerCancel={() => setSplitting(false)}
+              />
+            </>
+          )}
+          {committedMosaic && !session && (
+            <div className={styles.versionBadge} data-testid="retouch-version-indicator">
+              <PenIcon size={10} /> Retouch version
+            </div>
+          )}
+          {cropSession && <CropOverlay session={cropSession} stage={stage} layout={stageLayout} />}
+          {cropSession && <CropToolbar session={cropSession} />}
+          {session && (
+            <svg
+              ref={overlayRef}
+              className={styles.overlay}
+              viewBox={overlayBox}
+              preserveAspectRatio="none"
+              onPointerDown={onPointerDown}
+              onPointerMove={onPointerMove}
+              onPointerUp={onPointerUp}
+              onPointerCancel={onPointerUp}
+              data-testid="retouch-overlay"
+            >
+              {session.areas.map((area, index) => {
+                const shape = areaShape(area, session.facePadding, lensContext);
+                const bounds = shapeBox(shape);
+                return (
+                  <path
+                    key={`area-${index}`}
+                    d={shapePath(shape)}
+                    className={`${styles.area} ${area.enabled ? styles.areaOn : styles.areaOff} ${
+                      area.mode === 'subtract' ? styles.areaSubtract : ''
+                    } ${area.kind === 'face' ? styles.areaFace : ''}`}
+                    data-area-index={index}
+                    data-area-kind={area.kind}
+                    data-area-mode={area.mode}
+                    data-area-enabled={area.enabled ? 'true' : 'false'}
+                    {...(area.kind === 'face'
+                      ? {
+                          'data-face-index': index,
+                          'data-face-box': `${bounds.x},${bounds.y},${bounds.w},${bounds.h}`,
+                        }
+                      : {})}
+                  >
+                    <title>
+                      {area.kind === 'face'
+                        ? `Face${area.face?.score === undefined ? '' : ` · ${(area.face.score * 100).toFixed(0)}%`}`
+                        : area.kind === 'lasso'
+                          ? 'Lasso'
+                          : 'Rectangle'}
+                      {area.mode === 'subtract' ? ' · subtract' : ''}
+                      {area.enabled ? ' · on' : ' · off'}
+                    </title>
+                  </path>
+                );
+              })}
+              {rectsInPreview.map((shape, index) => (
+                <path
+                  key={`draft-${index}`}
+                  d={shapePath(shape)}
+                  className={`${styles.shape} ${drawMode.current === 'subtract' ? styles.areaSubtract : ''}`}
+                />
+              ))}
+              {draftPoints.length > 1 && (
+                <polyline
+                  className={`${styles.shape} ${drawMode.current === 'subtract' ? styles.areaSubtract : ''}`}
+                  points={draftPoints.map((point) => `${point.x},${point.y}`).join(' ')}
+                />
+              )}
+            </svg>
+          )}
+          {zoom.panHeld && (
+            <div
+              className={`${styles.panLayer} ${zoom.dragging ? styles.panDragging : ''}`}
+              data-testid="pan-layer"
+              {...zoom.panHandlers}
+            />
+          )}
+          {contextLost && <div className={styles.notice}>Restoring the graphics context…</div>}
+          {!firstFrame && !previewLoaded && !error && (
+            <div className={styles.notice}>
+              {linearUnavailable ? 'Preview unavailable' : 'Loading…'}
+            </div>
+          )}
+          {error && <div className={`${styles.notice} ${styles.error}`}>{error}</div>}
+        </div>
+      </div>
     </div>
   );
 }
