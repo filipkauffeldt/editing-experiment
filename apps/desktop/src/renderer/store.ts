@@ -407,7 +407,7 @@ export interface AppState {
   batchCaptionOpen: boolean;
   /** Ctrl/Cmd+K opened it: put the caret in the Keywords row when it mounts. */
   batchCaptionFocusKeywords?: boolean;
-  /** The open "Delete photos" confirmation; absent when closed. */
+  /** The open "Delete photos" / "Remove from Library" confirmation; absent when closed. */
   deleteRequest?: DeleteRequest;
   /** The photo context menu (right-click), at a window position; absent when closed. */
   photoMenu?: { x: number; y: number };
@@ -415,10 +415,15 @@ export interface AppState {
   error?: string;
 }
 
-/** What the Delete confirmation is about: the photos, and whether the backend is working on it. */
+/**
+ * What the Delete confirmation is about: the photos, whether the backend is working on it, and
+ * what happens to them. `trash` moves the files to the system trash (Delete…); `library` only
+ * drops the entries and leaves every file alone (Remove from Library…).
+ */
 export interface DeleteRequest {
   photoIds: PhotoId[];
   busy: boolean;
+  mode: 'trash' | 'library';
 }
 
 /** Key for one version's develop parameters. */
@@ -3810,14 +3815,17 @@ export class AppStore {
   };
 
   /** Ask before deleting the selection (Library) or the open photo (Develop). */
-  readonly requestDelete = (): void => {
+  readonly requestDelete = (mode: DeleteRequest['mode'] = 'trash'): void => {
     const allowed = this.canDelete();
     const photoIds = allowed ? this.deleteTargets() : [];
     this.set({
       photoMenu: undefined,
-      ...(photoIds.length > 0 ? { deleteRequest: { photoIds, busy: false } } : {}),
+      ...(photoIds.length > 0 ? { deleteRequest: { photoIds, busy: false, mode } } : {}),
     });
   };
+
+  /** Ask before dropping the same photos from the Library, leaving their files alone. */
+  readonly requestRemoveFromLibrary = (): void => this.requestDelete('library');
 
   readonly cancelDelete = (): void => {
     const request = this.state.deleteRequest;
@@ -3826,21 +3834,28 @@ export class AppStore {
   };
 
   /**
-   * Move the photos to the system trash. The backend reports each photo: the ones that were
-   * deleted leave the Library, the ones that were not stay and are named in an error.
+   * Move the photos to the system trash (or, for "Remove from Library", only drop their
+   * entries). The backend reports each photo: the ones that were deleted leave the Library, the
+   * ones that were not stay and are named in an error.
    */
   readonly confirmDelete = async (): Promise<void> => {
     const request = this.state.deleteRequest;
     if (!request || request.busy) return;
+    const library = request.mode === 'library';
     this.set({ deleteRequest: { ...request, busy: true } });
     for (const id of request.photoIds) this.removing.add(id);
     let result: DeletePhotosResult;
     try {
-      result = await this.bridge.invoke('photos:delete', { photoIds: request.photoIds });
+      result = await this.bridge.invoke(library ? 'photos:removeFromLibrary' : 'photos:delete', {
+        photoIds: request.photoIds,
+      });
     } catch (cause) {
       for (const id of request.photoIds) this.removing.delete(id);
       this.set({ deleteRequest: undefined });
-      this.toast('error', `Could not delete the photos: ${messageOf(cause)}`);
+      this.toast(
+        'error',
+        `Could not ${library ? 'remove the photos from the Library' : 'delete the photos'}: ${messageOf(cause)}`,
+      );
       return;
     }
     const deleted = new Set(result.deleted);
@@ -3855,8 +3870,8 @@ export class AppStore {
       this.toast(
         'error',
         result.failed.length === request.photoIds.length
-          ? `Nothing was deleted. ${messages}`
-          : `${result.failed.length} of ${request.photoIds.length} photos were not deleted. ${messages}`,
+          ? `Nothing was ${library ? 'removed' : 'deleted'}. ${messages}`
+          : `${result.failed.length} of ${request.photoIds.length} photos were not ${library ? 'removed' : 'deleted'}. ${messages}`,
       );
     }
   };
