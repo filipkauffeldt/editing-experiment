@@ -337,6 +337,15 @@ jobs:
       - name: cargo clippy
         if: ${{ !cancelled() }}
         run: cargo clippy --all-targets -- -D warnings
+      - uses: actions/cache@v6
+        with:
+          path: |
+            fixtures/models
+            fixtures/retouch
+          key: fixtures-retouch-${{ hashFiles('scripts/fetch-retouch.ts') }}
+      - name: Fetch face detection fixtures
+        if: ${{ !cancelled() }}
+        run: pnpm fetch-retouch
       - name: Unit tests
         if: ${{ !cancelled() }}
         run: pnpm test:unit
