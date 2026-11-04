@@ -1,3 +1,4 @@
+import { DEFAULT_FOLDER_TEMPLATE } from './export-folder';
 import {
   asDestinationId,
   asPhotoId,
@@ -97,7 +98,7 @@ export function mockExportPresets(): ExportPreset[] {
     {
       id: asPresetId('mock-export-preset'),
       name: 'Sportfotografen',
-      folderTemplate: '{folder}/Export/{preset}',
+      folderTemplate: DEFAULT_FOLDER_TEMPLATE,
       fileNaming: 'rename',
       fileNameTemplate: '{filenamebase}',
       ifExists: 'suffix',
