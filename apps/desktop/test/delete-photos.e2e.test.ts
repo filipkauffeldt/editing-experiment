@@ -174,10 +174,11 @@ describe.skipIf(nefs.length < 3 || !haveDisplay)('deleting photos (real Electron
     await until('the photo to leave the grid', async () => (await cells().count()) === 2);
 
     expect(list(dir('ingest'))).toEqual(['game_1.NEF', 'game_3.NEF']);
-    expect(list(dir('trash')).map((name) => name.replace(/^\d+-\d+-/, ''))).toEqual([
-      'game_2.NEF',
-      'game_2.xmp',
-    ]);
+    expect(
+      list(dir('trash'))
+        .map((name) => name.replace(/^\d+-\d+-/, ''))
+        .sort(),
+    ).toEqual(['game_2.NEF', 'game_2.xmp']);
 
     // The Delete key: Esc cancels, Enter confirms.
     await cellFor('game_1.NEF').click();

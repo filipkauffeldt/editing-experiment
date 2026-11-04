@@ -61,8 +61,8 @@ export function DeletePhotosDialog() {
     >
       <p className={styles.text} data-testid="delete-photos-message">
         {subject} will be moved to the system trash, with {count === 1 ? 'its' : 'their'} XMP
-        sidecar{count === 1 ? '' : 's'} and edits. {count === 1 ? 'It' : 'They'} leave the Library
-        and can be restored from the trash.
+        sidecar{count === 1 ? '' : 's'} and edits. {count === 1 ? 'It leaves' : 'They leave'} the
+        Library and can be restored from the trash.
       </p>
       <p className={styles.note}>
         Backup copies and exported files are not touched. Photos on a card or in a source folder are
