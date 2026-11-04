@@ -262,14 +262,49 @@
   appearance: none;
 }
 
-.faceHint,
-.toolHint {
+/* Hidden but present: keeps a control's room reserved while it does not apply. */
+.hiddenControl {
+  visibility: hidden;
+}
+
+.faceHint {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 4px;
   color: var(--muted);
   white-space: nowrap;
 }
 
+/* The slots stay wide enough for their counts, so showing the first count adds no row. */
+.faceHint[data-empty='true'] {
+  visibility: hidden;
+}
+
+.faceHintCount {
+  display: inline-block;
+  min-width: 14ch;
+  min-height: 1lh;
+}
+
+/* Room for the longest tool hint: a shorter hint must not change the row count. */
 .toolHint {
+  display: grid;
+  flex: 1 1 auto;
+  min-width: 0;
   margin-left: auto;
+  color: var(--muted);
+}
+
+.toolHintText {
+  grid-area: 1 / 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.toolHintMeasure {
+  visibility: hidden;
 }
 
 .versionBadge {

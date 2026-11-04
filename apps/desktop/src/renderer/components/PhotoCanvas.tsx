@@ -152,6 +152,19 @@ const FACE_AREA_LABELS: Record<FaceSearchArea, string> = {
   lasso: 'Lasso',
 };
 
+const HINT_END = 'Click an area to switch it on or off. Esc saves and leaves.';
+const HINT_PREFIXES = {
+  facesSubtract: 'Draw an area: the faces inside it are removed.',
+  facesLasso: 'Draw a loose outline around the faces.',
+  facesRect: 'Drag a rough area around the faces.',
+  lasso: 'Draw a freehand outline.',
+  rect: 'Drag a rectangle around what to pixelate.',
+} as const;
+/** The widest hint: the toolbar keeps its width for every tool, so its rows never change. */
+const LONGEST_HINT = `${Object.values(HINT_PREFIXES).reduce((longest, prefix) =>
+  prefix.length > longest.length ? prefix : longest,
+)} ${HINT_END}`;
+
 function Toolbar({ photo }: { photo: Photo }) {
   const store = useAppStore();
   const state = useAppState();
@@ -159,6 +172,18 @@ function Toolbar({ photo }: { photo: Photo }) {
   if (!session) return null;
   const counts = countAreas(session.areas);
   const unsaved = hasPendingRetouch(session);
+  const showsFaceArea = session.tool === 'faces';
+  const showsFacePadding = showsFaceArea || counts.faces.total > 0;
+  const hasCounts = counts.faces.total > 0 || counts.drawn.total > 0;
+  const hintPrefix = showsFaceArea
+    ? session.mode === 'subtract'
+      ? HINT_PREFIXES.facesSubtract
+      : session.faceArea === 'lasso'
+        ? HINT_PREFIXES.facesLasso
+        : HINT_PREFIXES.facesRect
+    : session.tool === 'lasso'
+      ? HINT_PREFIXES.lasso
+      : HINT_PREFIXES.rect;
   return (
     <div className={styles.toolbar} data-testid="retouch-toolbar">
       <div className={styles.tools}>
@@ -194,17 +219,17 @@ function Toolbar({ photo }: { photo: Photo }) {
         >
           Delete version
         </button>
-        {unsaved && (
-          <button
-            type="button"
-            className={styles.secondary}
-            onClick={() => store.exitRetouch()}
-            title="Leave retouch mode and throw away the changes you have not saved"
-            data-testid="discard-retouch"
-          >
-            Discard changes
-          </button>
-        )}
+        <button
+          type="button"
+          className={`${styles.secondary} ${unsaved ? '' : styles.hiddenControl}`}
+          onClick={() => store.exitRetouch()}
+          disabled={!unsaved}
+          aria-hidden={unsaved ? undefined : true}
+          title="Leave retouch mode and throw away the changes you have not saved"
+          data-testid={unsaved ? 'discard-retouch' : undefined}
+        >
+          Discard changes
+        </button>
         <button
           type="button"
           className={styles.commit}
@@ -247,65 +272,69 @@ function Toolbar({ photo }: { photo: Photo }) {
           </button>
         ))}
       </div>
-      {session.tool === 'faces' && (
-        <div className={styles.tools} role="group" aria-label="Search area">
-          {(Object.keys(FACE_AREA_LABELS) as FaceSearchArea[]).map((area) => (
-            <button
-              key={area}
-              type="button"
-              className={`${styles.tool} ${session.faceArea === area ? styles.toolActive : ''}`}
-              onClick={() => store.setRetouchFaceArea(area)}
-              aria-pressed={session.faceArea === area}
-              data-face-area={area}
-            >
-              {FACE_AREA_LABELS[area]}
-            </button>
-          ))}
-        </div>
-      )}
+      <div
+        className={`${styles.tools} ${showsFaceArea ? '' : styles.hiddenControl}`}
+        role="group"
+        aria-label="Search area"
+        aria-hidden={showsFaceArea ? undefined : true}
+      >
+        {(Object.keys(FACE_AREA_LABELS) as FaceSearchArea[]).map((area) => (
+          <button
+            key={area}
+            type="button"
+            className={`${styles.tool} ${session.faceArea === area ? styles.toolActive : ''}`}
+            onClick={() => store.setRetouchFaceArea(area)}
+            aria-pressed={session.faceArea === area}
+            data-face-area={area}
+          >
+            {FACE_AREA_LABELS[area]}
+          </button>
+        ))}
+      </div>
       <BlockSizeControl photo={photo} />
-      {(session.tool === 'faces' || counts.faces.total > 0) && (
-        <label className={styles.control}>
-          <span>Face padding {Math.round(session.facePadding * 100)}%</span>
-          <input
-            type="range"
-            min={0}
-            max={0.5}
-            step={0.01}
-            value={session.facePadding}
-            aria-label="Face padding"
-            onChange={(event) => store.setRetouchFacePadding(Number(event.target.value))}
-          />
-        </label>
-      )}
-      {(counts.faces.total > 0 || counts.drawn.total > 0) && (
-        <div className={styles.faceHint} data-testid="area-counts">
-          <EyeIcon size={10} />
-          {counts.faces.total > 0 && (
-            <span data-testid="face-count">
-              {' '}
-              {counts.faces.on}/{counts.faces.total} faces on
-            </span>
-          )}
-          {counts.drawn.total > 0 && (
-            <span data-testid="drawn-count">
-              {' '}
-              {counts.drawn.on}/{counts.drawn.total} areas on
-            </span>
-          )}
-        </div>
-      )}
+      <label
+        className={`${styles.control} ${showsFacePadding ? '' : styles.hiddenControl}`}
+        aria-hidden={showsFacePadding ? undefined : true}
+      >
+        <span>Face padding {Math.round(session.facePadding * 100)}%</span>
+        <input
+          type="range"
+          min={0}
+          max={0.5}
+          step={0.01}
+          value={session.facePadding}
+          aria-label="Face padding"
+          disabled={!showsFacePadding}
+          onChange={(event) => store.setRetouchFacePadding(Number(event.target.value))}
+        />
+      </label>
+      <div
+        className={styles.faceHint}
+        data-testid="area-counts"
+        data-empty={hasCounts ? undefined : 'true'}
+        aria-hidden={hasCounts ? undefined : true}
+      >
+        <EyeIcon size={10} />
+        <span
+          className={styles.faceHintCount}
+          data-testid={counts.faces.total > 0 ? 'face-count' : undefined}
+        >
+          {counts.faces.total > 0 ? `${counts.faces.on}/${counts.faces.total} faces on` : ''}
+        </span>
+        <span
+          className={styles.faceHintCount}
+          data-testid={counts.drawn.total > 0 ? 'drawn-count' : undefined}
+        >
+          {counts.drawn.total > 0 ? `${counts.drawn.on}/${counts.drawn.total} areas on` : ''}
+        </span>
+      </div>
       <div className={styles.toolHint}>
-        {session.tool === 'faces' && session.mode === 'subtract'
-          ? 'Draw an area: the faces inside it are removed.'
-          : session.tool === 'faces'
-            ? session.faceArea === 'lasso'
-              ? 'Draw a loose outline around the faces.'
-              : 'Drag a rough area around the faces.'
-            : session.tool === 'lasso'
-              ? 'Draw a freehand outline.'
-              : 'Drag a rectangle around what to pixelate.'}{' '}
-        Click an area to switch it on or off. Esc saves and leaves.
+        <span className={styles.toolHintText}>
+          {hintPrefix} {HINT_END}
+        </span>
+        <span className={`${styles.toolHintText} ${styles.toolHintMeasure}`} aria-hidden>
+          {LONGEST_HINT}
+        </span>
       </div>
     </div>
   );

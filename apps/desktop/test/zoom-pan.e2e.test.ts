@@ -596,6 +596,12 @@ describe.skipIf(!haveDisplay)('zoom and pan (real Electron app)', { timeout: 240
       if (!toolbar) throw new Error('retouch toolbar has no bounds');
       return { toolbar, stage };
     };
+    const expectSameBox = (actual: Box, expected: Box): void => {
+      expect(actual.x).toBeCloseTo(expected.x, 0);
+      expect(actual.y).toBeCloseTo(expected.y, 0);
+      expect(actual.width).toBeCloseTo(expected.width, 0);
+      expect(actual.height).toBeCloseTo(expected.height, 0);
+    };
     const expectInsideCanvas = (stage: Box): void => {
       expect(stage.x).toBeGreaterThanOrEqual(canvas.x - 0.5);
       expect(stage.y).toBeGreaterThanOrEqual(canvas.y - 0.5);
@@ -609,7 +615,6 @@ describe.skipIf(!haveDisplay)('zoom and pan (real Electron app)', { timeout: 240
       expect(stage.y).toBeGreaterThanOrEqual(top - 0.5);
       expect(Math.abs(stage.y - top - (bottom - top - stage.height) / 2)).toBeLessThan(1.5);
     };
-    /** The toolbar can wrap to another number of rows: the photo must refit below it. */
     const waitForFitBelowToolbar = async (): Promise<void> => {
       await window.waitForFunction(() => {
         const toolbar = document
@@ -622,6 +627,16 @@ describe.skipIf(!haveDisplay)('zoom and pan (real Electron app)', { timeout: 240
       });
       await settle();
     };
+    const waitForMosaic = async (): Promise<void> => {
+      await window.waitForFunction(
+        () =>
+          Number(
+            document
+              .querySelector('[data-testid="mosaic-canvas"]')
+              ?.getAttribute('data-mosaic-version'),
+          ) > 0,
+      );
+    };
 
     await window.keyboard.press('r');
     await window.getByTestId('retouch-toolbar').waitFor();
@@ -633,17 +648,26 @@ describe.skipIf(!haveDisplay)('zoom and pan (real Electron app)', { timeout: 240
     // The whole picture, not a crop of it, in the space below the toolbar.
     expect(faces.stage.width / faces.stage.height).toBeCloseTo(IMAGE.width / IMAGE.height, 2);
 
-    // Rectangle drops the Detect faces controls, so the toolbar wraps to fewer rows and the
-    // photo moves up with the area it leaves.
+    // The mode and tool change the hint and the controls that apply, but not the toolbar's
+    // height or the photo's box.
+    await window.locator('[data-mode="subtract"]').click();
+    await settle();
+    const subtract = await boxes();
+    expectSameBox(subtract.stage, faces.stage);
+    expect(subtract.toolbar.height).toBeCloseTo(faces.toolbar.height, 0);
+
     await window.locator('[data-tool="rect"]').click();
-    await waitForFitBelowToolbar();
+    await settle();
     const rect = await boxes();
-    expect(rect.toolbar.height).toBeLessThan(faces.toolbar.height);
-    expect(rect.stage.y).toBeLessThan(faces.stage.y);
-    expect(rect.stage.y).toBeGreaterThanOrEqual(rect.toolbar.y + rect.toolbar.height - 0.5);
+    expectSameBox(rect.stage, faces.stage);
+    expect(rect.toolbar.height).toBeCloseTo(faces.toolbar.height, 0);
     expectInsideCanvas(rect.stage);
     expectCentredBelowToolbar(rect.stage, rect.toolbar);
     expect(rect.stage.width / rect.stage.height).toBeCloseTo(IMAGE.width / IMAGE.height, 2);
+
+    await window.locator('[data-mode="add"]').click();
+    await settle();
+    expectSameBox((await boxes()).stage, faces.stage);
 
     // A rectangle drawn after the layout change lands where the pointer is, in picture pixels.
     const from = {
@@ -678,6 +702,63 @@ describe.skipIf(!haveDisplay)('zoom and pan (real Electron app)', { timeout: 240
     expect(Math.abs(y - expected.y)).toBeLessThan(2 / IMAGE.height);
     expect(Math.abs(w - expected.w)).toBeLessThan(onePixel * 2);
     expect(Math.abs(h - expected.h)).toBeLessThan(4 / IMAGE.height);
+
+    // The first area adds the count and the discard action: both already have their room.
+    await waitForMosaic();
+    await settle();
+    expectSameBox((await boxes()).stage, faces.stage);
+
+    // Removing that first area gives the room back to the same controls.
+    await window.getByRole('button', { name: 'Undo' }).click();
+    await settle();
+    expectSameBox((await boxes()).stage, faces.stage);
+
+    // The same holds at 100%, where the stage is the whole measured canvas area.
+    await window.mouse.move(
+      rect.stage.x + rect.stage.width / 2,
+      rect.stage.y + rect.stage.height / 2,
+    );
+    await window.keyboard.press('z');
+    await waitForZoom('100');
+    await waitForFullResolution();
+    const zoomed = await boxes();
+    const zoomedView = await view();
+    const expectViewUnchanged = async (): Promise<void> => {
+      const current = await view();
+      expect(current.scale).toBeCloseTo(zoomedView.scale, 6);
+      expect(current.x).toBeCloseTo(zoomedView.x, 0);
+      expect(current.y).toBeCloseTo(zoomedView.y, 0);
+    };
+
+    await window.locator('[data-tool="faces"]').click();
+    await settle();
+    expectSameBox((await boxes()).stage, zoomed.stage);
+    expect((await boxes()).toolbar.height).toBeCloseTo(zoomed.toolbar.height, 0);
+    await expectViewUnchanged();
+    await window.locator('[data-tool="rect"]').click();
+    await settle();
+    expectSameBox((await boxes()).stage, zoomed.stage);
+    expect((await boxes()).toolbar.height).toBeCloseTo(zoomed.toolbar.height, 0);
+    await expectViewUnchanged();
+
+    const zoomedFrom = {
+      x: zoomed.stage.x + zoomed.stage.width * 0.35,
+      y: zoomed.stage.y + zoomed.stage.height * 0.35,
+    };
+    const zoomedTo = {
+      x: zoomed.stage.x + zoomed.stage.width * 0.65,
+      y: zoomed.stage.y + zoomed.stage.height * 0.65,
+    };
+    await window.mouse.move(zoomedFrom.x, zoomedFrom.y);
+    await window.mouse.down();
+    await window.mouse.move(zoomedTo.x, zoomedTo.y, { steps: 6 });
+    await window.mouse.up();
+    await window.waitForSelector('[data-testid="retouch-overlay"] [data-area-kind="rect"]');
+    await waitForMosaic();
+    await settle();
+    expectSameBox((await boxes()).stage, zoomed.stage);
+    expect((await boxes()).toolbar.height).toBeCloseTo(zoomed.toolbar.height, 0);
+    await expectViewUnchanged();
 
     // Remove the test rectangle again, so the photo is left as the later tests expect it.
     await window.getByRole('button', { name: 'Undo' }).click();
@@ -716,33 +797,6 @@ describe.skipIf(!haveDisplay)('zoom and pan (real Electron app)', { timeout: 240
     // Scroll pans the zoomed view; a rectangle drawn afterwards must still land on the face.
     await window.mouse.wheel(0, 40);
 
-    // The first area adds the area count to the toolbar, which wraps it to one more row and
-    // moves the photo. Draw a throwaway area first, so the toolbar keeps its height while the
-    // face is measured and the loop below compares two screenshots of the same layout.
-    const beforeAnchor = await stageBox();
-    const anchorFrom = {
-      x: beforeAnchor.x + 24,
-      y: beforeAnchor.y + beforeAnchor.height - 70,
-    };
-    const anchorTo = {
-      x: beforeAnchor.x + 100,
-      y: beforeAnchor.y + beforeAnchor.height - 16,
-    };
-    await window.mouse.move(anchorFrom.x, anchorFrom.y);
-    await window.mouse.down();
-    await window.mouse.move(anchorTo.x, anchorTo.y, { steps: 5 });
-    await window.mouse.up();
-    await window.waitForSelector('[data-testid="retouch-overlay"] [data-area-kind="rect"]');
-    await window.waitForFunction(
-      () =>
-        Number(
-          document
-            .querySelector('[data-testid="mosaic-canvas"]')
-            ?.getAttribute('data-mosaic-version'),
-        ) > 0,
-    );
-    await settle();
-
     // Where the face really is on screen: the white square in a screenshot.
     const { shot, origin } = await shoot();
     const white = boundsOf(shot, isWhite);
@@ -765,7 +819,7 @@ describe.skipIf(!haveDisplay)('zoom and pan (real Electron app)', { timeout: 240
 
     const d = await window
       .locator('[data-testid="retouch-overlay"] [data-area-kind="rect"]')
-      .last()
+      .first()
       .getAttribute('d');
     const match = /M ([\d.e-]+) ([\d.e-]+) h ([\d.e-]+) v ([\d.e-]+)/.exec(d ?? '');
     if (!match) throw new Error(`unexpected path ${d}`);
@@ -795,16 +849,13 @@ describe.skipIf(!haveDisplay)('zoom and pan (real Electron app)', { timeout: 240
     await window.mouse.move(2, 2);
     await settle();
     const mosaicked = (await shoot()).shot;
-    // The toolbar over the top of the canvas changes too (the area count); only look beneath it.
-    const toolbar = await window.getByTestId('retouch-toolbar').boundingBox();
-    const below = Math.ceil((toolbar?.y ?? 0) + (toolbar?.height ?? 0) - origin.y) + 2;
     const stillWhite = boundsOf(mosaicked, isWhite);
     const changed = (() => {
       let minX = Infinity;
       let minY = Infinity;
       let maxX = -1;
       let maxY = -1;
-      for (let py = Math.max(0, below); py < shot.height; py++) {
+      for (let py = 0; py < shot.height; py++) {
         for (let px = 0; px < shot.width; px++) {
           const at = (py * shot.width + px) * 4;
           const diff =
