@@ -108,6 +108,15 @@ exports/             default exportRoot (presets choose folders below it)
   develop settings (e.g. an existing Lightroom sidecar) keeps them; a missing preset is skipped with
   one warning per job. Applying a preset marks the photo edited and `previewStale`, so the
   edited-preview scheduler draws it.
+- Modified times: every ingested copy (primary, backup and both sidecars) gets the source file's
+  modified time, set on the verified temp file before it is placed, so the final name never shows
+  another time and the source is only read. A remote entry with no time (a plain FTP `LIST` has none;
+  SFTP and `MLSD` do) is left with the time of the copy. A failure to set it is a warning. A raw is
+  never written to, so it keeps the time; a JPEG that takes the template or a preset is rewritten by
+  ExifTool, so the pipeline puts its time back afterwards and gives the backup copy the same. A raw's
+  sidecar is created or rewritten by those steps and legitimately gets the time of the write, and the
+  backup sidecar mirrors it. Later edits (labels, captions, retouch) are ordinary writes and update
+  the time of the file they write.
 - Local source filters (`FolderSource`/`CardSource`): `fileTypes` is `raw` (supported raw formats and
   their XMP sidecars), `jpeg` (`.jpg`/`.jpeg`) or `both` (the default, every supported image,
   including HEIF/TIFF/PNG/WebP/AVIF); `lockFilter` is `locked`, `unlocked` or `all` (default);
@@ -667,7 +676,20 @@ Three actions share one model: Export… (preset into a local folder), Export & 
 preset, then advance). A batch runs in the jobs process; the renderer stays usable.
 `ifExists` picks suffix/overwrite/skip. Metadata modes write IPTC/XMP, optionally
 copy camera EXIF and GPS from the original, or only copyright; `stripGps` drops the
-location tags. Output sharpening is a simple luminance unsharp mask applied after
+location tags.
+
+`all` copies the original's `DateTimeOriginal`, `CreateDate`, their `SubSecTime*` and
+`OffsetTime*` tags, so burst order and the camera's UTC offset survive; no `ModifyDate` or XMP
+date names the export time. A tag copy that updated nothing (a source ExifTool cannot open) fails
+the export instead of leaving a JPEG without them. `iptc`, `copyright` and `none` carry no camera
+EXIF, so no EXIF dates (`iptc` still writes the IPTC/XMP creation date taken from the original).
+In `all` and `iptc` the exported file's modified time is set to the photo's capture time, as the
+last step before the file is published (ExifTool's rewrites reset it, the rename keeps it); the
+access time stays at the export. A zone-less capture time (a raw has none) is read with the
+original's `OffsetTimeOriginal` when it has one and as this machine's local time otherwise, never
+shifted by hours. With no capture time, or only a date, the time is left as the export time, as it
+is in `copyright` and `none`. Failure to set it is a warning, not a failed export. Nothing reads
+the exported file's modified time (the upload queue uses its size), and uploads do not carry it. Output sharpening is a simple luminance unsharp mask applied after
 the resize (normally a no-op), in the jobs process, before encoding. `Photo.status.export`
 is saved in the index (`done` survives a restart; `rendering`/`encoding` are transient),
 and the film strip and Library grid derive queued/running badges from the export jobs.

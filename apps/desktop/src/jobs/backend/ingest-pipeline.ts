@@ -17,7 +17,7 @@ import {
   toIsoDate,
   type ExifToolService,
 } from '@ee/metadata';
-import { copyFile } from 'node:fs/promises';
+import { copyFile, stat, utimes } from 'node:fs/promises';
 import type { EditService } from './edit-service';
 import type { MetadataService } from './metadata-service';
 import type { PhotoLibrary } from './photo-library';
@@ -202,6 +202,10 @@ export function createOnFileIngested(
       ...(basics.width === undefined ? {} : { width: basics.width }),
       ...(basics.height === undefined ? {} : { height: basics.height }),
     };
+    // A JPEG takes the template and the preset inside the file, and ExifTool's rewrite gives it
+    // the time of the write. The copy was made to carry the source's, so put that back below. A
+    // raw is never written to; its sidecar is, and a rewritten sidecar legitimately gets a new time.
+    const copiedTime = raw ? undefined : await stat(info.path).catch(() => undefined);
     let differs = false;
     const templatePath = config.metadataTemplatePath;
     if (templatePath) {
@@ -240,6 +244,14 @@ export function createOnFileIngested(
         } catch (error) {
           problem('develop preset', error);
         }
+      }
+    }
+
+    if (copiedTime !== undefined && (templatePath || presetApplied)) {
+      try {
+        await utimes(info.path, copiedTime.atime, copiedTime.mtime);
+      } catch (error) {
+        problem('metadata', error);
       }
     }
 
@@ -314,12 +326,16 @@ export function createOnFileIngested(
   };
 }
 
-/** The backup copy gets the same sidecar (raw) or the same embedded metadata (JPEG). */
+/**
+ * The backup copy gets the same sidecar (raw) or the same embedded metadata (JPEG), and the same
+ * modified time as what it mirrors.
+ */
 async function mirrorToBackup(info: IngestedFileInfo): Promise<void> {
   if (!info.backupPath) return;
-  if (isRawPath(info.path)) {
-    await copyFile(sidecarPathFor(info.path), sidecarPathFor(info.backupPath));
-  } else {
-    await copyFile(info.path, info.backupPath);
-  }
+  const [from, to] = isRawPath(info.path)
+    ? [sidecarPathFor(info.path), sidecarPathFor(info.backupPath)]
+    : [info.path, info.backupPath];
+  await copyFile(from, to);
+  const { atime, mtime } = await stat(from);
+  await utimes(to, atime, mtime);
 }

@@ -39,6 +39,8 @@ export interface IngestFileRequest {
   seq: number;
   size: number;
   mtimeMs: number;
+  /** The sidecar's modified time on the source, when there is a sidecar. */
+  sidecarMtimeMs?: number;
   capturedAt?: Date;
 }
 
@@ -48,6 +50,8 @@ export interface IngestFileDeps {
   copier: FileCopier;
   signal?: AbortSignal;
   now: Date;
+  /** A problem that does not fail the ingest. */
+  onWarning?: (message: string) => void;
   /**
    * Base names already chosen in one run, keyed by destination directory,
    * source and original base. A raw/JPEG pair from the same source then gets
@@ -96,11 +100,14 @@ export async function ingestFile(
       sourcePath: request.sourcePath,
       sourceFileName: request.sourceFileName,
       ...(request.sidecarSourcePath ? { sidecarSourcePath: request.sidecarSourcePath } : {}),
+      mtimeMs: request.mtimeMs,
+      ...(request.sidecarMtimeMs === undefined ? {} : { sidecarMtimeMs: request.sidecarMtimeMs }),
       finalBase,
       primaryDirectory,
       ...(backupDirectory ? { backupDirectory } : {}),
     },
     {
+      ...(deps.onWarning ? { onWarning: deps.onWarning } : {}),
       copier: deps.copier,
       ...(deps.signal ? { signal: deps.signal } : {}),
     },

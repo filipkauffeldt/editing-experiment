@@ -133,6 +133,45 @@ describe('startIngest', () => {
     expect(await readFile(join(backup, '_DSC1_01.xmp'), 'utf8')).toBe('sidecar');
   });
 
+  it('gives every copy of a folder ingest the source file’s modified time', async () => {
+    const root = await makeTempDir();
+    const source = join(root, 'source');
+    const destination = join(root, 'destination');
+    const backup = join(root, 'backup');
+    const raw = join(source, '_DSC1.NEF');
+    const sidecar = join(source, '_DSC1.xmp');
+    await createFile(raw, 'raw');
+    await createFile(sidecar, 'sidecar');
+    const shot = new Date('2026-05-01T10:00:00Z');
+    const edited = new Date('2026-05-01T10:30:00Z');
+    await utimes(raw, shot, shot);
+    await utimes(sidecar, edited, edited);
+    const sourceBefore = [await stat(raw), await stat(sidecar)];
+    const ingested: IngestedFileInfo[] = [];
+    const seenStore = new MemorySeenStore();
+
+    const handle = startIngest(
+      { ...config([folderSource('a', source)], destination), backupDestination: { path: backup } },
+      { onFileIngested: async (info) => void ingested.push(info), seenStore },
+    );
+    await handle.done;
+
+    const [info] = ingested;
+    expect((await stat(info!.path)).mtimeMs).toBeCloseTo(shot.getTime(), -3);
+    expect((await stat(info!.backupPath!)).mtimeMs).toBeCloseTo(shot.getTime(), -3);
+    expect((await stat(info!.sidecarPath!)).mtimeMs).toBeCloseTo(edited.getTime(), -3);
+    expect((await stat(info!.backupSidecarPath!)).mtimeMs).toBeCloseTo(edited.getTime(), -3);
+    expect([await stat(raw), await stat(sidecar)].map((stats) => stats.mtimeMs)).toEqual(
+      sourceBefore.map((stats) => stats.mtimeMs),
+    );
+    expect(await readFile(raw, 'utf8')).toBe('raw');
+    // The seen-store key is the source's size and time, which are unchanged: the next run skips it.
+    const again = startIngest(config([folderSource('a', source)], destination), { seenStore });
+    await again.done;
+    expect(again.status()[0]?.filesSkipped).toBe(1);
+    expect(again.status()[0]?.filesDone).toBe(0);
+  });
+
   it('stops mid-ingest and leaves no partial files', async () => {
     const root = await makeTempDir();
     const source = join(root, 'source');

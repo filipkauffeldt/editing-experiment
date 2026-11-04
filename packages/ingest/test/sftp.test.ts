@@ -1,4 +1,4 @@
-import { appendFile, readFile, readdir, rename, writeFile } from 'node:fs/promises';
+import { appendFile, readFile, readdir, rename, stat, utimes, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { asSourceId, type JobEvent, type SftpSource } from '@ee/contracts';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -92,6 +92,27 @@ describe('SFTP source', { timeout: 15_000 }, () => {
     expect(await readFile(join(destination, '_DSC1_01.NEF'), 'utf8')).toBe('sftp-raw');
     await waitForWatching(handle);
     expect(handle.status()[0]?.state).toBe('watching');
+  });
+
+  it('keeps the server’s modified time on the downloaded photo and sidecar', async () => {
+    const setupResult = await setup();
+    const { root, destination } = setupResult;
+    const shot = new Date('2026-05-01T10:00:00Z');
+    const edited = new Date('2026-05-01T10:30:00Z');
+    await writeFile(join(root, '_DSC3.NEF'), 'raw-three');
+    await writeFile(join(root, '_DSC3.xmp'), '<xmp/>');
+    await utimes(join(root, '_DSC3.NEF'), shot, shot);
+    await utimes(join(root, '_DSC3.xmp'), edited, edited);
+    const handle = start(setupResult);
+
+    await waitFor(() => pathExists(join(destination, '_DSC3_01.xmp')), 'SFTP sidecar', 8_000);
+
+    // SFTP reports whole seconds.
+    const times = async (name: string): Promise<number> =>
+      (await stat(join(destination, name))).mtimeMs;
+    expect(Math.abs((await times('_DSC3_01.NEF')) - shot.getTime())).toBeLessThanOrEqual(2000);
+    expect(Math.abs((await times('_DSC3_01.xmp')) - edited.getTime())).toBeLessThanOrEqual(2000);
+    await handle.stop();
   });
 
   it('does not download a file that is still growing', async () => {

@@ -132,8 +132,10 @@ async function ingestRemoteEntry(
         seq: deps.nextSeq(),
         size: entry.size,
         mtimeMs: entry.mtimeMs,
+        ...(sidecar ? { sidecarMtimeMs: sidecar.mtimeMs } : {}),
       },
       {
+        ...(deps.hooks.onWarning ? { onWarning: deps.hooks.onWarning } : {}),
         config: deps.config,
         expandTemplate: deps.expandTemplate,
         copier: deps.copier,

@@ -148,7 +148,7 @@ export class ExifToolService {
   async copyTags(target: string, source: string, tags: readonly string[]): Promise<void> {
     if (tags.length === 0) return;
     await this.#withLimit(async () => {
-      await this.#et.write(
+      const result = await this.#et.write(
         target,
         {},
         {
@@ -160,6 +160,12 @@ export class ExifToolService {
           ],
         },
       );
+      // A source ExifTool cannot open is not an exception: the write simply
+      // reports that it updated nothing. A source without the tags still counts
+      // as handled (`unchanged`, with a warning), so only "nothing happened" is an error.
+      if (result.created + result.updated + result.unchanged === 0) {
+        throw new Error(`ExifTool could not copy tags from ${source}`);
+      }
     });
   }
 

@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { createReadStream, createWriteStream } from 'node:fs';
-import { link, mkdir, open, rename, rm, stat } from 'node:fs/promises';
+import { link, mkdir, open, rename, rm, stat, utimes } from 'node:fs/promises';
 import { basename, dirname, join } from 'node:path';
 import { pipeline } from 'node:stream/promises';
 import { CollisionError, VerificationError, throwIfAborted } from './errors';
@@ -46,6 +46,14 @@ export interface CopyPhotoRequest {
   /** Original source name; its extension is used for the destination. */
   sourceFileName: string;
   sidecarSourcePath?: string;
+  /**
+   * Modified times of the source files. The copies get them, so a file manager
+   * (and anyone sorting by date) sees when the photo was made, not when it was
+   * ingested. Missing or non-positive (a remote server that did not say): the
+   * copy keeps the time it was written.
+   */
+  mtimeMs?: number;
+  sidecarMtimeMs?: number;
   /** Expanded rename template, without extension. */
   finalBase: string;
   primaryDirectory: string;
@@ -82,6 +90,8 @@ export const nodePlacementOperations: PlacementOperations = {
 };
 
 export interface CopyPhotoOptions {
+  /** A problem that does not fail the copy (e.g. the time could not be set). Defaults to `console.warn`. */
+  onWarning?: (message: string) => void;
   copier?: FileCopier;
   signal?: AbortSignal;
   placement?: PlacementOperations;
@@ -159,11 +169,38 @@ async function publishVerifiedTemp(
   }
 }
 
+/** The source's modified time for a copy, and where to report that it could not be applied. */
+interface CopyTime {
+  mtimeMs: number | undefined;
+  warn: (message: string) => void;
+}
+
+/**
+ * Applied to the verified temp file, before it is published: the final name
+ * then never shows the wrong time. The temp file is hard-linked or renamed
+ * into place, both of which keep it. The source is never touched.
+ */
+async function applyModifiedTime(path: string, time: CopyTime): Promise<void> {
+  const { mtimeMs } = time;
+  if (mtimeMs === undefined || !Number.isFinite(mtimeMs) || mtimeMs <= 0) return;
+  const when = new Date(mtimeMs);
+  try {
+    // Node turns an invalid date into some other time instead of refusing it.
+    if (Number.isNaN(when.getTime())) throw new RangeError(`${mtimeMs} is not a time`);
+    await utimes(path, new Date(), when);
+  } catch (error) {
+    time.warn(
+      `could not keep the modified time of ${basename(path)}: ${error instanceof Error ? error.message : String(error)}`,
+    );
+  }
+}
+
 async function copyVerifiedToFinal(
   source: string,
   finalPath: string,
   copier: FileCopier,
   placement: PlacementOperations,
+  time: CopyTime,
   signal?: AbortSignal,
 ): Promise<{ sha256: string; size: number }> {
   throwIfAborted(signal);
@@ -176,6 +213,7 @@ async function copyVerifiedToFinal(
         `Hash mismatch while copying ${basename(source)}: source ${outcome.sourceHash}, destination ${outcome.destinationHash}`,
       );
     }
+    await applyModifiedTime(tempPath, time);
     await publishVerifiedTemp(tempPath, finalPath, placement, signal);
     const info = await stat(finalPath);
     return { sha256: outcome.destinationHash, size: info.size };
@@ -191,8 +229,11 @@ async function copyWithBase(
   hasSidecar: boolean,
   copier: FileCopier,
   placement: PlacementOperations,
+  warn: (message: string) => void,
   signal?: AbortSignal,
 ): Promise<CopyPhotoResult> {
+  const photoTime: CopyTime = { mtimeMs: request.mtimeMs, warn };
+  const sidecarTime: CopyTime = { mtimeMs: request.sidecarMtimeMs, warn };
   const fileName = `${base}${extension}`;
   const primaryPath = join(request.primaryDirectory, fileName);
   const backupPath = request.backupDirectory ? join(request.backupDirectory, fileName) : undefined;
@@ -209,17 +250,32 @@ async function copyWithBase(
       primaryPath,
       copier,
       placement,
+      photoTime,
       signal,
     );
     placed.push(primaryPath);
 
     if (backupPath) {
-      await copyVerifiedToFinal(request.sourcePath, backupPath, copier, placement, signal);
+      await copyVerifiedToFinal(
+        request.sourcePath,
+        backupPath,
+        copier,
+        placement,
+        photoTime,
+        signal,
+      );
       placed.push(backupPath);
     }
 
     if (request.sidecarSourcePath && sidecarPath) {
-      await copyVerifiedToFinal(request.sidecarSourcePath, sidecarPath, copier, placement, signal);
+      await copyVerifiedToFinal(
+        request.sidecarSourcePath,
+        sidecarPath,
+        copier,
+        placement,
+        sidecarTime,
+        signal,
+      );
       placed.push(sidecarPath);
     }
     if (request.sidecarSourcePath && backupSidecarPath) {
@@ -228,6 +284,7 @@ async function copyWithBase(
         backupSidecarPath,
         copier,
         placement,
+        sidecarTime,
         signal,
       );
       placed.push(backupSidecarPath);
@@ -262,6 +319,7 @@ export async function copyPhotoLocal(
 ): Promise<CopyPhotoResult> {
   const copier = options.copier ?? nodeFileCopier;
   const placement = options.placement ?? nodePlacementOperations;
+  const warn = options.onWarning ?? ((message: string) => console.warn(message));
   const { signal } = options;
   const { extension } = splitName(request.sourceFileName);
   const hasSidecar = request.sidecarSourcePath !== undefined;
@@ -276,7 +334,16 @@ export async function copyPhotoLocal(
       continue;
     }
     try {
-      return await copyWithBase(base, request, extension, hasSidecar, copier, placement, signal);
+      return await copyWithBase(
+        base,
+        request,
+        extension,
+        hasSidecar,
+        copier,
+        placement,
+        warn,
+        signal,
+      );
     } catch (error) {
       if (error instanceof CollisionError) {
         continue;

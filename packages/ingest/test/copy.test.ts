@@ -1,4 +1,4 @@
-import { mkdir, readFile, readdir, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, readdir, stat, utimes, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { copyPhotoLocal, nodeFileCopier, nodePlacementOperations } from '../src/copy';
@@ -238,5 +238,132 @@ describe('copyPhotoLocal fallback placement', () => {
     ).rejects.toThrow('cannot publish');
 
     expect(await readdir(destination)).toEqual([]);
+  });
+});
+
+describe('copyPhotoLocal modified time', () => {
+  const SHOT = new Date('2026-05-01T10:00:00Z');
+  const SIDECAR_EDITED = new Date('2026-05-01T10:30:00Z');
+  /** exFAT stores 2 s steps; a card or share like it rounds, never by more. */
+  const GRANULARITY_MS = 2000;
+
+  const near = async (path: string, expected: Date): Promise<void> => {
+    expect(Math.abs((await stat(path)).mtimeMs - expected.getTime())).toBeLessThanOrEqual(
+      GRANULARITY_MS,
+    );
+  };
+
+  async function oldSource(): Promise<Awaited<ReturnType<typeof setup>>> {
+    const dirs = await setup();
+    await utimes(join(dirs.source, '_DSC9.NEF'), new Date(), SHOT);
+    await utimes(join(dirs.source, '_DSC9.xmp'), new Date(), SIDECAR_EDITED);
+    return dirs;
+  }
+
+  it('gives the primary, backup and both sidecar copies the source times', async () => {
+    const { source, destination, backup } = await oldSource();
+    const raw = join(source, '_DSC9.NEF');
+    const sidecar = join(source, '_DSC9.xmp');
+    const before = [await stat(raw), await stat(sidecar)];
+    const bytesBefore = [await hashFile(raw), await hashFile(sidecar)];
+
+    const result = await copyPhotoLocal({
+      sourcePath: raw,
+      sourceFileName: '_DSC9.NEF',
+      sidecarSourcePath: sidecar,
+      mtimeMs: SHOT.getTime(),
+      sidecarMtimeMs: SIDECAR_EDITED.getTime(),
+      finalBase: 'shot',
+      primaryDirectory: destination,
+      backupDirectory: backup,
+    });
+
+    await near(result.path, SHOT);
+    await near(result.backupPath ?? '', SHOT);
+    await near(result.sidecarPath ?? '', SIDECAR_EDITED);
+    await near(result.backupSidecarPath ?? '', SIDECAR_EDITED);
+    // The source is only ever read.
+    expect([await stat(raw), await stat(sidecar)].map((info) => info.mtimeMs)).toEqual(
+      before.map((info) => info!.mtimeMs),
+    );
+    expect([await hashFile(raw), await hashFile(sidecar)]).toEqual(bytesBefore);
+  });
+
+  it('keeps the time when hard links are unavailable and the temp file is renamed', async () => {
+    const { source, destination } = await oldSource();
+
+    const result = await copyPhotoLocal(
+      {
+        sourcePath: join(source, '_DSC9.NEF'),
+        sourceFileName: '_DSC9.NEF',
+        mtimeMs: SHOT.getTime(),
+        finalBase: 'shot',
+        primaryDirectory: destination,
+      },
+      { placement: withExdevLink() },
+    );
+
+    await near(result.path, SHOT);
+  });
+
+  it.each([undefined, 0, Number.NaN])(
+    'leaves the copy’s own time when the source has %s',
+    async (mtimeMs) => {
+      const { source, destination } = await oldSource();
+      const before = Date.now();
+
+      const result = await copyPhotoLocal({
+        sourcePath: join(source, '_DSC9.NEF'),
+        sourceFileName: '_DSC9.NEF',
+        ...(mtimeMs === undefined ? {} : { mtimeMs }),
+        finalBase: 'shot',
+        primaryDirectory: destination,
+      });
+
+      expect((await stat(result.path)).mtimeMs).toBeGreaterThanOrEqual(before - GRANULARITY_MS);
+    },
+  );
+
+  it('warns, and still copies, when the time cannot be applied', async () => {
+    const { source, destination } = await setup();
+    const warnings: string[] = [];
+
+    // A time no file system can store.
+    const result = await copyPhotoLocal(
+      {
+        sourcePath: join(source, '_DSC9.NEF'),
+        sourceFileName: '_DSC9.NEF',
+        mtimeMs: 1e20,
+        finalBase: 'shot',
+        primaryDirectory: destination,
+      },
+      { onWarning: (message) => warnings.push(message) },
+    );
+
+    expect(await readFile(result.path, 'utf8')).toBe('raw-bytes');
+    expect(warnings).toHaveLength(1);
+    expect(warnings[0]).toContain('modified time');
+  });
+
+  it('never shows the final name with the wrong time', async () => {
+    const { source, destination } = await oldSource();
+    const seen: number[] = [];
+    const watcher = setInterval(() => {
+      void stat(join(destination, 'shot.NEF')).then(
+        (info) => seen.push(info.mtimeMs),
+        () => undefined,
+      );
+    }, 1);
+
+    await copyPhotoLocal({
+      sourcePath: join(source, '_DSC9.NEF'),
+      sourceFileName: '_DSC9.NEF',
+      mtimeMs: SHOT.getTime(),
+      finalBase: 'shot',
+      primaryDirectory: destination,
+    });
+    clearInterval(watcher);
+
+    expect(seen.every((mtime) => Math.abs(mtime - SHOT.getTime()) <= GRANULARITY_MS)).toBe(true);
   });
 });

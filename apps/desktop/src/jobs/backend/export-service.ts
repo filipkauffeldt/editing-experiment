@@ -18,6 +18,7 @@ import {
   type UploadQueue,
 } from '@ee/export';
 import {
+  asString,
   expandVariables,
   readIptc,
   writeIptc,
@@ -27,6 +28,7 @@ import {
 import { isAbsolute, parse, resolve, sep } from 'node:path';
 import path from 'node:path';
 import { rename } from 'node:fs/promises';
+import { captureInstant, hasZone, setModifiedTime } from './export-file-time';
 import type { ExportedFileStore } from './exported-files';
 import { normalizeExportPath } from './exported-files';
 import type { PhotoLibrary } from './photo-library';
@@ -39,6 +41,11 @@ const MAX_TRACKED_BATCHES = 500;
 const EXIF_TAGS = [
   'EXIF:DateTimeOriginal',
   'EXIF:CreateDate',
+  // Burst order and the zone of the clock live in these; the dates alone lose both.
+  'EXIF:SubSecTimeOriginal',
+  'EXIF:SubSecTimeDigitized',
+  'EXIF:OffsetTimeOriginal',
+  'EXIF:OffsetTimeDigitized',
   'EXIF:Make',
   'EXIF:Model',
   'EXIF:LensModel',
@@ -90,6 +97,8 @@ export interface ExportServiceDeps {
   exportedFiles: ExportedFileStore;
   /** Forward queue events (progress, state) to the renderer. */
   onEvent(event: JobEvent): void;
+  /** Something went wrong that does not fail the export. Defaults to `console.warn`. */
+  warn?(message: string): void;
 }
 
 /**
@@ -158,7 +167,8 @@ export class ExportService {
         canOverwrite: (target) => this.deps.exportedFiles.has(target),
         checkTarget: (target) => this.assertNotOriginal(target, originals),
         hooks: {
-          writeMetadata: (jpegPath) => this.writeMetadata(jpegPath, photo.path, preset, fields),
+          writeMetadata: (jpegPath) =>
+            this.writeMetadata(jpegPath, photo.path, preset, fields, photo.captureTime),
         },
       });
       if (exported.skipped !== true) this.deps.exportedFiles.add(exported.path);
@@ -239,6 +249,7 @@ export class ExportService {
     sourcePath: string,
     preset: ExportPreset,
     fields: IptcFields,
+    captureTime: string | undefined,
   ): Promise<void> {
     if (preset.metadata === 'none') return;
     const named = `${tempPath}.jpg`;
@@ -258,6 +269,31 @@ export class ExportService {
     } finally {
       await rename(named, tempPath);
     }
+    // Last, because ExifTool's rewrites above reset the modified time. The file
+    // is then renamed into place, which keeps it.
+    if (preset.metadata === 'all' || preset.metadata === 'iptc') {
+      await this.stampCaptureTime(tempPath, sourcePath, captureTime);
+    }
+  }
+
+  /** Makes the file's modified time the camera's capture time, as a file manager would sort by. */
+  private async stampCaptureTime(
+    file: string,
+    sourcePath: string,
+    captureTime: string | undefined,
+  ): Promise<void> {
+    const warn = this.deps.warn ?? ((message: string) => console.warn(message));
+    let offset: string | undefined;
+    if (captureTime !== undefined && !hasZone(captureTime)) {
+      try {
+        const tags = await this.deps.exiftool.read(sourcePath);
+        offset = asString(tags['ExifIFD:OffsetTimeOriginal'] ?? tags['ExifIFD:OffsetTime']);
+      } catch (error) {
+        warn(`could not read the UTC offset of ${sourcePath}: ${String(error)}`);
+      }
+    }
+    const when = captureInstant(captureTime, offset);
+    if (when !== undefined) await setModifiedTime(file, when, warn);
   }
 
   /** What is still being remembered per photo; the maps must not grow with every export. */
