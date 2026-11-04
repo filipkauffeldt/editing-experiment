@@ -722,6 +722,15 @@ its shapes as editable adds, wand outlines from before that tool was removed inc
   mode for that drawing (AltGr never does). A click on an area switches the topmost one under it on or
   off. Undo steps back through drawing, detecting and switching. Esc drops a shape being drawn, or
   otherwise saves and leaves.
+- **Drawing from outside.** A drag may start in a margin of 24 CSS px around the picture
+  (`renderer/retouch-margin.ts`, `HIT_MARGIN`), so an area can reach the very edge. The overlay SVG
+  covers the picture plus that margin, cut off at the canvas area (never over the toolbar or the
+  panels), so a side where the picture fills the canvas has none. Retouch's Fit leaves
+  `2 * HIT_MARGIN` around the picture (`fitWithin`'s `margin`; Develop keeps 32), so the margin
+  exists at Fit too. Every point of a drag, its start, moves and end, is clamped to the picture
+  (pointer capture keeps the moves coming outside the margin and the window), so stored coordinates
+  stay in 0..1. A click that starts in the margin, or a lasso that never touches the picture,
+  adds and toggles nothing and runs no detection. Space held leaves the margin to the pan layer.
 - **Rendering.** Mosaic is a CPU pass after the develop render. The canvas preview
   (`renderer/retouch-preview.ts`), the export and the thumbnail (`composeDevelopedRgba`) all call
   `applyMosaic` with the same op, and `mapMosaicShapes` moves areas through lens correction and crop
