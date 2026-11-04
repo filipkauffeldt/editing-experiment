@@ -135,7 +135,9 @@ exports/             default exportRoot (only a relative folder template uses it
   name and the same suffix rule; the suffix is decided once per source and base, so a raw/JPEG
   pair and its XMP sidecar keep matching names while two sources race for the same shot.
 - Card discovery: `CardScanner` (`@ee/ingest`, `cards.ts`) runs in the jobs process behind
-  `sources:detectCards`, with no native module and no platform tool. It scans `/media/<user>`,
+  `sources:detectCards`. It imports no native module and runs no platform tool; the one thing Node
+  cannot see, a Windows volume label, comes through the injected `readDriveInfo` option, which
+  the jobs process fills from `@ee/core`. It scans `/media/<user>`,
   `/run/media/<user>` and `/media` on Linux, `/Volumes` on macOS (symlinks, i.e. the boot volume,
   are skipped) and the drives D: to Z: on Windows, and keeps volumes that have a `DCIM` folder.
   Nothing scans in the background: the renderer scans once when the Ingest view opens and when
@@ -149,14 +151,32 @@ exports/             default exportRoot (only a relative folder template uses it
   failure is "unknown", not "gone": a card found before stays listed (with its last count) and
   keeps its tick until a definite answer (no `DCIM`, or a completed listing without it), and a
   volume never seen before needs a positive answer to appear. A listing that fails for a reason
-  other than "not there" is not read as "no cards". Windows has no volume label without a
-  native module, so a card there is "Drive E". `EE_CARD_ROOTS` replaces the scanned folders
+  other than "not there" is not read as "no cards". On Windows each drive letter D: to Z:
+  (never C:) is asked separately through `readDriveInfo(['E:\'])` under the same timeout and
+  in-flight rule as every other probe, so a drive that stalls delays only itself. The native
+  function (`crates/core/src/drives.rs`, hand-written kernel32 FFI, run on the libuv threadpool)
+  returns `GetDriveTypeW` and, for removable and fixed drives only, the label from
+  `GetVolumeInformationW` (`MAX_PATH + 1` UTF-16 units, so `Å`, `Ä`, `Ö` survive). It sets
+  `SEM_FAILCRITICALERRORS` on its thread around the calls and restores it, so an empty reader slot
+  fails instead of opening "There is no disk in the drive". Fixed drives count because many USB and
+  CFexpress readers present a card as a fixed disk. Network, optical and unused letters are dropped
+  before any `DCIM` probe, so they are never touched; so is a removable or fixed drive whose volume
+  cannot be read because there is no medium (`ERROR_NOT_READY`, `ERROR_NO_MEDIA_IN_DRIVE`,
+  `ERROR_UNRECOGNIZED_VOLUME`). A card without a label, a failed or timed out lookup and a missing
+  native module all fall back to "Drive E" (or the label the card had when it was last found, if
+  the lookup is unknown on a later scan) and the `DCIM` check decides as before. Off Windows the
+  native function returns nothing and is not called. `EE_CARD_ROOTS` replaces the scanned folders
   (tests only).
   Ticking a card (`pickCard`) creates a `CardSource` with `discovered: true`, once per volume:
   the next time the volume appears it is matched to that source by mount path, else by volume
   label (a source whose mount path is not a mounted card now), so filters and incremental state
   survive re-insertion and two cards named `NIKON Z 6` keep separate sources (the second is
-  named `NIKON Z 6 (2)`). A discovered source is ingested only while it is ticked; ticks are not
+  named `NIKON Z 6 (2)`). A source saved on Windows as "Drive E" still matches the card in the same
+  drive letter once the card shows its real label (the mount path comes first), keeps its id, tick
+  and filters, and gets the new `volumeLabel` saved; its name stays "Drive E". If that card later
+  turns up under another letter it no longer matches by label (the saved label is the generic
+  one), so it gets a new source named after its label and the old one is left behind. There is no
+  volume serial number or other identity beyond mount path and label. A discovered source is ingested only while it is ticked; ticks are not
   persisted and reset when a scan no longer finds the card, unless its run is still going.
   Hand-added card sources are ingested like folders, and a mounted card they already cover is
   not offered again. A card pulled out after the last scan and ticked still goes into the
