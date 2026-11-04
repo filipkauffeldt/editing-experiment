@@ -87,6 +87,15 @@ Built in `components/ui/`:
   settings.
 - **Bottom action bar** (40 px): contextual actions on the right, summary and keyboard hints on
   the left.
+- **Side panels**: the Library sidebar and inspector, the Develop metadata and develop panels,
+  and the Ingest sources panel have a 1 px hairline on their inner edge that is a drag handle.
+  It sits on the centre side of the edge, so a panel's scrollbar stays clear, and its invisible
+  hit area reaches a few pixels into the centre. The line turns white on hover and while dragging, the
+  width follows the pointer live, and the cursor is `col-resize` even when the pointer leaves
+  the handle. Each panel has a content-aware minimum and maximum; the centre keeps at least
+  320 px, and a smaller window re-clamps the shown widths without losing the saved preference.
+  Double-click resets a panel to its default. Widths are saved to settings when the drag ends,
+  not on every move, and are restored on the next launch.
 
 ### Modules
 
