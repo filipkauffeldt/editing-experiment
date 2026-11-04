@@ -97,7 +97,9 @@ describe('isLockedFile', () => {
     expect(isLockedFile({ mode: 0o666 })).toBe(false);
     expect(isLockedFile({ mode: 0o100755 })).toBe(false);
   });
-  // Fails on Windows: chmod does not make a directory read-only there.
+  // Not run on Windows: chmod cannot make a directory read-only there. The probe exists because
+  // Linux/macOS mounts strip the write bits of every file on a read-only volume; on Windows the
+  // protect attribute is read from the file itself, so nothing depends on this probe.
   it.skipIf(process.platform === 'win32')(
     'detects a non-writable directory without writing to it',
     async () => {

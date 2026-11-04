@@ -27,7 +27,7 @@ import {
 } from '@ee/metadata';
 import { mkdir, mkdtemp, readFile, readdir, rm, stat } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, sep } from 'node:path';
 import sharp from 'sharp';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { createBackend, type Backend } from '../src/jobs/backend/backend';
@@ -280,24 +280,19 @@ describe.skipIf(nefs.length === 0)(
       if (root) await rm(root, { recursive: true, force: true });
     }, 60_000);
 
-    // Fails on Windows: the expectation is written with POSIX paths, not a bug in the app.
-
-    it.skipIf(process.platform === 'win32')(
-      'ingests each source in filename order, renamed by the template',
-      () => {
-        const names = (id: string): string[] => bySource(id).map((p) => p.fileName);
-        const aNames = names(cardA);
-        expect(aNames.slice(0, 2)).toEqual(['cardA_001.NEF', 'cardA_002.NEF']);
-        expect(aNames).toHaveLength(2 + userNefs.length);
-        expect(names(cardB)[0]).toBe('cardB_001.NEF');
-        if (hasFaceFixtures()) expect(names(cardB)).toEqual(['cardB_001.NEF', 'cardB_002.jpg']);
-        expect(names(ftp)).toEqual(['ftp_001.NEF', 'ftp_002.NEF']);
-        for (const photo of added())
-          expect(photo.path).toContain(
-            `/${photo.sourceId === ftp ? 'ftp' : photo.sourceId === cardA ? 'cardA' : 'cardB'}/`,
-          );
-      },
-    );
+    it('ingests each source in filename order, renamed by the template', () => {
+      const names = (id: string): string[] => bySource(id).map((p) => p.fileName);
+      const aNames = names(cardA);
+      expect(aNames.slice(0, 2)).toEqual(['cardA_001.NEF', 'cardA_002.NEF']);
+      expect(aNames).toHaveLength(2 + userNefs.length);
+      expect(names(cardB)[0]).toBe('cardB_001.NEF');
+      if (hasFaceFixtures()) expect(names(cardB)).toEqual(['cardB_001.NEF', 'cardB_002.jpg']);
+      expect(names(ftp)).toEqual(['ftp_001.NEF', 'ftp_002.NEF']);
+      for (const photo of added())
+        expect(photo.path).toContain(
+          `${sep}${photo.sourceId === ftp ? 'ftp' : photo.sourceId === cardA ? 'cardA' : 'cardB'}${sep}`,
+        );
+    });
 
     it('indexes the photos and lists them in ingest order', async () => {
       const listed = await handlers['photos:list']();

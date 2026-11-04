@@ -1,3 +1,4 @@
+import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { PathTraversalError } from '../src/errors';
 import {
@@ -49,17 +50,17 @@ describe('safe names', () => {
     expect(safeFileBase('  good-name_1  ')).toBe('good-name_1');
   });
 
-  // Fails on Windows: the expectation is written with POSIX paths, not a bug in the app.
-
-  it.skipIf(process.platform === 'win32')(
-    'normalizes safe subfolders and rejects traversal',
-    () => {
-      expect(safeSubfolder('2026-10-27/card')).toBe('2026-10-27/card');
-      expect(() => safeSubfolder('../outside')).toThrow(PathTraversalError);
-      expect(() => safeSubfolder('/absolute')).toThrow(PathTraversalError);
-      expect(() => safeSubfolder('a//b')).toThrow(PathTraversalError);
-    },
-  );
+  it('normalizes safe subfolders and rejects traversal', () => {
+    // The result uses the separator of the platform it runs on, and takes either one in.
+    expect(safeSubfolder('2026-10-27/card')).toBe(join('2026-10-27', 'card'));
+    expect(safeSubfolder('2026-10-27\\card')).toBe(join('2026-10-27', 'card'));
+    expect(() => safeSubfolder('..\\outside')).toThrow(PathTraversalError);
+    expect(() => safeSubfolder('\\absolute')).toThrow(PathTraversalError);
+    expect(() => safeSubfolder('C:\\absolute')).toThrow(PathTraversalError);
+    expect(() => safeSubfolder('../outside')).toThrow(PathTraversalError);
+    expect(() => safeSubfolder('/absolute')).toThrow(PathTraversalError);
+    expect(() => safeSubfolder('a//b')).toThrow(PathTraversalError);
+  });
 });
 
 describe('safeLocalFileName', () => {
