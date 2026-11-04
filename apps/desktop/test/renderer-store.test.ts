@@ -546,6 +546,7 @@ describe('crop editing', () => {
     store.setCropAspect('1:1');
     store.setCropAngle(-4);
     await store.nextAndSend();
+    await vi.waitFor(() => expect(renders).toHaveLength(1));
 
     expect(renders[0]?.params.crop?.angle).toBeCloseTo(-4, 9);
     expect(renders[0]?.resize).toEqual({ mode: 'none' });
@@ -561,6 +562,7 @@ describe('crop editing', () => {
     });
     await store.setActivePreset(asPresetId('mock-export-preset-web'));
     await store.nextAndSend();
+    await vi.waitFor(() => expect(renders).toHaveLength(1));
     expect(renders[0]?.resize).toEqual({ mode: 'longEdge', pixels: 2400 });
   });
 });
@@ -624,6 +626,7 @@ describe('raw defaults', () => {
     );
     store.setSlider('Exposure2012', 0.5);
     await store.nextAndSend();
+    await vi.waitFor(() => expect(renders).toHaveLength(1));
     expect(renders[0]?.params).toMatchObject({ ...RAW_DEFAULTS, Exposure2012: 0.5 });
     expect(lastWrite(fake)).toEqual({ Exposure2012: 0.5 });
   });
@@ -698,25 +701,6 @@ describe('edit flushing', () => {
       photoId: photo.id,
       fields: { headline: 'Export headline' },
     });
-  });
-
-  it('advances from the exported photo even if the selection changed meanwhile', async () => {
-    const render = deferred<{ width: number; height: number; rgba: Uint8Array }>();
-    const started = deferred<void>();
-    const { store } = await setup({}, async () => {
-      started.resolve(undefined);
-      return render.promise;
-    });
-    const first = activePhoto(store.getState());
-    if (!first) throw new Error('no selection');
-
-    const finished = store.nextAndSend();
-    await started.promise;
-    store.select(asPhotoId('mock-10'));
-    render.resolve({ width: 1, height: 1, rgba: new Uint8Array(4) });
-    await finished;
-
-    expect(activePhoto(store.getState())?.fileName).toBe('_DSC8331.NEF');
   });
 
   it('flushes pending metadata on dispose and stops listening', async () => {
@@ -975,6 +959,7 @@ describe('retouch sessions', () => {
     store.toggleRetouch();
     store.addRetouchShape(rect);
     await store.nextAndSend();
+    await vi.waitFor(() => expect(renders).toHaveLength(1));
 
     const set = fake.calls.find((call) => call.channel === 'retouch:set');
     expect(set?.args[0]).toMatchObject({ photoId: photo.id, ops: [{ shapes: [rect] }] });

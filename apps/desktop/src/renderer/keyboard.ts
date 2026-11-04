@@ -176,10 +176,11 @@ export function useKeyboardShortcuts(store: AppStore): void {
         void store.exportSelected(true);
         return;
       }
-      // Next & send belongs to Develop; the Library exports with Shift only.
+      // Next & send belongs to Develop; the Library exports with Shift only. A held key repeats:
+      // that must not send photo after photo.
       if (command && event.key === 'Enter') {
         event.preventDefault();
-        if (!library) void store.nextAndSend();
+        if (!library && !event.repeat) void store.nextAndSend();
         return;
       }
       if (command && (event.key === 'i' || event.key === 'I')) {
