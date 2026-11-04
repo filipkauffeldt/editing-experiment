@@ -7,6 +7,10 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { SettingsStore } from '../src/jobs/backend/settings-store';
 import { defaultPanelWidths } from '../src/shared/panel-widths';
 import { defaultSettings } from '../src/shared/settings';
+import {
+  DEFAULT_FOLDER_TEMPLATE,
+  LEGACY_DEFAULT_FOLDER_TEMPLATE,
+} from '../src/shared/export-folder';
 import { hostFor } from '../src/shared/routing';
 
 const dirs: string[] = [];
@@ -656,5 +660,72 @@ describe('routing', () => {
     expect(hostFor('dialog:pick', { mock: false })).toBe('main');
     expect(hostFor('ingest:start', { mock: false })).toBe('jobs');
     expect(hostFor('exportPresets:list', { mock: false })).toBe('jobs');
+  });
+});
+
+describe('SettingsStore export folder migration', () => {
+  const storedPreset = (id: string, folderTemplate: string): Record<string, unknown> => ({
+    ...defaults.exportPresets[0],
+    id,
+    name: id,
+    folderTemplate,
+  });
+
+  it('starts a fresh install next to the photo', () => {
+    expect(new SettingsStore(undefined, defaults).get().exportPresets[0]?.folderTemplate).toBe(
+      '{photofolder}/export',
+    );
+  });
+
+  it('moves exactly the old default to the new one and leaves edited templates alone', async () => {
+    const file = join(await tempDir(), 'settings.json');
+    const edited = [
+      '{folder}/Export/{preset} ',
+      '{folder}/Export',
+      '{folder}/export/{preset}',
+      'Web/{event}',
+      '/Volumes/Out/{preset}',
+    ];
+    await writeFile(
+      file,
+      JSON.stringify({
+        version: 2,
+        ingest: defaults.ingest,
+        exportPresets: [
+          storedPreset('old-default', LEGACY_DEFAULT_FOLDER_TEMPLATE),
+          ...edited.map((template, index) => storedPreset(`edited-${index}`, template)),
+        ],
+        activePresetId: 'old-default',
+        sources: [],
+        destinations: [],
+      }),
+    );
+
+    const store = new SettingsStore(file, defaults);
+    const templates = store.get().exportPresets.map((preset) => preset.folderTemplate);
+    expect(templates).toEqual([DEFAULT_FOLDER_TEMPLATE, ...edited]);
+
+    // Written back, so the file no longer holds the old default.
+    const saved = JSON.parse(await readFile(file, 'utf8')) as {
+      exportPresets: Array<{ folderTemplate: string }>;
+    };
+    expect(saved.exportPresets.map((preset) => preset.folderTemplate)).toEqual(templates);
+    expect(new SettingsStore(file, defaults).get().exportPresets[0]?.folderTemplate).toBe(
+      DEFAULT_FOLDER_TEMPLATE,
+    );
+  });
+
+  it('does not rewrite a file that has nothing to migrate', async () => {
+    const file = join(await tempDir(), 'settings.json');
+    const text = JSON.stringify({
+      version: 2,
+      ingest: defaults.ingest,
+      exportPresets: [storedPreset('mine', 'Mine/{preset}')],
+      sources: [],
+      destinations: [],
+    });
+    await writeFile(file, text);
+    new SettingsStore(file, defaults);
+    expect(await readFile(file, 'utf8')).toBe(text);
   });
 });

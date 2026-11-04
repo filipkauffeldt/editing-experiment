@@ -2,6 +2,7 @@ import { useAppState, useAppStore } from '../store-context';
 import { activeExportPreset, activePhoto } from '../store';
 import { modKeyLabel } from '../platform';
 import { usePanelLayout, type ResizablePanelDefinition } from '../panel-resize';
+import { describeFolderTemplate } from '../../shared/export-folder';
 import { ActionBar, Hints, barStyles } from './ActionBar';
 import { DevelopPanel } from './DevelopPanel';
 import { FilmStrip } from './FilmStrip';
@@ -28,9 +29,7 @@ function useExportSummary(): string {
       : preset.resize.mode === 'megapixels'
         ? ` ${preset.resize.megapixels}MP`
         : ' Full size';
-  const folder = preset.folderTemplate
-    .replace(/^\{folder\}\//, '')
-    .replace('{preset}', preset.name);
+  const folder = describeFolderTemplate(preset.folderTemplate, preset.name);
   const names = preset.sendTo
     .map((id) => state.destinations.find((destination) => destination.id === id)?.name)
     .filter((name): name is string => name !== undefined);

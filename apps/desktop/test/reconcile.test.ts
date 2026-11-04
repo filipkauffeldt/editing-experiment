@@ -11,6 +11,7 @@ import { createBackend } from '../src/jobs/backend/backend';
 import { createOnFileIngested } from '../src/jobs/backend/ingest-pipeline';
 import { PreviewCache } from '../src/jobs/backend/previews';
 import { findUnindexed } from '../src/jobs/backend/reconcile';
+import { EXPORT_MARKER_NAME } from '@ee/ingest';
 import { copyInto, fixtureNefs } from './helpers/fixtures';
 
 const dirs: string[] = [];
@@ -141,6 +142,50 @@ describe('findUnindexed', () => {
       join(dir, 'x_002.jpg'),
     ]);
     expect(await findUnindexed(join(dir, 'missing'), new Set())).toEqual([]);
+  });
+});
+
+describe('findUnindexed and exports', () => {
+  const touch = async (...parts: string[]): Promise<string> => {
+    const path = join(...parts);
+    await mkdir(join(path, '..'), { recursive: true });
+    await writeFile(path, '');
+    return path;
+  };
+
+  it('skips a folder with the export marker, and everything below it', async () => {
+    const dir = await tempDir();
+    const photo = await touch(dir, '20261104_GAIS-AIK', 'a_001.jpg');
+    await touch(dir, '20261104_GAIS-AIK', 'Web', 'a_001.jpg');
+    await touch(dir, '20261104_GAIS-AIK', 'Web', EXPORT_MARKER_NAME);
+    await touch(dir, '20261104_GAIS-AIK', 'Web', 'by-event', 'a_002.jpg');
+    expect(await findUnindexed(dir, new Set())).toEqual([photo]);
+  });
+
+  it('skips a folder named export, in any case, even without the marker', async () => {
+    const dir = await tempDir();
+    const photo = await touch(dir, 'game', 'a_001.jpg');
+    await touch(dir, 'game', 'export', 'a_001.jpg');
+    await touch(dir, 'game', 'Export', 'a_002.jpg');
+    await touch(dir, 'game', 'EXPORT', 'deeper', 'a_003.jpg');
+    expect(await findUnindexed(dir, new Set())).toEqual([photo]);
+  });
+
+  it('skips a file the app exported, wherever it is', async () => {
+    const dir = await tempDir();
+    const photo = await touch(dir, 'game', 'a_001.jpg');
+    const exported = await touch(dir, 'game', 'web', 'a_001.jpg');
+    const isExported = (path: string): boolean => path === exported;
+    expect(await findUnindexed(dir, new Set(), { isExported })).toEqual([photo]);
+    expect(await findUnindexed(dir, new Set())).toEqual([photo, exported].sort());
+  });
+
+  it('does not skip the destination itself, whatever it is called or holds', async () => {
+    const dir = await tempDir();
+    const destination = join(dir, 'export');
+    const photo = await touch(destination, 'a_001.jpg');
+    await touch(destination, EXPORT_MARKER_NAME);
+    expect(await findUnindexed(destination, new Set())).toEqual([photo]);
   });
 });
 

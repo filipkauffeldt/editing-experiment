@@ -65,9 +65,13 @@ Export / Export & send.
   rectangle or lasso. Every area and face can be switched on and off and
   subtracted again, and a saved retouch can be resumed and edited.
 - Export presets (folder and file name templates, resize, output sharpening,
-  metadata and send targets) and Export / Export & send / Next & send. Export
-  rendering targets the preset's output size and rejects an embedded preview of
-  the unretouched image.
+  metadata and send targets) and Export / Export & send / Next & send. By
+  default a photo is exported to an `export` folder next to it, e.g.
+  `/Photos/20261104_GAIS-AIK/export/`; `{photofolder}` in a preset's folder
+  template is the photo's own folder; a template that does not start with it
+  is absolute or relative to the export root. Export rendering targets the
+  preset's output size and rejects an embedded preview of the unretouched
+  image.
 - Anonymous FTP for sources and destinations when no credentials are set.
 
 ## Known gaps
@@ -212,7 +216,10 @@ Set things up in this order:
    ingested every time. Anonymous FTP needs no password.
 5. **Settings → Destinations** for upload targets, and **Export… → New
    preset** for export presets (Location, File, Content, Then send), then
-   **Save preset** and **Set as active**. A preset keeps the photo's current
+   **Save preset** and **Set as active**. The default preset exports into an
+   `export` folder next to each photo; the app leaves that folder alone when it
+   ingests or looks for photos, and a missing or read-only photo folder fails
+   that photo with a message naming the folder. A preset keeps the photo's current
    base name or renames with a file name template; keep mode only adds `-1`,
    `-2` when a file of that name already exists.
 6. Optional: **Settings → Profiles → Add folder…** for `.dcp`/`.xmp` camera

@@ -66,8 +66,8 @@ function PresetEditor({
         <div className={styles.grid}>
           <TemplateField
             className={styles.wide}
-            label="Folder template (relative to the export root)"
-            context="export"
+            label="Folder template ({photofolder} = the photo's folder, otherwise relative to the export root)"
+            context="exportFolder"
             value={draft.folderTemplate}
             testId="folder-template"
             onChange={(folderTemplate) => patch({ folderTemplate })}

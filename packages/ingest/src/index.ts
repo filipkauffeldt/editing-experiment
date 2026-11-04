@@ -28,7 +28,16 @@ export {
 export type { FilterSourceFilesOptions, FilterSourceFilesResult } from './filters';
 export { IMAGE_EXTENSIONS, RAW_EXTENSIONS, isImageFileName, isRawFileName } from './formats';
 export { hashFile } from './hash';
-export { isTemporaryName, naturalCompare, safeFileBase, safeSubfolder, splitName } from './naming';
+export {
+  EXPORT_MARKER_NAME,
+  EXPORT_MARKER_TEXT,
+  hasExportMarker,
+  isTemporaryName,
+  naturalCompare,
+  safeFileBase,
+  safeSubfolder,
+  splitName,
+} from './naming';
 export { MemorySeenStore, SqliteSeenStore } from './seen-store';
 export type { SeenFile, SeenStore } from './seen-store';
 export { findSidecar, listImageFiles, listSourceFiles } from './sources';

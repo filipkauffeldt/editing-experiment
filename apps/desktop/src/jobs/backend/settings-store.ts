@@ -13,6 +13,10 @@ import {
 } from '@ee/contracts';
 import { existsSync, readFileSync, renameSync } from 'node:fs';
 import {
+  DEFAULT_FOLDER_TEMPLATE,
+  LEGACY_DEFAULT_FOLDER_TEMPLATE,
+} from '../../shared/export-folder';
+import {
   DEFAULT_FILE_NAMING,
   DEFAULT_TEMPLATE_MODE,
   sanitizeCopyMetadataFields,
@@ -57,6 +61,23 @@ function migratePresetNaming(value: unknown): { preset: ExportPreset; migrated: 
     return { preset: value as unknown as ExportPreset, migrated: false };
   }
   return { preset: { ...value, fileNaming: 'rename' } as unknown as ExportPreset, migrated: true };
+}
+
+/**
+ * A preset that still has exactly the old default folder template moves to the new default
+ * (next to the photo). Only an exact match: any edit, even a space, was a choice.
+ */
+function migratePresetFolder(preset: ExportPreset): { preset: ExportPreset; migrated: boolean } {
+  if (!isObject(preset) || preset.folderTemplate !== LEGACY_DEFAULT_FOLDER_TEMPLATE) {
+    return { preset, migrated: false };
+  }
+  return { preset: { ...preset, folderTemplate: DEFAULT_FOLDER_TEMPLATE }, migrated: true };
+}
+
+function migratePreset(value: unknown): { preset: ExportPreset; migrated: boolean } {
+  const naming = migratePresetNaming(value);
+  const folder = migratePresetFolder(naming.preset);
+  return { preset: folder.preset, migrated: naming.migrated || folder.migrated };
 }
 
 /**
@@ -245,7 +266,7 @@ export class SettingsStore {
       if (!fallbackPreset) throw new Error('default settings have no export preset');
       let presets: ExportPreset[];
       if (Array.isArray(parsed.exportPresets) && parsed.exportPresets.length > 0) {
-        const migratedPresets = parsed.exportPresets.map(migratePresetNaming);
+        const migratedPresets = parsed.exportPresets.map(migratePreset);
         presets = migratedPresets.map((entry) => entry.preset);
         if (migratedPresets.some((entry) => entry.migrated)) migrated = true;
       } else if (isObject(parsed.finishAction)) {

@@ -26,6 +26,7 @@ const iptc: IptcFields = {
 
 const context: CaptionContext = {
   filePath: '/photos/day1/ABC123.NEF',
+  photoFolder: '/photos/day1',
   captureTime: '2024-05-06T19:08:09',
   now: new Date(2024, 0, 2, 3, 4, 5),
   camera: { make: 'NIKON CORPORATION', model: 'NIKON Z 6', serialNumber: '6001234' },
@@ -34,6 +35,11 @@ const context: CaptionContext = {
 };
 
 describe('Photo Mechanic variables', () => {
+  it('expands {photofolder} only from the folder the export gives, not from the file path', () => {
+    expect(expandVariables('{photofolder}', { filePath: '/photos/day1/A.NEF' }).text).toBe('');
+    expect(expandVariables('{photofolder}', context).text).toBe('/photos/day1');
+  });
+
   it('expands every variable in the table without leaving braces', () => {
     expect(VARIABLE_NAMES.length).toBeGreaterThan(50);
     for (const name of VARIABLE_NAMES) {
@@ -51,6 +57,7 @@ describe('Photo Mechanic variables', () => {
     ['folder', 'day1'],
     ['fldr', 'day1'],
     ['folderpath', '/photos/day1'],
+    ['photofolder', '/photos/day1'],
     ['path', '/photos/day1/ABC123.NEF'],
     ['date', '2024-05-06'],
     ['time', '19:08:09'],

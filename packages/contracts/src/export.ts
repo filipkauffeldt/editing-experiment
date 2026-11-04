@@ -45,7 +45,9 @@ export interface ExportPreset {
   id: PresetId;
   name: string;
   /**
-   * Directory template, relative to `AppSettings.exportRoot` unless absolute.
+   * Directory template. A template starting with `{photofolder}` (the folder of the photo's
+   * ingested file, which the result must stay at or below) is next to the photo; otherwise it is
+   * relative to `AppSettings.exportRoot` unless absolute.
    * `{variables}` come from `@ee/metadata`; `{preset}` expands to the preset name.
    */
   folderTemplate: string;

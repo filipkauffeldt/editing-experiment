@@ -3,6 +3,7 @@ import { asSourceId } from '@ee/contracts';
 import { createTemplateContext, type TemplateContext } from '@ee/ingest';
 import {
   expandVariables,
+  listedInContext,
   TEMPLATE_VARIABLES,
   templateVariablesFor,
   unknownTemplateVariables,
@@ -11,8 +12,15 @@ import {
 } from '@ee/metadata/variables';
 import { describe, expect, it } from 'vitest';
 import { expandIngestTemplate } from '../src/jobs/backend/ingest-template';
+import { resolveExportFileName } from '../src/jobs/backend/export-service';
+import { defaultExportPreset } from '../src/shared/settings';
 
-const CONTEXTS: readonly TemplateVariableContext[] = ['export', 'ingest', 'destination'];
+const CONTEXTS: readonly TemplateVariableContext[] = [
+  'export',
+  'exportFolder',
+  'ingest',
+  'destination',
+];
 
 const fields = {
   headline: 'FCB 2–1 Sevilla',
@@ -47,6 +55,7 @@ const captureTime = '2026-10-27T20:15:04.123+01:00';
 /** What ExportService gives the folder and file name templates, minus sequence. */
 const exportContext: CaptionContext = {
   filePath: '/photos/card/2026-10-27_FCB_001.NEF',
+  photoFolder: '/photos/card',
   fileName: '2026-10-27_FCB_001.NEF',
   fileNameBase: '2026-10-27_FCB_001',
   captureTime,
@@ -79,6 +88,7 @@ const ingestContext: TemplateContext = createTemplateContext({
 function expand(context: TemplateVariableContext, template: string): string {
   if (context === 'ingest') return expandIngestTemplate(template, ingestContext);
   if (context === 'destination') return expandVariables(template, destinationContext).text;
+  // The folder and file name templates share one expander; only what is listed differs.
   // Export replaces {preset} before the shared expander sees the template.
   return expandVariables(template.replaceAll('{preset}', 'Desk 2048'), exportContext).text;
 }
@@ -93,7 +103,11 @@ describe('template variable registry', () => {
   it('lists exactly the variables each template path expands', () => {
     for (const context of CONTEXTS) {
       for (const variable of TEMPLATE_VARIABLES) {
-        const listed = variable.contexts.includes(context);
+        const listed = listedInContext(variable.contexts, context);
+        // A variable for the folder template alone is expanded by the shared expander in the
+        // file name template too, but that template refuses it (see the test below), so the
+        // two-way check is made where it is listed.
+        if (context === 'export' && variable.contexts.every((c) => c === 'exportFolder')) continue;
         const token = `{${variable.name}}`;
         expect(expands(context, token), `${context} {${variable.name}} listed=${listed}`).toBe(
           listed,
@@ -104,13 +118,47 @@ describe('template variable registry', () => {
           );
         }
         for (const format of variable.formats) {
-          const formatListed = format.contexts.includes(context);
+          const formatListed = listedInContext(format.contexts, context);
           expect(expands(context, format.template), `${context} ${format.template}`).toBe(
             formatListed,
           );
         }
       }
     }
+  });
+
+  it('keeps a folder-only variable out of the file name template, which refuses it', () => {
+    const folderOnly = TEMPLATE_VARIABLES.filter((variable) =>
+      variable.contexts.every((context) => context === 'exportFolder'),
+    );
+    expect(folderOnly.map((variable) => variable.name)).toEqual(['photofolder']);
+    for (const variable of folderOnly) {
+      const token = `{${variable.name}}`;
+      expect(templateVariablesFor('exportFolder')).toContain(variable);
+      expect(templateVariablesFor('export')).not.toContain(variable);
+      expect(unknownTemplateVariables(token, 'exportFolder')).toEqual([]);
+      expect(unknownTemplateVariables(token, 'export')).toEqual([variable.name]);
+      expect(() =>
+        resolveExportFileName({ ...defaultExportPreset(), fileNameTemplate: token }, exportContext),
+      ).toThrowError(/file name/i);
+    }
+  });
+
+  it('offers everything the file name template does in the folder template, plus {photofolder}', () => {
+    const fileNames = templateVariablesFor('export').map((variable) => variable.name);
+    const folders = templateVariablesFor('exportFolder').map((variable) => variable.name);
+    expect(folders).toEqual(expect.arrayContaining(fileNames));
+    expect(folders).toContain('photofolder');
+    expect(folders).toContain('preset');
+    for (const context of ['ingest', 'destination'] as const) {
+      expect(templateVariablesFor(context).map((variable) => variable.name)).not.toContain(
+        'photofolder',
+      );
+    }
+    const photofolder = TEMPLATE_VARIABLES.find((variable) => variable.name === 'photofolder');
+    expect(photofolder?.example).toBe('/Photos/20261104_GAIS-AIK');
+    expect(photofolder?.description).toMatch(/start of the folder template/);
+    expect(unknownTemplateVariables('{photofolder}/export/{preset}', 'exportFolder')).toEqual([]);
   });
 
   it('offers only entries that work in the field', () => {
