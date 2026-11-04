@@ -110,8 +110,10 @@ describe.skipIf(!haveDisplay)('card discovery (Electron)', { timeout: 60_000 }, 
   }, 60_000);
 
   const cardRows = () => window.getByTestId('ingest-card');
+  /** Nothing scans by itself: after a card is inserted or pulled, press the button. */
+  const rescan = () => window.getByRole('button', { name: 'Rescan cards' }).click();
 
-  it('lists the inserted card on its own, with its image count, and picks nothing', async () => {
+  it('lists the card that is in when the view opens, with its image count, and picks nothing', async () => {
     const row = cardRows().first();
     await row.waitFor({ timeout: 15_000 });
     await expect.poll(() => row.textContent(), { timeout: 15_000 }).toContain('2 images');
@@ -123,14 +125,34 @@ describe.skipIf(!haveDisplay)('card discovery (Electron)', { timeout: 60_000 }, 
     expect(await invoke<SourceConfig[]>('sources:list')).toEqual([]);
   });
 
-  it('shows a second card with the same label as its own row, then drops it when removed', async () => {
+  it('does not notice a card on its own, shows it after Rescan cards, and drops a removed one', async () => {
     const second = insertCard(mountRoot, 'NIKON Z 61', ['_DSC0003.NEF']);
+    // No background probing: well past the old 3 s interval the list is unchanged.
+    await window.waitForTimeout(4_000);
+    expect(await cardRows().count()).toBe(1);
+
+    await rescan();
     await expect.poll(() => cardRows().count(), { timeout: 15_000 }).toBe(2);
     const labels = await cardRows().allTextContents();
     expect(labels.join('\n')).toContain(join(mountRoot, 'NIKON Z 61'));
 
     rmSync(second, { recursive: true, force: true });
+    await rescan();
     await expect.poll(() => cardRows().count(), { timeout: 15_000 }).toBe(1);
+  });
+
+  it('counts the images again on a rescan', async () => {
+    const folder = join(mountRoot, 'NIKON Z 6', 'DCIM', '100NCZ');
+    writeFileSync(join(folder, '_DSC0099.NEF'), 'not a real raw');
+    await rescan();
+    await expect
+      .poll(() => cardRows().first().textContent(), { timeout: 15_000 })
+      .toContain('3 images');
+    rmSync(join(folder, '_DSC0099.NEF'));
+    await rescan();
+    await expect
+      .poll(() => cardRows().first().textContent(), { timeout: 15_000 })
+      .toContain('2 images');
   });
 
   it('picks a card, keeps its filters, and a card put back keeps them', async () => {
@@ -146,8 +168,10 @@ describe.skipIf(!haveDisplay)('card discovery (Electron)', { timeout: 60_000 }, 
 
     // Pull the card: the row goes, and the card comes back unpicked with the same source.
     rmSync(join(mountRoot, 'NIKON Z 6'), { recursive: true, force: true });
+    await rescan();
     await expect.poll(() => cardRows().count(), { timeout: 15_000 }).toBe(0);
     insertCard(mountRoot, 'NIKON Z 6', ['_DSC0001.NEF', '_DSC0002.NEF']);
+    await rescan();
     await expect.poll(() => cardRows().count(), { timeout: 15_000 }).toBe(1);
     const back = cardRows().first();
     expect(await back.getByRole('checkbox', { name: 'NIKON Z 6' }).isChecked()).toBe(false);
@@ -165,19 +189,19 @@ describe.skipIf(!haveDisplay)('card discovery (Electron)', { timeout: 60_000 }, 
   });
 
   it.skipIf(!nef)(
-    'ingests a picked card through the normal engine when Ingest is pressed',
+    'a card pulled out before Ingest fails by name while the other picked card is ingested',
     async () => {
       const mount = insertCard(mountRoot, 'REAL CARD', []);
       copyInto(nef!, join(mount, 'DCIM', '100NCZ', 'DSC_0001.NEF'));
+      await rescan();
       await expect.poll(() => cardRows().count(), { timeout: 15_000 }).toBe(2);
-      // Still ticked from the test above; this run is about the new card only.
-      await cardRows()
-        .filter({ hasText: 'NIKON Z 6' })
-        .getByRole('checkbox', { name: 'NIKON Z 6' })
-        .uncheck();
+      // NIKON Z 6 is still ticked from the test above; tick the real one too.
       const real = cardRows().filter({ hasText: 'REAL CARD' });
       await real.getByRole('checkbox', { name: 'REAL CARD' }).check();
       await window.getByLabel('Destination folder').fill(join(root, 'ingest'));
+
+      // Pull NIKON Z 6 without rescanning, then press Ingest.
+      rmSync(join(mountRoot, 'NIKON Z 6'), { recursive: true, force: true });
       await window
         .getByTestId('ingest-view')
         .getByRole('button', { name: 'Ingest', exact: true })
@@ -186,11 +210,13 @@ describe.skipIf(!haveDisplay)('card discovery (Electron)', { timeout: 60_000 }, 
       await expect
         .poll(async () => (await invoke<Photo[]>('photos:list')).length, { timeout: 120_000 })
         .toBe(1);
-      // The other card was not ticked, so nothing came from it.
-      const photos = await invoke<Photo[]>('photos:list');
       const sources = await invoke<SourceConfig[]>('sources:list');
       const realId = sources.find((source) => source.name === 'REAL CARD')?.id;
-      expect(photos[0]?.sourceId).toBe(realId);
+      expect((await invoke<Photo[]>('photos:list'))[0]?.sourceId).toBe(realId);
+      // The pulled card's run says which card it was.
+      await expect
+        .poll(() => window.getByTestId('ingest-view').textContent(), { timeout: 15_000 })
+        .toMatch(/Card "NIKON Z 6" is not available/);
     },
     150_000,
   );

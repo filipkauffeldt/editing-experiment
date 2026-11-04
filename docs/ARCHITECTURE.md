@@ -129,23 +129,32 @@ exports/             default exportRoot (presets choose folders below it)
   `sources:detectCards`, with no native module and no platform tool. It scans `/media/<user>`,
   `/run/media/<user>` and `/media` on Linux, `/Volumes` on macOS (symlinks, i.e. the boot volume,
   are skipped) and the drives D: to Z: on Windows, and keeps volumes that have a `DCIM` folder.
+  Nothing scans in the background: the renderer scans once when the Ingest view opens and when
+  the user presses **Rescan cards** (`AppStore.refreshCards`; a click during a running scan gets
+  one more scan after it). A scan lists the cards at once, without counts (`recount: true`); the
+  images are then counted in the background and the numbers arrive on a second call
+  (`waitForCounts: true`), so every rescan recounts and the list never waits for a count.
   Every filesystem call has a timeout and runs concurrently with the others; a call that timed
   out is not issued again while it is still pending, so a dead network drive holds one libuv
-  thread (the jobs process runs with `UV_THREADPOOL_SIZE=16`) however often the app polls.
-  Images are counted once, in the background, when a mount path first appears; the scanner
-  returns the card at once without `imageCount` and later polls carry it. Windows has no volume
-  label without a native module, so a card there is "Drive E". `EE_CARD_ROOTS` replaces the
-  scanned folders (tests only).
-  The renderer polls every 3 s while the Ingest view is open (`AppStore.watchCards`). Ticking a
-  card (`pickCard`) creates a `CardSource` with `discovered: true`, once per volume: the next
-  time the volume appears it is matched to that source by mount path, else by volume label (a
-  source whose mount path is not a mounted card now), so filters and incremental state survive
-  re-insertion and two cards named `NIKON Z 6` keep separate sources (the second is named
-  `NIKON Z 6 (2)`). A discovered source is ingested only while it is ticked; ticks are not
-  persisted and reset when the card leaves, unless its run is still going. Hand-added card
-  sources are ingested like folders, and a mounted card they already cover is not offered again.
-  The seen-store remembers a card's files by path below the mount point, so a different drive
-  letter or mount path does not make everything new again (older absolute entries still count).
+  thread (the jobs process runs with `UV_THREADPOOL_SIZE=16`). A timeout, a pending call or a
+  failure is "unknown", not "gone": a card found before stays listed (with its last count) and
+  keeps its tick until a definite answer (no `DCIM`, or a completed listing without it), and a
+  volume never seen before needs a positive answer to appear. A listing that fails for a reason
+  other than "not there" is not read as "no cards". Windows has no volume label without a
+  native module, so a card there is "Drive E". `EE_CARD_ROOTS` replaces the scanned folders
+  (tests only).
+  Ticking a card (`pickCard`) creates a `CardSource` with `discovered: true`, once per volume:
+  the next time the volume appears it is matched to that source by mount path, else by volume
+  label (a source whose mount path is not a mounted card now), so filters and incremental state
+  survive re-insertion and two cards named `NIKON Z 6` keep separate sources (the second is
+  named `NIKON Z 6 (2)`). A discovered source is ingested only while it is ticked; ticks are not
+  persisted and reset when a scan no longer finds the card, unless its run is still going.
+  Hand-added card sources are ingested like folders, and a mounted card they already cover is
+  not offered again. A card pulled out after the last scan and ticked still goes into the
+  ingest: its own run fails with `Card "<name>" is not available at <mount>…`, shown on its
+  row, and the other sources carry on. The seen-store remembers a card's files by path below the
+  mount point, so a different drive letter or mount path does not make everything new again
+  (older absolute entries still count).
 - `app://thumb|preview` are cached JPEGs. `app://linear/<id>?maxEdge=N` is decoded in the jobs process
   (f16 for raws, f32 for JPEGs), written to `cache/linear` (small LRU) and streamed from
   there by main, with the `LinearImageHeader` in `x-ee-linear-image`. Main only streams

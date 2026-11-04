@@ -1620,16 +1620,29 @@ describe('card discovery', () => {
   });
 
   async function setupCards(initial: ReturnType<typeof card>[]) {
-    const mounted = { cards: initial };
+    // Like the real scanner: the list comes back without counts, the counts on a second call,
+    // which a test can hold back with `gate`.
+    const mounted: { cards: typeof initial; gate?: Promise<void> } = { cards: initial };
     const result = await setup({
-      handlers: { 'sources:detectCards': async () => mounted.cards },
+      handlers: {
+        'sources:detectCards': async (args) => {
+          const { waitForCounts } = (args ?? {}) as { waitForCounts?: boolean };
+          if (waitForCounts) await mounted.gate;
+          return mounted.cards.map(({ imageCount, ...rest }) => ({
+            ...rest,
+            ...(waitForCounts && imageCount !== undefined ? { imageCount } : {}),
+          }));
+        },
+      },
     });
+    const counted = () =>
+      vi.waitFor(() => expect(result.store.getState().cardsCounting).toBe(false));
     const ingestCalls = () => result.fake.calls.filter((call) => call.channel === 'ingest:start');
     const ingested = (): string[] => {
       const last = ingestCalls().at(-1)?.args[0] as { config: { sources: SourceConfig[] } };
       return last.config.sources.map((source) => source.name);
     };
-    return { ...result, mounted, ingestCalls, ingested };
+    return { ...result, mounted, ingestCalls, ingested, counted };
   }
 
   it('lists mounted cards, unpicked, and never starts an ingest by itself', async () => {
@@ -1646,15 +1659,86 @@ describe('card discovery', () => {
     expect(fake.calls.some((call) => call.channel === 'sources:save')).toBe(false);
   });
 
-  it('shows a card at once and fills in the image count on a later poll', async () => {
-    const { store, mounted } = await setupCards([card('/media/filip/NIKON_Z9', 'NIKON_Z9')]);
+  it('shows a card at once, then fills in its image count without holding the list back', async () => {
+    const { store, mounted, counted } = await setupCards([
+      card('/media/filip/NIKON_Z9', 'NIKON_Z9', 412),
+    ]);
+    let release: () => void = () => undefined;
+    mounted.gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+
     await store.refreshCards();
+    expect(store.getState().cards.map((entry) => entry.mountPath)).toEqual([
+      '/media/filip/NIKON_Z9',
+    ]);
     expect(store.getState().cards[0]?.imageCount).toBeUndefined();
+    expect(store.getState().cardsCounting).toBe(true);
 
-    mounted.cards = [card('/media/filip/NIKON_Z9', 'NIKON_Z9', 412)];
-    await store.refreshCards();
-
+    release();
+    await counted();
     expect(store.getState().cards[0]?.imageCount).toBe(412);
+  });
+
+  it('asks for a recount on every scan, and never scans on its own', async () => {
+    vi.useFakeTimers();
+    try {
+      const { store, fake } = await setupCards([card('/media/filip/NIKON_Z9', 'NIKON_Z9', 5)]);
+      const scans = () =>
+        fake.calls.filter(
+          (call) =>
+            call.channel === 'sources:detectCards' &&
+            (call.args[0] as { recount?: boolean } | undefined)?.recount,
+        );
+      expect(scans()).toHaveLength(0);
+
+      await vi.advanceTimersByTimeAsync(120_000);
+      expect(scans()).toHaveLength(0);
+
+      await store.refreshCards();
+      await store.refreshCards();
+      expect(scans()).toHaveLength(2);
+      await vi.advanceTimersByTimeAsync(120_000);
+      expect(scans()).toHaveLength(2);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('follows a scan that is already running instead of dropping the click', async () => {
+    let release: () => void = () => undefined;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let scans = 0;
+    const mounted = { cards: [] as ReturnType<typeof card>[] };
+    const { store } = await setup({
+      handlers: {
+        'sources:detectCards': async (args) => {
+          if ((args as { recount?: boolean } | undefined)?.recount) {
+            scans += 1;
+            if (scans === 1) await gate;
+          }
+          return mounted.cards;
+        },
+      },
+    });
+
+    const first = store.refreshCards();
+    expect(store.getState().cardsScanning).toBe(true);
+    // The user pulled a card and clicked while the first scan was still going.
+    mounted.cards = [card('/media/filip/NIKON_Z9', 'NIKON_Z9')];
+    const second = store.refreshCards();
+    const third = store.refreshCards();
+    expect(scans).toBe(1);
+
+    release();
+    await Promise.all([first, second, third]);
+
+    // One extra scan, shared by both later clicks, which saw the card.
+    expect(scans).toBe(2);
+    expect(store.getState().cards).toHaveLength(1);
+    expect(store.getState().cardsScanning).toBe(false);
   });
 
   it('creates one persisted source when a card is picked and reuses it after re-insertion', async () => {
@@ -1786,29 +1870,7 @@ describe('card discovery', () => {
     expect(store.getState().pickedCards).toEqual([]);
   });
 
-  it('polls on an interval while watched and stops when the watcher is released', async () => {
-    vi.useFakeTimers();
-    try {
-      const { store, fake } = await setupCards([]);
-      const polls = () =>
-        fake.calls.filter((call) => call.channel === 'sources:detectCards').length;
-      const base = polls();
-
-      const stop = store.watchCards(3000);
-      await vi.advanceTimersByTimeAsync(0);
-      expect(polls()).toBe(base + 1);
-      await vi.advanceTimersByTimeAsync(9000);
-      expect(polls()).toBe(base + 4);
-
-      stop();
-      await vi.advanceTimersByTimeAsync(9000);
-      expect(polls()).toBe(base + 4);
-    } finally {
-      vi.useRealTimers();
-    }
-  });
-
-  it('reports a failing scan once, not on every poll', async () => {
+  it('reports a scan that fails, once per scan', async () => {
     const { store } = await setup({
       handlers: {
         'sources:detectCards': async () => {
@@ -1818,18 +1880,18 @@ describe('card discovery', () => {
     });
 
     await store.refreshCards();
-    await store.refreshCards();
-
     expect(
       store.getState().toasts.filter((toast) => toast.message.includes('scan broke')),
     ).toHaveLength(1);
+    expect(store.getState().cardsScanning).toBe(false);
+    expect(store.getState().cardsCounting).toBe(false);
   });
 
   it('keeps a picked card picked and counted while its probe is slow, and unpicks it once it is gone', async () => {
     // The real scanner over a fake volume whose DCIM stat can be made slow, like a busy USB reader.
     const mount = '/media/filip/NIKON_Z9';
     const present = { dcim: true };
-    let slow: Promise<void> | undefined;
+    const slow: { until?: Promise<void> } = {};
     const fs: CardFileSystem = {
       async list(path) {
         if (path === '/media/filip') return [{ name: 'NIKON_Z9', isDirectory: true }];
@@ -1837,7 +1899,7 @@ describe('card discovery', () => {
         return [];
       },
       async isDirectory(path) {
-        await slow;
+        await slow.until;
         return path === `${mount}/DCIM` && present.dcim;
       },
     };
@@ -1849,20 +1911,25 @@ describe('card discovery', () => {
       probeTimeoutMs: 10,
     });
     const { store } = await setup({
-      handlers: { 'sources:detectCards': () => scanner.scan({ waitForCounts: true }) },
+      handlers: { 'sources:detectCards': (args) => scanner.scan(args as { recount?: boolean }) },
     });
+    const counted = () => vi.waitFor(() => expect(store.getState().cardsCounting).toBe(false));
     await store.refreshCards();
+    await counted();
     await store.pickCard(store.getState().cards[0]!, true);
     const picked = store.getState().pickedCards;
     expect(picked).toHaveLength(1);
     expect(store.getState().cards[0]?.imageCount).toBe(1);
 
     let release: () => void = () => undefined;
-    slow = new Promise<void>((resolve) => {
+    slow.until = new Promise<void>((resolve) => {
       release = resolve;
     });
+    // A rescan while the reader is busy: the probe times out, which is not "gone".
     await store.refreshCards();
+    await counted();
     await store.refreshCards();
+    await counted();
     expect(store.getState().cards.map((card) => card.mountPath)).toEqual([mount]);
     expect(store.getState().cards[0]?.imageCount).toBe(1);
     expect(store.getState().pickedCards).toEqual(picked);
@@ -1871,8 +1938,29 @@ describe('card discovery', () => {
     release();
     await new Promise((resolve) => setTimeout(resolve, 0));
     await store.refreshCards();
+    await counted();
     expect(store.getState().cards).toEqual([]);
     expect(store.getState().pickedCards).toEqual([]);
+  });
+
+  it("keeps a run's first error on its row, so a pulled card still says which one it was", async () => {
+    const { store, fake } = await setupCards([card('/media/filip/NIKON_Z9', 'NIKON_Z9')]);
+    await store.refreshCards();
+    await store.pickCard(store.getState().cards[0]!, true);
+    const [id] = store.getState().pickedCards;
+    await store.startIngest(store.getState().settings!.ingest);
+    const jobId = store.getState().ingest[id!]!.jobId;
+
+    fake.emit('jobs:event', {
+      type: 'job.error',
+      at: 0,
+      jobId,
+      scope: 'ingest',
+      message: 'Card "NIKON_Z9" is not available at /media/filip/NIKON_Z9: it was removed.',
+    });
+    fake.emit('jobs:event', { type: 'job.error', at: 1, jobId, scope: 'ingest', message: 'later' });
+
+    expect(store.getState().ingest[id!]?.error).toContain('Card "NIKON_Z9" is not available');
   });
 
   it('refuses to start an ingest with nothing to run', async () => {

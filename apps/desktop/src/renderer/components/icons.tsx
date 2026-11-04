@@ -144,3 +144,13 @@ export function WarningIcon(props: IconProps) {
     </Icon>
   );
 }
+
+/** Circular arrow: scan again. */
+export function RefreshIcon(props: IconProps) {
+  return (
+    <Icon {...props}>
+      <path d="M13.5 8a5.5 5.5 0 1 1-1.6-3.9" />
+      <path d="M13.5 2.5v3h-3" />
+    </Icon>
+  );
+}

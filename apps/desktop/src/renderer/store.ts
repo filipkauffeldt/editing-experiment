@@ -342,8 +342,12 @@ export interface AppState {
   presets: EditPreset[];
   uploads: UploadItem[];
   ingest: Record<string, IngestRun>;
-  /** Cards mounted now, as the last poll saw them (`sources:detectCards`). */
+  /** Cards mounted as of the last scan (`sources:detectCards`). */
   cards: DetectedCard[];
+  /** A scan for cards is running. */
+  cardsScanning: boolean;
+  /** The images of the listed cards are being counted. */
+  cardsCounting: boolean;
   /** Ids of the discovered card sources the user ticked; only these are ingested. Starts empty. */
   pickedCards: string[];
   metadata: Record<string, IptcFields>;
@@ -650,6 +654,8 @@ const emptyState = (): AppState => ({
   uploads: [],
   ingest: {},
   cards: [],
+  cardsScanning: false,
+  cardsCounting: false,
   pickedCards: [],
   metadata: {},
   metadataUnresolved: {},
@@ -815,8 +821,6 @@ export class AppStore {
    */
   readonly dispose = async (): Promise<void> => {
     this.started = false;
-    this.stopCardTimer();
-    this.cardWatchers = 0;
     for (const unsubscribe of this.unsubscribers.splice(0)) unsubscribe();
     if (this.beforeUnload && typeof window !== 'undefined') {
       window.removeEventListener('beforeunload', this.beforeUnload);
@@ -3358,52 +3362,68 @@ export class AppStore {
 
   // -------------------------------------------------------------------- cards
 
-  private cardWatchers = 0;
-  private cardTimer: ReturnType<typeof setInterval> | undefined;
-  private cardPolling = false;
-  private cardPollFailed = false;
+  private cardScan: Promise<void> | undefined;
+  private cardScanNext: Promise<void> | undefined;
+  private cardGeneration = 0;
 
   /**
-   * Polls for inserted cards while a view needs them (the Ingest view). Returns the function
-   * that stops watching; the timer runs while at least one watcher is left.
+   * Looks for cards now. The Ingest view calls it when it opens and the Rescan button calls it;
+   * nothing else scans, and there is no timer. A click while a scan is running is not dropped:
+   * it gets one more scan after the running one (shared by every click in between), so a card
+   * pulled out or put in just before the click is seen.
+   *
+   * The list is applied as soon as the scan answers, without image counts; the counts arrive
+   * afterwards (`cardsCounting`) and never hold the list back.
    */
-  readonly watchCards = (intervalMs = 3000): (() => void) => {
-    this.cardWatchers += 1;
-    if (this.cardWatchers === 1) {
-      void this.refreshCards();
-      this.cardTimer = setInterval(() => void this.refreshCards(), intervalMs);
-    }
-    let stopped = false;
-    return () => {
-      if (stopped) return;
-      stopped = true;
-      this.cardWatchers -= 1;
-      if (this.cardWatchers === 0) this.stopCardTimer();
-    };
+  readonly refreshCards = (): Promise<void> => {
+    if (!this.cardScan) return this.startCardScan();
+    this.cardScanNext ??= this.cardScan.then(() => {
+      this.cardScanNext = undefined;
+      return this.startCardScan();
+    });
+    return this.cardScanNext;
   };
 
-  private stopCardTimer(): void {
-    if (this.cardTimer !== undefined) clearInterval(this.cardTimer);
-    this.cardTimer = undefined;
+  private startCardScan(): Promise<void> {
+    const scan = this.scanCards().finally(() => {
+      if (this.cardScan === scan) this.cardScan = undefined;
+    });
+    this.cardScan = scan;
+    return scan;
   }
 
-  /** One poll. A poll that is still running is not doubled up by the next tick. */
-  readonly refreshCards = async (): Promise<void> => {
-    if (this.cardPolling) return;
-    this.cardPolling = true;
+  private async scanCards(): Promise<void> {
+    const generation = ++this.cardGeneration;
+    this.set({ cardsScanning: true });
+    let listed = false;
     try {
-      const cards = await this.bridge.invoke('sources:detectCards');
-      this.cardPollFailed = false;
+      const cards = await this.bridge.invoke('sources:detectCards', { recount: true });
       if (this.started) this.applyCards(cards);
+      listed = true;
     } catch (cause) {
-      // One toast per streak of failures, not one every 3 s.
-      if (!this.cardPollFailed)
-        this.toast('error', `Could not look for cards: ${messageOf(cause)}`);
-      this.cardPollFailed = true;
+      this.toast('error', `Could not look for cards: ${messageOf(cause)}`);
+      // An older count is ignored from now on, so it can no longer clear this flag.
+      this.set({ cardsCounting: false });
     } finally {
-      this.cardPolling = false;
+      this.set({ cardsScanning: false });
     }
-  };
+    // Not awaited: a slow count must not hold up the next scan.
+    if (listed) void this.countCards(generation);
+  }
+
+  private async countCards(generation: number): Promise<void> {
+    this.set({ cardsCounting: true });
+    try {
+      const counted = await this.bridge.invoke('sources:detectCards', { waitForCounts: true });
+      if (this.started && generation === this.cardGeneration) this.applyCards(counted);
+    } catch (cause) {
+      if (generation === this.cardGeneration) {
+        this.toast('error', `Could not count the images on the cards: ${messageOf(cause)}`);
+      }
+    } finally {
+      if (generation === this.cardGeneration) this.set({ cardsCounting: false });
+    }
+  }
 
   private applyCards(cards: DetectedCard[]): void {
     const current = this.state.cards;
@@ -3583,9 +3603,20 @@ export class AppStore {
         }
         break;
       }
-      case 'job.error':
+      case 'job.error': {
         this.toast('error', `${event.scope}: ${event.message}`);
+        // The toast goes away; the run keeps its first error on its row (a pulled card, for one).
+        const run =
+          event.scope === 'ingest' && event.jobId !== undefined
+            ? Object.values(this.state.ingest).find((candidate) => candidate.jobId === event.jobId)
+            : undefined;
+        if (run && run.error === undefined) {
+          this.set({
+            ingest: { ...this.state.ingest, [run.sourceId]: { ...run, error: event.message } },
+          });
+        }
         break;
+      }
     }
   }
 

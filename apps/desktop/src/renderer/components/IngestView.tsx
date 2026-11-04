@@ -6,6 +6,7 @@ import type { IngestRun } from '../store';
 import { ActionBar, barStyles } from './ActionBar';
 import { Dot } from './ui/Dot';
 import { Button } from './ui/Button';
+import { RefreshIcon } from './icons';
 import { IngestSection } from './SettingsDialog';
 import { SourceFilters, sourceFilterValues } from './SourceFilters';
 import styles from './IngestView.module.css';
@@ -56,21 +57,53 @@ function RunStatus({ source, run }: { source: SourceConfig; run: IngestRun | und
   );
 }
 
-const countText = (card: DetectedCard): string =>
+const countText = (card: DetectedCard, counting: boolean): string =>
   card.imageCount === undefined
-    ? 'counting…'
+    ? counting
+      ? 'counting…'
+      : '—'
     : `${card.imageCount} ${card.imageCount === 1 ? 'image' : 'images'}`;
 
+/** Long enough to read as "it looked", for a scan that answers in a few milliseconds. */
+const MIN_BUSY_MS = 400;
+
+/** Scans again on click; the arrow turns while the scan runs. */
+function RescanButton() {
+  const store = useAppStore();
+  const scanning = useAppState().cardsScanning;
+  const [held, setHeld] = useState(false);
+  const busy = scanning || held;
+  return (
+    <Button
+      variant="ghost"
+      size="small"
+      aria-label="Rescan cards"
+      title="Rescan cards"
+      aria-busy={busy}
+      data-testid="rescan-cards"
+      onClick={() => {
+        setHeld(true);
+        void store.refreshCards().finally(() => setTimeout(() => setHeld(false), MIN_BUSY_MS));
+      }}
+    >
+      <RefreshIcon className={busy ? styles.spinning : undefined} />
+    </Button>
+  );
+}
+
 /**
- * The cards in the machine right now, found on their own: tick the ones to ingest. Polls
- * while the view is open. A card that is pulled out disappears, unless its run is still going
- * or failed, in which case the row stays with the run's own error until dismissed.
+ * The cards in the machine, found on their own: tick the ones to ingest. Scanned when the view
+ * opens and by the Rescan button. A card that is gone after a scan disappears, unless its run is
+ * still going or failed, in which case the row stays with the run's own error until dismissed.
  */
 function CardsSection() {
   const store = useAppStore();
   const state = useAppState();
   const [dismissed, setDismissed] = useState<ReadonlySet<string>>(new Set());
-  useEffect(() => store.watchCards(), [store]);
+  // Cards are looked for when the view opens and when the user asks; nothing polls.
+  useEffect(() => {
+    void store.refreshCards();
+  }, [store]);
 
   const offered = unconfiguredCards(state.cards, state.sources);
   const matches = matchCardSources(state.cards, state.sources);
@@ -86,7 +119,10 @@ function CardsSection() {
 
   return (
     <>
-      <h3 className={styles.title}>Cards</h3>
+      <div className={styles.titleBar}>
+        <h3 className={styles.title}>Cards</h3>
+        <RescanButton />
+      </div>
       <ul className={styles.list} data-testid="ingest-cards">
         {offered.length === 0 && gone.length === 0 && (
           <li className={styles.empty}>No card found. Insert one and it shows up here.</li>
@@ -118,7 +154,7 @@ function CardsSection() {
                 />
                 <span className={styles.name}>{label}</span>
               </label>
-              <span className={`${styles.kind} mono`}>{countText(card)}</span>
+              <span className={`${styles.kind} mono`}>{countText(card, state.cardsCounting)}</span>
               <span className={`${styles.mount} mono`} title={card.mountPath}>
                 {card.mountPath}
               </span>

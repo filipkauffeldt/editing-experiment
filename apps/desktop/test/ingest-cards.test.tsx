@@ -9,9 +9,25 @@ import { createFakeBridge } from './fake-bridge';
 const stores: AppStore[] = [];
 
 async function renderIngest(initial: DetectedCard[]) {
-  const mounted = { cards: initial };
+  // Like the real scanner: a scan lists the cards, the counts come on a second call.
+  const mounted: { cards: DetectedCard[]; gate?: Promise<void>; scanGate?: Promise<void> } = {
+    cards: initial,
+  };
   const fake = createFakeBridge({
-    handlers: { 'sources:detectCards': async () => mounted.cards },
+    handlers: {
+      'sources:detectCards': async (args) => {
+        const { recount, waitForCounts } = (args ?? {}) as {
+          recount?: boolean;
+          waitForCounts?: boolean;
+        };
+        if (recount) await mounted.scanGate;
+        if (waitForCounts) await mounted.gate;
+        return mounted.cards.map(({ imageCount, ...rest }) => ({
+          ...rest,
+          ...(waitForCounts && imageCount !== undefined ? { imageCount } : {}),
+        }));
+      },
+    },
   });
   window.eeTransport = fake.transport;
   const store = createAppStore(fake.bridge, {
@@ -56,13 +72,62 @@ describe('Ingest view cards', () => {
     const { mounted, poll } = await renderIngest([]);
     expect(await screen.findByText(/No card found/)).toBeTruthy();
 
-    mounted.cards = [{ mountPath: z9.mountPath, volumeLabel: z9.volumeLabel }];
-    await poll();
-    expect(await screen.findByText('counting…')).toBeTruthy();
-
+    let release: () => void = () => undefined;
+    mounted.gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
     mounted.cards = [z9];
     await poll();
+    expect(await screen.findByText('counting…')).toBeTruthy();
+    expect(screen.getByText('NIKON_Z9')).toBeTruthy();
+
+    release();
     expect(await screen.findByText('412 images')).toBeTruthy();
+  });
+
+  it('scans when the view opens, and only again when Rescan cards is pressed', async () => {
+    const { fake, mounted, user } = await renderIngest([]);
+    const scans = () =>
+      fake.calls.filter(
+        (call) =>
+          call.channel === 'sources:detectCards' &&
+          (call.args[0] as { recount?: boolean } | undefined)?.recount,
+      ).length;
+    await waitFor(() => expect(scans()).toBe(1));
+    expect(screen.queryByTestId('ingest-card')).toBeNull();
+
+    // The card goes in; nothing happens until the user asks.
+    mounted.cards = [z9];
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    expect(scans()).toBe(1);
+    expect(screen.queryByTestId('ingest-card')).toBeNull();
+
+    const button = screen.getByRole('button', { name: 'Rescan cards' });
+    expect(button.getAttribute('title')).toBe('Rescan cards');
+    await user.click(button);
+
+    expect((await screen.findByTestId('ingest-card')).textContent).toContain('NIKON_Z9');
+    expect(scans()).toBe(2);
+  });
+
+  it('turns the rescan arrow while the scan runs and counts the images again', async () => {
+    const { mounted, user } = await renderIngest([z9]);
+    await screen.findByText('412 images');
+    const button = screen.getByRole('button', { name: 'Rescan cards' });
+    expect(button.getAttribute('aria-busy')).toBe('false');
+
+    let release: () => void = () => undefined;
+    mounted.scanGate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    mounted.cards = [{ ...z9, imageCount: 500 }];
+    await user.click(button);
+    expect(button.getAttribute('aria-busy')).toBe('true');
+    // The old number is not shown as current while the card is scanned again.
+    release();
+
+    expect(await screen.findByText('500 images')).toBeTruthy();
+    await waitFor(() => expect(button.getAttribute('aria-busy')).toBe('false'));
   });
 
   it('picking a card shows its filters and saves them on the card source', async () => {
@@ -120,6 +185,13 @@ describe('Ingest view cards', () => {
 
     act(() => {
       fake.emit('jobs:event', {
+        type: 'job.error',
+        at: 0,
+        jobId: store.getState().ingest[sourceId!]!.jobId,
+        scope: 'ingest',
+        message: 'Card "NIKON_Z9" is not available at /media/filip/NIKON_Z9: it was removed.',
+      });
+      fake.emit('jobs:event', {
         type: 'ingest.state',
         at: 0,
         jobId: store.getState().ingest[sourceId!]!.jobId,
@@ -128,7 +200,9 @@ describe('Ingest view cards', () => {
       });
     });
     await poll();
-    expect(screen.getByTestId('ingest-card-removed')).toBeTruthy();
+    expect(screen.getByTestId('ingest-card-removed').textContent).toContain(
+      'Card "NIKON_Z9" is not available',
+    );
     await user.click(within(screen.getByTestId('ingest-card-removed')).getByText('Dismiss'));
     await waitFor(() => expect(screen.queryByTestId('ingest-card-removed')).toBeNull());
   });
