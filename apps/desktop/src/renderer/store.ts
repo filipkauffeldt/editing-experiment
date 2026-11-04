@@ -201,8 +201,8 @@ export interface CropSession {
   /** Swaps the aspect preset's orientation (X), e.g. 3:2 → 2:3. */
   flipped: boolean;
   /**
-   * `crop`: drag a handle to resize, inside the frame to pan the image, outside
-   * it to rotate. `draw`: Lightroom's crop frame tool, drag out a new frame.
+   * `crop`: drag a handle to resize, inside the frame to pan the image (or to
+   * draw a new frame while the photo is uncropped), outside it to rotate. `draw`: Lightroom's crop frame tool, drag out a new frame.
    * `straighten`: draw a line along the horizon.
    */
   tool: 'crop' | 'draw' | 'straighten';

@@ -7,6 +7,7 @@ import {
   frameRect,
   guideSegments,
   hitTestFrame,
+  isUncroppedFrame,
   screenToView,
   viewToScreen,
   type CropLayout,
@@ -31,7 +32,8 @@ const HANDLES: CropHandle[] = ['nw', 'n', 'ne', 'e', 'se', 's', 'sw', 'w'];
  * and guides and turns pointer input into store gestures:
  *
  * - a corner or edge resizes, with the opposite side anchored;
- * - inside the frame pans the image;
+ * - inside the frame pans the image, except on an uncropped photo, where a drag there
+ *   draws a new frame;
  * - outside the frame rotates it about the frame centre;
  * - the crop frame tool (`draw`) drags out a new frame instead;
  * - the straighten tool draws a line along the horizon.
@@ -53,13 +55,16 @@ export function CropOverlay({
   const active = useRef<'gesture' | 'line' | null>(null);
   const lineFrom = useRef<Point | null>(null);
   const doubleClick = useRef(createDoubleClickGuard());
-  const [hover, setHover] = useState<FrameHit>();
+  // Where the pointer is, so the zone (and the cursor) under it follows the frame as it changes.
+  const [pointer, setPointer] = useState<Point>();
   // What the press that started the current drag landed on; keeps the cursor fixed while dragging.
   const [grabbed, setGrabbed] = useState<FrameHit>();
   const [line, setLine] = useState<{ from: Point; to: Point } | null>(null);
 
   const geometry = cropGeometry(session.crop, session.image);
   const rect = frameRect(layout, session.pivot, geometry.width, geometry.height);
+  const hover: FrameHit | undefined =
+    pointer && session.tool === 'crop' ? hitTestFrame(rect, pointer) : undefined;
 
   const localPoint = (event: React.PointerEvent | React.MouseEvent): Point => {
     const box = overlayRef.current?.getBoundingClientRect();
@@ -90,7 +95,7 @@ export function CropOverlay({
     setGrabbed(hit);
     store.beginCropGesture(
       hit === 'move'
-        ? { kind: 'pan' }
+        ? { kind: isUncroppedFrame(session.crop) ? 'draw' : 'pan' }
         : hit === 'rotate'
           ? { kind: 'rotate' }
           : { kind: 'resize', handle: hit },
@@ -101,6 +106,7 @@ export function CropOverlay({
   const onPointerMove = (event: React.PointerEvent<HTMLDivElement>): void => {
     const screen = localPoint(event);
     doubleClick.current.move(screen);
+    setPointer(screen);
     if (active.current === 'gesture') {
       store.updateCropGesture(screenToView(layout, screen), {
         shift: event.shiftKey,
@@ -109,8 +115,6 @@ export function CropOverlay({
     } else if (active.current === 'line') {
       const from = lineFrom.current;
       if (from) setLine({ from, to: screenToView(layout, screen) });
-    } else {
-      setHover(session.tool === 'crop' ? hitTestFrame(rect, screen) : undefined);
     }
   };
 
@@ -155,7 +159,10 @@ export function CropOverlay({
   };
 
   const hit = grabbed ?? hover ?? 'rotate';
-  const cursor = session.tool === 'crop' ? cursorFor(hit, session.gesture === 'pan') : 'crosshair';
+  // A drag inside would draw while the photo is uncropped, and keeps drawing once it has started.
+  const draws = session.gesture === 'draw' || (!session.gesture && isUncroppedFrame(session.crop));
+  const cursor =
+    session.tool === 'crop' ? cursorFor(hit, session.gesture === 'pan', draws) : 'crosshair';
   const rotating = session.gesture === 'rotate';
   // Lightroom's "auto" overlay: shown while interacting or hovering over the frame.
   const showGuides = session.gesture !== undefined || (hover !== undefined && hover !== 'rotate');
@@ -194,7 +201,7 @@ export function CropOverlay({
       onPointerUp={finish}
       onPointerCancel={abandon}
       onLostPointerCapture={abandon}
-      onPointerLeave={() => setHover(undefined)}
+      onPointerLeave={() => setPointer(undefined)}
       onDoubleClick={onDoubleClick}
     >
       <svg
