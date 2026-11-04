@@ -574,6 +574,77 @@ describe('crop mode', () => {
     expect(store.getState().crop?.crop.angle).toBe(0);
   });
 
+  it('commits a typed angle with a comma or a dot and stays in crop', async () => {
+    const { store } = await renderApp();
+    fireEvent.keyDown(window, { key: 'c' });
+    await waitFor(() => expect(store.getState().crop).toBeDefined());
+    const field = screen.getByLabelText('Angle in degrees') as HTMLInputElement;
+    const slider = screen.getByLabelText('Straighten angle') as HTMLInputElement;
+
+    typeInto(field, '3,5');
+    expect(store.getState().crop?.crop.angle).toBe(0);
+    commitWithEnter(field);
+    expect(store.getState().crop?.crop.angle).toBeCloseTo(3.5);
+    expect(slider.value).toBe('3.5');
+    expect(field.value).toBe('3.5');
+    expect(document.activeElement).toBe(document.body);
+    expect(store.getState().crop).toBeDefined();
+
+    typeInto(field, '-12.3');
+    commitWithEnter(field);
+    expect(store.getState().crop?.crop.angle).toBeCloseTo(-12.3);
+    expect(slider.value).toBe('-12.3');
+  });
+
+  it('clamps a typed angle to the slider limits and restores a bad draft', async () => {
+    const { store } = await renderApp();
+    fireEvent.keyDown(window, { key: 'c' });
+    await waitFor(() => expect(store.getState().crop).toBeDefined());
+    const field = screen.getByLabelText('Angle in degrees') as HTMLInputElement;
+    const slider = screen.getByLabelText('Straighten angle') as HTMLInputElement;
+
+    typeInto(field, '90');
+    commitWithEnter(field);
+    expect(store.getState().crop?.crop.angle).toBe(45);
+    expect(slider.value).toBe('45');
+    expect(field.value).toBe('45.0');
+
+    typeInto(field, '-90');
+    commitWithEnter(field);
+    expect(store.getState().crop?.crop.angle).toBe(-45);
+
+    typeInto(field, '');
+    blurField(field);
+    expect(field.value).toBe('-45.0');
+    expect(store.getState().crop?.crop.angle).toBe(-45);
+
+    typeInto(field, 'north');
+    blurField(field);
+    expect(field.value).toBe('-45.0');
+    expect(store.getState().crop?.crop.angle).toBe(-45);
+  });
+
+  it('does not rate or pan from the typed angle', async () => {
+    const { store } = await renderApp();
+    fireEvent.keyDown(window, { key: 'c' });
+    await waitFor(() => expect(store.getState().crop).toBeDefined());
+    await expectNoGlobalKeys(store, screen.getByLabelText('Angle in degrees') as HTMLInputElement);
+  });
+
+  it('leaves the typed angle with Escape without leaving crop', async () => {
+    const { store } = await renderApp();
+    fireEvent.keyDown(window, { key: 'c' });
+    await waitFor(() => expect(store.getState().crop).toBeDefined());
+    const field = screen.getByLabelText('Angle in degrees') as HTMLInputElement;
+
+    typeInto(field, '8');
+    fireEvent.keyDown(field, { key: 'Escape' });
+
+    expect(document.activeElement).toBe(document.body);
+    expect(store.getState().crop).toBeDefined();
+    expect(store.getState().crop?.crop.angle).toBeCloseTo(8);
+  });
+
   it('switches tools and overlays with R, A and O, and resets with Ctrl+Alt+R', async () => {
     const { store } = await renderApp();
     fireEvent.keyDown(window, { key: 'c' });
