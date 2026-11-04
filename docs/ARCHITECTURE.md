@@ -97,7 +97,7 @@ exported-files.json  paths the app exported; the only targets `overwrite` may re
 presets/*.json       imported develop presets
 credentials.json     written by main only: ciphertext from safeStorage
 cache/{thumb,preview,linear}   disposable (see "Edited thumbnails and previews")
-exports/             default exportRoot (presets choose folders below it)
+exports/             default exportRoot (only a relative folder template uses it; the default template exports next to the photo)
 ```
 
 - Ingest: `@ee/ingest` with the `{variable}` expander from `@ee/metadata` and a per-file hook that reads
@@ -192,6 +192,40 @@ exports/             default exportRoot (presets choose folders below it)
   raw/JPEG pair sharing a base get `-1`, `-2`, … before the extension. The render request
   carries the ops key (`retouchOpsKey`) the jobs process expects; the renderer echoes the key of the
   ops it applied and the jobs process rejects a stale or mosaic-less render.
+- Export folder: the default `folderTemplate` is `{photofolder}/export`, so a photo at
+  `/Photos/20261104_GAIS-AIK/_DSC1234.NEF` exports to `/Photos/20261104_GAIS-AIK/export/`, each photo of a
+  batch next to itself. `{photofolder}` is a variable of the `@ee/metadata` table, listed for the `exportFolder` context only (the folder template's picker, not the file name's; the export service is the only caller that supplies `CaptionContext.photoFolder`): the folder of the photo's
+  ingested file (`dirname` of the indexed `path`, so a moved photo follows its entry). A template that
+  starts with it (and only there; anywhere else is refused) is resolved by `resolveExportTarget`: the rest
+  of the template is expanded, leading separators are dropped, the result is resolved against the photo's
+  folder with `node:path` (the function takes the path API, so either platform's rules can be applied) and
+  must be at or below that folder, or the photo fails with "the folder template leaves the photo's
+  folder". Variable values are not sanitised anywhere, so a headline of `../../x`, an absolute path or
+  another drive's `E:\x` in the rest is caught by this check and not by stripping. Any other absolute
+  template is used as it is, and a relative one is resolved below `AppSettings.exportRoot` and may not
+  escape it, as before. The photo's folder is only checked, never created: when it is not a folder (the
+  drive is unplugged, the folder was moved) the photo fails with a message that names the folder, before
+  anything is read or written, so nothing is recreated on another disk. A folder that cannot be created
+  or written fails with a message naming the export folder. These are the same per-photo errors as any
+  other export failure (`ExportJob.photos[].error`). The folder is worked out when each photo is
+  exported, from the preset as it is then, so a job resumed after a restart or a preset edited during a
+  job follows the preset as it stands; files exported earlier stay where they are. The exported file is
+  the local path an upload is made from, as before. Deleting or removing a photo never touches its
+  export folder.
+- Exports below the ingest destination: an exported JPEG next to the photos must not come back as a photo.
+  Every folder the app exports into that is below a photo's folder gets a `.ee-export` marker file
+  (`EXPORT_MARKER_NAME` in `@ee/ingest`), except a folder that holds an indexed photo (the marker would
+  hide it). A folder source (recursive) and the startup scan skip a folder with the marker and
+  everything below it; the folder picked as a source, and the destination itself, are never skipped.
+  `reconcileDestination` also skips a path in `exported-files.json` and any folder named `export`
+  (case-insensitive, the name the default template makes). The marker lives with the folder, so
+  deleting `index.sqlite`, `exported-files.json` or `settings.json` does not make exports reappear; a
+  Library rebuilt from the destination holds the originals only. If the marker is lost as well, the
+  folder name and `exported-files.json` still cover it; what is not covered is an export folder with
+  another name whose marker and entry in `exported-files.json` are both gone, which is indexed as
+  "Recovered". A real photo that was ingested into a folder named `export` is not recovered after an
+  index loss either. `ifExists: 'overwrite'` and the originals check are unchanged: the target is
+  compared with every indexed photo and sidecar, also those inside an export folder.
 - Delete: `photos:delete` takes photo ids only. `PhotoDeleter` (jobs process) resolves the paths from
   the index. Every indexed photo is a copy under an ingest destination, and the destination changes
   from job to job, so the current destination setting is not consulted. It refuses a path inside any
@@ -308,8 +342,11 @@ Key types (names are binding, fields can grow):
   quality, colorSpace, resize, outputSharpening, metadata, stripGps, version, sendTo }`;
   `fileNaming` is `keep` (the photo's current base name plus `.jpg`) or `rename`
   (existing presets and fresh installs migrate to `rename`); `folderTemplate`
-  is relative to `AppSettings.exportRoot` (or absolute) and expands
-  `{variables}` from `@ee/metadata`, plus `{preset}`.
+  starts with `{photofolder}` (the folder of the photo, the default `{photofolder}/export`), is
+  absolute, or is relative to `AppSettings.exportRoot`, and expands `{variables}` from
+  `@ee/metadata`, plus `{preset}`. A saved preset whose template is exactly the old default
+  `{folder}/Export/{preset}` is moved to the new default when settings are read; an edited template is
+  left alone.
 - `Destination` = `FolderDestination | FtpDestination | SftpDestination`,
   with `remotePathTemplate`
 - `ExportJob { id, photoIds, presetId, send[], state, photos[] }` (per-photo progress)
@@ -678,7 +715,7 @@ not re-expanded on paste. `metadata:writeFields` also refreshes each photo's
 
 ## Export model
 
-Three actions share one model: Export… (preset into a local folder), Export & send
+Three actions share one model: Export… (preset into a local folder, by default `export` next to the photo), Export & send
 (the same, then upload the exported files) and Next & send (one photo with the active
 preset, then advance). A batch runs in the jobs process; the renderer stays usable.
 `ifExists` picks suffix/overwrite/skip. Metadata modes write IPTC/XMP, optionally
