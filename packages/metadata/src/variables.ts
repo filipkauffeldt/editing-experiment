@@ -4,6 +4,11 @@ import type { CameraInfo, IptcFields } from '@ee/contracts';
 export interface CaptionContext {
   /** Absolute path of the photo; used for filename/folder variables. */
   filePath?: string;
+  /**
+   * Folder of the photo's ingested file, for `{photofolder}`. Only the export folder template
+   * supplies it, so no other template path expands it.
+   */
+  photoFolder?: string;
   /** Overrides the file name derived from `filePath`. */
   fileName?: string;
   /** Overrides the base name derived from `filePath`. */
@@ -25,7 +30,24 @@ export interface CaptionContext {
  * Template paths that expand `{variables}` with different data. A variable is
  * listed in a picker only where the path supplies what its resolver reads.
  */
-export type TemplateVariableContext = 'export' | 'ingest' | 'destination';
+export type TemplateVariableContext = 'export' | 'exportFolder' | 'ingest' | 'destination';
+
+/**
+ * The export folder template accepts everything the export file name template does, plus the
+ * entries listed for `exportFolder` alone (`{photofolder}`: a file name cannot hold a path).
+ */
+const INHERITED_CONTEXT: Readonly<
+  Partial<Record<TemplateVariableContext, TemplateVariableContext>>
+> = { exportFolder: 'export' };
+
+/** Whether an entry with these `contexts` is offered and accepted in `context`. */
+export function listedInContext(
+  contexts: readonly TemplateVariableContext[],
+  context: TemplateVariableContext,
+): boolean {
+  const inherited = INHERITED_CONTEXT[context];
+  return contexts.includes(context) || (inherited !== undefined && contexts.includes(inherited));
+}
 
 /** An accepted spelling with an argument, e.g. `{seq:4}` or `{date:YYYY-MM-DD}`. */
 export interface TemplateVariableFormat {
@@ -61,6 +83,7 @@ const ALL_TEMPLATE_CONTEXTS: readonly TemplateVariableContext[] = [
 ];
 const EXPORT_AND_DESTINATION: readonly TemplateVariableContext[] = ['export', 'destination'];
 const INGEST_ONLY: readonly TemplateVariableContext[] = ['ingest'];
+const EXPORT_FOLDER_ONLY: readonly TemplateVariableContext[] = ['exportFolder'];
 
 interface DateParts {
   year: number;
@@ -277,6 +300,17 @@ const VARIABLES: VariableSpec[] = [
     names: ['folderpath', 'fpth'],
     description: 'Containing folder path',
     resolve: (context) => (context.filePath === undefined ? '' : dirName(context.filePath)),
+  },
+  {
+    // Ours, not PM's. Same text as {folderpath}, but a separate name because an export folder
+    // template that starts with it gets a stricter rule than a plain absolute template: the
+    // result must stay at or below this folder (see `resolveExportTarget`).
+    names: ['photofolder'],
+    description:
+      "Folder of the photo's ingested file. Only valid at the very start of the folder template; the export goes at or below it",
+    example: '/Photos/20261104_GAIS-AIK',
+    contexts: EXPORT_FOLDER_ONLY,
+    resolve: (context) => context.photoFolder ?? '',
   },
   {
     names: ['path'],
@@ -696,7 +730,7 @@ export const TEMPLATE_VARIABLES: readonly TemplateVariable[] = [
 export function templateVariablesFor(
   context: TemplateVariableContext,
 ): readonly TemplateVariable[] {
-  return TEMPLATE_VARIABLES.filter((variable) => variable.contexts.includes(context));
+  return TEMPLATE_VARIABLES.filter((variable) => listedInContext(variable.contexts, context));
 }
 
 function knownTemplateNames(context: TemplateVariableContext): Set<string> {
