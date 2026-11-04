@@ -68,6 +68,7 @@ import {
   opHasAddedArea,
   type RetouchMode,
 } from '../retouch-areas';
+import { HIT_MARGIN, clampToPicture, isOnPicture, overlayFrame } from '../retouch-margin';
 import { detectionRegion, facesInLasso } from '../retouch-geometry';
 import { renderMosaicPreview } from '../retouch-preview';
 import { useAppState, useAppStore } from '../store-context';
@@ -102,16 +103,14 @@ const ZOOM_OUTSIDE: [number, number, number] = [0.086, 0.086, 0.094];
 const CLICK_DISTANCE = 0.006;
 const MIN_AREA = 0.01;
 
-const clamp01 = (value: number): number => Math.min(1, Math.max(0, value));
-
 const normalizedPoint = (
   event: { clientX: number; clientY: number },
   element: Element,
 ): { x: number; y: number } => {
   const rect = element.getBoundingClientRect();
   return {
-    x: clamp01((event.clientX - rect.left) / Math.max(1, rect.width)),
-    y: clamp01((event.clientY - rect.top) / Math.max(1, rect.height)),
+    x: (event.clientX - rect.left) / Math.max(1, rect.width),
+    y: (event.clientY - rect.top) / Math.max(1, rect.height),
   };
 };
 
@@ -443,6 +442,10 @@ function CanvasForPhoto({ photo }: { photo: Photo }) {
   const [draftPoints, setDraftPoints] = useState<{ x: number; y: number }[]>([]);
   const dragStart = useRef<{ x: number; y: number } | null>(null);
   const dragMoved = useRef(false);
+  // Whether the press began on the picture, and whether the pointer was ever on it: a press in the
+  // margin only draws once it reaches the picture.
+  const dragOnPicture = useRef(false);
+  const dragEntered = useRef(false);
   const dragPointer = useRef<number | null>(null);
   const drawMode = useRef<RetouchMode>('add');
   const [pickerPoint, setPickerPoint] = useState<{ x: number; y: number } | null>(null);
@@ -495,7 +498,8 @@ function CanvasForPhoto({ photo }: { photo: Photo }) {
   const cropping = cropSession !== undefined;
   const display = cropping
     ? cropFit(container, imageAspect).size
-    : fitWithin(container, imageAspect);
+    : // Retouch leaves the hit margin free on both sides, so a drag can start outside the picture.
+      fitWithin(container, imageAspect, retouching ? 2 * HIT_MARGIN : undefined);
   const dpr = typeof window === 'undefined' ? 1 : window.devicePixelRatio || 1;
 
   // The full-resolution oriented image, and the picture shown of it: the committed crop, unless a
@@ -927,20 +931,29 @@ function CanvasForPhoto({ photo }: { photo: Photo }) {
     }
   }, [viewMode.request, renderer, loaded, contextLost, renderParams, store, colorModel]);
 
-  // A pointer position as a fraction of the picture. At Fit the stage is the picture; zoomed, the
-  // stage is the whole canvas and the picture is placed in it.
-  const pointOnPicture = (
+  // A pointer position as a fraction of the picture, outside 0..1 where it is off the picture.
+  // `element` is the stage: at Fit it is the picture; zoomed, it is the whole canvas and the
+  // picture is placed in it.
+  const unclampedPoint = (
     event: { clientX: number; clientY: number },
     element: Element,
   ): { x: number; y: number } => {
     if (!zoomed) return normalizedPoint(event, element);
     const rect = element.getBoundingClientRect();
-    const unit = screenToUnit(stageLayout, picture, {
+    return screenToUnit(stageLayout, picture, {
       x: event.clientX - rect.left,
       y: event.clientY - rect.top,
     });
-    return { x: clamp01(unit.x), y: clamp01(unit.y) };
   };
+  const pointOnPicture = (
+    event: { clientX: number; clientY: number },
+    element: Element,
+  ): { x: number; y: number } => clampToPicture(unclampedPoint(event, element));
+  // The retouch overlay is bigger than the stage (it holds the hit margin), so it reads the stage.
+  const retouchPoint = (
+    event: { clientX: number; clientY: number },
+    surface: SVGSVGElement,
+  ): { x: number; y: number } => unclampedPoint(event, surface.parentElement ?? surface);
 
   const pickerFrom = (event: React.MouseEvent<HTMLDivElement>): { x: number; y: number } =>
     pointOnPicture(event, event.currentTarget);
@@ -1034,8 +1047,10 @@ function CanvasForPhoto({ photo }: { photo: Photo }) {
   const updateDraft = (event: React.PointerEvent): void => {
     const surface = overlayRef.current;
     if (!surface) return;
-    const point = pointOnPicture(event, surface);
     if (!dragStart.current) return;
+    const raw = retouchPoint(event, surface);
+    if (isOnPicture(raw)) dragEntered.current = true;
+    const point = clampToPicture(raw);
     dragMoved.current = true;
     if (drawsLasso) {
       setDraftPoints((current) => {
@@ -1056,7 +1071,10 @@ function CanvasForPhoto({ photo }: { photo: Photo }) {
     if (!surface) return;
     if (surface.hasPointerCapture(event.pointerId)) surface.releasePointerCapture(event.pointerId);
     const start = dragStart.current;
-    const end = pointOnPicture(event, surface);
+    const rawEnd = retouchPoint(event, surface);
+    const end = clampToPicture(rawEnd);
+    const startedOnPicture = dragOnPicture.current;
+    const entered = dragEntered.current || isOnPicture(rawEnd);
     dragStart.current = null;
     dragPointer.current = null;
     const mode = drawMode.current;
@@ -1067,6 +1085,8 @@ function CanvasForPhoto({ photo }: { photo: Photo }) {
     if (clicked) {
       setDraftPoints([]);
       setDraftRect(undefined);
+      // A click in the margin is not on any area.
+      if (!startedOnPicture) return;
       const index = areaIndexAt(session.areas, end, session.facePadding, lensContext);
       if (index >= 0) store.toggleRetouchArea(index);
       return;
@@ -1074,7 +1094,8 @@ function CanvasForPhoto({ photo }: { photo: Photo }) {
     if (drawsLasso) {
       const points = [...draftPoints, end];
       setDraftPoints([]);
-      if (points.length >= 3) {
+      // A lasso that never touched the picture would be clamped onto its border.
+      if (points.length >= 3 && entered) {
         const simplified = simplifyPolygon(points, 0.003 / zoomRatio);
         if (simplified.length < 3) return;
         if (session.tool === 'faces') {
@@ -1136,6 +1157,8 @@ function CanvasForPhoto({ photo }: { photo: Photo }) {
   const onPointerDown = (event: React.PointerEvent): void => {
     if (!session) return;
     if (event.button !== 0) return;
+    // Space held: the pan layer owns the drag, and at Fit it does not cover the margin.
+    if (zoom.panHeld) return;
     const surface = overlayRef.current;
     if (!surface) return;
     event.preventDefault();
@@ -1146,7 +1169,10 @@ function CanvasForPhoto({ photo }: { photo: Photo }) {
         ? 'subtract'
         : 'add'
       : session.mode;
-    dragStart.current = pointOnPicture(event, surface);
+    const raw = retouchPoint(event, surface);
+    dragStart.current = clampToPicture(raw);
+    dragOnPicture.current = isOnPicture(raw);
+    dragEntered.current = dragOnPicture.current;
     dragMoved.current = false;
     surface.setPointerCapture(event.pointerId);
     if (drawsLasso) setDraftPoints([dragStart.current]);
@@ -1191,10 +1217,14 @@ function CanvasForPhoto({ photo }: { photo: Photo }) {
         h: stageLayout.scale * picture.height,
       }
     : { x: 0, y: 0, w: stage.width, h: stage.height };
-  // The retouch overlay's coordinates are the picture's 0..1; zoomed, it shows the part in view.
-  const overlayBox = zoomed
-    ? `${-pictureBox.x / pictureBox.w} ${-pictureBox.y / pictureBox.h} ${stage.width / pictureBox.w} ${stage.height / pictureBox.h}`
-    : '0 0 1 1';
+  // The retouch overlay's coordinates are the picture's 0..1. It covers the picture plus the hit
+  // margin, as much of it as the canvas area has room for (the stage is centred in that area).
+  const overlay = overlayFrame(pictureBox, {
+    x: -(container.width - stage.width) / 2,
+    y: -(container.height - stage.height) / 2,
+    w: container.width,
+    h: container.height,
+  });
 
   return (
     <div className={styles.canvasWrap} data-testid="photo-canvas">
@@ -1329,8 +1359,15 @@ function CanvasForPhoto({ photo }: { photo: Photo }) {
             <svg
               ref={overlayRef}
               className={styles.overlay}
-              viewBox={overlayBox}
+              viewBox={overlay.viewBox}
               preserveAspectRatio="none"
+              style={{
+                inset: 'auto',
+                left: `${overlay.box.x}px`,
+                top: `${overlay.box.y}px`,
+                width: `${overlay.box.w}px`,
+                height: `${overlay.box.h}px`,
+              }}
               onPointerDown={onPointerDown}
               onPointerMove={onPointerMove}
               onPointerUp={onPointerUp}
