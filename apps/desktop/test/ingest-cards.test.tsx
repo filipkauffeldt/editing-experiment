@@ -177,11 +177,13 @@ describe('Ingest view cards', () => {
     await waitFor(() => expect(store.getState().pickedCards).toHaveLength(1));
     await act(() => store.startIngest(store.getState().settings!.ingest));
     const [sourceId] = store.getState().pickedCards;
+    expect(within(row).getByRole('button', { name: 'Stop NIKON_Z9' })).toBeTruthy();
 
     mounted.cards = [];
     await poll();
     const removed = await screen.findByTestId('ingest-card-removed');
     expect(within(removed).getByText('NIKON_Z9')).toBeTruthy();
+    expect(within(removed).getByRole('button', { name: 'Stop NIKON_Z9' })).toBeTruthy();
 
     act(() => {
       fake.emit('jobs:event', {
