@@ -63,6 +63,9 @@ export class JobsClient {
       stdio: 'inherit',
       env: {
         ...process.env,
+        // A stalled card probe (a dead Windows network drive) parks one libuv thread until the OS
+        // gives up. A larger pool keeps ingest copies and thumbnails moving meanwhile.
+        UV_THREADPOOL_SIZE: process.env.UV_THREADPOOL_SIZE ?? '16',
         EE_MOCK: this.options.mock ? '1' : '',
         EE_APP_VERSION: this.options.appVersion,
         EE_USER_DATA_DIR: this.options.userDataDir,

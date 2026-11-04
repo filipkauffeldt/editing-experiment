@@ -115,3 +115,49 @@
   border-left: 1px solid var(--line-strong);
   padding-left: 7px;
 }
+
+.cardPick {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+}
+
+.mount {
+  grid-column: 2 / -1;
+  overflow: hidden;
+  color: var(--dim);
+  font-size: var(--fs-small);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.titleBar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding-right: 8px;
+  border-bottom: 1px solid var(--line);
+}
+
+.titleBar .title {
+  border-bottom: 0;
+}
+
+.spinning {
+  animation: rescan-spin 0.8s linear infinite;
+}
+
+@keyframes rescan-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .spinning {
+    animation: none;
+    opacity: 0.5;
+  }
+}

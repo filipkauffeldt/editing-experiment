@@ -15,6 +15,7 @@ import {
 import { useEffect, useState } from 'react';
 import { ee } from '../ee';
 import type { DialogTab } from '../store';
+import { sourcesToIngest } from '../cards';
 import { useAppState, useAppStore } from '../store-context';
 import { FolderIcon, PlusIcon, ServerIcon } from './icons';
 import { MetadataSettings } from './MetadataSettings';
@@ -45,6 +46,8 @@ interface SourceFormState {
   incremental: boolean;
   mountPath: string;
   volumeLabel: string;
+  /** Kept when a source picked on the Ingest view is edited here, so it stays a picked card. */
+  discovered: boolean;
   host: string;
   port: string;
   username: string;
@@ -72,6 +75,7 @@ const sourceForm = (
     incremental: DEFAULT_INCREMENTAL,
     mountPath: '',
     volumeLabel: '',
+    discovered: false,
     host: '',
     port: '21',
     username: '',
@@ -99,6 +103,7 @@ const sourceForm = (
       kind: source.kind,
       mountPath: source.mountPath,
       volumeLabel: source.volumeLabel ?? '',
+      discovered: source.discovered ?? false,
       ...sourceFilterValues(source),
     };
   }
@@ -147,6 +152,7 @@ function buildSource(form: SourceFormState): { source: SourceConfig; error?: str
         name,
         mountPath: form.mountPath.trim(),
         volumeLabel: form.volumeLabel.trim() || undefined,
+        ...(form.discovered ? { discovered: true } : {}),
         fileTypes: form.fileTypes,
         lockFilter: form.lockFilter,
         incremental: form.incremental,
@@ -968,6 +974,9 @@ export function IngestSection() {
     setDevelopPresetId(ingest.developPresetId ?? '');
   }, [state.settings]);
 
+  // What Ingest will copy: unticked discovered cards are left out.
+  const toRun = sourcesToIngest(state.sources, state.pickedCards);
+
   const build = (): IngestSettings => ({
     destination: {
       path: destination.trim(),
@@ -996,12 +1005,13 @@ export function IngestSection() {
       const ingest = build();
       await store.saveSettings({ ingest });
       if (andIngest) {
-        await store.startIngest(ingest);
-        setStatus(`Ingest started for ${state.sources.length} source(s)`);
+        const started = await store.startIngest(ingest);
+        setStatus(`Ingest started for ${started.length} source(s)`);
       } else {
         setStatus('Ingest settings saved.');
       }
     } catch (cause) {
+      setStatus(undefined);
       setError(cause instanceof Error ? cause.message : String(cause));
     } finally {
       setBusy(false);
@@ -1157,7 +1167,9 @@ export function IngestSection() {
 
       <div className={styles.formActions}>
         <span className={styles.hint}>
-          {state.sources.length} source(s): {state.sources.map((source) => source.name).join(', ')}
+          {toRun.length === 0
+            ? 'Nothing to ingest: tick a card on the Ingest view or add a source.'
+            : `${toRun.length} source(s): ${toRun.map((source) => source.name).join(', ')}`}
         </span>
         <span className={styles.spacer} />
         <button type="submit" className={styles.button} disabled={busy}>

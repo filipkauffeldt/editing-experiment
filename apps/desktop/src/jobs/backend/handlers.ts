@@ -1,6 +1,7 @@
 import { IpcError, type IpcHandlers } from '@ee/contracts';
 import { isRawPath } from '@ee/metadata';
-import { detectCards, testSource, type GetSecret } from '@ee/ingest';
+import { delimiter } from 'node:path';
+import { CardScanner, testSource, type GetSecret } from '@ee/ingest';
 import type { UploadQueue } from '@ee/export';
 import { systemHandlers } from '../handlers/system';
 import type { Emit, PhotoLibrary } from './photo-library';
@@ -33,6 +34,16 @@ export interface HandlerDeps {
   exports: ExportQueue;
 }
 
+/**
+ * `EE_CARD_ROOTS` replaces the folders that are scanned for cards (separated like
+ * `PATH`). It exists so end-to-end tests can mount a card in a temp folder; the app
+ * never sets it.
+ */
+function cardScannerFromEnv(env: NodeJS.ProcessEnv): CardScanner {
+  const roots = env.EE_CARD_ROOTS?.split(delimiter).filter((root) => root !== '');
+  return new CardScanner(roots && roots.length > 0 ? { mountRoots: roots } : {});
+}
+
 /** One handler per channel the jobs process serves in real mode. */
 export function createBackendHandlers(deps: HandlerDeps): IpcHandlers {
   const { photos, settings, metadata, edits, editedPreviews, labels, faces, presets, ingest } =
@@ -42,6 +53,10 @@ export function createBackendHandlers(deps: HandlerDeps): IpcHandlers {
   const servedByMain = (channel: string) => async (): Promise<never> => {
     throw new IpcError('internal', `${channel} is served by the main process`);
   };
+
+  // One scanner for the app's life: it remembers the cards it found and their counts, so a scan
+  // that times out on a slow reader does not forget a card.
+  const cards = cardScannerFromEnv(process.env);
 
   return {
     ...systemHandlers({ mock: false, appVersion: deps.appVersion, emit: deps.emit }),
@@ -64,7 +79,7 @@ export function createBackendHandlers(deps: HandlerDeps): IpcHandlers {
       settings.removeSource(sourceId);
     },
     'sources:test': ({ source }) => testSource(source, { getSecret: deps.getSecret }),
-    'sources:detectCards': () => detectCards(),
+    'sources:detectCards': (args) => cards.scan(args),
 
     'destinations:list': async () => settings.listDestinations(),
     'destinations:save': async ({ destination }) => settings.saveDestination(destination),

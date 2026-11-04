@@ -26,6 +26,7 @@ import {
   type AppSettings,
   type CredentialSecret,
   type CropParams,
+  type DetectedCard,
   type Destination,
   type DevelopSettingGroupId,
   type EditParams,
@@ -60,6 +61,7 @@ import {
   retouchOpsKey,
   withDefaults,
 } from '@ee/contracts';
+import { cardSourceFor, isDiscoveredCardSource, matchCardSources, sourcesToIngest } from './cards';
 import { EditedPreviewScheduler, type EditedPreviewRenderer } from './edited-preview-scheduler';
 import { renderFullResolution } from './export-render';
 import { copyMetadataFields, type MetadataFieldName } from './metadata-fields';
@@ -340,6 +342,14 @@ export interface AppState {
   presets: EditPreset[];
   uploads: UploadItem[];
   ingest: Record<string, IngestRun>;
+  /** Cards mounted as of the last scan (`sources:detectCards`). */
+  cards: DetectedCard[];
+  /** A scan for cards is running. */
+  cardsScanning: boolean;
+  /** The images of the listed cards are being counted. */
+  cardsCounting: boolean;
+  /** Ids of the discovered card sources the user ticked; only these are ingested. Starts empty. */
+  pickedCards: string[];
   metadata: Record<string, IptcFields>;
   metadataUnresolved: Record<string, string[]>;
   template?: IptcFields;
@@ -643,6 +653,10 @@ const emptyState = (): AppState => ({
   selection: [],
   uploads: [],
   ingest: {},
+  cards: [],
+  cardsScanning: false,
+  cardsCounting: false,
+  pickedCards: [],
   metadata: {},
   metadataUnresolved: {},
   editParams: {},
@@ -3346,9 +3360,178 @@ export class AppStore {
     this.set({ settings });
   };
 
+  // -------------------------------------------------------------------- cards
+
+  private cardScan: Promise<void> | undefined;
+  private cardScanNext: Promise<void> | undefined;
+  private cardGeneration = 0;
+
+  /**
+   * Looks for cards now. The Ingest view calls it when it opens and the Rescan button calls it;
+   * nothing else scans, and there is no timer. A click while a scan is running is not dropped:
+   * it gets one more scan after the running one (shared by every click in between), so a card
+   * pulled out or put in just before the click is seen.
+   *
+   * The list is applied as soon as the scan answers, without image counts; the counts arrive
+   * afterwards (`cardsCounting`) and never hold the list back.
+   */
+  readonly refreshCards = (): Promise<void> => {
+    if (!this.cardScan) return this.startCardScan();
+    this.cardScanNext ??= this.cardScan.then(() => {
+      this.cardScanNext = undefined;
+      return this.startCardScan();
+    });
+    return this.cardScanNext;
+  };
+
+  private startCardScan(): Promise<void> {
+    const scan = this.scanCards().finally(() => {
+      if (this.cardScan === scan) this.cardScan = undefined;
+    });
+    this.cardScan = scan;
+    return scan;
+  }
+
+  private async scanCards(): Promise<void> {
+    const generation = ++this.cardGeneration;
+    this.set({ cardsScanning: true });
+    let listed = false;
+    try {
+      const cards = await this.bridge.invoke('sources:detectCards', { recount: true });
+      if (this.started) this.applyCards(cards);
+      listed = true;
+    } catch (cause) {
+      this.toast('error', `Could not look for cards: ${messageOf(cause)}`);
+      // An older count is ignored from now on, so it can no longer clear this flag.
+      this.set({ cardsCounting: false });
+    } finally {
+      this.set({ cardsScanning: false });
+    }
+    // Not awaited: a slow count must not hold up the next scan.
+    if (listed) void this.countCards(generation);
+  }
+
+  private async countCards(generation: number): Promise<void> {
+    this.set({ cardsCounting: true });
+    try {
+      const counted = await this.bridge.invoke('sources:detectCards', { waitForCounts: true });
+      if (this.started && generation === this.cardGeneration) this.applyCards(counted);
+    } catch (cause) {
+      if (generation === this.cardGeneration) {
+        this.toast('error', `Could not count the images on the cards: ${messageOf(cause)}`);
+      }
+    } finally {
+      if (generation === this.cardGeneration) this.set({ cardsCounting: false });
+    }
+  }
+
+  private applyCards(cards: DetectedCard[]): void {
+    const current = this.state.cards;
+    const unchanged =
+      cards.length === current.length &&
+      cards.every(
+        (card, index) =>
+          card.mountPath === current[index]?.mountPath &&
+          card.volumeLabel === current[index]?.volumeLabel &&
+          card.imageCount === current[index]?.imageCount,
+      );
+    // A card that left is unpicked, so putting it back asks again. One that is mid-ingest
+    // stays picked and its run reports its own error.
+    const mounted = new Set<string>(
+      [...matchCardSources(cards, this.state.sources).values()].map((source) => source.id),
+    );
+    const pickedCards = this.state.pickedCards.filter(
+      (id) => mounted.has(id) || this.state.ingest[id]?.state === 'running',
+    );
+    const picksChanged = pickedCards.length !== this.state.pickedCards.length;
+    if (unchanged && !picksChanged) return;
+    this.set({ cards, pickedCards });
+    this.syncPickedCardSources(cards);
+  }
+
+  private readonly cardSourceSyncs = new Set<string>();
+
+  /**
+   * A ticked card that came back somewhere else (`F:\` instead of `E:\`, `NIKON Z 61` instead of
+   * `NIKON Z 6`) is matched to its source by label, so its tick stays. The source still holds the
+   * old mount path, so save the new one. {@link startIngest} does not wait for this save.
+   */
+  private syncPickedCardSources(cards: DetectedCard[]): void {
+    const matches = matchCardSources(cards, this.state.sources);
+    for (const card of cards) {
+      const source = matches.get(card.mountPath);
+      if (!source || !this.state.pickedCards.includes(source.id)) continue;
+      const wanted = cardSourceFor(card, source, this.state.sources);
+      if (wanted.mountPath === source.mountPath && wanted.volumeLabel === source.volumeLabel) {
+        continue;
+      }
+      const key = `${source.id}\u0000${wanted.mountPath}\u0000${wanted.volumeLabel ?? ''}`;
+      if (this.cardSourceSyncs.has(key)) continue;
+      this.cardSourceSyncs.add(key);
+      void this.saveSource(wanted)
+        .catch((cause: unknown) =>
+          this.toast(
+            'error',
+            `Could not save the new location of ${source.name} (${card.mountPath}): ${messageOf(cause)}`,
+          ),
+        )
+        .finally(() => this.cardSourceSyncs.delete(key));
+    }
+  }
+
+  /**
+   * The picked discovered cards as they are mounted now. The saved source can lag behind a
+   * remount (the save in {@link syncPickedCardSources} may still be in flight, or have failed),
+   * so the ingest takes the mount path from the last scan instead of from the saved source.
+   */
+  private sourcesForIngest(): SourceConfig[] {
+    const { cards, sources, pickedCards } = this.state;
+    const matches = matchCardSources(cards, sources);
+    const cardOf = new Map<string, DetectedCard>();
+    for (const card of cards) {
+      const source = matches.get(card.mountPath);
+      if (source) cardOf.set(source.id, card);
+    }
+    return sourcesToIngest(sources, pickedCards).map((source) => {
+      if (!isDiscoveredCardSource(source)) return source;
+      const card = cardOf.get(source.id);
+      return card ? cardSourceFor(card, source, sources) : source;
+    });
+  }
+
+  /**
+   * Ticks or unticks a mounted card. Ticking it for the first time creates the persisted
+   * source for the volume (see {@link matchCardSources}); unticking keeps it, with its filters.
+   * Nothing is ingested until the user starts an ingest.
+   */
+  readonly pickCard = async (card: DetectedCard, picked: boolean): Promise<void> => {
+    const match = matchCardSources(this.state.cards, this.state.sources).get(card.mountPath);
+    if (!picked) {
+      if (match) {
+        this.set({ pickedCards: this.state.pickedCards.filter((id) => id !== match.id) });
+      }
+      return;
+    }
+    const wanted = cardSourceFor(card, match, this.state.sources);
+    const unchanged =
+      match !== undefined &&
+      match.mountPath === wanted.mountPath &&
+      match.volumeLabel === wanted.volumeLabel;
+    const saved = unchanged ? wanted : await this.saveSource(wanted);
+    if (!this.state.pickedCards.includes(saved.id)) {
+      this.set({ pickedCards: [...this.state.pickedCards, saved.id] });
+    }
+  };
+
   readonly startIngest = async (ingest: IngestSettings): Promise<IngestJobInfo[]> => {
+    const sources = this.sourcesForIngest();
+    if (sources.length === 0) {
+      throw new Error(
+        'Nothing to ingest. Tick a card on the Ingest view, or add a folder or server in Settings → Sources.',
+      );
+    }
     const infos = await this.bridge.invoke('ingest:start', {
-      config: { ...ingest, sources: this.state.sources },
+      config: { ...ingest, sources },
     });
     const runs = { ...this.state.ingest };
     for (const info of infos) {
@@ -3471,9 +3654,20 @@ export class AppStore {
         }
         break;
       }
-      case 'job.error':
+      case 'job.error': {
         this.toast('error', `${event.scope}: ${event.message}`);
+        // The toast goes away; the run keeps its first error on its row (a pulled card, for one).
+        const run =
+          event.scope === 'ingest' && event.jobId !== undefined
+            ? Object.values(this.state.ingest).find((candidate) => candidate.jobId === event.jobId)
+            : undefined;
+        if (run && run.error === undefined) {
+          this.set({
+            ingest: { ...this.state.ingest, [run.sourceId]: { ...run, error: event.message } },
+          });
+        }
         break;
+      }
     }
   }
 

@@ -11,6 +11,7 @@ import {
   type SourceId,
 } from '@ee/contracts';
 import { stat } from 'node:fs/promises';
+import { relative, sep } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { nodeFileCopier } from './copy';
 import { IngestError, errorMessage, isAbortError, redactSecrets } from './errors';
@@ -188,17 +189,28 @@ export function startIngest(config: IngestConfig, hooks: IngestHooks = {}): Inge
     }
 
     const incremental = source.incremental ?? true;
+    // A card is remembered by its path below the mount point: the same card comes back as
+    // `E:\` or `NIKON Z 61`. The absolute path is still honoured for what older runs recorded.
+    const seenPath = (path: string): string =>
+      source.kind === 'card' ? relative(source.mountPath, path).split(sep).join('/') : path;
     const entries = files.map((file, index) => ({
       file,
       seq: index + 1,
       key: {
         sourceId: source.id,
-        path: file.path,
+        path: seenPath(file.path),
         size: file.size,
         mtimeMs: file.mtimeMs,
       },
+      legacyKey: { sourceId: source.id, path: file.path, size: file.size, mtimeMs: file.mtimeMs },
     }));
-    const pending = incremental ? entries.filter((entry) => !seenStore.has(entry.key)) : entries;
+    const pending = incremental
+      ? entries.filter(
+          (entry) =>
+            !seenStore.has(entry.key) &&
+            !(source.kind === 'card' && seenStore.has(entry.legacyKey)),
+        )
+      : entries;
     job.filesTotal = pending.length;
     job.filesSkipped = entries.length - pending.length;
     emitProgress(job);
@@ -242,7 +254,7 @@ export function startIngest(config: IngestConfig, hooks: IngestHooks = {}): Inge
         if (sidecar && sidecarInfo) {
           seenStore.add({
             sourceId: source.id,
-            path: sidecar,
+            path: seenPath(sidecar),
             size: sidecarInfo.size,
             mtimeMs: sidecarInfo.mtimeMs,
           });

@@ -112,25 +112,27 @@ export async function listSourceFiles(source: FolderSource | CardSource): Promis
     return listImageFiles(source.path, { recursive: source.recursive ?? false });
   }
   const dcim = join(source.mountPath, 'DCIM');
+  // A card can be pulled between the last scan and the click on Ingest. Name the card in
+  // the error so the run says which one is missing; the other sources keep going.
+  const missing = (detail: string): IngestError =>
+    new IngestError(
+      `Card "${source.name}" is not available at ${source.mountPath}: ${detail}. Put it back and ingest again.`,
+      'not-a-card',
+    );
   try {
     const info = await stat(dcim);
     if (!info.isDirectory()) {
-      throw new IngestError(
-        `Not a camera card (no DCIM directory): ${source.mountPath}`,
-        'not-a-card',
-      );
+      throw missing('it has no DCIM folder');
     }
   } catch (error) {
     if (error instanceof IngestError) {
       throw error;
     }
-    if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
-      throw new IngestError(
-        `Not a camera card (no DCIM directory): ${source.mountPath}`,
-        'not-a-card',
-      );
+    const code = (error as NodeJS.ErrnoException).code;
+    if (code === 'ENOENT' || code === 'ENOTDIR') {
+      throw missing('it was removed or has no DCIM folder');
     }
-    throw error;
+    throw missing(error instanceof Error ? error.message : String(error));
   }
   return listImageFiles(dcim, { recursive: true });
 }

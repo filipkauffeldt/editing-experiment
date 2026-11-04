@@ -51,6 +51,13 @@ export interface CardSource extends SourceBase, LocalSourceFilters {
   /** Mount point of the volume (e.g. `/run/media/user/NIKON_Z9`, `E:\`). */
   mountPath: string;
   volumeLabel?: string;
+  /**
+   * Created by picking a card the app discovered (`sources:detectCards`), as opposed to a
+   * card added by hand in Settings → Sources. The app ingests a discovered card only while it
+   * is inserted and picked on the Ingest view; a manual card source is ingested like a folder.
+   * `mountPath` is updated to where the volume is mounted now.
+   */
+  discovered?: boolean;
 }
 
 /** Connection fields shared by remote sources and destinations. */
@@ -102,11 +109,29 @@ export interface SftpSource extends RemoteSourceBase {
 /** Any configured ingest source, discriminated by `kind`. */
 export type SourceConfig = FolderSource | CardSource | FtpSource | SftpSource;
 
-/** A removable volume that looks like a camera card, reported by `sources:detectCards`. */
+/** Arguments of `sources:detectCards`. */
+export interface DetectCardsArgs {
+  /**
+   * Count the images of every card again. The list is returned without waiting for the
+   * counts, so a card is shown before its number is ready.
+   */
+  recount?: boolean;
+  /** Return after the counts that are running have finished, so the list carries them. */
+  waitForCounts?: boolean;
+}
+
+/**
+ * A volume with a `DCIM` folder that is mounted now, reported by `sources:detectCards`.
+ * `mountPath` is unique among the cards reported together; `volumeLabel` is not (two
+ * NIKON Z 6 cards).
+ */
 export interface DetectedCard {
   mountPath: string;
   volumeLabel?: string;
-  /** Number of image files found under `DCIM`, if it was cheap to count. */
+  /**
+   * Number of image files found under `DCIM`. A count runs in the background, so a card is
+   * reported without it until it is ready (see {@link DetectCardsArgs}).
+   */
   imageCount?: number;
 }
 
