@@ -17,6 +17,7 @@ import {
   type UploadItem,
   type UploadItemState,
 } from '@ee/contracts';
+import { defaultPanelWidths } from './panel-widths';
 
 /**
  * Deterministic mock data for `EE_MOCK=1`. Everything here is generated in
@@ -150,6 +151,7 @@ export function mockSettings(): AppSettings {
       '/mock/templates/archive.XMP',
     ],
     codeReplacementPaths: [MOCK_CODE_REPLACEMENT_PATH],
+    panelWidths: defaultPanelWidths(),
   };
 }
 

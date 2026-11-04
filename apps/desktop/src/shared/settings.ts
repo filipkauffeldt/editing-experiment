@@ -8,6 +8,7 @@ import type {
 } from '@ee/contracts';
 import { DEVELOP_SETTING_GROUPS, IPTC_FIELD_NAMES, asPresetId } from '@ee/contracts';
 import { join } from 'node:path';
+import { defaultPanelWidths } from './panel-widths';
 
 /** The preset used until the user changes one, and after a FinishAction migration. */
 export function defaultExportPreset(): ExportPreset {
@@ -45,6 +46,7 @@ export function defaultSettings(homeDir: string): AppSettings {
     activePresetId: preset.id,
     metadataTemplates: [],
     codeReplacementPaths: [],
+    panelWidths: defaultPanelWidths(),
   };
 }
 

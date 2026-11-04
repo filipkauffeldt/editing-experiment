@@ -18,6 +18,7 @@ import {
   sanitizeCopyMetadataFields,
   sanitizeCopySettingGroups,
 } from '../../shared/settings';
+import { sanitizePanelWidths } from '../../shared/panel-widths';
 import { writeJsonAtomic } from './atomic-json';
 
 interface PersistedState extends AppSettings {
@@ -190,6 +191,9 @@ function assertSettingsPatch(patch: Partial<AppSettings>): void {
   if (patch.copySettingGroups !== undefined) {
     assertStringList(patch.copySettingGroups, 'copySettingGroups');
   }
+  if (patch.panelWidths !== undefined && !isObject(patch.panelWidths)) {
+    throw new IpcError('invalid_argument', 'panelWidths must be an object of panel widths');
+  }
 }
 
 /** Turn the old FinishAction into a preset, keeping its destinations and size limit. */
@@ -323,6 +327,15 @@ export class SettingsStore {
       ) {
         migrated = true;
       }
+      // A dragged width from an older version is clamped to what today's panel
+      // can show; unknown panels and non-numbers are dropped.
+      const panelWidths = sanitizePanelWidths(parsed.panelWidths);
+      if (
+        parsed.panelWidths !== undefined &&
+        JSON.stringify(panelWidths) !== JSON.stringify(parsed.panelWidths)
+      ) {
+        migrated = true;
+      }
 
       const rawSources = Array.isArray(parsed.sources) ? parsed.sources : [];
       if (rawSources.some((source) => isObject(source) && 'lockedOnly' in source)) {
@@ -347,6 +360,7 @@ export class SettingsStore {
         codeReplacementPaths,
         ...(copyMetadataFields === undefined ? {} : { copyMetadataFields }),
         ...(copySettingGroups === undefined ? {} : { copySettingGroups }),
+        ...(panelWidths === undefined ? {} : { panelWidths }),
         sources: rawSources.map(migrateSource),
         destinations: Array.isArray(parsed.destinations)
           ? (parsed.destinations as Destination[])
@@ -381,6 +395,7 @@ export class SettingsStore {
       ...(this.state.copySettingGroups === undefined
         ? {}
         : { copySettingGroups: this.state.copySettingGroups }),
+      ...(this.state.panelWidths === undefined ? {} : { panelWidths: this.state.panelWidths }),
     };
   }
 
@@ -406,6 +421,9 @@ export class SettingsStore {
         : {}),
       ...(patch.copySettingGroups !== undefined
         ? { copySettingGroups: sanitizeCopySettingGroups(patch.copySettingGroups) ?? [] }
+        : {}),
+      ...(patch.panelWidths !== undefined
+        ? { panelWidths: sanitizePanelWidths(patch.panelWidths) ?? {} }
         : {}),
     };
     this.save();

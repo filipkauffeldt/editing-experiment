@@ -221,6 +221,13 @@ export interface DetectFacesArgs {
 /** Ingest options that are not tied to the set of sources. */
 export type IngestSettings = Omit<IngestConfig, 'sources'>;
 
+/** The resizable side panels, keyed by module and side. */
+export type PanelWidthId =
+  'library-sidebar' | 'library-inspector' | 'develop-metadata' | 'develop-panel' | 'ingest-sources';
+
+/** User-chosen panel widths in CSS pixels; an absent key uses the panel's default. */
+export type PanelWidths = Partial<Record<PanelWidthId, number>>;
+
 /** Persisted user settings. */
 export interface AppSettings {
   ingest: IngestSettings;
@@ -256,6 +263,8 @@ export interface AppSettings {
    * Absent means nothing was remembered yet, so the dialog keeps its default ticks.
    */
   copySettingGroups?: DevelopSettingGroupId[];
+  /** Side panel widths the user dragged; absent means every panel keeps its default. */
+  panelWidths?: PanelWidths;
 }
 
 /** Arguments of `dialog:pick`. */
