@@ -17,6 +17,7 @@ import {
   type ExpandPathTemplate,
   type UploadQueue,
 } from '@ee/export';
+import { EXPORT_MARKER_NAME, EXPORT_MARKER_TEXT } from '@ee/ingest';
 import {
   asString,
   expandVariables,
@@ -25,9 +26,9 @@ import {
   type ExifToolService,
   type CaptionContext,
 } from '@ee/metadata';
-import { isAbsolute, parse, resolve, sep } from 'node:path';
-import path from 'node:path';
-import { rename } from 'node:fs/promises';
+import { constants } from 'node:fs';
+import { access, mkdir, rename, stat, writeFile } from 'node:fs/promises';
+import path, { dirname, join, parse } from 'node:path';
 import { captureInstant, hasZone, setModifiedTime } from './export-file-time';
 import type { ExportedFileStore } from './exported-files';
 import { normalizeExportPath } from './exported-files';
@@ -143,6 +144,14 @@ export class ExportService {
     const { rendered } = args;
     validateRendered(rendered);
 
+    // Before anything reads the photo: a missing folder should say so, not "metadata file not found".
+    if (startsWithPhotoFolder(preset.folderTemplate)) {
+      await assertPhotoFolderAvailable(dirname(photo.path), photo.fileName).catch((error) => {
+        this.setStatus(photo.id, { export: 'failed' });
+        throw error;
+      });
+    }
+
     // The sidecar may be mid-edit; wait for that to finish so the export carries what the user sees.
     let fields: IptcFields = {};
     try {
@@ -151,12 +160,14 @@ export class ExportService {
       if (preset.metadata !== 'none') throw error;
     }
     const context = contextFor(photo.path, photo.fileName, fields, photo.captureTime, photo.camera);
-    const outputDir = resolveExportFolder(preset, context, settings.get().exportRoot);
+    const target = resolveExportTarget(preset, context, settings.get().exportRoot);
+    const outputDir = target.folder;
     const fileName = resolveExportFileName(preset, context);
     const originals = this.originalPaths();
 
     this.setStatus(photo.id, { export: 'encoding' });
     try {
+      await this.prepareFolder(target, photo.fileName);
       const exported = await exportPhoto({
         image: rendered,
         preset,
@@ -220,6 +231,66 @@ export class ExportService {
   clearExportState(photoId: PhotoId): void {
     this.exportFields.delete(photoId);
     this.setStatus(photoId, { export: 'none' });
+  }
+
+  /**
+   * Make the export folder ready, with errors that name the folder. The photo's own folder is
+   * only checked, never created (see {@link assertPhotoFolderAvailable}).
+   */
+  private async prepareFolder(target: ResolvedExportFolder, fileName: string): Promise<void> {
+    const { folder, photoFolder } = target;
+    // Checked again: the drive can go between reading the metadata and writing.
+    if (photoFolder !== undefined) await assertPhotoFolderAvailable(photoFolder, fileName);
+    try {
+      await mkdir(folder, { recursive: true });
+      await access(folder, constants.W_OK);
+    } catch (error) {
+      throw new IpcError(
+        'io',
+        `Cannot export ${fileName}: the folder ${folder} is not writable (${errorCode(error)}).`,
+        { cause: error },
+      );
+    }
+    if (!this.wantsMarker(folder, photoFolder !== undefined)) return;
+    // The marker keeps exports out of ingest and the startup scan, also when the exported-files
+    // list is gone.
+    try {
+      await writeFile(join(folder, EXPORT_MARKER_NAME), EXPORT_MARKER_TEXT, { flag: 'wx' });
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'EEXIST') {
+        throw new IpcError(
+          'io',
+          `Cannot export ${fileName}: the folder ${folder} is not writable (${errorCode(error)}).`,
+          { cause: error },
+        );
+      }
+    }
+  }
+
+  /**
+   * Whether the folder gets the export marker: it is below a photo's folder (or the template said
+   * so), where the startup scan and a folder source would find it. Never a folder that holds
+   * photos, as the marker would hide them; and not a folder somewhere else, which is the user's.
+   */
+  private wantsMarker(folder: string, nextToPhoto: boolean): boolean {
+    const key = normalizeExportPath(folder);
+    let below = nextToPhoto;
+    for (const photo of this.deps.photos.list()) {
+      for (const file of [photo.path, photo.sidecarPath]) {
+        const directory = normalizeExportPath(dirname(file));
+        if (directory === key) return false;
+        const relation = path.relative(directory, key);
+        if (
+          relation !== '' &&
+          relation !== '..' &&
+          !relation.startsWith(`..${path.sep}`) &&
+          !path.isAbsolute(relation)
+        ) {
+          below = true;
+        }
+      }
+    }
+    return below;
   }
 
   /** Every indexed original and sidecar, case-folded on case-insensitive file systems. */
@@ -366,6 +437,11 @@ export function clearInterruptedExportStates(photos: PhotoLibrary): void {
   }
 }
 
+function errorCode(error: unknown): string {
+  const code = (error as NodeJS.ErrnoException).code;
+  return typeof code === 'string' ? code : error instanceof Error ? error.message : String(error);
+}
+
 function validateRendered(rendered: RenderedImage): void {
   if (
     !(rendered?.rgba instanceof Uint8Array) ||
@@ -387,6 +463,7 @@ function contextFor(
 ): CaptionContext {
   return {
     filePath,
+    photoFolder: dirname(filePath),
     fileName,
     fileNameBase: parse(fileName).name,
     ...(captureTime === undefined ? {} : { captureTime }),
@@ -406,21 +483,114 @@ function expandTemplate(template: string, preset: ExportPreset, context: Caption
   return expandVariables(template.replaceAll('{preset}', presetName(preset)), context).text;
 }
 
-/** Absolute templates are used as-is; relative ones live below `exportRoot`. */
+/** A template that starts with `{photofolder}` (the only place it may appear). */
+const PHOTO_FOLDER_START = /^\s*\{\s*photofolder\s*\}/i;
+const PHOTO_FOLDER_ANYWHERE = /\{\s*photofolder\s*\}/i;
+
+export function startsWithPhotoFolder(folderTemplate: string): boolean {
+  return PHOTO_FOLDER_START.test(folderTemplate);
+}
+
+/**
+ * The photo's own folder is never created. A missing one means the drive is unplugged or the
+ * folder was moved, and creating the path again would put the export on whatever disk now holds
+ * that path (or on the system disk under an empty mount point).
+ */
+async function assertPhotoFolderAvailable(photoFolder: string, fileName: string): Promise<void> {
+  const isFolder = await stat(photoFolder).then(
+    (info) => info.isDirectory(),
+    () => false,
+  );
+  if (isFolder) return;
+  throw new IpcError(
+    'io',
+    `Cannot export ${fileName}: its folder ${photoFolder} is not available. ` +
+      'Connect the drive, or move the folder back.',
+  );
+}
+
+export interface ResolvedExportFolder {
+  folder: string;
+  /**
+   * Set when the template starts with `{photofolder}`: the folder holding the photo. `folder` is
+   * at or below it, and it must already exist (it is never created).
+   */
+  photoFolder?: string;
+}
+
+/**
+ * Where a photo's export goes.
+ *
+ * - Starts with `{photofolder}`: the photo's own folder plus the rest of the template. The
+ *   result must be at or below that folder; the rest comes from metadata variables, which can
+ *   hold `..`, `/` or `C:\`, so it is checked after expansion, not trusted.
+ * - Another absolute template is used as it is.
+ * - A relative template lives below `exportRoot` and may not escape it.
+ *
+ * `pathApi` is `node:path` unless a test needs the other platform's rules.
+ */
+export function resolveExportTarget(
+  preset: ExportPreset,
+  context: CaptionContext,
+  exportRoot: string,
+  pathApi: path.PlatformPath = path,
+): ResolvedExportFolder {
+  const template = preset.folderTemplate;
+  if (PHOTO_FOLDER_START.test(template)) {
+    const rest = template.replace(PHOTO_FOLDER_START, '');
+    if (PHOTO_FOLDER_ANYWHERE.test(rest)) {
+      throw new IpcError(
+        'invalid_argument',
+        '{photofolder} can only be at the start of the folder template',
+      );
+    }
+    if (context.filePath === undefined || !pathApi.isAbsolute(context.filePath)) {
+      throw new IpcError('invalid_argument', 'the photo has no absolute path to export next to');
+    }
+    const photoFolder = pathApi.dirname(context.filePath);
+    // Leading separators would make the rest absolute; `{photofolder}/export` is the normal spelling.
+    const below = expandTemplate(rest, preset, context)
+      .trim()
+      .replace(pathApi.sep === '\\' ? /^[\\/]+/ : /^\/+/, '');
+    const folder = pathApi.resolve(photoFolder, below);
+    const relation = pathApi.relative(photoFolder, folder);
+    if (
+      relation === '..' ||
+      relation.startsWith(`..${pathApi.sep}`) ||
+      pathApi.isAbsolute(relation)
+    ) {
+      throw new IpcError(
+        'invalid_argument',
+        `the folder template leaves the photo's folder ${photoFolder}`,
+      );
+    }
+    return { folder, photoFolder };
+  }
+  if (PHOTO_FOLDER_ANYWHERE.test(template)) {
+    throw new IpcError(
+      'invalid_argument',
+      '{photofolder} can only be at the start of the folder template',
+    );
+  }
+  const expanded = expandTemplate(template, preset, context).trim();
+  if (expanded === '') throw new IpcError('invalid_argument', 'the folder template is empty');
+  if (pathApi.isAbsolute(expanded)) return { folder: pathApi.normalize(expanded) };
+  const root = pathApi.resolve(exportRoot);
+  const target = pathApi.resolve(root, expanded);
+  if (target !== root && !target.startsWith(`${root}${pathApi.sep}`)) {
+    throw new IpcError('invalid_argument', 'the folder template escapes the export root');
+  }
+  return { folder: target };
+}
+
+/** The folder only; see {@link resolveExportTarget}. */
 export function resolveExportFolder(
   preset: ExportPreset,
   context: CaptionContext,
   exportRoot: string,
+  pathApi: path.PlatformPath = path,
 ): string {
-  const expanded = expandTemplate(preset.folderTemplate, preset, context).trim();
-  if (expanded === '') throw new IpcError('invalid_argument', 'the folder template is empty');
-  if (isAbsolute(expanded)) return path.normalize(expanded);
-  const root = resolve(exportRoot);
-  const target = resolve(root, expanded);
-  if (target !== root && !target.startsWith(`${root}${sep}`)) {
-    throw new IpcError('invalid_argument', 'the folder template escapes the export root');
-  }
-  return target;
+  return resolveExportTarget(preset, context, exportRoot, pathApi).folder;
 }
 
 export function resolveExportFileName(preset: ExportPreset, context: CaptionContext): string {

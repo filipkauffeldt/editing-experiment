@@ -8,6 +8,7 @@ import type {
 } from '@ee/contracts';
 import { DEVELOP_SETTING_GROUPS, IPTC_FIELD_NAMES, asPresetId } from '@ee/contracts';
 import { join } from 'node:path';
+import { DEFAULT_FOLDER_TEMPLATE } from './export-folder';
 import { defaultPanelWidths } from './panel-widths';
 
 /** The preset used until the user changes one, and after a FinishAction migration. */
@@ -15,7 +16,7 @@ export function defaultExportPreset(): ExportPreset {
   return {
     id: asPresetId('default'),
     name: 'Sportfotografen',
-    folderTemplate: '{folder}/Export/{preset}',
+    folderTemplate: DEFAULT_FOLDER_TEMPLATE,
     fileNaming: 'rename',
     fileNameTemplate: '{filenamebase}',
     ifExists: 'suffix',
