@@ -1,65 +1,7 @@
-.presets {
-  display: flex;
-  flex-direction: column;
-}
-
 .muted {
   padding: 4px 12px 8px;
   color: var(--dim);
   font-size: var(--fs-small);
-}
-
-.preset {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 8px;
-  padding: 4px 12px;
-  border: 0;
-  background: transparent;
-  text-align: left;
-}
-
-.preset:hover:not(:disabled) {
-  background: var(--raised);
-}
-
-.preset:disabled {
-  color: var(--dim);
-}
-
-.presetName {
-  overflow: hidden;
-  font-size: var(--fs-small);
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.presetCount {
-  flex: none;
-  color: var(--dim);
-}
-
-.notice {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  margin: 4px 12px 8px;
-  padding: 4px 7px;
-  border: 1px solid var(--line-strong);
-  color: var(--muted);
-  font-size: var(--fs-label);
-}
-
-.noticeClose {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  margin-left: auto;
-  padding: 0;
-  border: 0;
-  background: transparent;
-  color: var(--muted);
 }
 
 .tabs {

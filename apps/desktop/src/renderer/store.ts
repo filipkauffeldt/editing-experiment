@@ -105,13 +105,7 @@ export type SortMode = 'filename' | 'capture-time';
 export type SelectionMode = 'replace' | 'toggle' | 'range';
 /** The four modules of the top bar; Retouch is `AppState.retouch` on the Develop view. */
 export type AppModule = 'ingest' | 'library' | 'develop';
-export type DialogTab =
-  | 'sources'
-  | 'destinations'
-  | 'ingest'
-  | 'metadata'
-  | 'profiles'
-  | 'presets';
+export type DialogTab = 'sources' | 'destinations' | 'ingest' | 'metadata' | 'profiles' | 'presets';
 
 /** A photo's camera profile as the renderer uses it. */
 export interface PhotoProfile {

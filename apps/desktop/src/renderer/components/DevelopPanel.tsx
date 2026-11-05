@@ -32,7 +32,7 @@ import {
   useHistogram,
 } from '../develop-view';
 import { useAppState, useAppStore } from '../store-context';
-import { CloseIcon, PlusIcon } from './icons';
+import { PresetPicker } from './PresetPicker';
 import { Histogram } from './Histogram';
 import { Panel } from './Panel';
 import { ColorGradingWheels, GRADING_VIEWS, type GradingView } from './ColorGradingWheels';
@@ -687,7 +687,6 @@ function LensSection() {
 
 /** Right panel: presets, then the Camera Raw compatible develop sliders. */
 export function DevelopPanel({ className }: { className?: string }) {
-  const store = useAppStore();
   const state = useAppState();
   const photo = activePhoto(state);
   const mode = useDevelopViewMode();
@@ -752,52 +751,7 @@ export function DevelopPanel({ className }: { className?: string }) {
           </Button>
         </div>
       </div>
-      <PanelSection
-        title="Presets"
-        flush
-        actions={
-          <Button
-            variant="ghost"
-            size="small"
-            title="Import a Lightroom/Camera Raw .xmp preset"
-            onClick={() => void store.importPreset()}
-          >
-            <PlusIcon size={10} /> Import
-          </Button>
-        }
-      >
-        <div className={styles.presets} data-testid="presets">
-          {state.presets.length === 0 && <span className={styles.muted}>No presets imported</span>}
-          {state.presets.map((preset) => (
-            <button
-              key={preset.id}
-              type="button"
-              className={styles.preset}
-              title={preset.path}
-              disabled={!photo}
-              onClick={() => store.applyPreset(preset)}
-            >
-              <span className={styles.presetName}>{preset.name}</span>
-              <span className={`${styles.presetCount} mono`}>
-                {Object.keys(preset.params).length}
-              </span>
-            </button>
-          ))}
-        </div>
-        {state.presetNotice && (
-          <div className={styles.notice} role="status">
-            {state.presetNotice}
-            <button
-              type="button"
-              className={styles.noticeClose}
-              aria-label="Dismiss preset notice"
-              onClick={() => store.clearPresetNotice()}
-            >
-              <CloseIcon size={9} />
-            </button>
-          </div>
-        )}
-      </PanelSection>
+      <PresetPicker />
 
       <div data-testid="sliders">
         <ProfileSection />

@@ -1,0 +1,111 @@
+.presets {
+  display: flex;
+  flex-direction: column;
+}
+
+.muted {
+  padding: 4px 12px 8px;
+  color: var(--dim);
+  font-size: var(--fs-small);
+}
+
+/* A group of presets: its folder or Adobe group, the way the user organised them. */
+.group {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 12px 3px;
+  border: 0;
+  background: transparent;
+  color: var(--dim);
+  font-size: var(--fs-label);
+  letter-spacing: var(--tracking-label);
+  text-align: left;
+  text-transform: uppercase;
+}
+
+.group:hover {
+  color: var(--text);
+}
+
+.caret {
+  flex: none;
+  width: 5px;
+  height: 5px;
+  border-right: 1px solid currentColor;
+  border-bottom: 1px solid currentColor;
+  transform: rotate(-45deg);
+}
+
+.groupOpen .caret {
+  transform: rotate(45deg);
+}
+
+.groupName {
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.groupCount {
+  flex: none;
+}
+
+.preset {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 4px 12px;
+  border: 0;
+  background: transparent;
+  text-align: left;
+}
+
+.indented {
+  padding-left: 24px;
+}
+
+.preset:hover:not(:disabled) {
+  background: var(--raised);
+}
+
+.preset:disabled {
+  color: var(--dim);
+}
+
+.presetName {
+  overflow: hidden;
+  font-size: var(--fs-small);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.presetCount {
+  flex: none;
+  color: var(--dim);
+}
+
+.notice {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 4px 12px 8px;
+  padding: 4px 7px;
+  border: 1px solid var(--line-strong);
+  color: var(--muted);
+  font-size: var(--fs-label);
+}
+
+.noticeClose {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  margin-left: auto;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+}
