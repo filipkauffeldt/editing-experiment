@@ -303,6 +303,8 @@ export function applyPreset(current: EditParams, preset: EditPreset): EditParams
   // A preset's profile replaces the current one whole: no look of the old choice survives a new
   // camera profile, and a look without an Amount means 100 %.
   if (preset.params.CameraProfile !== undefined || preset.params.LookName !== undefined) {
+    // A named profile ends an explicit "Camera matrix" choice.
+    if (preset.params.CameraProfileChoice === undefined) delete next.CameraProfileChoice;
     if (preset.params.CameraProfileDigest === undefined) delete next.CameraProfileDigest;
     if (preset.params.LookName === undefined) {
       delete next.LookName;

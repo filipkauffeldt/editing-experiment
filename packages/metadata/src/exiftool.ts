@@ -25,6 +25,7 @@ export const EE_CONFIG = String.raw`%Image::ExifTool::UserDefined = (
   WRITE_PROC => \&Image::ExifTool::XMP::WriteXMP,
   RetouchVersions => { Writable => 'string' },
   LensProfile => { Writable => 'string' },
+  CameraProfile => { Writable => 'string' },
 );
 1;
 `;

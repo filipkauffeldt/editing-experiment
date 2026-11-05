@@ -129,6 +129,7 @@ const SCALAR_TAGS: Readonly<Record<ScalarKey, string>> = {
   DefringeGreenHueHi: 'XMP-crs:DefringeGreenHueHi',
   LensProfileChoice: 'XMP-ee:LensProfile',
   CameraProfile: 'XMP-crs:CameraProfile',
+  CameraProfileChoice: 'XMP-ee:CameraProfile',
   CameraProfileDigest: 'XMP-crs:CameraProfileDigest',
 };
 
@@ -147,6 +148,7 @@ const TEXT_KEYS = [
   'LensProfileFilename',
   'LensProfileChoice',
   'CameraProfile',
+  'CameraProfileChoice',
   'CameraProfileDigest',
 ] as const;
 type TextKey = (typeof TEXT_KEYS)[number];

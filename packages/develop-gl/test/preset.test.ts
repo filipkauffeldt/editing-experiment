@@ -463,6 +463,17 @@ describe('Lightroom preset with a camera profile', () => {
     );
     expect(look.LookName).toBe('Adobe Color');
     expect(look.LookAmount).toBeUndefined();
+    // A named profile ends an explicit "Camera matrix" choice; a preset without one keeps it.
+    expect(
+      applyPreset({ CameraProfileChoice: 'none' }, parsePresetXmp(plain).preset)
+        .CameraProfileChoice,
+    ).toBeUndefined();
+    expect(
+      applyPreset(
+        { CameraProfileChoice: 'none' },
+        parsePresetXmp(`${head} crs:Contrast2012="5" />\n</rdf:RDF></x:xmpmeta>`).preset,
+      ).CameraProfileChoice,
+    ).toBe('none');
     // A preset without any profile leaves the photo's profile alone.
     expect(
       applyPreset(
