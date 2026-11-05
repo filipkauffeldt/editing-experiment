@@ -91,9 +91,11 @@ export async function createBackend(options: BackendOptions): Promise<Backend> {
   const search = new SearchIndex(
     index,
     (photo) => readIptc(photo.path, exiftool),
+    // `photos` is made right below; the lock is only asked for once the queue runs.
+    (photoId, task) => photos.withLock(photoId, task),
     (message) => console.warn(message),
   );
-  const photos = new PhotoLibrary(index, emit, search);
+  const photos: PhotoLibrary = new PhotoLibrary(index, emit, search);
   // Reads the captions of photos that have none in the search index yet, in the background.
   search.start();
   const previews = new PreviewCache(layout.thumbDir, layout.previewDir);

@@ -32,6 +32,12 @@ export class SearchIndex {
     private readonly index: PhotoIndex,
     /** Reads the IPTC fields of a photo's file or sidecar. */
     private readonly read: (photo: Photo) => Promise<Pick<IptcFields, 'caption' | 'keywords'>>,
+    /**
+     * Runs a task under the photo's lock (`PhotoLibrary.withLock`), the one every writer of that
+     * file and its sidecar, and the delete, hold. A read takes it too: on Windows a file that is
+     * open for reading cannot be moved, so an unlocked read could make a Delete fail with EBUSY.
+     */
+    private readonly lock: <T>(photoId: PhotoId, task: () => Promise<T>) => Promise<T>,
     private readonly warn: (message: string) => void = () => undefined,
     private readonly concurrency = 2,
   ) {
@@ -109,22 +115,31 @@ export class SearchIndex {
     await Promise.all(Array.from({ length: this.concurrency }, worker));
   }
 
+  /**
+   * Reads one photo, holding its lock only for that read: a long backlog waits between photos,
+   * never while one is open, so an edit or delete queues behind at most one ExifTool call.
+   */
   private async load(photoId: PhotoId): Promise<void> {
     const entry = this.entries.get(photoId);
-    const record = this.index.get(photoId);
-    if (!entry || !record) return;
-    let text: string;
-    try {
-      text = searchTextOf(await this.read(record.photo));
-    } catch (error) {
-      // An unreadable file must not stay "pending" for ever; its name still matches.
-      this.warn(
-        `search: could not read ${record.photo.fileName}: ${error instanceof Error ? error.message : String(error)}`,
-      );
-      text = '';
-    }
+    if (!entry) return;
+    const text = await this.lock(photoId, async () => {
+      // Deleted or removed while this was queued (for the lock, or before): nothing to read, and
+      // nothing worth a log line.
+      const record = this.index.get(photoId);
+      if (this.closed || this.entries.get(photoId) !== entry || !record) return undefined;
+      try {
+        return searchTextOf(await this.read(record.photo));
+      } catch (error) {
+        // An unreadable file must not stay "pending" for ever; its name still matches.
+        this.warn(
+          `search: could not read ${record.photo.fileName}: ${error instanceof Error ? error.message : String(error)}`,
+        );
+        return '';
+      }
+    });
     // Forgotten or removed while the read was going.
-    if (this.closed || this.entries.get(photoId) !== entry || !this.index.get(photoId)) return;
+    if (text === undefined || this.closed || this.entries.get(photoId) !== entry) return;
+    if (!this.index.get(photoId)) return;
     entry.text = text;
     // Changed again while this read was going: it is queued once more and stays pending.
     if (!this.queue.has(photoId)) entry.stale = false;
