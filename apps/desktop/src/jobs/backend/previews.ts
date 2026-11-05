@@ -14,6 +14,12 @@ export const SAFE_PHOTO_ID = /^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/;
 export type PreviewKind = 'thumb' | 'preview';
 
 /**
+ * Bumped whenever a change to the raw defaults makes pixels drawn with the old
+ * ones wrong. Caches from before it was tracked have no `defaultsVersion`.
+ */
+export const EDITED_PREVIEW_DEFAULTS_VERSION = 1;
+
+/**
  * What the edited JPEGs of a photo were rendered from. Written last, so its
  * presence means both JPEGs are complete.
  */
@@ -28,6 +34,13 @@ export interface EditedPreviewMeta {
    * which is what they were drawn with.
    */
   defaultProfile?: string;
+  /** Raw-defaults version the pixels were drawn with; absent in older caches. */
+  defaultsVersion?: number;
+}
+
+/** True when the pixels were drawn with the current raw defaults. */
+export function hasCurrentDefaults(meta: EditedPreviewMeta): boolean {
+  return meta.defaultsVersion === EDITED_PREVIEW_DEFAULTS_VERSION;
 }
 
 /** Plain mid-grey shown instead of an image that would reveal what a retouch hides. */
@@ -84,31 +97,39 @@ export class PreviewCache {
   async writeEdited(
     photoId: PhotoId,
     { thumb, preview }: PreviewJpegs,
-    meta: EditedPreviewMeta,
+    meta: Omit<EditedPreviewMeta, 'defaultsVersion'>,
   ): Promise<void> {
     await Promise.all([
       mkdir(this.thumbDir, { recursive: true }),
       mkdir(this.previewDir, { recursive: true }),
     ]);
+    const stored: EditedPreviewMeta = {
+      ...meta,
+      defaultsVersion: EDITED_PREVIEW_DEFAULTS_VERSION,
+    };
     // The meta goes last: on a first write the files are not served until it exists.
     await writeAtomic(this.editedPath('preview', photoId), preview);
     await writeAtomic(this.editedPath('thumb', photoId), thumb);
-    await writeAtomic(this.metaPath(photoId), Buffer.from(JSON.stringify(meta)));
+    await writeAtomic(this.metaPath(photoId), Buffer.from(JSON.stringify(stored)));
   }
 
   async readEditedMeta(photoId: PhotoId): Promise<EditedPreviewMeta | undefined> {
     try {
       const parsed = JSON.parse(await readFile(this.metaPath(photoId), 'utf8')) as unknown;
       const meta = parsed as Partial<EditedPreviewMeta>;
-      return typeof meta.revision === 'number' && typeof meta.retouchKey === 'string'
-        ? {
-            revision: meta.revision,
-            retouchKey: meta.retouchKey,
-            ...(typeof meta.defaultProfile === 'string' && meta.defaultProfile !== ''
-              ? { defaultProfile: meta.defaultProfile }
-              : {}),
-          }
-        : undefined;
+      if (typeof meta.revision !== 'number' || typeof meta.retouchKey !== 'string') {
+        return undefined;
+      }
+      return {
+        revision: meta.revision,
+        retouchKey: meta.retouchKey,
+        ...(typeof meta.defaultProfile === 'string' && meta.defaultProfile !== ''
+          ? { defaultProfile: meta.defaultProfile }
+          : {}),
+        ...(typeof meta.defaultsVersion === 'number'
+          ? { defaultsVersion: meta.defaultsVersion }
+          : {}),
+      };
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code === 'ENOENT' || error instanceof SyntaxError) {
         return undefined;
@@ -137,18 +158,26 @@ export class PreviewCache {
 
   /**
    * The file to serve for a photo. `retouchKey` is what the photo's retouching
-   * is now ('' when it has none).
+   * is now ('' when it has none); `raw` says whether the raw defaults were part
+   * of the render.
    *
    * The camera preview shows the unretouched image, so it is only ever served
    * for a photo without retouching. A photo with retouching gets the edited
    * JPEGs, and only when they were rendered with the current retouch ops; until
    * then a grey placeholder, never the original and never an older render
-   * (whose mosaic may cover other regions).
+   * (whose mosaic may cover other regions). A raw render drawn with older raw
+   * defaults is not served either.
    */
-  async resolve(kind: PreviewKind, photoId: PhotoId, retouchKey: string): Promise<ServedFile> {
+  async resolve(
+    kind: PreviewKind,
+    photoId: PhotoId,
+    retouchKey: string,
+    raw: boolean,
+  ): Promise<ServedFile> {
     const meta = await this.readEditedMeta(photoId);
+    const defaultsMatch = !raw || (meta !== undefined && hasCurrentDefaults(meta));
     // Edited files whose mosaic is now gone (version deleted) are merely out of date.
-    if (meta && (retouchKey === '' || meta.retouchKey === retouchKey)) {
+    if (meta && defaultsMatch && (retouchKey === '' || meta.retouchKey === retouchKey)) {
       return { file: this.editedPath(kind, photoId), placeholder: false };
     }
     if (retouchKey !== '') return { file: await this.placeholderFile(), placeholder: true };

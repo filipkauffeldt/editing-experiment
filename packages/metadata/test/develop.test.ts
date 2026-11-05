@@ -1,7 +1,7 @@
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
 import { join } from 'node:path';
 import { existsSync as exists } from 'node:fs';
-import { asVersionId, type EditParams, type RetouchVersion } from '@ee/contracts';
+import { asVersionId, withDefaults, type EditParams, type RetouchVersion } from '@ee/contracts';
 import {
   cropFromGeometry,
   cropGeometry,
@@ -19,6 +19,7 @@ import {
   fixtureAvailable,
   makeJpeg,
   makeTempDir,
+  makeTiff,
   sampleNefPath,
   sha256File,
 } from './helpers';
@@ -553,8 +554,20 @@ describe('develop and retouch XMP', () => {
   });
 });
 
-describe('raw defaults (Lightroom starts a raw with sharpening and colour noise reduction)', () => {
+describe('raw defaults (Adobe Camera Raw’s Adobe Default)', () => {
   let service: ExifToolService;
+  const adobeDefaults: EditParams = {
+    Sharpness: 40,
+    SharpenRadius: 1,
+    SharpenDetail: 25,
+    SharpenEdgeMasking: 0,
+    LuminanceSmoothing: 0,
+    LuminanceNoiseReductionDetail: 50,
+    LuminanceNoiseReductionContrast: 0,
+    ColorNoiseReduction: 25,
+    ColorNoiseReductionDetail: 50,
+    ColorNoiseReductionSmoothness: 50,
+  };
 
   beforeAll(() => {
     service = new ExifToolService();
@@ -566,45 +579,68 @@ describe('raw defaults (Lightroom starts a raw with sharpening and colour noise 
 
   afterEach(cleanupTempDirs);
 
-  it('uses Lightroom’s fixed defaults for a raw without camera defaults', async () => {
+  it('uses Adobe’s fixed defaults for a raw', async () => {
     const dir = await makeTempDir();
     const raw = join(dir, 'shot.NEF');
     await makeJpeg(raw);
-    expect(await readRawDefaults(raw, service)).toEqual({
-      Sharpness: 40,
-      SharpenRadius: 1,
-      SharpenDetail: 25,
-      SharpenEdgeMasking: 0,
-      ColorNoiseReduction: 25,
-      ColorNoiseReductionDetail: 50,
-      ColorNoiseReductionSmoothness: 50,
-    });
+    expect(readRawDefaults(raw)).toEqual(adobeDefaults);
   });
 
   it('has no defaults for JPEG and TIFF', async () => {
     const dir = await makeTempDir();
     const jpeg = join(dir, 'photo.jpg');
     await makeJpeg(jpeg);
-    expect(await readRawDefaults(jpeg, service)).toEqual({});
+    expect(readRawDefaults(jpeg)).toEqual({});
+    const tiff = join(dir, 'photo.tif');
+    await makeTiff(tiff);
+    expect(readRawDefaults(tiff)).toEqual({});
   });
 
-  it('takes the camera’s own crd: defaults from a Nikon NEF over the fixed ones', async () => {
+  it('ignores a camera crd: block with LuminanceSmoothing 37', async () => {
+    const dir = await makeTempDir();
+    const raw = join(dir, 'shot.NEF');
+    await makeTiff(raw);
+    await service.write(raw, {
+      'XMP-crd:LuminanceSmoothing': 37,
+      'XMP-crd:LuminanceNoiseReductionDetail': 75,
+      'XMP-crd:ColorNoiseReduction': 10,
+      'XMP-crd:SharpenRadius': 2,
+      'XMP-crd:Sharpness': 136,
+    });
+    expect(await service.read(raw)).toMatchObject({ 'XMP-crd:LuminanceSmoothing': 37 });
+    expect(readRawDefaults(raw)).toEqual(adobeDefaults);
+  });
+
+  it('keeps an explicit sidecar value that equals an old crd: value', async () => {
+    const dir = await makeTempDir();
+    const raw = join(dir, 'shot.NEF');
+    await makeTiff(raw);
+    await service.write(raw, {
+      'XMP-crd:LuminanceSmoothing': 37,
+      'XMP-crd:Sharpness': 136,
+    });
+    await writeEditParams(raw, { Sharpness: 136, LuminanceSmoothing: 37 }, { service });
+
+    const defaults = readRawDefaults(raw);
+    const params = await readEditParams(raw, service);
+    expect(defaults).toMatchObject({ Sharpness: 40, LuminanceSmoothing: 0 });
+    expect(withDefaults(params, defaults)).toMatchObject({
+      Sharpness: 136,
+      LuminanceSmoothing: 37,
+    });
+  });
+
+  it('ignores a real Nikon NEF’s crd: block and leaves the file untouched', async () => {
     if (!fixtureAvailable('z6ii_CZP_0299.NEF')) return;
     const dir = await makeTempDir();
     const nef = await copyFixture('z6ii_CZP_0299.NEF', dir);
     const before = await sha256File(nef);
-    // The Z 6II's Vivid picture control, as embedded by the camera.
-    expect(await readRawDefaults(nef, service)).toMatchObject({
-      Sharpness: 136,
-      SharpenRadius: 2,
-      SharpenDetail: 15,
-      SharpenEdgeMasking: 0,
-      LuminanceSmoothing: 27,
-      LuminanceNoiseReductionDetail: 75,
-      ColorNoiseReduction: 10,
-      ColorNoiseReductionDetail: 50,
-      ColorNoiseReductionSmoothness: 50,
+    // The Z 6II's Vivid picture control is embedded by the camera; Adobe Default ignores it.
+    expect(await service.read(nef)).toMatchObject({
+      'XMP-crd:LuminanceSmoothing': 27,
+      'XMP-crd:Sharpness': 136,
     });
+    expect(readRawDefaults(nef)).toEqual(adobeDefaults);
     // Reading defaults neither writes the NEF nor creates a sidecar, and they are not edits.
     expect(await sha256File(nef)).toBe(before);
     expect(await exists(sidecarPathFor(nef))).toBe(false);
@@ -620,16 +656,7 @@ describe('raw defaults (Lightroom starts a raw with sharpening and colour noise 
       return;
     }
     const before = await sha256File(sample);
-    const defaults = await readRawDefaults(sample, service);
-    // Every detail setting resolves to a number in range, camera value or Lightroom's.
-    for (const name of [
-      'Sharpness',
-      'SharpenRadius',
-      'SharpenDetail',
-      'ColorNoiseReduction',
-    ] as const) {
-      expect(typeof defaults[name]).toBe('number');
-    }
+    expect(readRawDefaults(sample)).toEqual(adobeDefaults);
     expect(await sha256File(sample)).toBe(before);
   });
 });

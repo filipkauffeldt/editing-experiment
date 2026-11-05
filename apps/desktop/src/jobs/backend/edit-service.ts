@@ -76,24 +76,9 @@ export class EditService {
     return [{ id: developVersionId(photoId), kind: 'develop', ops: params }, ...retouch];
   }
 
-  /** Camera and Lightroom raw defaults, read once per photo (the raw file does not change). */
-  private readonly defaults = new Map<PhotoId, Promise<EditParams>>();
-
-  async getDefaults(photoId: PhotoId): Promise<EditParams> {
-    const photo = this.photos.get(photoId);
-    let known = this.defaults.get(photoId);
-    if (!known) {
-      known = readRawDefaults(photo.path, this.exiftool);
-      this.defaults.set(photoId, known);
-      // A failed read must not stick.
-      known.catch(() => this.defaults.delete(photoId));
-    }
-    return { ...(await known) };
-  }
-
-  /** The photo was deleted: forget its cached raw defaults. */
-  forget(photoId: PhotoId): void {
-    this.defaults.delete(photoId);
+  /** Adobe's default detail settings for a raw; empty for JPEG and TIFF. */
+  getDefaults(photoId: PhotoId): EditParams {
+    return readRawDefaults(this.photos.get(photoId).path);
   }
 
   async getParams(ref: VersionRef): Promise<EditParams> {

@@ -102,6 +102,8 @@ export async function createBackend(options: BackendOptions): Promise<Backend> {
     profiles.defaultKeyForPhoto(photo, params),
   );
   const edits = new EditService(photos, exiftool, editedPreviews);
+  // Before anything is served: a raw preview drawn with older raw defaults is out of date.
+  await editedPreviews.invalidateOutdatedDefaults();
   const labels = new LabelService(photos, exiftool);
   const seenStore = new SqliteSeenStore(layout.seenDb);
   const presets = new PresetStore(layout.presetsDir);
@@ -200,7 +202,6 @@ export async function createBackend(options: BackendOptions): Promise<Backend> {
     onRemoved: async (photoId) => {
       // The entry is gone, so none of these can write for the photo again.
       editedPreviews.forget(photoId);
-      edits.forget(photoId);
       exports.photoRemoved(photoId);
       exporter.discard(photoId);
       await Promise.all([previews.removeAll(photoId), apps.forget(photoId)]);

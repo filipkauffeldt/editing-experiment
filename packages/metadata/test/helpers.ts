@@ -41,6 +41,23 @@ export async function makeJpeg(
     .toFile(path);
 }
 
+/** A TIFF-based image; named `.NEF` it is a raw-named file ExifTool can embed XMP into. */
+export async function makeTiff(
+  path: string,
+  options: { width?: number; height?: number } = {},
+): Promise<void> {
+  await sharp({
+    create: {
+      width: options.width ?? 64,
+      height: options.height ?? 48,
+      channels: 3,
+      background: { r: 200, g: 120, b: 40 },
+    },
+  })
+    .tiff()
+    .toFile(path);
+}
+
 /** Copy a fixture into `dir` so tests never touch the checked-out fixture. */
 export async function copyFixture(name: string, dir: string): Promise<string> {
   const destination = join(dir, name);

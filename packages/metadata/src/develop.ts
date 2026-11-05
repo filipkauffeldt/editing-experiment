@@ -1,7 +1,5 @@
 import {
-  DETAIL_DEFAULT_PARAMS,
   RAW_DETAIL_DEFAULTS,
-  SLIDER_SPECS,
   type CropParams,
   type EditParams,
   type ToneCurvePoint,
@@ -505,23 +503,13 @@ function writeCrop(tags: Record<string, ExifToolTagValue>, crop: CropParams): vo
 }
 
 /**
- * The detail settings Lightroom starts a raw file with: its fixed defaults, each
- * replaced by the camera's `crd:` (camera-raw-defaults) value when the file
- * carries one (Nikon NEFs embed them). Empty for anything that is not a raw.
- * Read-only: the raw file is never written, and these values are not edits.
+ * The detail settings Adobe Camera Raw starts a raw file with ("Adobe
+ * Default"). The camera's own `crd:` (camera-raw-defaults) block is
+ * deliberately ignored, matching Adobe Default; only a sidecar or preset value
+ * overrides one of these. Empty for anything that is not a raw. Read-only:
+ * these values are not edits and are never written.
  */
-export async function readRawDefaults(
-  path: string,
-  service: ExifToolService = getExifToolService(),
-): Promise<EditParams> {
+export function readRawDefaults(path: string): EditParams {
   if (!isRawPath(path)) return {};
-  const defaults: Record<string, number> = { ...RAW_DETAIL_DEFAULTS };
-  const tags = await service.read(path);
-  for (const name of DETAIL_DEFAULT_PARAMS) {
-    const value = asNumber(tags[`XMP-crd:${name}`]);
-    if (value === undefined) continue;
-    const spec = SLIDER_SPECS[name];
-    defaults[name] = Math.min(spec.max, Math.max(spec.min, value));
-  }
-  return defaults as EditParams;
+  return { ...RAW_DETAIL_DEFAULTS } as EditParams;
 }

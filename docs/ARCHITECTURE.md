@@ -517,15 +517,17 @@ the per-pixel chain. Their order, pyramid, tiling, caching and CPU parity are in
 
 ### Raw defaults and GPU fallback
 
-- **Raw defaults.** Lightroom starts a raw with Sharpness 40 / Radius 1.0 / Detail 25 /
-  Masking 0 and Color Noise Reduction 25 / 50 / 50, and a Nikon NEF's own `crd:` block
-  (camera-raw-defaults) replaces them with the camera's values (`readRawDefaults` in
-  `@ee/metadata`, served by `develop:getDefaults`, never for JPEG/TIFF). They are not
-  edits: the store keeps them in `editDefaults`, the sliders show `withDefaults(params,
-  defaults)` and every render (canvas, edited previews, export) uses it, but a sidecar
-  write holds only what the user set. An explicit `0` is off (so it is written), and
-  putting a slider back on its default removes the key. The other `crd:` values (tone,
-  saturation of the picture control) are not applied yet.
+- **Raw defaults.** A raw starts at Adobe Camera Raw's "Adobe Default" detail settings:
+  Sharpening 40 / Radius 1.0 / Detail 25 / Masking 0, Luminance 0 / 50 / 0 and Color
+  25 / 50 / 50. The camera's own `crd:` block (camera-raw-defaults) is deliberately
+  ignored, matching Adobe Default; only a sidecar or preset value overrides a default
+  (`readRawDefaults` in `@ee/metadata`, served by `develop:getDefaults`, never for
+  JPEG/TIFF). They are not edits: the store keeps them in `editDefaults`, the sliders
+  show `withDefaults(params, defaults)` and every render (canvas, edited previews,
+  export) uses it, but a sidecar write holds only what the user set. An explicit `0`
+  is off (so it is written), and putting a slider back on its default removes the key.
+  An edited preview drawn with older defaults is discarded at startup and rendered
+  again. The other camera settings in the `crd:` block are not applied either.
 - **No `EXT_color_buffer_float`.** Every Chromium WebGL2 has it, but without it the
   renderer reports `supportsNeighbourhood: false`, leaves the neighbourhood settings out,
   renders the rest and calls `onNeighbourhoodUnavailable` once (the app shows one toast).

@@ -1,5 +1,5 @@
 // @vitest-environment node
-import { asPhotoId, asSourceId, type Photo } from '@ee/contracts';
+import { RAW_DETAIL_DEFAULTS, asPhotoId, asSourceId, type Photo } from '@ee/contracts';
 import { ExifToolService, sidecarPathFor } from '@ee/metadata';
 import { copyFile, mkdtemp, readFile, rm, writeFile, access } from 'node:fs/promises';
 import { createHash } from 'node:crypto';
@@ -23,7 +23,7 @@ const sha = async (path: string): Promise<string> =>
     .update(await readFile(path))
     .digest('hex');
 
-/** `develop:getDefaults`: what a raw starts with, read from the file and never written back. */
+/** `develop:getDefaults`: Adobe's raw defaults, never written back. */
 describe('develop defaults of a photo (jobs side)', () => {
   const exiftool = new ExifToolService();
   let root: string;
@@ -71,25 +71,20 @@ describe('develop defaults of a photo (jobs side)', () => {
     expect(await edits.getDefaults(addPhoto('jpeg', jpeg))).toEqual({});
   });
 
-  it('is Lightroom’s raw sharpening and colour noise reduction for a raw without camera defaults', async () => {
+  it('is Adobe’s raw sharpening and noise reduction for a raw', async () => {
     const raw = join(root, 'plain.NEF');
     await writeFile(raw, Buffer.from('not a real raw'));
-    expect(await edits.getDefaults(addPhoto('plain', raw))).toMatchObject({
-      Sharpness: 40,
-      SharpenRadius: 1,
-      SharpenDetail: 25,
-      ColorNoiseReduction: 25,
-    });
+    expect(edits.getDefaults(addPhoto('plain', raw))).toEqual(RAW_DETAIL_DEFAULTS);
   });
 
-  it('takes the camera’s crd: values from a real NEF, without writing anything', async () => {
+  it('ignores a real NEF’s crd: block, without writing anything', async () => {
     const [fixture] = fixtureNefs().filter((path) => basename(path).startsWith('z6ii'));
     if (!fixture) return;
     const nef = join(root, basename(fixture));
     await copyFile(fixture, nef);
     const before = await sha(nef);
     const id = addPhoto('nef', nef);
-    expect(await edits.getDefaults(id)).toMatchObject({ Sharpness: 136, SharpenRadius: 2 });
+    expect(edits.getDefaults(id)).toEqual(RAW_DETAIL_DEFAULTS);
     // The defaults are not edits: no sidecar, the NEF untouched, and the photo reads as unedited.
     expect(await sha(nef)).toBe(before);
     expect(await exists(sidecarPathFor(nef))).toBe(false);

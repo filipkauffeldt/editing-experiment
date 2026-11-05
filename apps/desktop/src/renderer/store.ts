@@ -371,7 +371,7 @@ export interface AppState {
   template?: IptcFields;
   templatePath?: string;
   editParams: Record<string, EditParams>;
-  /** What a photo starts with when the sidecar does not say (Lightroom's raw sharpening and colour noise reduction, the camera's `crd:`). Not edits: never written. */
+  /** What a raw starts with when the sidecar does not say (Adobe's default sharpening and noise reduction). Not edits: never written. */
   editDefaults: Record<string, EditParams>;
   /** Lens facts of the photos opened in the develop view (from the linear image header). */
   photoLens: Record<string, PhotoLensContext>;
@@ -2420,7 +2420,7 @@ export class AppStore {
     try {
       return await this.bridge.invoke('develop:getDefaults', { photoId });
     } catch (cause) {
-      this.toast('error', `Could not read the camera's default settings: ${messageOf(cause)}`);
+      this.toast('error', `Could not read the raw default settings: ${messageOf(cause)}`);
       return {};
     }
   }

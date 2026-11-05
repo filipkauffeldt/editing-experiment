@@ -166,6 +166,51 @@ describe('edited thumbnails and previews (jobs side)', () => {
     expect((await readFile(cache.pathFor('preview', id))).equals(originalPreview)).toBe(true);
   });
 
+  it('discards an edited raw preview drawn with older defaults, once', async () => {
+    await develop({ Exposure2012: 0.5 });
+    await send(1, 100);
+    const rawPath = photos.get(id).path.replace(/\.jpg$/, '.NEF');
+    photos.update(id, (photo) => ({
+      ...photo,
+      path: rawPath,
+      sidecarPath: rawPath.replace(/\.NEF$/, '.xmp'),
+      fileName: 'photo.NEF',
+    }));
+    // An edited cache from before the defaults version was tracked.
+    const metaPath = cache.pathFor('preview', id).replace(/\.jpg$/, '.edited.json');
+    await writeFile(metaPath, JSON.stringify({ revision: 1, retouchKey: '' }));
+    expect((await served('preview')).file).toBe(cache.pathFor('preview', id));
+
+    events = [];
+    await edited.invalidateOutdatedDefaults();
+    const stale = photos.get(id);
+    expect(stale.previewStale).toBe(true);
+    expect(stale.previewRevision).toBe(2);
+    expect(updates().map((photo) => photo.previewRevision)).toEqual([2]);
+    expect(await cache.readEditedMeta(id)).toBeUndefined();
+
+    // A second pass has nothing left to invalidate.
+    await edited.invalidateOutdatedDefaults();
+    expect(photos.get(id).previewRevision).toBe(2);
+  });
+
+  it('keeps an edited raw preview drawn with the current defaults', async () => {
+    await develop({ Exposure2012: 0.5 });
+    await send(1, 100);
+    const rawPath = photos.get(id).path.replace(/\.jpg$/, '.NEF');
+    photos.update(id, (photo) => ({
+      ...photo,
+      path: rawPath,
+      sidecarPath: rawPath.replace(/\.NEF$/, '.xmp'),
+      fileName: 'photo.NEF',
+    }));
+
+    await edited.invalidateOutdatedDefaults();
+    expect(photos.get(id).previewStale).toBe(false);
+    expect(photos.get(id).previewRevision).toBe(1);
+    expect(await cache.readEditedMeta(id)).toBeDefined();
+  });
+
   it('ignores a render older than one already stored', async () => {
     await develop({ Exposure2012: 0.5 });
     await send(20, 100);
