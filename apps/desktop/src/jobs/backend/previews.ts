@@ -22,6 +22,12 @@ export interface EditedPreviewMeta {
   revision: number;
   /** `retouchKey` of the retouch ops baked into the pixels; '' when none. */
   retouchKey: string;
+  /**
+   * The default camera profile (`defaultKey`) the pixels went through; absent when they went
+   * through none or a profile the settings name. Files drawn before the default existed have none,
+   * which is what they were drawn with.
+   */
+  defaultProfile?: string;
 }
 
 /** Plain mid-grey shown instead of an image that would reveal what a retouch hides. */
@@ -95,7 +101,13 @@ export class PreviewCache {
       const parsed = JSON.parse(await readFile(this.metaPath(photoId), 'utf8')) as unknown;
       const meta = parsed as Partial<EditedPreviewMeta>;
       return typeof meta.revision === 'number' && typeof meta.retouchKey === 'string'
-        ? { revision: meta.revision, retouchKey: meta.retouchKey }
+        ? {
+            revision: meta.revision,
+            retouchKey: meta.retouchKey,
+            ...(typeof meta.defaultProfile === 'string' && meta.defaultProfile !== ''
+              ? { defaultProfile: meta.defaultProfile }
+              : {}),
+          }
         : undefined;
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code === 'ENOENT' || error instanceof SyntaxError) {

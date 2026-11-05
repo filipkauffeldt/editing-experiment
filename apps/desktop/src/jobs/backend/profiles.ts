@@ -5,6 +5,7 @@ import {
   type EditParams,
   type CameraProfileData,
   type LookProfileData,
+  type Photo,
   type PhotoProfiles,
   type ProfileGroup,
   type ProfileIndex,
@@ -13,6 +14,7 @@ import {
   type ProfileRequest,
   type ProfileResolution,
 } from '@ee/contracts';
+import { isRawPath } from '@ee/metadata';
 import { identifyDcp, parseDcp, parseLookXmp, ProfileParseError } from '@ee/develop-gl/profile';
 import { open, readdir, readFile, stat } from 'node:fs/promises';
 import { homedir } from 'node:os';
@@ -351,6 +353,18 @@ export class ProfileLibrary {
     } catch (error) {
       return { kind: 'broken', problem: `${listing.name}: ${describe(error)}` };
     }
+  }
+
+  /** {@link resolve} for an indexed photo. A JPEG or TIFF is already rendered and has no profile. */
+  resolveFor(request: ProfileRequest, photo: Photo): Promise<ProfileResolution> {
+    return isRawPath(photo.path)
+      ? this.resolve(request, photo.camera)
+      : Promise.resolve({ status: 'none' });
+  }
+
+  /** {@link defaultKeyFor} for an indexed photo ('' for a JPEG or TIFF). */
+  async defaultKeyForPhoto(photo: Photo, params: EditParams): Promise<string> {
+    return isRawPath(photo.path) ? this.defaultKeyFor(params, photo.camera) : '';
   }
 
   /**

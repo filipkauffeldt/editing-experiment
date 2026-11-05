@@ -26,6 +26,12 @@ export function topRetouchOps(versions: PhotoVersion[]): RetouchOp[] {
   return [];
 }
 
+/** The develop settings of a photo's develop version. */
+export function developParams(versions: PhotoVersion[]): EditParams {
+  for (const version of versions) if (version.kind === 'develop') return version.ops;
+  return {};
+}
+
 /**
  * Identity of what a photo's retouching hides, '' when it hides nothing. A
  * cached render is only valid for the exact ops it was drawn with.
@@ -80,6 +86,12 @@ export class EditedPreviews {
   constructor(
     private readonly photos: PhotoLibrary,
     private readonly cache: PreviewCache,
+    /**
+     * The default camera profile a photo with these settings is drawn through ('' for none), see
+     * `ProfileLibrary.defaultKeyForPhoto`. A render drawn with another one is out of date.
+     */
+    private readonly defaultProfileKey: (photo: Photo, params: EditParams) => Promise<string> = () =>
+      Promise.resolve(''),
   ) {}
 
   /** The develop params of a photo were just saved (called under the photo lock). */
@@ -115,10 +127,15 @@ export class EditedPreviews {
       // session (an edit made earlier, a Lightroom sidecar) means nothing to compare.
       const saved = this.saved.get(photo.id);
       if (saved !== undefined && saved !== paramsKey(args.params)) return photo;
+      // Drawn through another default profile than the one that applies now (a profile folder was
+      // added or removed while it rendered): the next render has the right one.
+      const defaultProfile = args.defaultProfile ?? '';
+      if (defaultProfile !== (await this.defaultProfileKey(photo, args.params))) return photo;
       const jpegs = await encodeEditedJpegs(args);
       await this.cache.writeEdited(photo.id, jpegs, {
         revision: args.revision,
         retouchKey: retouchKey(photo.versions),
+        ...(defaultProfile === '' ? {} : { defaultProfile }),
       });
       this.newest.set(photo.id, args.revision);
       return this.photos.update(photo.id, (current) => ({
@@ -127,6 +144,34 @@ export class EditedPreviews {
         previewStale: false,
       }));
     });
+  }
+
+  /**
+   * The camera profiles on disk changed (a folder was added or removed, a file replaced): every
+   * edited photo whose stored previews went through another default profile than the one that
+   * applies now is marked `previewStale`, so the renderer draws it again when it is shown. Photos
+   * that name their own profile, or "Camera matrix", do not depend on the default and stay.
+   */
+  async markStaleForDefaultProfile(): Promise<void> {
+    for (const photo of this.photos.list()) {
+      if (!photo.status.edited || photo.previewStale) continue;
+      try {
+        const meta = await this.cache.readEditedMeta(photo.id);
+        if (!meta) continue;
+        const wanted = await this.defaultProfileKey(photo, developParams(photo.versions));
+        if ((meta.defaultProfile ?? '') === wanted) continue;
+        await this.photos.withLock(photo.id, async () => {
+          const current = this.photos.get(photo.id);
+          if (!current.status.edited || current.previewStale) return;
+          this.photos.update(photo.id, (latest) => ({ ...latest, previewStale: true }));
+        });
+      } catch (error) {
+        // A photo deleted meanwhile has nothing to mark; anything else is not worth stopping for.
+        if (!(error instanceof IpcError && error.code === 'not_found')) {
+          console.warn(`Could not check the previews of ${photo.fileName}`, error);
+        }
+      }
+    }
   }
 
   /**

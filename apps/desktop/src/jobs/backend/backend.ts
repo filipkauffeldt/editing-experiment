@@ -88,14 +88,21 @@ export async function createBackend(options: BackendOptions): Promise<Backend> {
   const photos = new PhotoLibrary(index, emit);
   const previews = new PreviewCache(layout.thumbDir, layout.previewDir);
   const metadata = new MetadataService(photos, exiftool, settings);
-  const editedPreviews = new EditedPreviews(photos, previews);
+  const profiles = new ProfileLibrary({
+    folders: () => settings.get().profileFolders ?? [],
+    // What a photo without a named profile is drawn through changed: its edited previews are old.
+    onCameraProfilesChanged: () =>
+      void editedPreviews
+        .markStaleForDefaultProfile()
+        .catch((error: unknown) => console.warn('preview check failed', error)),
+  });
+  const editedPreviews = new EditedPreviews(photos, previews, (photo, params) =>
+    profiles.defaultKeyForPhoto(photo, params),
+  );
   const edits = new EditService(photos, exiftool, editedPreviews);
   const labels = new LabelService(photos, exiftool);
   const seenStore = new SqliteSeenStore(layout.seenDb);
   const presets = new PresetStore(layout.presetsDir);
-  const profiles = new ProfileLibrary({
-    folders: () => settings.get().profileFolders ?? [],
-  });
   // Scan in the background so the first Develop panel does not wait for it.
   void profiles.index().catch((error: unknown) => console.warn('profile scan failed', error));
   const faces = new FaceService(
