@@ -28,8 +28,7 @@ jobs:
         run: pnpm typecheck
 
   rust:
-    # Linux only for now. Nothing below is Linux specific beyond the apt/xvfb steps,
-    # so mac/windows jobs can be added as a matrix later.
+    # Linux only. Windows has its own workflow (windows.yml) so it cannot slow or block these.
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:

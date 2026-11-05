@@ -6,7 +6,7 @@ import type * as Native from '../index.cjs';
 /** Shape of the compiled addon, taken from the napi-generated declarations (`index.d.cts`). */
 export type NativeBinding = typeof Native;
 
-export type { RawInfo, RawPreview } from '../index.cjs';
+export type { NativeDriveInfo, RawInfo, RawPreview } from '../index.cjs';
 
 let cached: NativeBinding | undefined;
 
@@ -175,4 +175,16 @@ export function makePreviews(
   options: MakePreviewsOptions,
 ): Promise<Native.NativePreviews> {
   return loadCore().makePreviews(jpeg, options);
+}
+
+/**
+ * Type and volume label of each Windows drive root (`E:\\`), in order: the part of a card's
+ * identity Node cannot see. Only removable and fixed drives are asked for a label; network,
+ * optical and missing drives are never touched, and the call sets `SEM_FAILCRITICALERRORS` so an
+ * empty reader slot cannot open a system dialog. It runs on the libuv threadpool, so ask for one
+ * root per call when a stalled drive must not delay the others. Resolves to an empty list on
+ * other platforms.
+ */
+export function readDriveInfo(roots: string[]): Promise<Native.NativeDriveInfo[]> {
+  return loadCore().readDriveInfo(roots);
 }

@@ -1,3 +1,4 @@
+import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { PathTraversalError } from '../src/errors';
 import {
@@ -50,7 +51,12 @@ describe('safe names', () => {
   });
 
   it('normalizes safe subfolders and rejects traversal', () => {
-    expect(safeSubfolder('2026-10-27/card')).toBe('2026-10-27/card');
+    // The result uses the separator of the platform it runs on, and takes either one in.
+    expect(safeSubfolder('2026-10-27/card')).toBe(join('2026-10-27', 'card'));
+    expect(safeSubfolder('2026-10-27\\card')).toBe(join('2026-10-27', 'card'));
+    expect(() => safeSubfolder('..\\outside')).toThrow(PathTraversalError);
+    expect(() => safeSubfolder('\\absolute')).toThrow(PathTraversalError);
+    expect(() => safeSubfolder('C:\\absolute')).toThrow(PathTraversalError);
     expect(() => safeSubfolder('../outside')).toThrow(PathTraversalError);
     expect(() => safeSubfolder('/absolute')).toThrow(PathTraversalError);
     expect(() => safeSubfolder('a//b')).toThrow(PathTraversalError);

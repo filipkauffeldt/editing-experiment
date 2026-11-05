@@ -1,0 +1,123 @@
+name: Windows
+
+# Kept apart from ci.yml so a slow or broken Windows runner cannot hold up the Linux checks.
+# Lint and typecheck are not repeated here: they read the same files on Linux.
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+  pull_request:
+    paths:
+      - 'crates/**'
+      - 'packages/ingest/**'
+      - 'packages/contracts/**'
+      - 'packages/metadata/**'
+      - 'packages/export/**'
+      - 'packages/retouch/**'
+      - 'apps/desktop/src/main/**'
+      - 'apps/desktop/src/jobs/**'
+      - 'apps/desktop/package.json'
+      - 'apps/desktop/electron.vite.config.ts'
+      - 'scripts/**'
+      - 'package.json'
+      - 'pnpm-lock.yaml'
+      - '.gitattributes'
+      - '.github/workflows/windows.yml'
+
+concurrency:
+  group: windows-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  windows:
+    # What a developer on Windows does: install, build the native core, test, build the app, start it.
+    # Every step after the install runs even when an earlier one failed, so one run shows everything
+    # that is broken; the job is red until all of them pass.
+    runs-on: windows-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v7
+      # Version comes from "packageManager" in package.json.
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: pnpm
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+      # Cached even when the job fails, otherwise a red run leaves nothing behind and the next one
+      # compiles LibRaw and every crate again.
+      - uses: Swatinem/rust-cache@v2
+        with:
+          cache-on-failure: true
+      - run: pnpm install --frozen-lockfile
+      - name: Build the native core
+        if: ${{ !cancelled() }}
+        run: pnpm build:native
+      # The Rust steps use --release like the native build, so the profile's artifacts (LibRaw, the
+      # codecs) are compiled once and shared by the build, the tests and clippy.
+      # One command per step: PowerShell only fails a step on the exit code of its last command.
+      - uses: actions/cache@v6
+        with:
+          path: fixtures/raw
+          key: fixtures-raw-${{ hashFiles('scripts/fetch-fixtures.ts') }}
+      - name: Fetch fixtures
+        if: ${{ !cancelled() }}
+        run: node scripts/fetch-fixtures.ts
+      - name: cargo test
+        if: ${{ !cancelled() }}
+        run: cargo test --release
+      # Only clippy sees the cfg(windows) code in crates/core; Linux CI never compiles it.
+      - name: cargo clippy
+        if: ${{ !cancelled() }}
+        run: cargo clippy --release --all-targets -- -D warnings
+      - uses: actions/cache@v6
+        with:
+          path: |
+            fixtures/models
+            fixtures/retouch
+          key: fixtures-retouch-${{ hashFiles('scripts/fetch-retouch.ts') }}
+      - name: Fetch face detection fixtures
+        if: ${{ !cancelled() }}
+        run: pnpm fetch-retouch
+      - name: Unit tests (ingest, export, metadata, retouch, core, jobs backend)
+        if: ${{ !cancelled() }}
+        run: pnpm test:unit:windows
+      - name: Build the desktop app
+        if: ${{ !cancelled() }}
+        run: pnpm --filter "@ee/desktop" run build
+      - name: Launch the built app
+        if: ${{ !cancelled() }}
+        run: pnpm test:e2e:launch
+      # The real-mode smoke test ingests a NEF through the built app; the crop overlay test runs
+      # beside it because both come from the existing script.
+      - name: Display size and scaling
+        if: ${{ !cancelled() }}
+        run: |
+          Add-Type -AssemblyName System.Windows.Forms
+          [System.Windows.Forms.Screen]::AllScreens | ForEach-Object { "$($_.DeviceName) $($_.Bounds) primary=$($_.Primary)" }
+          Get-ItemProperty 'HKCU:\Control Panel\Desktop' -Name LogPixels -ErrorAction SilentlyContinue | Out-String
+      - name: Real-mode smoke (pnpm test:e2e:crop)
+        if: ${{ !cancelled() }}
+        run: pnpm test:e2e:crop
+      # What a developer types: `pnpm dev` builds the native core, starts electron-vite and opens the
+      # app. Give it three minutes (it rebuilds the native core first) to print that it started Electron and check Electron is running.
+      - name: pnpm dev starts the app
+        if: ${{ !cancelled() }}
+        run: |
+          $out = Join-Path $env:RUNNER_TEMP 'dev.out.log'
+          $err = Join-Path $env:RUNNER_TEMP 'dev.err.log'
+          $dev = Start-Process -FilePath cmd.exe -ArgumentList '/c', 'pnpm dev' -RedirectStandardOutput $out -RedirectStandardError $err -PassThru
+          $started = $false
+          for ($i = 0; $i -lt 90 -and -not $started; $i++) {
+            Start-Sleep -Seconds 2
+            if ((Test-Path $out) -and (Select-String -Path $out -Pattern 'starting electron app' -Quiet)) { $started = $true }
+            if ($dev.HasExited) { break }
+          }
+          Start-Sleep -Seconds 10
+          $electron = @(Get-Process -Name electron -ErrorAction SilentlyContinue).Count
+          Get-Content $out, $err -ErrorAction SilentlyContinue | Select-Object -Last 60
+          taskkill /PID $dev.Id /T /F | Out-Null
+          if (-not $started) { throw 'pnpm dev never reached "starting electron app"' }
+          if ($electron -eq 0) { throw 'pnpm dev started but no Electron process is running' }

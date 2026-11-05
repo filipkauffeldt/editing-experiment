@@ -27,7 +27,7 @@ import {
 } from '@ee/metadata';
 import { mkdir, mkdtemp, readFile, readdir, rm, stat } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, sep } from 'node:path';
 import sharp from 'sharp';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { createBackend, type Backend } from '../src/jobs/backend/backend';
@@ -290,7 +290,7 @@ describe.skipIf(nefs.length === 0)(
       expect(names(ftp)).toEqual(['ftp_001.NEF', 'ftp_002.NEF']);
       for (const photo of added())
         expect(photo.path).toContain(
-          `/${photo.sourceId === ftp ? 'ftp' : photo.sourceId === cardA ? 'cardA' : 'cardB'}/`,
+          `${sep}${photo.sourceId === ftp ? 'ftp' : photo.sourceId === cardA ? 'cardA' : 'cardB'}${sep}`,
         );
     });
 

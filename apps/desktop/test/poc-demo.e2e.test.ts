@@ -358,6 +358,8 @@ describe.skipIf(nefs.length === 0 || !haveDisplay)(
       const build = spawnSync('pnpm', ['--filter', '@ee/desktop', 'build'], {
         cwd: repoRoot,
         encoding: 'utf8',
+        // pnpm is a .cmd shim on Windows, which spawn only starts through a shell.
+        shell: process.platform === 'win32',
       });
       if (build.status !== 0) throw new Error(`build failed:\n${build.stdout}\n${build.stderr}`);
 
@@ -1804,9 +1806,13 @@ describe.skipIf(nefs.length === 0 || !haveDisplay)(
           const before = await cropState();
           const [width, height] = [before.frame.width, before.frame.height];
 
-          // The right edge moves in 150 px: only `right` changes.
+          // The drags are fractions of the frame, not fixed pixel counts: the frame is as wide as
+          // the window leaves room for (248 px on a 1024x768 CI display, 600+ on a laptop), and a
+          // drag longer than the frame runs into the minimum crop size instead of moving the edge.
+          // The right edge moves in by 30% of the frame: only `right` changes.
+          const inset = Math.round(width * 0.3);
           const east = onFrame(before, 1, 0.5);
-          await dragTo(east, [{ x: east.x - 150, y: east.y }]);
+          await dragTo(east, [{ x: east.x - inset, y: east.y }]);
           const edge = await settledCropState(
             'the narrowed frame',
             (state) => state.gesture === '' && state.crop[2]! < 1,
@@ -1814,19 +1820,20 @@ describe.skipIf(nefs.length === 0 || !haveDisplay)(
           expect(edge.crop[0]).toBeCloseTo(0, 6);
           expect(edge.crop[1]).toBeCloseTo(0, 6);
           expect(edge.crop[3]).toBeCloseTo(1, 6);
-          expect(edge.crop[2]!).toBeCloseTo(1 - 150 / width, 2);
+          expect(edge.crop[2]!).toBeCloseTo(1 - inset / width, 2);
           nearly(edge.frame.left, before.frame.left, 0.01);
-          nearly(edge.frame.width, width - 150, 1);
+          nearly(edge.frame.width, width - inset, 1);
 
-          // The upper-left corner moves in by 100 and 60 px: `left` and `top` change.
+          // The upper-left corner moves in by 20% of the original frame: `left` and `top` change.
+          const [dx, dy] = [Math.round(width * 0.2), Math.round(height * 0.2)];
           const nw = onFrame(edge, 0, 0);
-          await dragTo(nw, [{ x: nw.x + 100, y: nw.y + 60 }]);
+          await dragTo(nw, [{ x: nw.x + dx, y: nw.y + dy }]);
           const corner = await settledCropState(
             'the cornered frame',
             (state) => state.gesture === '' && state.crop[0]! > 0.01,
           );
-          expect(corner.crop[0]!).toBeCloseTo(100 / width, 2);
-          expect(corner.crop[1]!).toBeCloseTo(60 / height, 2);
+          expect(corner.crop[0]!).toBeCloseTo(dx / width, 2);
+          expect(corner.crop[1]!).toBeCloseTo(dy / height, 2);
           expect(corner.crop[2]!).toBeCloseTo(edge.crop[2]!, 6);
           expect(corner.crop[3]!).toBeCloseTo(1, 6);
 

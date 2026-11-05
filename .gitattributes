@@ -1,0 +1,2 @@
+# Prettier and the tests expect LF. Without this, Git for Windows (core.autocrlf=true) checks out CRLF and `pnpm lint` fails on every file.
+* text=auto eol=lf

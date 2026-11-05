@@ -94,7 +94,10 @@ Export / Export & send.
 - GPU performance is unmeasured: the tests and screenshots use software GL
   (SwiftShader), so preview and export speed on a real GPU has not been
   benchmarked.
-- macOS and Windows are untested; CI runs on Linux only.
+- macOS has not been run. Windows has a CI workflow (`.github/workflows/windows.yml`) but has not been
+  used on a real machine with a card yet. On Windows the full unit suite, the WebGL parity tests and
+  the other Electron e2e suites are not run in CI, and `pnpm dev` prints a Node deprecation warning
+  (`DEP0190`) from the dev launcher.
 - Photo Mechanic and Lightroom compatibility has not been verified against real
   reference files: sidecar labels and ratings, develop settings and profile
   renders are tested internally (and the profile maths against the DNG SDK),
@@ -103,9 +106,12 @@ Export / Export & send.
 
 ## Getting started
 
-Linux/Ubuntu 24.04 is the primary development platform.
+Linux/Ubuntu 24.04 is the primary development platform. Windows is covered in its own
+section below.
 
 ### System dependencies
+
+These are for Linux. On Windows the list is the table under "Windows" below.
 
 - Node 24 and pnpm. Install Node 24, then run `corepack enable` once; the pnpm
   version (12.15.0) is pinned by `packageManager` in `package.json`. Fedora's
@@ -176,7 +182,8 @@ run in headless Chromium with the same fallback.
 
 CI (`.github/workflows/ci.yml`) runs lint/typecheck, Rust fmt/clippy/tests,
 unit tests, the WebGL parity tests, the Electron e2e suites and the screenshot
-build on Ubuntu.
+build on Ubuntu. `.github/workflows/windows.yml` is a separate workflow on
+`windows-latest`; see "Windows" below for the steps it runs.
 
 If you touch `crates/`:
 
@@ -187,6 +194,62 @@ cargo fmt --check && cargo clippy --all-targets -- -D warnings && cargo test
 The raw tests use `fixtures/raw`; `EE_SAMPLE_NEF_DIR=~/nefs pnpm test` also runs
 them against your own NEFs (read only). Tests skip cleanly when the fixtures or
 the variable are absent.
+
+### Windows
+
+Windows 10 or 11, 64-bit. The Windows workflow runs on the `windows-2025-vs2026` runner image
+(Windows Server 2025) and the steps below are the ones it runs.
+
+Prerequisites, all installed for your user or machine; nothing else is needed (no Python, CMake,
+LLVM or pkg-config, LibRaw is vendored and built by `cc`):
+
+| Tool                                               | Version                                         | Get it                                                                                                                                                      |
+| -------------------------------------------------- | ----------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Visual Studio Build Tools with the C++ build tools | MSVC 14.51 (Visual Studio 2026) on the CI image | "Build Tools for Visual Studio" from <https://visualstudio.microsoft.com/downloads/>; tick **Desktop development with C++**, which includes the Windows SDK |
+| Rust, MSVC toolchain (not the GNU one)             | stable, 1.99.1 on the CI image; 1.85 or newer   | `winget install --id Rustlang.Rustup`, then `rustup default stable-x86_64-pc-windows-msvc`                                                                  |
+| Node                                               | 24 (24.22.2 on the CI image)                    | The v24 installer from <https://nodejs.org/en/download>                                                                                                     |
+| pnpm                                               | 12.15.0, pinned by `packageManager`             | `npm install --global pnpm@12.15.0` (or `corepack enable` from an administrator shell)                                                                      |
+| Git for Windows                                    | any recent (2.56.0 on the CI image)             | `winget install --id Git.Git`                                                                                                                               |
+
+Open a new PowerShell after installing, so the tools are on `PATH`. A normal PowerShell is enough:
+the build finds the Visual Studio compiler by itself, no "Developer" prompt is needed.
+
+```powershell
+git clone https://github.com/filipkauffeldt/editing-experiment.git
+cd editing-experiment
+pnpm install --frozen-lockfile
+pnpm build:native        # the Rust core: the first build compiles LibRaw and takes a few minutes
+pnpm fetch-fixtures      # optional: CC0 Nikon NEFs for the raw tests
+pnpm fetch-retouch       # optional: YuNet model and face photos for the face tests
+pnpm dev
+```
+
+`pnpm dev` builds the native core again if needed, starts the Vite dev server and opens the app;
+Electron downloads its binary on first run. To try the UI with generated photos:
+`$env:EE_MOCK = '1'; pnpm dev`. `EE_NO_SANDBOX` is a Linux/Ubuntu flag and not needed here.
+
+What the Windows workflow runs, in this order:
+
+```powershell
+pnpm install --frozen-lockfile
+pnpm build:native
+node scripts/fetch-fixtures.ts
+cargo test --release
+cargo clippy --release --all-targets -- -D warnings
+pnpm fetch-retouch
+pnpm test:unit:windows        # ingest, export, metadata, retouch, contracts, core and the jobs-backend tests
+pnpm --filter "@ee/desktop" run build
+pnpm test:e2e:launch          # starts the built app against a temporary EE_USER_DATA_DIR
+pnpm test:e2e:crop            # the real-mode smoke test (ingests a NEF) and the crop overlay tests
+pnpm dev                      # until it prints "starting electron app", then checks Electron is running
+```
+
+Not run on Windows: `pnpm lint` and `pnpm typecheck` (Linux CI covers the same files), the rest of
+`pnpm test:unit` (React and renderer tests, which do not touch the operating system), the WebGL
+parity tests (`pnpm test:browser`), and the other Electron e2e suites (`pnpm test:e2e:demo`,
+`:export`, `:zoom`) and `pnpm screenshot`.
+
+The repository is checked out with LF line endings (`.gitattributes`), whatever `core.autocrlf` is.
 
 ## First use
 
@@ -209,7 +272,8 @@ Set things up in this order:
    filters: file types RAW / JPEG / Both, lock state Locked / Unlocked / All, and
    Incremental (on by default). A card is never ingested just because it appeared.
    Linux (`/media`, `/run/media`), macOS (`/Volumes`) and Windows (drives D: to Z:)
-   are scanned; only Linux has been run on a real machine so far.
+   are scanned; only Linux has been run on a real machine so far. On Windows a card
+   is named after its volume label (`NIKON Z 6`), or `Drive E` when it has none.
 4. **Settings → Sources** is the fallback for what is not found on its own:
    a folder, a card with an unusual mount point, an FTP or SFTP server. **Test** and
    **Save source**; local sources have the same filters, and these sources are
@@ -281,7 +345,7 @@ folder sources and destinations do not need one.
 ## Repository layout
 
 - `apps/desktop` — Electron app: main, preload, jobs utility process, React renderer.
-- `crates/core` — napi-rs addon: vendored LibRaw, previews, raw decode, JPEG decode/resize/encode.
+- `crates/core` — napi-rs addon: vendored LibRaw, previews, raw decode, JPEG decode/resize/encode, Windows drive labels.
 - `packages/contracts` — shared types and the typed IPC map.
 - `packages/metadata` — ExifTool service, Photo Mechanic templates, code replacements, variables, sidecars.
 - `packages/ingest` — folder/card and polled FTP/SFTP sources, copy, rename, verify.

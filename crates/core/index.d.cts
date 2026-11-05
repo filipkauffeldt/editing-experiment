@@ -74,6 +74,18 @@ export interface Multipliers {
   b: number
 }
 
+/** Type and volume label of one drive root. */
+export interface NativeDriveInfo {
+  /** The root as asked for, e.g. `E:\`. */
+  root: string
+  /** `GetDriveTypeW`: 1 no volume, 2 removable, 3 fixed, 4 network, 5 optical. */
+  driveType: number
+  /** The volume label; absent when the volume has none or was not read. */
+  label?: string
+  /** Win32 error of reading the volume (21 for an empty card reader slot). */
+  errorCode?: number
+}
+
 export interface NativeLinearImage {
   header: NativeLinearImageHeader
   /** `width * height * 4` RGBA samples, little-endian. */
@@ -138,6 +150,13 @@ export interface RawPreview {
   /** EXIF orientation (1..=8) to apply for display. */
   orientation: number
 }
+
+/**
+ * Drive type and volume label of each drive root (`E:\`), in order. Only removable and
+ * fixed drives are asked for a label; network, optical and missing drives are never
+ * touched. Resolves to an empty list off Windows.
+ */
+export declare function readDriveInfo(roots: Array<string>): Promise<NativeDriveInfo[]>
 
 /** Reads metadata of a raw file without decoding pixels. */
 export declare function readRawInfo(path: string): Promise<RawInfo>

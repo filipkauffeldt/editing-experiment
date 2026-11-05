@@ -91,7 +91,7 @@ describe('profile folders', () => {
   it('has Adobe folders on macOS and Windows and none on Linux', () => {
     expect(defaultProfileFolders('darwin', {}, '/Users/a')).toEqual([
       '/Library/Application Support/Adobe/CameraRaw/CameraProfiles',
-      '/Users/a/Library/Application Support/Adobe/CameraRaw/CameraProfiles',
+      join('/Users/a', 'Library', 'Application Support', 'Adobe', 'CameraRaw', 'CameraProfiles'),
     ]);
     const windows = defaultProfileFolders(
       'win32',

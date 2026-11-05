@@ -22,13 +22,15 @@
     "fetch-fixtures": "node scripts/fetch-fixtures.ts",
     "fetch-retouch": "node scripts/fetch-retouch.ts",
     "update-lensfun": "pnpm --filter @ee/develop-gl run update-lensfun",
-    "test:unit": "vitest run --exclude '**/*.e2e.test.ts' --exclude '**/real-mode.smoke.test.ts' --exclude '**/*.browser.test.ts'",
+    "test:unit": "vitest run --exclude \"**/*.e2e.test.ts\" --exclude \"**/real-mode.smoke.test.ts\" --exclude \"**/*.browser.test.ts\"",
+    "test:unit:windows": "vitest run --exclude \"**/*.e2e.test.ts\" --exclude \"**/real-mode.smoke.test.ts\" --exclude \"**/*.browser.test.ts\" packages/ingest packages/export packages/metadata packages/retouch packages/contracts crates/core apps/desktop/test/backend.integration apps/desktop/test/photo-delete.test apps/desktop/test/library-remove apps/desktop/test/ingest-template-preset apps/desktop/test/export-service apps/desktop/test/export-queue apps/desktop/test/reconcile apps/desktop/test/credentials apps/desktop/test/jobs-handlers apps/desktop/test/app-protocol apps/desktop/test/edited-previews.test apps/desktop/test/metadata-service apps/desktop/test/export-next-to-photo apps/desktop/test/export-capture-time apps/desktop/test/export-file-time apps/desktop/test/ingest-modified-time apps/desktop/test/settings-store apps/desktop/test/app-resources",
     "test:e2e": "node scripts/ensure-electron.mjs && vitest run --no-file-parallelism apps/desktop/test/poc-demo.e2e.test.ts apps/desktop/test/real-mode.smoke.test.ts apps/desktop/test/zoom-pan.e2e.test.ts apps/desktop/test/delete-photos.e2e.test.ts apps/desktop/test/remove-from-library.e2e.test.ts apps/desktop/test/resizable-sidebars.e2e.test.ts",
     "test:e2e:zoom": "node scripts/ensure-electron.mjs && vitest run --no-file-parallelism apps/desktop/test/zoom-pan.e2e.test.ts apps/desktop/test/delete-photos.e2e.test.ts apps/desktop/test/remove-from-library.e2e.test.ts",
-    "test:e2e:demo": "node scripts/ensure-electron.mjs && vitest run --no-file-parallelism apps/desktop/test/poc-demo.e2e.test.ts --testNamePattern='ingests three sources|Photo Mechanic template|code replacement|Lightroom preset and a moved exposure|wires the histogram|crops to 1:1|detects faces|finishes at the export size|edited in the film strip|linear image too|batch exports a retouched photo|full-resolution crop'",
-    "test:e2e:crop": "node scripts/ensure-electron.mjs && vitest run --no-file-parallelism apps/desktop/test/poc-demo.e2e.test.ts apps/desktop/test/real-mode.smoke.test.ts --testNamePattern='Lightroom-style crop overlay|real mode smoke'",
+    "test:e2e:demo": "node scripts/ensure-electron.mjs && vitest run --no-file-parallelism apps/desktop/test/poc-demo.e2e.test.ts --testNamePattern=\"ingests three sources|Photo Mechanic template|code replacement|Lightroom preset and a moved exposure|wires the histogram|crops to 1:1|detects faces|finishes at the export size|edited in the film strip|linear image too|batch exports a retouched photo|full-resolution crop\"",
+    "test:e2e:crop": "node scripts/ensure-electron.mjs && vitest run --no-file-parallelism apps/desktop/test/poc-demo.e2e.test.ts apps/desktop/test/real-mode.smoke.test.ts --testNamePattern=\"Lightroom-style crop overlay|real mode smoke\"",
     "test:browser": "pnpm --filter @ee/develop-gl exec vitest run --config vitest.browser.config.ts",
-    "test:e2e:export": "node scripts/ensure-electron.mjs && vitest run --no-file-parallelism apps/desktop/test/poc-demo.e2e.test.ts --testNamePattern='batch exports three|batch exports and sends|never overwrites'"
+    "test:e2e:launch": "node scripts/ensure-electron.mjs && vitest run --no-file-parallelism apps/desktop/test/app-launch.e2e.test.ts",
+    "test:e2e:export": "node scripts/ensure-electron.mjs && vitest run --no-file-parallelism apps/desktop/test/poc-demo.e2e.test.ts --testNamePattern=\"batch exports three|batch exports and sends|never overwrites\""
   },
   "devDependencies": {
     "@eslint/js": "10.0.1",

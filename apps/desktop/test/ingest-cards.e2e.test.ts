@@ -74,6 +74,8 @@ describe.skipIf(!haveDisplay)('card discovery (Electron)', { timeout: 60_000 }, 
     const build = spawnSync('pnpm', ['--filter', '@ee/desktop', 'build'], {
       cwd: repoRoot,
       encoding: 'utf8',
+      // pnpm is a .cmd shim on Windows, which spawn only starts through a shell.
+      shell: process.platform === 'win32',
     });
     if (build.status !== 0) throw new Error(`build failed:\n${build.stdout}\n${build.stderr}`);
 

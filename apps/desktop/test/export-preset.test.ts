@@ -1,7 +1,7 @@
 // @vitest-environment node
 import { asPresetId, type ExportPreset } from '@ee/contracts';
 import type { CaptionContext } from '@ee/metadata';
-import path from 'node:path';
+import path, { join, resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import {
   resolveExportFileName,
@@ -35,7 +35,7 @@ describe('export preset paths', () => {
         context(),
         '/exports',
       ),
-    ).toBe('/exports/NIKON_Z9/Export/Sportfotografen');
+    ).toBe(resolve('/exports', 'NIKON_Z9', 'Export', 'Sportfotografen'));
 
     expect(
       resolveExportFileName(
@@ -52,7 +52,8 @@ describe('export preset paths', () => {
         context(),
         '/exports',
       ),
-    ).toBe('/tmp/ee-out/Sportfotografen/Stockholm');
+      // An absolute template is used as it is, so it is not resolved against the export root.
+    ).toBe(join('/tmp/ee-out', 'Sportfotografen', 'Stockholm'));
   });
 
   it('sanitizes the preset name in paths', () => {
@@ -62,7 +63,7 @@ describe('export preset paths', () => {
         context(),
         '/exports',
       ),
-    ).toBe('/exports/Press-Web- 2400');
+    ).toBe(resolve('/exports', 'Press-Web- 2400'));
   });
 
   it('refuses to escape the export root', () => {
@@ -102,7 +103,7 @@ describe('export preset paths', () => {
         context(),
         '/exports',
       ),
-    ).toBe('/exports/preset-7');
+    ).toBe(resolve('/exports', 'preset-7'));
   });
 });
 
