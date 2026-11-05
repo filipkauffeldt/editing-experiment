@@ -23,7 +23,19 @@ function differs(
   return metadataValue(fields[field]) !== metadataValue(templateValue);
 }
 
-function KeywordsEditor({ photoId, keywords }: { photoId: PhotoId; keywords: string[] }) {
+/**
+ * Chips and an add field for one photo's keywords. `shortcutTarget` is false where Ctrl/Cmd+K
+ * opens a dialog instead of focusing this field.
+ */
+export function KeywordsEditor({
+  photoId,
+  keywords,
+  shortcutTarget = true,
+}: {
+  photoId: PhotoId;
+  keywords: string[];
+  shortcutTarget?: boolean;
+}) {
   const store = useAppStore();
   const [draft, setDraft] = useState('');
 
@@ -61,7 +73,7 @@ function KeywordsEditor({ photoId, keywords }: { photoId: PhotoId; keywords: str
         {keywords.length === 0 && <span className={styles.noKeywords}>No keywords</span>}
       </div>
       <TextInput
-        data-keywords-input
+        data-keywords-input={shortcutTarget ? true : undefined}
         placeholder="Add keyword…"
         value={draft}
         onChange={(event) => setDraft(event.target.value)}

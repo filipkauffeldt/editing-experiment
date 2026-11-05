@@ -2043,6 +2043,48 @@ export class AppStore {
 
   // ----------------------------------------------------------------- metadata
 
+  private readonly metadataLoading = new Set<PhotoId>();
+
+  /**
+   * Read the fields of photos whose metadata is not in memory yet, a few at a time, so the
+   * Library inspector can say what a selection shares. Photos already read, being read, or an
+   * edit made in the meantime are left alone.
+   */
+  readonly ensureMetadata = async (photoIds: readonly PhotoId[]): Promise<void> => {
+    const missing = photoIds.filter(
+      (id) => !this.state.metadata[id] && !this.metadataLoading.has(id) && this.photoById.has(id),
+    );
+    for (const id of missing) this.metadataLoading.add(id);
+    let failures = 0;
+    let lastCause: unknown;
+    const CONCURRENCY = 4;
+    for (let start = 0; start < missing.length; start += CONCURRENCY) {
+      await Promise.all(
+        missing.slice(start, start + CONCURRENCY).map(async (id) => {
+          try {
+            const fields = await this.bridge.invoke('metadata:read', { photoId: id });
+            if (!this.state.metadata[id] && this.photoById.has(id)) {
+              this.set({ metadata: { ...this.state.metadata, [id]: fields } });
+            }
+          } catch (cause) {
+            if (!this.isGoing(id)) {
+              failures += 1;
+              lastCause = cause;
+            }
+          } finally {
+            this.metadataLoading.delete(id);
+          }
+        }),
+      );
+    }
+    if (failures > 0) {
+      this.toast(
+        'error',
+        `Could not read metadata for ${failures} photo${failures === 1 ? '' : 's'}: ${messageOf(lastCause)}`,
+      );
+    }
+  };
+
   private async loadMetadata(photoId: PhotoId): Promise<void> {
     const startedAt = this.metadataEditVersion.get(photoId) ?? 0;
     try {
