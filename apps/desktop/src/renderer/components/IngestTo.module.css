@@ -29,13 +29,14 @@
 .form {
   display: grid;
   grid-template-columns: 104px minmax(0, 1fr);
-  align-items: center;
+  align-items: start;
   gap: 8px 12px;
 }
 
 .label {
   color: var(--muted);
   font-size: var(--fs-small);
+  line-height: 26px;
 }
 
 .box {
