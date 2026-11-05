@@ -366,11 +366,21 @@ describe.skipIf(!haveDisplay)('zoom and pan (real Electron app)', { timeout: 240
   });
 
   it('draws 1:1 image pixels at 100%: a 1 px stripe pattern stays sharp', async () => {
-    // Centre the stripes: zoom about them.
+    // Zoom about the stripes, at a column that sits on a whole pixel at Fit: the 100% view then
+    // lands on the pixel grid. Anywhere else the picture is shifted by a fraction of a pixel and
+    // the texture filter blends neighbouring columns, which no layout can be asked to avoid.
     const fit = await view();
     const box = await stageBox();
+    const columns = Array.from({ length: STRIPES.w / 2 }, (_, index) => STRIPES.x + index);
+    const wholePixel = (column: number): number => {
+      const at = column * fit.scale;
+      return Math.abs(at - Math.round(at));
+    };
+    const column = columns.reduce((best, next) =>
+      wholePixel(next) < wholePixel(best) ? next : best,
+    );
     const target = {
-      x: box.x + fit.x + STRIPES.x * fit.scale + (STRIPES.w * fit.scale) / 2,
+      x: box.x + fit.x + column * fit.scale,
       y: box.y + fit.y + STRIPES.y * fit.scale + (STRIPES.h * fit.scale) / 2,
     };
     await window.mouse.move(target.x, target.y);

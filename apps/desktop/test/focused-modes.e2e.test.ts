@@ -574,12 +574,18 @@ describe.skipIf(!haveDisplay)(
     });
 
     it('keeps the picture size and the footer on one line at 1440 and 1024 wide', async () => {
-      const check = async (): Promise<void> => {
+      // `sizeRequired`: Retouch and Crop hide the panels, so the footer is wide and shows the size
+      // at both widths. In Develop at 1024 the details give way last first and the size, the
+      // second item, may drop out whole; it is then never half cut.
+      const check = async (sizeRequired: boolean): Promise<void> => {
         const footer = window.locator('[data-testid="photo-view"] footer');
         const metrics = await footer.evaluate((element) => {
           const size = element.querySelector<HTMLElement>('span[class*="size"]');
+          const top = element.getBoundingClientRect();
+          const at = size?.getBoundingClientRect();
           return {
-            height: element.getBoundingClientRect().height,
+            height: top.height,
+            sizeShown: at !== undefined && at.top >= top.top && at.bottom <= top.bottom + 1,
             sizeClipped: size ? size.scrollWidth > size.clientWidth : true,
             sizeText: size?.textContent ?? '',
             buttonsWrapped: [...element.querySelectorAll<HTMLElement>('button')].some(
@@ -589,15 +595,16 @@ describe.skipIf(!haveDisplay)(
         });
         expect(metrics.sizeText).toContain('3200 × 2000');
         expect(metrics.sizeClipped).toBe(false);
+        if (sizeRequired) expect(metrics.sizeShown).toBe(true);
         expect(metrics.buttonsWrapped).toBe(false);
         expect(metrics.height).toBeLessThan(34);
       };
       for (const width of [1440, 1024]) {
         await resizeWindow(width, 800);
-        await check();
+        await check(width === 1440);
         await window.keyboard.press('c');
         await window.locator('[data-testid="crop-toolbar"]').waitFor();
-        await check();
+        await check(true);
         await window.keyboard.press('Escape');
         await window.locator('[data-testid="crop-toolbar"]').waitFor({ state: 'detached' });
       }
