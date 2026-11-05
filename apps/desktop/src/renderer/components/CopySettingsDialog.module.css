@@ -37,15 +37,3 @@
   color: var(--dim);
   font-size: var(--fs-label);
 }
-
-.note {
-  margin: 14px 0 0;
-  padding-top: 10px;
-  border-top: 1px solid var(--line);
-  color: var(--muted);
-  font-size: var(--fs-small);
-}
-
-.spacer {
-  flex: 1;
-}

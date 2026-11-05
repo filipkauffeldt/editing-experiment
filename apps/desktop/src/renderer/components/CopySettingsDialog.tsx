@@ -37,16 +37,8 @@ export function CopySettingsDialog() {
 
   return (
     <Modal
-      title={mode === 'copy' ? 'Copy Settings' : 'Sync Settings'}
-      subtitle={
-        mode === 'copy'
-          ? `Copy from ${photo?.fileName ?? 'the active photo'}, then paste with Shift+Ctrl/⌘+V.`
-          : `Apply ${photo?.fileName ?? 'the active photo'}'s settings to the ${Math.max(1, state.selection.length)} selected photos.`
-      }
-      onClose={() => store.closeCopySettings()}
-      width={620}
-      testId="copy-settings-dialog"
-      footer={
+      title={`${mode === 'copy' ? 'Copy' : 'Sync'} settings from ${photo?.fileName ?? 'the active photo'}`}
+      headerActions={
         <>
           <Button size="small" variant="ghost" onClick={() => setAll(true)}>
             Select all
@@ -54,7 +46,13 @@ export function CopySettingsDialog() {
           <Button size="small" variant="ghost" onClick={() => setAll(false)}>
             Select none
           </Button>
-          <span className={styles.spacer} />
+        </>
+      }
+      onClose={() => store.closeCopySettings()}
+      width={620}
+      testId="copy-settings-dialog"
+      footer={
+        <>
           <Button onClick={() => store.closeCopySettings()}>Cancel</Button>
           <Button
             variant="primary"
@@ -85,9 +83,6 @@ export function CopySettingsDialog() {
           </label>
         ))}
       </div>
-      <p className={styles.note}>
-        Retouch is never copied: mosaics stay with each photo. Crop is off by default.
-      </p>
     </Modal>
   );
 }

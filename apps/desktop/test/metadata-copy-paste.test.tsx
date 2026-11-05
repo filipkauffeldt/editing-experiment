@@ -36,6 +36,18 @@ const openMetadataCopy = async (): Promise<HTMLElement> => {
 };
 
 describe('copy and paste metadata', () => {
+  it('titles the dialog with the source file and keeps All and None beside the title', async () => {
+    await renderApp();
+    const dialog = await openMetadataCopy();
+
+    expect(dialog.textContent).toContain('Copy metadata from _DSC8330.NEF');
+    expect(dialog.textContent).not.toContain('Paste overwrites');
+    expect(within(dialog).getByTestId('metadata-copy-all').textContent).toBe('All');
+    expect(within(dialog).getByTestId('metadata-copy-none').textContent).toBe('None');
+    expect(within(dialog).getByRole('button', { name: 'Cancel' })).toBeTruthy();
+    expect(within(dialog).getByRole('button', { name: 'Copy' })).toBeTruthy();
+  });
+
   it('lists the global templates and code replacement files in Settings → Metadata', async () => {
     await renderApp();
     fireEvent.click(screen.getByTestId('open-settings'));

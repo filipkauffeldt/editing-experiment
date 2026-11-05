@@ -55,9 +55,13 @@ describe('copy and paste develop settings', () => {
     expect((screen.getByTestId('copy-group-basicTone') as HTMLInputElement).checked).toBe(true);
     expect((screen.getByTestId('copy-group-detail') as HTMLInputElement).checked).toBe(true);
     expect((screen.getByTestId('copy-group-crop') as HTMLInputElement).checked).toBe(false);
-    expect(screen.getByTestId('copy-settings-dialog').textContent).toContain(
-      'Retouch is never copied',
-    );
+    const dialog = screen.getByTestId('copy-settings-dialog');
+    expect(dialog.textContent).toContain('Copy settings from _DSC8330.NEF');
+    expect(dialog.textContent).not.toContain('Retouch is never copied');
+    expect(within(dialog).getByRole('button', { name: 'Select all' })).toBeTruthy();
+    expect(within(dialog).getByRole('button', { name: 'Select none' })).toBeTruthy();
+    expect(within(dialog).getByRole('button', { name: 'Cancel' })).toBeTruthy();
+    expect(within(dialog).getByRole('button', { name: 'Copy' })).toBeTruthy();
   });
 
   it('shows no ticks for a stored empty selection instead of the defaults', async () => {
@@ -163,7 +167,9 @@ describe('copy and paste develop settings', () => {
 
     fireEvent.click(screen.getByTestId('sync-settings'));
     await screen.findByTestId('copy-settings-dialog');
-    expect(screen.getByTestId('copy-settings-dialog').textContent).toContain('Sync Settings');
+    expect(screen.getByTestId('copy-settings-dialog').textContent).toContain(
+      'Sync settings from _DSC8332.NEF',
+    );
     fireEvent.click(screen.getByTestId('copy-settings-confirm'));
     await waitFor(() => expect(applyCalls(fake)).toHaveLength(1));
     expect((applyCalls(fake)[0]!.args[0] as { photoIds: string[] }).photoIds).toHaveLength(3);
