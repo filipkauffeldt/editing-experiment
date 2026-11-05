@@ -3,6 +3,7 @@ import { CROP_HINT, retouchHint } from '../focus-hint';
 import { topRetouchVersion } from '../store';
 import { useAppState, useAppStore } from '../store-context';
 import { FIT_VIEW, ZOOM_LEVELS, zoomPercent } from '../view-transform';
+import { setBeforeAfter, toggleBefore, useDevelopViewMode } from '../develop-view';
 import { useZoomState, zoomCommands, zoomKey } from '../zoom-view';
 import { PhotoCanvas } from './PhotoCanvas';
 import { CropIcon, PenIcon, StackIcon } from './icons';
@@ -69,10 +70,24 @@ function ZoomLevels({ photo, mode }: { photo: Photo; mode: 'develop' | 'crop' | 
   );
 }
 
-/** Centre view: preview canvas plus a compact file strip beneath it. */
+/** Everything the footer knows about the photo, for the tooltip of the one info line. */
+function infoDetails(photo: Photo): string {
+  return [
+    photo.fileName,
+    photo.width && photo.height ? `${photo.width} × ${photo.height}` : undefined,
+    photo.camera?.model,
+    photo.captureTime?.replace('T', ' '),
+    photo.camera?.lens,
+  ]
+    .filter((part): part is string => part !== undefined && part !== '')
+    .join('\n');
+}
+
+/** Centre view: preview canvas plus one footer line: the photo's details, its tools and the zoom. */
 export function PhotoView({ className, photo }: PhotoViewProps) {
   const store = useAppStore();
   const state = useAppState();
+  const mode = useDevelopViewMode();
   const retouch =
     photo !== undefined && state.retouch?.photoId === photo.id ? state.retouch : undefined;
   const cropping = photo !== undefined && state.crop?.photoId === photo.id;
@@ -82,31 +97,47 @@ export function PhotoView({ className, photo }: PhotoViewProps) {
   const hint = retouch ? retouchHint(retouch.tool, retouch.mode) : cropping ? CROP_HINT : undefined;
   const hasRetouch = photo !== undefined && topRetouchVersion(photo) !== undefined;
   return (
-    <main className={`${styles.view} ${className ?? ''}`} data-testid="photo-view">
+    <main
+      className={`${styles.view} ${editing ? styles.editing : ''} ${className ?? ''}`}
+      data-testid="photo-view"
+    >
       <div className={styles.canvasArea}>
         <PhotoCanvas photo={photo} />
       </div>
       <footer className={styles.footer}>
         {photo ? (
           <>
-            <span className={styles.fileName}>{photo.fileName}</span>
-            {hint ? (
+            {/*
+              One line, in the order that gives way last to first: the items that do not fit wrap
+              out of the clipped row whole, so nothing is ever half cut. The lens goes first.
+            */}
+            <span
+              className={`${styles.info} ${hint ? '' : styles.infoFill}`}
+              title={infoDetails(photo)}
+              data-testid="photo-info"
+            >
+              <span className={styles.fileName}>{photo.fileName}</span>
+              <span className={styles.size}>
+                {photo.width && photo.height ? `${photo.width} × ${photo.height}` : '—'}
+              </span>
+              {!editing && (
+                <>
+                  {photo.camera?.model && <span>{photo.camera.model}</span>}
+                  {photo.captureTime && <span>{photo.captureTime.replace('T', ' ')}</span>}
+                  {photo.camera?.lens && <span>{photo.camera.lens}</span>}
+                </>
+              )}
+            </span>
+            {hint && (
               <span className={styles.hint} title={hint} data-testid="focus-hint">
                 {hint}
               </span>
-            ) : (
-              <span className={styles.spacer} />
             )}
-            <span className={styles.size}>
-              {photo.width && photo.height ? `${photo.width} × ${photo.height}` : '—'}
-            </span>
-            <span className={styles.detail}>{photo.camera?.lens ?? photo.camera?.model ?? ''}</span>
-            <span className={styles.detail}>{photo.captureTime?.replace('T', ' ') ?? ''}</span>
             {!editing && (
-              <>
+              <span className={styles.tools}>
                 <button
                   type="button"
-                  className={styles.retouch}
+                  className={styles.tool}
                   onClick={() => store.toggleCrop()}
                   title="Crop and straighten (C)"
                   data-testid="toggle-crop"
@@ -116,7 +147,7 @@ export function PhotoView({ className, photo }: PhotoViewProps) {
                 </button>
                 <button
                   type="button"
-                  className={styles.retouch}
+                  className={styles.tool}
                   onClick={() => store.toggleRetouch()}
                   title="Retouch mode (R)"
                   data-testid="toggle-retouch"
@@ -124,10 +155,37 @@ export function PhotoView({ className, photo }: PhotoViewProps) {
                   {hasRetouch ? <StackIcon size={11} /> : <PenIcon size={11} />}
                   Retouch
                 </button>
+                <button
+                  type="button"
+                  className={`${styles.tool} ${mode.beforeAfter === 'before' ? styles.toolActive : ''}`}
+                  aria-pressed={mode.beforeAfter === 'before'}
+                  onClick={(event) => {
+                    toggleBefore();
+                    // A focused button would take the Space that pans.
+                    event.currentTarget.blur();
+                  }}
+                  title="Show the unedited photo (Y)"
+                  data-testid="before-after"
+                >
+                  Before
+                </button>
+                <button
+                  type="button"
+                  className={`${styles.tool} ${mode.beforeAfter === 'split' ? styles.toolActive : ''}`}
+                  aria-pressed={mode.beforeAfter === 'split'}
+                  onClick={(event) => {
+                    setBeforeAfter(mode.beforeAfter === 'split' ? 'off' : 'split');
+                    event.currentTarget.blur();
+                  }}
+                  title="Split view: drag the divider"
+                  data-testid="split-view"
+                >
+                  Split
+                </button>
                 {hasRetouch && (
                   <button
                     type="button"
-                    className={styles.retouch}
+                    className={styles.tool}
                     onClick={() => void store.deleteRetouch()}
                     title="Remove the retouch version of this photo"
                     data-testid="delete-retouch"
@@ -135,7 +193,7 @@ export function PhotoView({ className, photo }: PhotoViewProps) {
                     Delete retouch…
                   </button>
                 )}
-              </>
+              </span>
             )}
             <ZoomLevels
               photo={photo}

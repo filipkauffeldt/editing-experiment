@@ -3,11 +3,10 @@
   height: 100%;
   min-height: 0;
   grid-template-columns: 320px minmax(0, 1fr) 300px;
-  grid-template-rows: minmax(0, 1fr) auto auto;
+  grid-template-rows: minmax(0, 1fr) auto;
   grid-template-areas:
     'meta photo develop'
-    'strips strips strips'
-    'bar bar bar';
+    'strips strips strips';
 }
 
 /* Wraps panels that Tab hides: it lays out as if it was not there until it is hidden. */
@@ -52,8 +51,4 @@
   padding: 6px 8px 0;
   background: var(--panel);
   border-top: 1px solid var(--line);
-}
-
-.bar {
-  grid-area: bar;
 }

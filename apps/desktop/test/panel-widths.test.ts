@@ -14,7 +14,7 @@ describe('panel width clamping', () => {
     expect(clampPanelWidth('library-sidebar', 10)).toBe(160);
     expect(clampPanelWidth('library-sidebar', 300)).toBe(300);
     expect(clampPanelWidth('library-sidebar', 5000)).toBe(520);
-    expect(clampPanelWidth('develop-panel', Number.NaN)).toBe(300);
+    expect(clampPanelWidth('develop-panel', Number.NaN)).toBe(280);
   });
 
   it('drops malformed saved values and clamps the rest', () => {

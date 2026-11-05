@@ -127,9 +127,11 @@ async function runMock(outDir: string): Promise<void> {
     await window.getByRole('tab', { name: 'Develop' }).click();
     await window.locator('[data-testid="film-strip"]').waitFor();
 
-    // The develop presets, grouped as the preset folders organise them.
+    // The develop presets, grouped as the preset folders organise them, in the Preset menu.
+    await window.getByTestId('preset-menu').getByRole('button').click();
     await window.getByTestId('preset-group').first().waitFor();
     await shoot('01f-preset-groups.png', '[data-testid="presets"]');
+    await window.keyboard.press('Escape');
 
     // Copy Settings: Lightroom-style groups, Crop off by default.
     await window.getByTestId('open-copy-settings').click();
@@ -326,7 +328,8 @@ async function runMock(outDir: string): Promise<void> {
     await window.waitForTimeout(600);
     await window.locator('[data-testid="camera-profile"]').scrollIntoViewIfNeeded();
     await shoot('23-camera-profile.png', '[data-testid="camera-profile"]');
-    await window.getByRole('button', { name: /Browse profile folders/ }).click();
+    // The way to the profile folders is the last entry of the Profile select.
+    await profile.selectOption({ label: 'Browse profile folders…' });
     await window.getByTestId('profiles-settings').waitFor();
     await shoot('23b-profile-folders.png');
     await window.keyboard.press('Escape');

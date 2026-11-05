@@ -12,6 +12,9 @@ export function Menu({
   active,
   closeOnPick,
   align = 'left',
+  compact,
+  fill,
+  ariaLabel,
   testId,
   children,
 }: {
@@ -22,6 +25,12 @@ export function Menu({
   active?: boolean;
   closeOnPick?: boolean;
   align?: 'left' | 'right';
+  /** The popover is as wide as its items, for a short list in a narrow panel. */
+  compact?: boolean;
+  /** Fills the room its parent gives it, like a select: the popover is as wide as the button. */
+  fill?: boolean;
+  /** Names the button when its label is only a caret. */
+  ariaLabel?: string;
   testId?: string;
   children: ReactNode;
 }) {
@@ -41,7 +50,7 @@ export function Menu({
 
   return (
     <div
-      className={styles.root}
+      className={`${styles.root} ${fill ? styles.fill : ''}`}
       ref={root}
       data-testid={testId}
       onKeyDown={(event) => {
@@ -57,6 +66,7 @@ export function Menu({
         type="button"
         className={`${styles.button} ${active ? styles.active : ''}`}
         aria-haspopup="menu"
+        aria-label={ariaLabel}
         aria-expanded={open}
         aria-controls={open ? id : undefined}
         onClick={() => setOpen(!open)}
@@ -69,7 +79,7 @@ export function Menu({
         <div
           id={id}
           role="menu"
-          className={`${styles.popover} ${align === 'right' ? styles.right : ''}`}
+          className={`${styles.popover} ${align === 'right' ? styles.right : ''} ${compact ? styles.compact : ''}`}
           onClick={(event) => {
             if (closeOnPick && (event.target as HTMLElement).closest('[role^="menuitem"]'))
               setOpen(false);
@@ -90,20 +100,30 @@ export function MenuHeading({ children }: { children: ReactNode }) {
   );
 }
 
-/** One entry: a check (several can be on) or a radio (one per group), with an optional count. */
+/**
+ * One entry: a check (several can be on) or a radio (one per group), with an optional count; or an
+ * `action`, which does something when chosen and has no state or mark.
+ */
 export function MenuItem({
   kind,
-  checked,
+  checked = false,
   count,
   onSelect,
   children,
 }: {
-  kind: 'check' | 'radio';
-  checked: boolean;
+  kind: 'check' | 'radio' | 'action';
+  checked?: boolean;
   count?: number;
   onSelect: () => void;
   children: ReactNode;
 }) {
+  if (kind === 'action') {
+    return (
+      <button type="button" role="menuitem" className={styles.item} onClick={onSelect}>
+        <span className={styles.itemLabel}>{children}</span>
+      </button>
+    );
+  }
   return (
     <button
       type="button"

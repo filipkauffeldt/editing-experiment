@@ -1,12 +1,19 @@
-import type { IptcFields, PhotoId } from '@ee/contracts';
+import type { IptcFields, Photo, PhotoId } from '@ee/contracts';
 import { useState } from 'react';
-import { METADATA_SECTIONS, metadataValue, type MetadataFieldName } from '../metadata-fields';
+import {
+  METADATA_SECTIONS,
+  metadataValue,
+  type MetadataFieldName,
+  type MetadataFieldSpec,
+} from '../metadata-fields';
+import { useMetadataGroupOpen } from '../metadata-view';
 import { activePhoto } from '../store';
 import { useAppState, useAppStore } from '../store-context';
 import { CloseIcon } from './icons';
 import { Panel } from './Panel';
 import { Button } from './ui/Button';
 import { Select, TextArea, TextInput } from './ui/Field';
+import { Menu, MenuItem } from './ui/Menu';
 import { PanelSection } from './ui/PanelSection';
 import styles from './MetadataPanel.module.css';
 
@@ -91,6 +98,139 @@ export function KeywordsEditor({
   );
 }
 
+/** The labelled editor of one field; a field that differs from the template says so. */
+function FieldRow({
+  photo,
+  field,
+  fields,
+  template,
+}: {
+  photo: Photo;
+  field: MetadataFieldSpec;
+  fields: IptcFields;
+  template: IptcFields | undefined;
+}) {
+  const store = useAppStore();
+  const fieldDiffers = differs(field.name, fields, template);
+  const value = metadataValue(fields[field.name]);
+  const label = (
+    <span className={`${styles.label} ${fieldDiffers ? styles.labelDiff : ''}`}>
+      {field.label}
+      {fieldDiffers && (
+        <span
+          className={styles.diffMark}
+          title={`Template: ${metadataValue(template?.[field.name])}`}
+        >
+          ≠ template
+        </span>
+      )}
+    </span>
+  );
+  if (field.name === 'keywords') {
+    return (
+      <div className={styles.field}>
+        {label}
+        <KeywordsEditor photoId={photo.id} keywords={fields.keywords ?? []} />
+      </div>
+    );
+  }
+  return (
+    <label className={styles.field}>
+      {label}
+      {field.multiline ? (
+        <TextArea
+          className={field.name === 'caption' ? styles.caption : undefined}
+          data-caption-input={field.name === 'caption' ? true : undefined}
+          placeholder={field.placeholder}
+          value={value}
+          onChange={(event) => store.updateMetadataField(photo.id, field.name, event.target.value)}
+          onBlur={() => {
+            if (field.name === 'caption') void store.expandCaption(photo.id);
+          }}
+          onKeyDown={(event) => {
+            if (field.name === 'caption' && (event.ctrlKey || event.metaKey) && event.key === ' ') {
+              event.preventDefault();
+              void store.expandCaption(photo.id);
+            }
+          }}
+        />
+      ) : (
+        <TextInput
+          value={value}
+          onChange={(event) => store.updateMetadataField(photo.id, field.name, event.target.value)}
+        />
+      )}
+    </label>
+  );
+}
+
+/**
+ * A group the template usually fills (Credits, Location, Event / job), folded until opened. The
+ * header carries what a fold would hide: the values that are set, and `≠ template` when one of
+ * them no longer matches the template, so a difference is never out of sight.
+ */
+function FoldedGroup({
+  photo,
+  title,
+  fields: specs,
+  values,
+  template,
+}: {
+  photo: Photo;
+  title: string;
+  fields: readonly MetadataFieldSpec[];
+  values: IptcFields;
+  template: IptcFields | undefined;
+}) {
+  const [open, setOpen] = useMetadataGroupOpen(title);
+  const different = specs.filter((field) => differs(field.name, values, template));
+  const summary = specs
+    .map((field) => metadataValue(values[field.name]))
+    .filter((value) => value !== '')
+    .join(' · ');
+  return (
+    <PanelSection
+      title={title}
+      open={open}
+      onOpenChange={setOpen}
+      testId={`metadata-group-${title.toLowerCase().replace(/\W+/g, '-')}`}
+      actions={
+        <span className={styles.groupInfo}>
+          {different.length > 0 && (
+            <span
+              className={styles.diffMark}
+              data-testid="metadata-group-differs"
+              title={different
+                .map(
+                  (field) =>
+                    `${field.label} (template: ${metadataValue(template?.[field.name]) || 'empty'})`,
+                )
+                .join('\n')}
+            >
+              ≠ template
+            </span>
+          )}
+          {!open && summary !== '' && (
+            <span className={styles.groupSummary} data-testid="metadata-group-summary">
+              {summary}
+            </span>
+          )}
+        </span>
+      }
+    >
+      {specs.map((field) => (
+        <FieldRow
+          key={field.name}
+          photo={photo}
+          field={field}
+          fields={values}
+          template={template}
+        />
+      ))}
+    </PanelSection>
+  );
+}
+
 /** Full IPTC editor with template comparison and Photo Mechanic caption expansion. */
 export function MetadataPanel({ className }: { className?: string }) {
   const store = useAppStore();
@@ -99,7 +239,6 @@ export function MetadataPanel({ className }: { className?: string }) {
   const fields = photo ? (state.metadata[photo.id] ?? {}) : {};
   const template = state.template;
   const unresolved = photo ? (state.metadataUnresolved[photo.id] ?? []) : [];
-  const [templateMode, setTemplateMode] = useState<'replace' | 'fillEmpty'>('fillEmpty');
   const copied = state.copiedMetadata;
   const copiedCount = copied ? Object.keys(copied.fields).length : 0;
   const templateOptions = [
@@ -113,88 +252,95 @@ export function MetadataPanel({ className }: { className?: string }) {
   ];
   const templatePath =
     state.templatePath ?? state.settings?.ingest.metadataTemplatePath ?? templateOptions[0];
+  const [primary, ...folded] = METADATA_SECTIONS;
 
   return (
-    <Panel title="Metadata" className={className} testId="metadata-panel">
+    <Panel className={className} testId="metadata-panel">
       {!photo ? (
         <p className={styles.empty}>Select a photo to edit its metadata.</p>
       ) : (
         <div data-testid="metadata-fields">
-          <div className={styles.summary}>
-            <span className={`${styles.fileName} mono`}>{photo.fileName}</span>
-            <span className={styles.metaLine}>
-              {photo.width && photo.height ? `${photo.width} × ${photo.height}` : 'Size unknown'}
-              {photo.camera?.model ? ` · ${photo.camera.model}` : ''}
-            </span>
-            <span className={styles.metaLine}>
-              {photo.captureTime?.replace('T', ' ') ?? 'No capture time'}
-            </span>
-          </div>
-
-          <div className={styles.templateBar}>
-            <Select
-              className={styles.templateSelect}
-              aria-label="Metadata template"
-              data-testid="metadata-template-select"
-              value={templatePath ?? ''}
-              onChange={(event) => void store.selectMetadataTemplate(event.target.value)}
-            >
-              {templateOptions.length === 0 && <option value="">No template</option>}
-              {templateOptions.map((path) => (
-                <option key={path} value={path} title={path}>
-                  {baseName(path)}
-                </option>
-              ))}
-            </Select>
-            <Button
-              size="small"
-              data-testid="metadata-template-browse"
-              onClick={() => void store.browseMetadataTemplate()}
-            >
-              Browse…
-            </Button>
-          </div>
-
-          <div className={styles.templateBar}>
-            <Button
-              size="small"
-              data-testid="metadata-template-apply"
-              disabled={!templatePath}
-              onClick={() => void store.applyTemplate({ mode: templateMode })}
-              title={
-                state.selection.length > 1
-                  ? `Apply to ${state.selection.length} selected photos`
-                  : 'Apply to the current photo'
-              }
-            >
-              Apply
-            </Button>
-            <Select
-              className={styles.templateMode}
-              aria-label="Template apply mode"
-              value={templateMode}
-              onChange={(event) => setTemplateMode(event.target.value as 'replace' | 'fillEmpty')}
-            >
-              <option value="fillEmpty">Fill empty</option>
-              <option value="replace">Replace all</option>
-            </Select>
+          <div className={styles.toolbar} data-testid="metadata-toolbar">
+            {templateOptions.length === 0 ? (
+              <button
+                type="button"
+                className={styles.templateLink}
+                data-testid="metadata-template-settings"
+                title="No metadata template yet: add one in Settings → Metadata"
+                onClick={() => store.openDialog('metadata')}
+              >
+                Set up templates
+              </button>
+            ) : (
+              <Select
+                className={styles.templateSelect}
+                aria-label="Metadata template"
+                data-testid="metadata-template-select"
+                value={templatePath ?? ''}
+                onChange={(event) => void store.selectMetadataTemplate(event.target.value)}
+              >
+                {templateOptions.map((path) => (
+                  <option key={path} value={path} title={path}>
+                    {baseName(path)}
+                  </option>
+                ))}
+              </Select>
+            )}
             {photo.status.metadataDiffersFromTemplate && (
               <span
                 className={styles.diffPill}
                 title="Metadata no longer matches the ingest template"
+                data-testid="metadata-differs"
               >
-                differs
+                ≠
               </span>
             )}
-          </div>
-
-          <div className={styles.templateBar}>
+            <span className={styles.split}>
+              <Button
+                size="small"
+                data-testid="metadata-template-apply"
+                disabled={!templatePath}
+                onClick={() => void store.applyTemplate({ mode: 'fillEmpty' })}
+                title={`${
+                  state.selection.length > 1
+                    ? `Apply to ${state.selection.length} selected photos`
+                    : 'Apply to the current photo'
+                } · fills empty fields, keeps what is written`}
+              >
+                Apply
+              </Button>
+              <Menu
+                label=""
+                compact
+                closeOnPick
+                align="right"
+                ariaLabel="Apply options"
+                testId="metadata-apply-mode"
+              >
+                {/*
+                  A plain Apply never overwrites a caption written by hand. Overwriting is a
+                  deliberate second step, and it is named as such. Ingest has its own mode.
+                */}
+                <MenuItem
+                  kind="action"
+                  onSelect={() => void store.applyTemplate({ mode: 'fillEmpty' })}
+                >
+                  Fill empty fields
+                </MenuItem>
+                <MenuItem
+                  kind="action"
+                  onSelect={() => void store.applyTemplate({ mode: 'replace' })}
+                >
+                  Replace all, overwriting
+                </MenuItem>
+              </Menu>
+            </span>
             <Button
               size="small"
               data-testid="metadata-copy"
               onClick={() => store.openMetadataCopy()}
             >
-              Copy…
+              Copy
             </Button>
             <Button
               size="small"
@@ -209,86 +355,39 @@ export function MetadataPanel({ className }: { className?: string }) {
             >
               Paste
             </Button>
-            {copied && (
-              <span className={styles.clipboardNote}>
-                {copiedCount} field{copiedCount === 1 ? '' : 's'} copied
-              </span>
+          </div>
+
+          <div className={styles.primary}>
+            {primary?.fields.map((field) => (
+              <FieldRow
+                key={field.name}
+                photo={photo}
+                field={field}
+                fields={fields}
+                template={template}
+              />
+            ))}
+            {unresolved.length > 0 && (
+              <div className={styles.unresolved} role="status">
+                <span>Unknown codes:</span>
+                {unresolved.map((token) => (
+                  <code key={token} className={styles.unresolvedToken}>
+                    {token}
+                  </code>
+                ))}
+              </div>
             )}
           </div>
 
-          {METADATA_SECTIONS.map((section) => (
-            <PanelSection key={section.title} title={section.title}>
-              {section.fields.map((field) => {
-                const fieldDiffers = differs(field.name, fields, template);
-                const value = metadataValue(fields[field.name]);
-                const label = (
-                  <span className={`${styles.label} ${fieldDiffers ? styles.labelDiff : ''}`}>
-                    {field.label}
-                    {fieldDiffers && (
-                      <span
-                        className={styles.diffMark}
-                        title={`Template: ${metadataValue(template?.[field.name])}`}
-                      >
-                        ≠ template
-                      </span>
-                    )}
-                  </span>
-                );
-                if (field.name === 'keywords') {
-                  return (
-                    <div key={field.name} className={styles.field}>
-                      {label}
-                      <KeywordsEditor photoId={photo.id} keywords={fields.keywords ?? []} />
-                    </div>
-                  );
-                }
-                return (
-                  <label key={field.name} className={styles.field}>
-                    {label}
-                    {field.multiline ? (
-                      <TextArea
-                        data-caption-input={field.name === 'caption' ? true : undefined}
-                        placeholder={field.placeholder}
-                        value={value}
-                        onChange={(event) =>
-                          store.updateMetadataField(photo.id, field.name, event.target.value)
-                        }
-                        onBlur={() => {
-                          if (field.name === 'caption') void store.expandCaption(photo.id);
-                        }}
-                        onKeyDown={(event) => {
-                          if (
-                            field.name === 'caption' &&
-                            (event.ctrlKey || event.metaKey) &&
-                            event.key === ' '
-                          ) {
-                            event.preventDefault();
-                            void store.expandCaption(photo.id);
-                          }
-                        }}
-                      />
-                    ) : (
-                      <TextInput
-                        value={value}
-                        onChange={(event) =>
-                          store.updateMetadataField(photo.id, field.name, event.target.value)
-                        }
-                      />
-                    )}
-                  </label>
-                );
-              })}
-              {section.title === 'Caption' && unresolved.length > 0 && (
-                <div className={styles.unresolved} role="status">
-                  <span>Unknown codes:</span>
-                  {unresolved.map((token) => (
-                    <code key={token} className={styles.unresolvedToken}>
-                      {token}
-                    </code>
-                  ))}
-                </div>
-              )}
-            </PanelSection>
+          {folded.map((section) => (
+            <FoldedGroup
+              key={section.title}
+              photo={photo}
+              title={section.title}
+              fields={section.fields}
+              values={fields}
+              template={template}
+            />
           ))}
         </div>
       )}

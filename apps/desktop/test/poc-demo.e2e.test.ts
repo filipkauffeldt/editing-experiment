@@ -657,7 +657,9 @@ describe.skipIf(nefs.length === 0 || !haveDisplay)(
       const before = await canvas.screenshot();
 
       const versionBeforePreset = await renderVersion();
-      await window.getByRole('button', { name: /PoC Punchy/ }).click();
+      // Presets are one row with a menu: open it, pick the imported one.
+      await window.getByTestId('preset-menu').getByRole('button').click();
+      await window.getByRole('menuitem', { name: /PoC Punchy/ }).click();
       await window.waitForFunction(
         ([selector, version]) =>
           Number(document.querySelector(selector)?.getAttribute('data-render-version') ?? 0) >

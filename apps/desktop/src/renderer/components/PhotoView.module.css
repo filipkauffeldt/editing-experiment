@@ -13,13 +13,22 @@
   min-height: 0;
   align-items: center;
   justify-content: center;
+}
+
+/*
+ * Retouch and Crop keep room around the picture for their toolbar and handles. In Develop the fit
+ * already leaves its own 32 px margin, so the area adds none: the photo gets the whole centre.
+ */
+.editing .canvasArea {
   padding: 18px 22px;
 }
 
 .footer {
+  --footer-line: 27px;
+
   display: flex;
   align-items: center;
-  gap: 16px;
+  gap: 10px;
   flex: none;
   height: 28px;
   padding: 0 12px;
@@ -30,27 +39,51 @@
 }
 
 .fileName {
-  flex: none;
+  min-width: 0;
+  overflow: hidden;
   color: var(--text);
   font-family: var(--font-mono);
   font-size: var(--fs-mono);
-}
-
-.spacer {
-  flex: 1;
+  text-overflow: ellipsis;
 }
 
 .detail {
   min-width: 0;
-  max-width: 240px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-/* The picture size is never cut: the lens and the time give way first. */
+/*
+ * The photo's details, one line. The row is a single clipped flex line: an item that does not fit
+ * wraps out of sight whole (last first, so the lens goes before anything else), never half cut.
+ * The tooltip carries all of it.
+ */
+.info {
+  display: flex;
+  flex-wrap: wrap;
+  align-content: flex-start;
+  align-items: center;
+  gap: 0 10px;
+  flex: 0 1 auto;
+  min-width: 0;
+  height: var(--footer-line);
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+.info > * {
+  max-width: 100%;
+  height: var(--footer-line);
+  line-height: var(--footer-line);
+}
+
+.infoFill {
+  flex: 1 1 0;
+}
+
+/* The picture size is never cut: it is the second item, and only the others give way. */
 .size {
-  flex: none;
   white-space: nowrap;
 }
 
@@ -68,7 +101,7 @@
   display: inline-flex;
   flex: none;
   align-items: center;
-  gap: 10px;
+  gap: 6px;
   height: 100%;
 }
 
@@ -96,8 +129,16 @@ button.zoomLevel:hover {
   color: var(--text);
 }
 
+.tools {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 8px;
+  height: 100%;
+}
+
 /* Text with a 1 px underline while the mode is on. */
-.retouch {
+.tool {
   display: inline-flex;
   flex: none;
   white-space: nowrap;
@@ -112,10 +153,10 @@ button.zoomLevel:hover {
   font-size: var(--fs-small);
 }
 
-.retouch:hover:not(:disabled) {
+.tool:hover:not(:disabled) {
   color: var(--text);
 }
 
-.retouch:disabled {
+.tool:disabled {
   color: var(--dim);
 }

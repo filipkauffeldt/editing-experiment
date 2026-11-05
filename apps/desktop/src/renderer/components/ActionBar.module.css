@@ -27,26 +27,6 @@
   flex: none;
 }
 
-.hints {
-  display: flex;
-  align-items: center;
-  gap: 14px;
-  color: var(--dim);
-  white-space: nowrap;
-}
-
-.hint {
-  display: inline-flex;
-  align-items: baseline;
-  gap: 5px;
-}
-
-.key {
-  color: var(--muted);
-  font-family: var(--font-mono);
-  font-size: var(--fs-label);
-}
-
 .summary {
   overflow: hidden;
   color: var(--muted);

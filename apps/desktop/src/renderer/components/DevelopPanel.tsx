@@ -25,12 +25,11 @@ import {
 } from '../temperature-scale';
 import {
   requestDevelopAction,
-  setBeforeAfter,
-  toggleBefore,
   toggleWbPicker,
   useDevelopViewMode,
   useHistogram,
 } from '../develop-view';
+import { modKeyLabel } from '../platform';
 import { useAppState, useAppStore } from '../store-context';
 import { PresetPicker } from './PresetPicker';
 import { Histogram } from './Histogram';
@@ -293,13 +292,42 @@ function WhiteBalanceSection() {
   const state = useAppState();
   const photo = activePhoto(state);
   const params = paramsForPhoto(state, photo);
+  const mode = useDevelopViewMode();
   const { display } = whiteBalanceFor(state, photo, params);
   return (
     <Section
       title="White balance"
       params={['Temperature', 'Tint']}
       testId="white-balance"
-      actions={display.asShot ? <span className={styles.wbMode}>As Shot</span> : undefined}
+      actions={
+        <>
+          {display.asShot && <span className={styles.wbMode}>As Shot</span>}
+          <Button
+            variant="ghost"
+            size="small"
+            className={styles.headerButton}
+            disabled={!photo}
+            title="Neutralise the photo's colour cast (grey world in camera space)"
+            data-testid="auto-wb"
+            onClick={() => requestDevelopAction('auto-wb')}
+          >
+            Auto
+          </Button>
+          <Button
+            variant="ghost"
+            size="small"
+            className={styles.headerButton}
+            active={mode.wbPicker}
+            aria-pressed={mode.wbPicker}
+            disabled={!photo}
+            title="White balance picker: click a neutral area (W, Esc cancels)"
+            data-testid="wb-picker"
+            onClick={toggleWbPicker}
+          >
+            Pick
+          </Button>
+        </>
+      }
     >
       <Slider name="Temperature" />
       <Slider name="Tint" />
@@ -337,9 +365,17 @@ function Section({
   );
 }
 
-function Group({ title, params }: { title: string; params: SliderParam[] }) {
+function Group({
+  title,
+  params,
+  actions,
+}: {
+  title: string;
+  params: SliderParam[];
+  actions?: ReactNode;
+}) {
   return (
-    <Section title={title} params={params}>
+    <Section title={title} params={params} actions={actions}>
       {params.map((name) => (
         <Slider key={name} name={name} />
       ))}
@@ -687,79 +723,60 @@ function LensSection() {
   );
 }
 
-/** Right panel: presets, then the Camera Raw compatible develop sliders. */
+/** Auto tone, beside the Tone section's switch. */
+function AutoToneButton() {
+  const photo = activePhoto(useAppState());
+  return (
+    <Button
+      variant="ghost"
+      size="small"
+      className={styles.headerButton}
+      disabled={!photo}
+      title="Set Exposure, Contrast, Highlights, Shadows, Whites, Blacks, Vibrance and Saturation from the photo"
+      data-testid="auto-tone"
+      onClick={() => requestDevelopAction('auto-tone')}
+    >
+      Auto
+    </Button>
+  );
+}
+
+/** Right panel: the histogram, Preset and Profile, then the Camera Raw compatible develop sliders. */
 export function DevelopPanel({ className }: { className?: string }) {
+  const store = useAppStore();
   const state = useAppState();
   const photo = activePhoto(state);
-  const mode = useDevelopViewMode();
+  const mod = modKeyLabel();
 
   return (
-    <Panel title="Develop" className={className} testId="develop-panel">
-      <Histogram photo={photo} />
-      <div className={styles.tools}>
+    <Panel className={className} testId="develop-panel">
+      <div className={styles.topRow}>
         <Button
+          variant="ghost"
           size="small"
           disabled={!photo}
-          title="Set Exposure, Contrast, Highlights, Shadows, Whites, Blacks, Vibrance and Saturation from the photo"
-          data-testid="auto-tone"
-          onClick={() => requestDevelopAction('auto-tone')}
+          data-testid="open-copy-settings"
+          hint={`⇧${mod}+C`}
+          onClick={() => store.openCopySettings('copy')}
         >
-          Auto tone
+          Copy settings…
         </Button>
-        <Button
-          size="small"
-          disabled={!photo}
-          title="Neutralise the photo's colour cast (grey world in camera space)"
-          data-testid="auto-wb"
-          onClick={() => requestDevelopAction('auto-wb')}
-        >
-          Auto WB
-        </Button>
-        <div className={styles.toolsGroup}>
-          <Button
-            size="small"
-            active={mode.wbPicker}
-            aria-pressed={mode.wbPicker}
-            disabled={!photo}
-            hint="W"
-            title="White balance picker: click a neutral area (Esc cancels)"
-            data-testid="wb-picker"
-            onClick={toggleWbPicker}
-          >
-            Picker
-          </Button>
-          <Button
-            size="small"
-            active={mode.beforeAfter === 'before'}
-            aria-pressed={mode.beforeAfter === 'before'}
-            disabled={!photo}
-            hint="Y"
-            title="Show the unedited photo"
-            data-testid="before-after"
-            onClick={toggleBefore}
-          >
-            Before
-          </Button>
-          <Button
-            size="small"
-            active={mode.beforeAfter === 'split'}
-            aria-pressed={mode.beforeAfter === 'split'}
-            disabled={!photo}
-            title="Split view: drag the divider"
-            data-testid="split-view"
-            onClick={() => setBeforeAfter(mode.beforeAfter === 'split' ? 'off' : 'split')}
-          >
-            Split
-          </Button>
-        </div>
       </div>
-      <PresetPicker />
+      <Histogram photo={photo} />
+      <div className={styles.rows}>
+        <PresetPicker />
+        <ProfileSection />
+      </div>
 
       <div data-testid="sliders">
-        <ProfileSection />
         <WhiteBalanceSection />
         {BASIC_GROUPS.map((group) => (
-          <Group key={group.title} title={group.title} params={group.params} />
+          <Group
+            key={group.title}
+            title={group.title}
+            params={group.params}
+            actions={group.title === 'Tone' ? <AutoToneButton /> : undefined}
+          />
         ))}
         <ToneCurveSection />
         <DetailSection />

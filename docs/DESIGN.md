@@ -76,10 +76,10 @@ Built in `components/ui/`:
 - **Dot**: 6-7 px status and colour-class dots.
 - Tabs and modes are text with a 1 px underline for the active one.
 - **Selection** in the grid and film strip: a 2 px white outline with a 2 px offset.
-- **Profile** (top of Basic in Develop): an underline Select grouped *Adobe Raw / Camera Matching /
-  Other*, an Amount slider only for looks that have one, a muted note, and a text button *Browse
-  profile folders…*. A profile that is not on this machine is a plain muted line with an `--error`
-  status dot, not a coloured box.
+- **Profile** (a row under the histogram in Develop): the label *Profile* and an underline Select grouped
+  *Adobe Raw / Camera Matching / Other*, with *Browse profile folders…* as its last entry, and an Amount
+  slider only for looks that have one. There is no section title and no explaining note. A profile that
+  is not on this machine is a plain muted line with an `--error` status dot, not a coloured box.
 - **Tag**: an 11 px square, filled white when tagged.
 - **Status overlays** on thumbnails: one row of small monochrome icons on a scrim, bottom-left,
   all the same size and never wrapping. In order: edited (sliders) or retouched (mosaic), the
@@ -99,18 +99,20 @@ Built in `components/ui/`:
 - **Dialogs** state the job in the title and carry no explaining subtitle. Title-related
   actions such as All and None sit on the title row. A dialog that copies from a photo names
   that photo's file in the title (*Copy metadata from _DSC8330.NEF*).
-- **Bottom action bar** (40 px): contextual actions on the right, a summary on the left (and
-  keyboard hints where a view has no other place for them).
+- **Bottom action bar** (40 px): contextual actions on the right, a summary on the left. The Library
+  and Ingest have one; Develop has none, so the photo takes its room.
 - **Hidden panels**: `Tab` hides the side panels in the Library, and the side panels, filter row and
-  film strip in Develop; the photo takes the room and the bottom bar stays. Retouch and Crop are focused
-  jobs and open with them hidden; `Tab` shows them for that session and leaving restores the view that
-  was there before.
+  film strip in Develop; the photo takes the room. Retouch and Crop are focused jobs and open with them
+  hidden; `Tab` shows them for that session and leaving restores the view that was there before. Next &
+  send is in the filter row and goes with it; Ctrl/Cmd+Enter still sends, and during Retouch and Crop
+  the way out is `Done`, not a send button left on screen.
 - **Retouch and Crop toolbars**: one row in a fixed order, separated by space, not boxes: tools, mode,
   sliders with typed values, count, then the actions right-aligned (Retouch: `Undo`, `Discard`, primary
   `Done`; Crop: `Reset`, `Cancel`, primary `Done`). A narrower window wraps the row, never resizes it with
   the tool. `Done` is the one way to save and leave (`Enter`, or `Esc` in Retouch); Crop's `Esc` cancels.
   The photo footer carries one short hint line instead, and has no second way out. Outside those modes the
-  footer has `Crop`, `Retouch` and, when the photo has a retouch version, a small `Delete retouch…`.
+  footer has `Crop`, `Retouch`, `Before`, `Split` and, when the photo has a retouch version, a small
+  `Delete retouch…`.
 - **Side panels**: the Library sidebar and inspector, the Develop metadata and develop panels,
   and the Ingest sources panel have a 1 px hairline on their inner edge that is a drag handle.
   It sits on the centre side of the edge, so a panel's scrollbar stays clear, and its invisible
@@ -129,7 +131,7 @@ Built in `components/ui/`:
 | ------- | --- | ---------------------------------------------------------------------------------- |
 | Ingest  |     | From (sources, progress) and To (folder, names, preview), one action bar           |
 | Library | `G` | folders, virtualised grid, inspector; `E` opens the loupe                          |
-| Develop | `D` | metadata, photo, develop sliders, film strip                                       |
+| Develop | `D` | metadata, photo with one info line, develop sliders, filter row and film strip     |
 | Retouch | `R` | the retouch session on the Develop layout (`R`, or the Retouch button); leaving it saves first |
 
 The Library's **Folders** are the local ingest copies only. They are derived from each photo's
@@ -158,8 +160,37 @@ Library keys: click, Shift-range, Ctrl/Cmd-toggle, Ctrl/Cmd+A, arrows (Shift ext
 settings, Shift+Ctrl/Cmd+E export, Shift+Ctrl/Cmd+Enter export and send. The bottom bar has the
 selection count on the left and **Caption…**, **Sync settings…** (the same group dialog for the
 whole selection), **Export…** and the primary **Export & send** on the right; Tag, rating and class
-are the keys above and the right-click menu, not buttons. In Develop Ctrl/Cmd+Enter is Next & send, and its bar shows the active export preset
-("Desk 2048 q90 → Export/Desk → destination").
+are the keys above and the right-click menu, not buttons. In Develop Ctrl/Cmd+Enter is Next & send, and the button's tooltip names the active export
+preset ("Desk 2048 q90 → Export/Desk → destination").
+
+### Develop
+
+Metadata left, the photo, the develop panel right, then the filter row and the film strip. The two
+side panels have no title, since the module tab names them. The photo has the whole centre: the area around it adds no padding, the fit keeps its own 32 px margin, and the
+two side panels default to 280 px. There is no bottom bar.
+
+- **Filter row**: its right slot has **Export…** and the primary **Next & send** (with its
+  Ctrl/Cmd+Enter hint). The tooltip of Next & send is the active export preset: size, quality, folder
+  and where it is sent.
+- **Photo footer** (28 px, one line, never wrapping): file name, size, camera, capture time and lens on
+  the left; then `Crop`, `Retouch`, `Before`, `Split` (and a small `Delete retouch…` when the photo has a
+  retouch version), then Fit and the zoom levels on the right. The details are one row that is clipped:
+  an item that does not fit drops out whole, last first, so the lens goes before anything else and
+  nothing is cut in half. The tooltip of the details lists all of them. Exposure data (ISO, focal length,
+  aperture, shutter) stays under the histogram.
+- **Metadata panel**: one row first, a template select (or a link to Settings → Metadata when there is
+  no template), `Apply` (it only fills empty fields, so it never overwrites a caption written by hand) with a
+  small menu beside it that offers the other way, *Replace all, overwriting*; then `Copy` and `Paste`. Then Caption with real height, Keywords,
+  Headline and Object name, always shown. **Credits**, **Location** and **Event / job** are folded; a
+  folded header shows the values that are set as one line and `≠ template` when one of them differs from
+  the template, so a difference never hides. Which groups are open is remembered while the app runs.
+  Templates are added in Settings → Metadata, not in the panel.
+- **Develop panel**: `Copy settings…` on the first row, the histogram and its exposure line, then
+  **Preset** and **Profile** as one row each (a label and a field). Preset is a menu over the grouped
+  list, with Refresh and Import at its top, so hundreds of presets never push the sliders down. Profile
+  is a select ending in *Browse profile folders…*; a profile this machine does not have gets the one
+  status line. The tools sit with their sliders: `Auto` and `Pick` in the White Balance header (with
+  `As Shot` while it is on) and `Auto` in the Tone header, beside each section's switch.
 
 ### Ingest
 

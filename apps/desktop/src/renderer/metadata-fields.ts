@@ -9,12 +9,14 @@ export interface MetadataFieldSpec {
   multiline?: boolean;
 }
 
-/** The Metadata panel's field groups, shared with the Copy Metadata dialog. */
+/**
+ * The Metadata panel's field groups, shared with the Copy Metadata dialog. The first group is
+ * written on every photo and is always shown, caption first; the others are filled by the template.
+ */
 export const METADATA_SECTIONS: { title: string; fields: MetadataFieldSpec[] }[] = [
   {
     title: 'Caption',
     fields: [
-      { name: 'headline', label: 'Headline' },
       {
         name: 'caption',
         label: 'Caption',
@@ -22,6 +24,7 @@ export const METADATA_SECTIONS: { title: string; fields: MetadataFieldSpec[] }[]
         placeholder: '=code= and {variables} are expanded on blur',
       },
       { name: 'keywords', label: 'Keywords' },
+      { name: 'headline', label: 'Headline' },
       { name: 'objectName', label: 'Object name' },
     ],
   },
