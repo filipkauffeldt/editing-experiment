@@ -87,7 +87,7 @@ export function FilterBar({
         ))}
       </div>
 
-      <div className={styles.colors} role="group" aria-label="Colour class">
+      <div className={styles.colors} role="group" aria-label="Colour label">
         {COLOR_CLASSES.slice(1).map((color, index) => {
           const colorClass = index + 1;
           const on = filter.colorClasses.includes(colorClass);
@@ -97,8 +97,8 @@ export function FilterBar({
               type="button"
               className={`${styles.colorButton} ${on ? styles.colorOn : ''}`}
               aria-pressed={on}
-              aria-label={`Class ${colorClass}`}
-              title={`Class ${colorClass} · ${COLOR_CLASS_NAMES[colorClass]}`}
+              aria-label={`Colour label ${colorClass}`}
+              title={`Colour label ${colorClass} · ${COLOR_CLASS_NAMES[colorClass]}`}
               onClick={() => store.toggleColorFilter(colorClass)}
             >
               <span className={styles.dot} style={{ background: color }} />

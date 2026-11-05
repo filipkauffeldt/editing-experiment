@@ -6,8 +6,8 @@ import styles from './UploadPopover.module.css';
 
 const STATE_LABEL: Record<UploadItem['state'], string> = {
   queued: 'Queued',
-  uploading: 'Uploading',
-  done: 'Done',
+  uploading: 'Sending',
+  done: 'Sent',
   failed: 'Failed',
   cancelled: 'Cancelled',
 };

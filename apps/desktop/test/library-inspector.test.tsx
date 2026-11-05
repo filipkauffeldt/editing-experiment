@@ -88,7 +88,7 @@ describe('Library inspector with one photo', () => {
 
     fireEvent.click(cell('_DSC8334.NEF'));
     expect(screen.getByTestId('library-template-state').textContent).toBe(
-      'Metadata differs from the ingest template',
+      'Differs from the ingest template',
     );
   });
 });
@@ -262,7 +262,7 @@ describe('Library right-click menu', () => {
   it('sets and clears the colour class of the whole selection', async () => {
     const { store, fake, ids } = await openMenuOnSelection();
     const user = userEvent.setup();
-    await user.click(screen.getByRole('menuitemradio', { name: 'Set class 6' }));
+    await user.click(screen.getByRole('menuitemradio', { name: 'Set colour label 6' }));
     expect(photosOf(store, ids).map((photo) => photo.colorClass)).toEqual([6, 6, 6]);
     await waitFor(() => {
       const write = fake.calls.filter((call) => call.channel === 'photos:setLabels').at(-1);
@@ -270,7 +270,7 @@ describe('Library right-click menu', () => {
     });
 
     fireEvent.contextMenu(cell('_DSC8336.NEF'), { clientX: 60, clientY: 60 });
-    await user.click(await screen.findByRole('menuitemradio', { name: 'Clear class' }));
+    await user.click(await screen.findByRole('menuitemradio', { name: 'Clear colour label' }));
     expect(photosOf(store, ids).map((photo) => photo.colorClass)).toEqual([0, 0, 0]);
   });
 

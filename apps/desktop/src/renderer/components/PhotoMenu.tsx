@@ -113,8 +113,8 @@ export function PhotoMenu() {
           </button>
         ))}
       </div>
-      <div className={styles.row} role="group" aria-label="Class">
-        <span className={styles.rowLabel}>Class</span>
+      <div className={styles.row} role="group" aria-label="Colour label">
+        <span className={styles.rowLabel}>Colour label</span>
         {COLOR_CLASSES.slice(1).map((color, index) => (
           <button
             key={color}
@@ -122,8 +122,8 @@ export function PhotoMenu() {
             role="menuitemradio"
             aria-checked={sharedClass === index + 1}
             className={styles.swatch}
-            aria-label={`Set class ${index + 1}`}
-            title={`Class ${index + 1} · ${COLOR_CLASS_NAMES[index + 1]}`}
+            aria-label={`Set colour label ${index + 1}`}
+            title={`Colour label ${index + 1} · ${COLOR_CLASS_NAMES[index + 1]}`}
             onClick={() => apply(() => store.setColorClass(index + 1))}
           >
             <span className={styles.dot} style={{ background: color }} />
@@ -134,8 +134,8 @@ export function PhotoMenu() {
           role="menuitemradio"
           aria-checked={sharedClass === 0}
           className={styles.swatch}
-          aria-label="Clear class"
-          title="Clear class"
+          aria-label="Clear colour label"
+          title="Clear colour label"
           onClick={() => apply(() => store.setColorClass(0))}
         >
           ×

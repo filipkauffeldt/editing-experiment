@@ -3204,7 +3204,7 @@ export class AppStore {
   readonly pasteSettings = (): void => {
     const copied = this.state.copiedSettings;
     if (!copied) {
-      this.toast('error', 'Copy develop settings first');
+      this.toast('error', 'Copy settings first');
       return;
     }
     void this.applySettingsToPhotos(this.settingsTargets(), copied.params, copied.groups, 'Pasted');

@@ -171,7 +171,7 @@ describe('the Metadata panel', () => {
     expect(within(row).getByTestId('metadata-template-select')).toBeTruthy();
     expect(within(row).getByTestId('metadata-template-apply').textContent).toBe('Apply');
     expect(within(row).getByRole('button', { name: 'Apply options' })).toBeTruthy();
-    expect(within(row).getByTestId('metadata-copy').textContent).toBe('Copy');
+    expect(within(row).getByTestId('metadata-copy').textContent).toBe('Copy metadata…');
     expect(within(row).getByTestId('metadata-paste').textContent).toBe('Paste');
     expect(screen.queryByTestId('metadata-template-browse')).toBeNull();
     expect(screen.queryByLabelText('Template apply mode')).toBeNull();

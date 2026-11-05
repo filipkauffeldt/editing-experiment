@@ -61,7 +61,7 @@ describe('copy and paste develop settings', () => {
     expect(within(dialog).getByRole('button', { name: 'Select all' })).toBeTruthy();
     expect(within(dialog).getByRole('button', { name: 'Select none' })).toBeTruthy();
     expect(within(dialog).getByRole('button', { name: 'Cancel' })).toBeTruthy();
-    expect(within(dialog).getByRole('button', { name: 'Copy' })).toBeTruthy();
+    expect(within(dialog).getByRole('button', { name: 'Copy settings' })).toBeTruthy();
   });
 
   it('shows no ticks for a stored empty selection instead of the defaults', async () => {

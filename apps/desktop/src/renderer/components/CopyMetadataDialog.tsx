@@ -69,7 +69,7 @@ export function CopyMetadataDialog() {
             disabled={checked.length === 0}
             onClick={() => store.confirmMetadataCopy(checked)}
           >
-            Copy
+            Copy metadata
           </Button>
         </>
       }

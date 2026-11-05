@@ -119,7 +119,7 @@ function FieldRow({
       {fieldDiffers && (
         <span
           className={styles.diffMark}
-          title={`Template: ${metadataValue(template?.[field.name])}`}
+          title={`Differs from template: ${metadataValue(template?.[field.name]) || 'empty'}`}
         >
           ≠ template
         </span>
@@ -200,12 +200,13 @@ function FoldedGroup({
             <span
               className={styles.diffMark}
               data-testid="metadata-group-differs"
-              title={different
-                .map(
+              title={[
+                'Differs from template:',
+                ...different.map(
                   (field) =>
                     `${field.label} (template: ${metadataValue(template?.[field.name]) || 'empty'})`,
-                )
-                .join('\n')}
+                ),
+              ].join('\n')}
             >
               ≠ template
             </span>
@@ -289,7 +290,7 @@ export function MetadataPanel({ className }: { className?: string }) {
             {photo.status.metadataDiffersFromTemplate && (
               <span
                 className={styles.diffPill}
-                title="Metadata no longer matches the ingest template"
+                title="Differs from template"
                 data-testid="metadata-differs"
               >
                 ≠
@@ -340,7 +341,7 @@ export function MetadataPanel({ className }: { className?: string }) {
               data-testid="metadata-copy"
               onClick={() => store.openMetadataCopy()}
             >
-              Copy
+              Copy metadata…
             </Button>
             <Button
               size="small"

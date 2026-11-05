@@ -69,7 +69,7 @@ describe('the filter bar in Develop and in the Library', () => {
     expect(library).toEqual(develop);
     expect(develop.slice(0, 3)).toEqual(['All40', 'Tagged4', 'Untagged36']);
     expect(develop).toContain('5 stars and up');
-    expect(develop.filter((label) => label?.startsWith('Class '))).toHaveLength(8);
+    expect(develop.filter((label) => label?.startsWith('Colour label '))).toHaveLength(8);
     expect(develop).toContain('Status');
     expect(develop).toContain('Camera');
     expect(develop).toContain('Sort: Name');
@@ -135,10 +135,10 @@ describe('the filter bar in Develop and in the Library', () => {
     store.setColorClass(3, ids[1]);
     store.setColorClass(5, ids[2]);
     const user = userEvent.setup();
-    await user.click(bar().getByRole('button', { name: 'Class 1' }));
-    await user.click(bar().getByRole('button', { name: 'Class 5' }));
+    await user.click(bar().getByRole('button', { name: 'Colour label 1' }));
+    await user.click(bar().getByRole('button', { name: 'Colour label 5' }));
     await waitFor(() => expect(stripNames()).toHaveLength(2));
-    await user.click(bar().getByRole('button', { name: 'Class 1' }));
+    await user.click(bar().getByRole('button', { name: 'Colour label 1' }));
     await waitFor(() => expect(stripNames()).toHaveLength(1));
   });
 
@@ -152,7 +152,7 @@ describe('the filter bar in Develop and in the Library', () => {
       'Not sent38',
       'Failed1',
       'Edited7',
-      'Metadata differs1',
+      'Differs from template1',
     ]);
     await user.click(menu.getByRole('menuitemcheckbox', { name: /Edited/ }));
     await waitFor(() => expect(stripNames()).toHaveLength(7));

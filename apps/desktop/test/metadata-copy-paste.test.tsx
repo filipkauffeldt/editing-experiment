@@ -45,7 +45,7 @@ describe('copy and paste metadata', () => {
     expect(within(dialog).getByTestId('metadata-copy-all').textContent).toBe('All');
     expect(within(dialog).getByTestId('metadata-copy-none').textContent).toBe('None');
     expect(within(dialog).getByRole('button', { name: 'Cancel' })).toBeTruthy();
-    expect(within(dialog).getByRole('button', { name: 'Copy' })).toBeTruthy();
+    expect(within(dialog).getByRole('button', { name: 'Copy metadata' })).toBeTruthy();
   });
 
   it('lists the global templates and code replacement files in Settings → Metadata', async () => {

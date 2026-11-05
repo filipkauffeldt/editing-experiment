@@ -469,7 +469,7 @@ function SourcesSection() {
                     if (path) patch({ path });
                   }}
                 >
-                  Browse…
+                  Browse
                 </button>
               </span>
             </label>

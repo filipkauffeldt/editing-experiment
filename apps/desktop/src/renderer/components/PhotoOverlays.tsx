@@ -44,7 +44,11 @@ export function ColorDot({ colorClass }: { colorClass: number }) {
   const color = COLOR_CLASSES[colorClass] ?? '';
   if (!color) return null;
   return (
-    <Dot color={color} size={7} title={`Class ${colorClass} · ${COLOR_CLASS_NAMES[colorClass]}`} />
+    <Dot
+      color={color}
+      size={7}
+      title={`Colour label ${colorClass} · ${COLOR_CLASS_NAMES[colorClass]}`}
+    />
   );
 }
 
@@ -214,16 +218,12 @@ export function StatusIcons({
         </StatusIcon>
       )}
       {upload === 'queued' && (
-        <StatusIcon label="Queued for upload">
+        <StatusIcon label="Queued">
           <ClockIcon size={ICON_SIZE} />
         </StatusIcon>
       )}
       {upload === 'uploading' && (
-        <StatusIcon
-          label={percent === undefined ? 'Uploading' : `Uploading ${percent}%`}
-          title={percent === undefined ? 'Sending' : `Sending ${percent}%`}
-          status="busy"
-        >
+        <StatusIcon label={percent === undefined ? 'Sending' : `Sending ${percent}%`} status="busy">
           <UploadIcon size={ICON_SIZE} className={styles.uploadingIcon} />
           {percent !== undefined && (
             <span className={styles.progress} style={{ width: `${percent}%` }} aria-hidden="true" />
@@ -231,17 +231,17 @@ export function StatusIcons({
         </StatusIcon>
       )}
       {upload === 'done' && (
-        <StatusIcon label="Uploaded" title="Sent">
+        <StatusIcon label="Sent">
           <SentIcon size={ICON_SIZE} />
         </StatusIcon>
       )}
       {upload === 'failed' && (
-        <StatusIcon label="Upload failed" status="failed">
+        <StatusIcon label="Failed" status="failed">
           <WarningIcon size={ICON_SIZE} />
         </StatusIcon>
       )}
       {photo.status.metadataDiffersFromTemplate && (
-        <StatusIcon label="Metadata differs from template">
+        <StatusIcon label="Differs from template">
           <NotEqualIcon size={ICON_SIZE} />
         </StatusIcon>
       )}
