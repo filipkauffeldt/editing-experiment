@@ -201,6 +201,25 @@ describe('caption shortcut', () => {
     expect(caption.selectionEnd).toBe(0);
     expect(caption.scrollTop).toBe(0);
   });
+
+  it('puts the caret after a leading date with nothing selected', async () => {
+    await renderApp();
+    const user = userEvent.setup();
+    const caption = captionField();
+    await user.click(caption);
+    await user.clear(caption);
+    await user.type(caption, '20261102 under fotbollsmatchen i Allsvenskan');
+    await user.click(keywordsField());
+    caption.scrollTop = 120;
+
+    key({ key: 'i', ctrlKey: true });
+
+    expect(document.activeElement).toBe(caption);
+    expect(caption.selectionStart).toBe('20261102 '.length);
+    expect(caption.selectionEnd).toBe('20261102 '.length);
+    expect(caption.value.slice(caption.selectionStart ?? 0, caption.selectionEnd ?? 0)).toBe('');
+    expect(caption.scrollTop).toBe(0);
+  });
 });
 
 describe('keywords shortcut', () => {
