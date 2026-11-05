@@ -493,15 +493,12 @@ export function exportJobTerminal(job: ExportJob): boolean {
   return job.state === 'done' || job.state === 'failed' || job.state === 'cancelled';
 }
 
-/** Text for the status bar, e.g. `Exporting 12/40 · Sending 3`. */
+/** Text for the status bar while an export batch runs, e.g. `Exporting 2 of 5`. */
 export function exportStatusText(state: AppState): string | undefined {
   const job = state.exportJobs.find(
     (candidate) => candidate.state === 'running' || candidate.state === 'queued',
   );
-  const sending = state.uploads.filter(
-    (upload) => upload.state === 'queued' || upload.state === 'uploading',
-  ).length;
-  if (!job) return sending > 0 ? `Sending ${sending}` : undefined;
+  if (!job) return undefined;
   const done = job.photos.filter(
     (photo) =>
       photo.state === 'done' ||
@@ -509,7 +506,7 @@ export function exportStatusText(state: AppState): string | undefined {
       photo.state === 'failed' ||
       photo.state === 'cancelled',
   ).length;
-  return `Exporting ${done}/${job.photos.length}${sending > 0 ? ` · Sending ${sending}` : ''}`;
+  return `Exporting ${done} of ${job.photos.length}`;
 }
 
 /** Whether a develop section is on for the photo (see `AppState.sectionStash`). */

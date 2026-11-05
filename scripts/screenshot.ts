@@ -89,7 +89,7 @@ async function runMock(outDir: string): Promise<void> {
     await window.getByText('MOCK', { exact: true }).waitFor();
     // Let the mock ingest/upload simulation produce a little progress.
     await window.waitForFunction(() =>
-      /ingesting [1-9]\d*\/\d+/.test(document.body.textContent ?? ''),
+      /Ingesting [1-9]\d* of \d+/.test(document.body.textContent ?? ''),
     );
     await shoot('01-main-1440.png');
 
