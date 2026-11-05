@@ -6,7 +6,7 @@ import {
   type IpcResult,
   type Photo,
 } from '@ee/contracts';
-import { decodeJpeg, encodeJpeg } from '@ee/core';
+import { encodeJpeg } from '@ee/core';
 import { _electron as electron, type ElectronApplication, type Page } from '@playwright/test';
 import { spawn, spawnSync, type ChildProcess } from 'node:child_process';
 import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
@@ -83,41 +83,12 @@ async function makePhoto(): Promise<Buffer> {
   });
 }
 
-interface Shot {
-  width: number;
-  height: number;
-  rgba: Uint8Array;
-}
-
 interface Box {
   x: number;
   y: number;
   width: number;
   height: number;
 }
-
-/** The bounding box of the pixels `test` accepts, in the shot's own pixels. */
-function boundsOf(shot: Shot, test: (r: number, g: number, b: number) => boolean): Box | undefined {
-  let minX = Infinity;
-  let minY = Infinity;
-  let maxX = -1;
-  let maxY = -1;
-  for (let y = 0; y < shot.height; y++) {
-    for (let x = 0; x < shot.width; x++) {
-      const at = (y * shot.width + x) * 4;
-      if (!test(shot.rgba[at]!, shot.rgba[at + 1]!, shot.rgba[at + 2]!)) continue;
-      minX = Math.min(minX, x);
-      minY = Math.min(minY, y);
-      maxX = Math.max(maxX, x);
-      maxY = Math.max(maxY, y);
-    }
-  }
-  return maxX < 0
-    ? undefined
-    : { x: minX, y: minY, width: maxX - minX + 1, height: maxY - minY + 1 };
-}
-
-const isWhite = (r: number, g: number, b: number): boolean => r > 235 && g > 235 && b > 235;
 
 describe.skipIf(!haveDisplay)(
   'focused Retouch and Crop (real Electron app)',
@@ -152,34 +123,6 @@ describe.skipIf(!haveDisplay)(
       if (!box) throw new Error('no stage');
       return box;
     };
-    /** The picture's layout in the stage: CSS pixels per image pixel and the picture's top-left. */
-    const view = async (): Promise<{ scale: number; x: number; y: number; zoom: string }> => {
-      const [raw, zoom] = await Promise.all([
-        stage().getAttribute('data-view'),
-        stage().getAttribute('data-zoom'),
-      ]);
-      const [scale, x, y] = (raw ?? '').split(',').map(Number);
-      return { scale: scale!, x: x!, y: y!, zoom: zoom ?? '' };
-    };
-    /** The picture pixel under a page position. */
-    const imagePointAt = async (page: { x: number; y: number }, full = IMAGE) => {
-      const [v, box] = await Promise.all([view(), stageBox()]);
-      return {
-        x: (page.x - box.x - v.x) / v.scale,
-        y: (page.y - box.y - v.y) / v.scale,
-        full,
-      };
-    };
-    /** A key as a layout reports it (`key` is what it prints, `code` where the key sits). */
-    const keyDown = async (init: {
-      key: string;
-      code: string;
-      ctrlKey?: boolean;
-    }): Promise<void> => {
-      await window.evaluate(
-        `window.dispatchEvent(new KeyboardEvent('keydown', ${JSON.stringify({ ...init, bubbles: true })}))`,
-      );
-    };
     const settle = async (): Promise<void> => {
       // Two animation frames: the draw runs in the frame after a state change.
       await window.evaluate(
@@ -189,40 +132,6 @@ describe.skipIf(!haveDisplay)(
           ),
       );
       await window.waitForSelector('[data-testid="develop-canvas"][data-ready="true"]');
-    };
-    const waitForZoom = async (zoom: string): Promise<void> => {
-      await window.waitForFunction(
-        (expected) =>
-          document
-            .querySelector('[data-testid="photo-canvas"] [data-photo-id]')
-            ?.getAttribute('data-zoom') === expected,
-        zoom,
-      );
-      await settle();
-    };
-    /** The canvas region as pixels: screenshots come from the compositor, so they show what the user sees. */
-    const shoot = async (clip?: Box): Promise<{ shot: Shot; origin: Box }> => {
-      const origin = clip ?? (await stageBox());
-      const jpeg = await window.screenshot({ type: 'jpeg', quality: 100, clip: origin });
-      const decoded = await decodeJpeg(jpeg);
-      return {
-        shot: { width: decoded.width, height: decoded.height, rgba: decoded.rgba },
-        origin,
-      };
-    };
-    /** Waits until the canvas has the full-resolution decode uploaded and has drawn it. */
-    const waitForFullResolution = async (): Promise<void> => {
-      await window.waitForFunction(
-        (width) =>
-          Number(
-            document
-              .querySelector('[data-testid="develop-canvas"]')
-              ?.getAttribute('data-image-width'),
-          ) >= width,
-        IMAGE.width,
-        { timeout: 120_000 },
-      );
-      await settle();
     };
 
     beforeAll(async () => {

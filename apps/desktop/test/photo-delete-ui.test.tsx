@@ -327,6 +327,8 @@ describe('Delete never fires where it must not', () => {
     await waitFor(() => expect(store.getState().selectedId).toBeDefined());
     act(() => store.toggleRetouch());
     await waitFor(() => expect(store.getState().retouch).toBeDefined());
+    // Retouch opens with the film strip hidden; Tab shows it for the right-click below.
+    act(() => store.togglePanels());
     key({ key: 'Delete' });
     expect(store.getState().deleteRequest).toBeUndefined();
     // The right-click menu is off during retouch as well.

@@ -387,6 +387,10 @@ describe.skipIf(!haveDisplay)(
             .querySelector('[data-testid="photo-canvas"] [data-photo-id]')
             ?.getAttribute('data-mode') === 'retouch',
       );
+      // Retouch opens with the panels hidden; Tab shows them to resize one.
+      await window.keyboard.press('Tab');
+      await window.getByTestId('sliders').waitFor();
+      await settle();
       const mosaicBefore = await window.getByTestId('mosaic-canvas').boundingBox();
       const stageBefore = await stageBox();
       expect(mosaicBefore?.width).toBeCloseTo(stageBefore.width, 0);
