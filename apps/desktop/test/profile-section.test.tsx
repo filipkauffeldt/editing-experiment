@@ -130,7 +130,10 @@ describe('the Profile select', () => {
 
   it('opens the Profiles settings from the link', async () => {
     const store = await renderApp();
-    fireEvent.click(await screen.findByRole('button', { name: /Browse profile folders/ }));
+    // The way to the profile folders is the last entry of the select, not a button of its own.
+    const select = await screen.findByRole('combobox', { name: 'Camera profile' });
+    expect(select.lastElementChild?.textContent).toBe('Browse profile folders…');
+    fireEvent.change(select, { target: { value: '__browse__' } });
     expect(store.getState().dialog).toBe('profiles');
     expect(await screen.findByTestId('profiles-settings')).toBeDefined();
   });
@@ -249,8 +252,8 @@ describe('the default profile (Camera Standard)', () => {
     );
     const chosen = select.querySelector('option:checked');
     expect(chosen?.textContent).toBe('Camera Standard (default)');
-    expect(await screen.findByTestId('profile-note')).toBeDefined();
-    expect(screen.getByTestId('profile-note').textContent).toMatch(/default for this camera/);
+    // The row explains nothing about the default; only a problem gets a status line.
+    expect(screen.queryByTestId('profile-note')).toBeNull();
 
     expect(params(store).CameraProfile).toBeUndefined();
     expect(activePhoto(store.getState())?.status.edited).toBe(false);
