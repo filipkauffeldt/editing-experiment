@@ -1,10 +1,17 @@
-import { asExportJobId, asPhotoId, asPresetId, type ExportJob, type Photo } from '@ee/contracts';
+import {
+  asExportJobId,
+  asPhotoId,
+  asPresetId,
+  asVersionId,
+  type ExportJob,
+  type Photo,
+} from '@ee/contracts';
 import { act, cleanup, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it } from 'vitest';
 import { App } from '../src/renderer/App';
 import {
-  StatusLabels,
+  StatusIcons,
   exportBadgesByPhoto,
   type PhotoExportBadge,
 } from '../src/renderer/components/PhotoOverlays';
@@ -50,11 +57,11 @@ function showBadges({
   percent?: number;
   exportState?: PhotoExportBadge;
 } = {}): HTMLElement {
-  render(<StatusLabels photo={photo} percent={percent} exportState={exportState} />);
-  return screen.getByTestId('status-labels');
+  render(<StatusIcons photo={photo} percent={percent} exportState={exportState} />);
+  return screen.getByTestId('status-icons');
 }
 
-describe('export and upload badges', () => {
+describe('thumbnail status icons', () => {
   it('shows an Exporting spinner for a queued or running photo', () => {
     const badges = showBadges({ exportState: 'exporting' });
     expect(within(badges).getByRole('img', { name: 'Exporting' })).toBeTruthy();
@@ -97,14 +104,24 @@ describe('export and upload badges', () => {
     expect(within(failedStatus).queryByRole('img', { name: 'Exported' })).toBeNull();
   });
 
-  it('keeps the upload percent and gives uploading its own animated icon', () => {
+  it('keeps the upload percent in the tooltip and gives sending its own animated icon', () => {
     const photo = basePhoto('done');
     photo.status.upload = 'uploading';
     const badges = showBadges({ photo, percent: 64 });
     const uploading = within(badges).getByRole('img', { name: 'Uploading 64%' });
-    expect(uploading.textContent).toContain('sending 64%');
+    expect(uploading.getAttribute('title')).toBe('Sending 64%');
+    expect(uploading.textContent).toBe('');
     expect(uploading.querySelector('svg')).toBeTruthy();
+    expect(uploading.querySelector<HTMLElement>('span[aria-hidden]')?.style.width).toBe('64%');
     expect(within(badges).getByRole('img', { name: 'Exported' })).toBeTruthy();
+  });
+
+  it('shows a sending icon without a progress line while the percent is unknown', () => {
+    const photo = basePhoto();
+    photo.status.upload = 'uploading';
+    const sending = within(showBadges({ photo })).getByRole('img', { name: 'Uploading' });
+    expect(sending.getAttribute('title')).toBe('Sending');
+    expect(sending.querySelector('span')).toBeNull();
   });
 
   it('labels a queued upload and fits it beside the Exported icon', () => {
@@ -113,6 +130,75 @@ describe('export and upload badges', () => {
     const badges = showBadges({ photo });
     expect(within(badges).getByRole('img', { name: 'Queued for upload' })).toBeTruthy();
     expect(within(badges).getByRole('img', { name: 'Exported' })).toBeTruthy();
+  });
+
+  it('shows one icon with a tooltip for each status, and no words', () => {
+    const edited = basePhoto();
+    edited.status.edited = true;
+    const retouched = basePhoto();
+    retouched.versions = [{ id: asVersionId('retouch-1'), kind: 'retouch', ops: [] }];
+    const queued = basePhoto();
+    queued.status.upload = 'queued';
+    const sent = basePhoto();
+    sent.status.upload = 'done';
+    const differs = basePhoto();
+    differs.status.metadataDiffersFromTemplate = true;
+    const failed = basePhoto();
+    failed.status.upload = 'failed';
+    const cases: [Photo, string, string, PhotoExportBadge?][] = [
+      [edited, 'Edited', 'Edited'],
+      [retouched, 'Retouched', 'Retouched'],
+      [basePhoto(), 'Exporting', 'Exporting', 'exporting'],
+      [basePhoto('done'), 'Exported', 'Exported'],
+      [queued, 'Queued for upload', 'Queued for upload'],
+      [sent, 'Uploaded', 'Sent'],
+      [differs, 'Metadata differs from template', 'Metadata differs from template'],
+      [failed, 'Upload failed', 'Upload failed'],
+    ];
+    for (const [photo, label, title, exportState] of cases) {
+      const badges = showBadges({ photo, exportState });
+      const icon = within(badges).getByRole('img', { name: label });
+      expect(icon.getAttribute('title')).toBe(title);
+      expect(within(badges).getAllByRole('img')).toHaveLength(1);
+      expect(badges.textContent).toBe('');
+      cleanup();
+    }
+  });
+
+  it('prefers Retouched over Edited, as before', () => {
+    const photo = basePhoto();
+    photo.status.edited = true;
+    photo.versions = [{ id: asVersionId('retouch-1'), kind: 'retouch', ops: [] }];
+    const badges = showBadges({ photo });
+    expect(within(badges).getByRole('img', { name: 'Retouched' })).toBeTruthy();
+    expect(within(badges).queryByRole('img', { name: 'Edited' })).toBeNull();
+  });
+
+  it('puts every status in one row in a fixed order, at most four icons', () => {
+    const photo = basePhoto('done');
+    photo.status.edited = true;
+    photo.status.upload = 'done';
+    photo.status.metadataDiffersFromTemplate = true;
+    const badges = showBadges({ photo });
+    expect(
+      within(badges)
+        .getAllByRole('img')
+        .map((icon) => icon.getAttribute('aria-label')),
+    ).toEqual(['Edited', 'Exported', 'Uploaded', 'Metadata differs from template']);
+  });
+
+  it('draws a failed upload in the error colour and no other icon', () => {
+    const photo = basePhoto('done');
+    photo.status.upload = 'failed';
+    const badges = showBadges({ photo });
+    const failed = within(badges).getByRole('img', { name: 'Upload failed' });
+    expect(failed.dataset.status).toBe('failed');
+    expect(failed.className).toMatch(/failed/);
+    expect(within(badges).getByRole('img', { name: 'Exported' }).dataset.status).toBeUndefined();
+    expect(getComputedStyle(failed).color).toBe('var(--error)');
+    expect(getComputedStyle(within(badges).getByRole('img', { name: 'Exported' })).color).toBe(
+      'var(--text)',
+    );
   });
 
   it('is empty for a photo that has neither exported nor uploaded', () => {

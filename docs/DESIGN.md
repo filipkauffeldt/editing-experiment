@@ -29,7 +29,8 @@ Colour appears only in:
 - colour-class dots (6-7 px circles, `--class-1..8`),
 - the temperature and tint slider tracks (desaturated gradients, `--track-temperature`,
   `--track-tint`),
-- tiny status dots (`--ok`, `--error`): the top bar, toast status, a failed upload.
+- tiny status dots (`--ok`, `--error`): the top bar, toast status; and the failed-upload icon
+  on a thumbnail, which is drawn in `--error`.
 
 ## Shape
 
@@ -80,10 +81,13 @@ Built in `components/ui/`:
   profile folders…*. A profile that is not on this machine is a plain muted line with an `--error`
   status dot, not a coloured box.
 - **Tag**: an 11 px square, filled white when tagged.
-- **Status overlays** on thumbnails: a spinning ring while a photo is queued or
-  exporting, a static export icon once it is exported, and tiny mono text labels
-  on `#000a` (`sent`, `sending 64%`, `queued`, `failed`, `edited`, `retouched`,
-  `meta ≠`). Uploading adds a small bobbing upload icon beside its percentage.
+- **Status overlays** on thumbnails: one row of small monochrome icons on a scrim, bottom-left,
+  all the same size and never wrapping. In order: edited (sliders) or retouched (mosaic), the
+  export step (a spinning ring while queued or exporting, then the export arrow), the upload step
+  (clock when queued, a bobbing arrow over a thin progress line while sending, a tick over a tray
+  once sent), and not-equal when the metadata differs from the ingest template. A failed upload is
+  a warning icon in `--error`. There are no words on the photo; every icon has a tooltip (the
+  sending percentage is in it) and an accessible label.
 
 ## Layout
 

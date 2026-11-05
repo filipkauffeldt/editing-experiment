@@ -4,7 +4,7 @@ import { useAppState, useAppStore } from '../store-context';
 import {
   ColorDot,
   RatingStars,
-  StatusLabels,
+  StatusIcons,
   TagSquare,
   exportBadgesByPhoto,
   uploadPercent,
@@ -35,7 +35,7 @@ function PhotoBadges({
         <ColorDot colorClass={photo.colorClass} />
       </span>
       <span className={styles.bottomLeft}>
-        <StatusLabels photo={photo} percent={percent} exportState={exportState} />
+        <StatusIcons photo={photo} percent={percent} exportState={exportState} />
       </span>
     </>
   );
