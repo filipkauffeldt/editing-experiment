@@ -164,6 +164,10 @@ async function runMock(outDir: string): Promise<void> {
     await window.locator('[data-testid="open-settings"]').click();
     await window.getByRole('dialog', { name: 'Settings' }).waitFor();
     await shoot('05-source-settings.png');
+    await window.getByTestId('add-source').click();
+    await window.getByRole('menu', { name: 'Add source' }).waitFor();
+    await shoot('05a-source-add-menu.png');
+    await window.keyboard.press('Escape');
     await window.getByTestId('settings-dialog').getByRole('tab', { name: 'Ingest' }).click();
     await window.getByText('Develop preset', { exact: true }).waitFor();
     await shoot('05c-ingest-settings.png');

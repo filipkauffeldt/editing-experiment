@@ -12,7 +12,7 @@ import {
   type SourceConfig,
   type TemplateApplyMode,
 } from '@ee/contracts';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { ee } from '../ee';
 import type { DialogTab } from '../store';
 import { groupPresets } from '../preset-groups';
@@ -222,6 +222,73 @@ function SecretField({
   );
 }
 
+const SOURCE_KINDS: { kind: SourceConfig['kind']; label: string }[] = [
+  { kind: 'folder', label: 'Folder' },
+  { kind: 'card', label: 'Card' },
+  { kind: 'ftp', label: 'FTP' },
+  { kind: 'sftp', label: 'SFTP' },
+];
+
+function AddSourceMenu({ onCreate }: { onCreate(kind: SourceConfig['kind']): void }) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const onPointerDown = (event: PointerEvent): void => {
+      if (event.target instanceof Node && ref.current?.contains(event.target)) return;
+      setOpen(false);
+    };
+    const onKeyDown = (event: KeyboardEvent): void => {
+      if (event.key !== 'Escape') return;
+      // Escape closes the menu, not the Settings dialog behind it.
+      event.preventDefault();
+      event.stopPropagation();
+      setOpen(false);
+    };
+    document.addEventListener('pointerdown', onPointerDown, true);
+    window.addEventListener('keydown', onKeyDown, true);
+    return () => {
+      document.removeEventListener('pointerdown', onPointerDown, true);
+      window.removeEventListener('keydown', onKeyDown, true);
+    };
+  }, [open]);
+
+  return (
+    <div className={styles.addMenu} ref={ref}>
+      <button
+        type="button"
+        className={styles.addButton}
+        aria-haspopup="menu"
+        aria-expanded={open}
+        data-testid="add-source"
+        onClick={() => setOpen((current) => !current)}
+      >
+        <PlusIcon size={9} /> Add <span aria-hidden>▾</span>
+      </button>
+      {open && (
+        <div className={styles.menu} role="menu" aria-label="Add source">
+          {SOURCE_KINDS.map(({ kind, label }) => (
+            <button
+              key={kind}
+              type="button"
+              role="menuitem"
+              className={styles.menuItem}
+              data-testid={`add-source-${kind}`}
+              onClick={() => {
+                setOpen(false);
+                onCreate(kind);
+              }}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function SourceList({
   sources,
   selectedId,
@@ -258,18 +325,7 @@ function SourceList({
         ))}
       </div>
       <div className={styles.addRow}>
-        <button type="button" className={styles.addButton} onClick={() => onCreate('folder')}>
-          <PlusIcon size={9} /> Folder
-        </button>
-        <button type="button" className={styles.addButton} onClick={() => onCreate('card')}>
-          <PlusIcon size={9} /> Card
-        </button>
-        <button type="button" className={styles.addButton} onClick={() => onCreate('ftp')}>
-          <PlusIcon size={9} /> FTP
-        </button>
-        <button type="button" className={styles.addButton} onClick={() => onCreate('sftp')}>
-          <PlusIcon size={9} /> SFTP
-        </button>
+        <AddSourceMenu onCreate={onCreate} />
       </div>
     </aside>
   );
@@ -1241,7 +1297,6 @@ export function SettingsDialog() {
   return (
     <Modal
       title="Settings"
-      subtitle="Everything the mock backend accepts here also goes through the typed IPC bridge in production."
       onClose={() => store.closeDialog()}
       width={820}
       testId="settings-dialog"
