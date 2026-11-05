@@ -3,28 +3,11 @@
   color: var(--dim);
 }
 
-.summary {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  padding: 10px 12px;
-  border-bottom: 1px solid var(--line);
-}
-
-.fileName {
-  color: var(--text);
-}
-
-.metaLine {
-  color: var(--muted);
-  font-size: var(--fs-small);
-}
-
-.templateBar {
+.toolbar {
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 8px 12px;
+  gap: 6px;
+  padding: 6px 12px;
   border-bottom: 1px solid var(--line);
 }
 
@@ -35,26 +18,83 @@
   font-size: var(--fs-small);
 }
 
-.templateMode {
-  width: auto;
+/* No template yet: the way to add one, where the select would be. */
+.templateLink {
   flex: 1;
   min-width: 0;
+  padding: 0;
+  overflow: hidden;
+  border: 0;
+  background: transparent;
+  color: var(--muted);
   font-size: var(--fs-small);
-}
-
-.clipboardNote {
-  color: var(--dim);
-  font-size: var(--fs-label);
+  text-align: left;
+  text-decoration: underline;
+  text-decoration-color: var(--dim);
+  text-overflow: ellipsis;
+  text-underline-offset: 3px;
   white-space: nowrap;
 }
 
-.diffPill {
+.templateLink:hover {
   color: var(--text);
-  font-size: var(--fs-label);
-  letter-spacing: 0.02em;
-  text-decoration: underline;
-  text-decoration-color: var(--dim);
-  text-underline-offset: 3px;
+}
+
+.diffPill {
+  flex: none;
+  color: var(--text);
+  font-family: var(--font-mono);
+  font-size: var(--fs-mono);
+}
+
+/* Apply and the small menu that picks what it does to existing values: one outlined pair. */
+.split {
+  display: inline-flex;
+  flex: none;
+  align-items: stretch;
+}
+
+.split > :first-child {
+  border-right-color: transparent;
+}
+
+.split button[aria-haspopup] {
+  height: 20px;
+  padding: 0 6px;
+  border: 1px solid var(--line-strong);
+  border-left: 0;
+  align-items: center;
+}
+
+.split button[aria-haspopup]:hover {
+  background: var(--raised);
+}
+
+.primary {
+  padding: 8px 12px 0;
+  border-bottom: 1px solid var(--line);
+}
+
+/* The field written on every photo gets real height. */
+textarea.caption {
+  min-height: 112px;
+}
+
+.groupInfo {
+  display: flex;
+  min-width: 0;
+  max-width: 140px;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.groupSummary {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--dim);
+  font-size: var(--fs-small);
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .field {
@@ -78,9 +118,11 @@
 }
 
 .diffMark {
+  flex: none;
   color: var(--text);
   font-family: var(--font-mono);
   font-size: 9px;
+  white-space: nowrap;
 }
 
 .keywords {

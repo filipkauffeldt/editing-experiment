@@ -253,8 +253,12 @@ describe('metadata panel', () => {
       expect(screen.getByTestId('metadata-panel').textContent).toContain('Liverpool');
     });
     const panel = screen.getByTestId('metadata-panel');
-    expect(within(panel).getByText('differs')).toBeTruthy();
-    expect(within(panel).getByTitle(/Template: Manchester/)).toBeTruthy();
+    expect(within(panel).getByTestId('metadata-differs')).toBeTruthy();
+    // Location is folded here, so the difference is on its header, with the template's value.
+    const header = within(screen.getByTestId('metadata-group-location')).getByTestId(
+      'metadata-group-differs',
+    );
+    expect(header.getAttribute('title')).toMatch(/City \(template: Manchester\)/);
   });
 });
 
