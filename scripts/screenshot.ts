@@ -122,7 +122,6 @@ async function runMock(outDir: string): Promise<void> {
     // The running Ingest view: the Stop all control and a Stop on every running source.
     await window.getByRole('tab', { name: 'Ingest' }).click();
     await window.locator('[data-testid="ingest-view"]').waitFor();
-    await window.getByRole('button', { name: 'Ingest', exact: true }).click();
     await window.getByRole('button', { name: 'Stop all ingests' }).waitFor();
     await shoot('01e-ingest-running.png');
     await window.getByRole('tab', { name: 'Develop' }).click();
@@ -193,9 +192,6 @@ async function runMock(outDir: string): Promise<void> {
     await window.getByRole('menu', { name: 'Add source' }).waitFor();
     await shoot('05a-source-add-menu.png');
     await window.keyboard.press('Escape');
-    await window.getByTestId('settings-dialog').getByRole('tab', { name: 'Ingest' }).click();
-    await window.getByText('Develop preset', { exact: true }).waitFor();
-    await shoot('05c-ingest-settings.png');
     await window.getByTestId('settings-dialog').getByRole('tab', { name: 'Metadata' }).click();
     await window.getByTestId('metadata-settings').waitFor();
     await shoot('05d-metadata-settings.png');

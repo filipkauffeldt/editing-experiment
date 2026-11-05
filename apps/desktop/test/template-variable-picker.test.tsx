@@ -29,10 +29,15 @@ const openExport = async (): Promise<HTMLElement> => {
   return screen.findByTestId('export-dialog');
 };
 
-const openSettings = async (tab: 'Ingest' | 'Destinations'): Promise<HTMLElement> => {
+const openIngest = async (): Promise<HTMLElement> => {
+  fireEvent.click(within(screen.getByTestId('status-bar')).getByRole('tab', { name: 'Ingest' }));
+  return screen.findByTestId('ingest-view');
+};
+
+const openDestinations = async (): Promise<HTMLElement> => {
   fireEvent.click(screen.getByTestId('open-settings'));
   const dialog = await screen.findByTestId('settings-dialog');
-  fireEvent.click(within(dialog).getByRole('tab', { name: tab }));
+  fireEvent.click(within(dialog).getByRole('tab', { name: 'Destinations' }));
   return dialog;
 };
 
@@ -131,7 +136,7 @@ describe('template variable picker', () => {
   it('lists ingest variables in both ingest templates, inserts {seq:4} and saves them', async () => {
     const { fake } = await renderApp();
     const user = userEvent.setup();
-    const dialog = await openSettings('Ingest');
+    const dialog = await openIngest();
     const rename = within(dialog).getByTestId('ingest-rename-template') as HTMLInputElement;
     fireEvent.change(rename, { target: { value: '2026_' } });
     rename.focus();
@@ -153,13 +158,15 @@ describe('template variable picker', () => {
     await user.click(insertButton(subfolderList, '{date}'));
     expect(subfolder.value).toContain('{date}');
 
-    await user.click(within(dialog).getByRole('button', { name: 'Save' }));
-    await waitFor(() => {
-      const call = fake.calls.filter((candidate) => candidate.channel === 'settings:set').at(-1);
-      expect((call?.args[0] as { ingest: { renameTemplate: string } }).ingest.renameTemplate).toBe(
-        '2026_{seq:4}',
-      );
-    });
+    await waitFor(
+      () => {
+        const call = fake.calls.filter((candidate) => candidate.channel === 'settings:set').at(-1);
+        expect(
+          (call?.args[0] as { ingest: { renameTemplate: string } }).ingest.renameTemplate,
+        ).toBe('2026_{seq:4}');
+      },
+      { timeout: 3000 },
+    );
   });
 
   it('shows a quiet unknown-variable message per field from the registry', async () => {
@@ -173,7 +180,7 @@ describe('template variable picker', () => {
     fireEvent.change(folder, { target: { value: '{folder}/{preset}' } });
     expect(within(dialog).queryByTestId('folder-template-unknown')).toBeNull();
 
-    const settings = await openSettings('Ingest');
+    const settings = await openIngest();
     const rename = within(settings).getByTestId('ingest-rename-template') as HTMLInputElement;
     fireEvent.change(rename, { target: { value: '{seq:4}/{sourceName}' } });
     expect(within(settings).queryByTestId('ingest-rename-template-unknown')).toBeNull();
@@ -185,7 +192,7 @@ describe('template variable picker', () => {
 
   it('lists destination path variables and not the ones its context cannot provide', async () => {
     await renderApp();
-    const dialog = await openSettings('Destinations');
+    const dialog = await openDestinations();
     const list = await picker('destination-remote-path-template');
     expect(insertButton(list, '{filename}')).toBeTruthy();
     expect(insertButton(list, '{event}')).toBeTruthy();

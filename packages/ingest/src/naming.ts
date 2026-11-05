@@ -1,9 +1,9 @@
 import { join, normalize, sep } from 'node:path';
 import { PathTraversalError } from './errors';
-import { safeFileBase, safeSubfolderParts, splitName, type SplitName } from './path-names';
+import { safeFileBase, safeSubfolderParts, splitName } from './path-names';
 
 // The checks live in a module without Node imports so the Ingest view can run them too.
-export { safeFileBase, splitName, type SplitName };
+export { safeFileBase, splitName };
 
 const DIGITS = /\d+/;
 

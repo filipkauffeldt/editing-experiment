@@ -4,17 +4,6 @@ import { asSourceId, type CardSource, type DetectedCard, type SourceConfig } fro
 export const isDiscoveredCardSource = (source: SourceConfig): source is CardSource =>
   source.kind === 'card' && source.discovered === true;
 
-/** What the Ingest view lists for one card: a mounted volume, or a run left behind by a removed one. */
-export interface CardRow {
-  /** Mount path for a mounted card, source id for a card that is gone. */
-  key: string;
-  /** Absent once the card was removed while its run was still going. */
-  card?: DetectedCard;
-  /** The persisted source for this volume; absent until the card has been picked once. */
-  source?: CardSource;
-  picked: boolean;
-}
-
 /**
  * Links each mounted card to the persisted source that already stands for its volume, so
  * the filter choices and the incremental state of a card survive taking it out and putting

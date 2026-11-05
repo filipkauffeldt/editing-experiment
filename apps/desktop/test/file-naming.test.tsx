@@ -56,19 +56,30 @@ describe('explicit file naming', () => {
     // Keeping names saves without a template; the field is only required for Rename.
     fireEvent.change(screen.getByTestId('ingest-rename-template'), { target: { value: '' } });
     fireEvent.change(screen.getByTestId('ingest-file-naming'), { target: { value: 'keep' } });
-    await user.click(screen.getByRole('button', { name: 'Save' }));
-    await waitFor(() => {
-      expect(lastSettings(fake)).toMatchObject({
-        ingest: { fileNaming: 'keep', renameTemplate: '' },
-      });
-    });
+    // Nothing to press: the choice saves itself, without a template for Keep.
+    await waitFor(
+      () => {
+        expect(lastSettings(fake)).toMatchObject({
+          ingest: { fileNaming: 'keep', renameTemplate: '' },
+        });
+      },
+      { timeout: 3000 },
+    );
+    expect(screen.queryByRole('button', { name: 'Save' })).toBeNull();
 
     fireEvent.change(screen.getByTestId('ingest-file-naming'), { target: { value: 'rename' } });
     await waitFor(() =>
       expect((screen.getByTestId('ingest-rename-template') as HTMLInputElement).value).toBe(''),
     );
-    await user.click(screen.getByRole('button', { name: 'Save' }));
-    expect(await screen.findByText('Rename template is required')).toBeTruthy();
+    const saves = fake.calls.filter((call) => call.channel === 'settings:set').length;
+    expect(
+      await within(screen.getByTestId('ingest-to')).findByText('Rename template is required'),
+    ).toBeTruthy();
+    // The bar says it too, and its button waits.
+    expect(screen.getByTestId('ingest-summary').textContent).toBe('Rename template is required');
+    // A rename with no template is never saved.
+    await new Promise((resolve) => setTimeout(resolve, 800));
+    expect(fake.calls.filter((call) => call.channel === 'settings:set')).toHaveLength(saves);
   });
 
   it('chooses keep or rename per export preset and keeps the template when toggling', async () => {

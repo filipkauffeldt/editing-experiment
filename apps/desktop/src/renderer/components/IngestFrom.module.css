@@ -1,0 +1,175 @@
+.from {
+  min-width: 0;
+  overflow: auto;
+  background: var(--panel);
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0 8px 0 12px;
+  border-bottom: 1px solid var(--line);
+}
+
+.title {
+  flex: 1;
+  margin: 0;
+  padding: 12px 0;
+  color: var(--dim);
+  font-size: var(--fs-label);
+  font-weight: 500;
+  letter-spacing: var(--tracking-label);
+  text-transform: uppercase;
+}
+
+.list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.row {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 9px 12px;
+  border-bottom: 1px solid var(--line);
+}
+
+.head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.pick {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+}
+
+.pick input {
+  accent-color: var(--text);
+}
+
+.name {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.right {
+  flex: none;
+  color: var(--muted);
+  font-size: var(--fs-small);
+}
+
+/* The one detail line under a source's name: where it is, then its filters. */
+.detail,
+.detailText {
+  display: flex;
+  min-width: 0;
+  gap: 8px;
+  padding: 0 0 0 22px;
+  border: 0;
+  background: transparent;
+  color: var(--dim);
+  font-size: var(--fs-small);
+  text-align: left;
+}
+
+.detail > span:first-child,
+.detailText {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.detail {
+  cursor: pointer;
+}
+
+.detail:hover,
+.detail[aria-expanded='true'] {
+  color: var(--muted);
+}
+
+.detail:hover .summary,
+.detail[aria-expanded='true'] .summary {
+  color: var(--text);
+}
+
+.summary {
+  flex: none;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.filters {
+  padding: 4px 0 2px 22px;
+}
+
+.run {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding-left: 22px;
+}
+
+.state {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  color: var(--muted);
+}
+
+.bar {
+  height: 1px;
+  background: var(--line-strong);
+}
+
+.bar > span {
+  display: block;
+  height: 1px;
+  background: var(--text);
+}
+
+.error,
+.warning {
+  color: var(--muted);
+  font-size: var(--fs-small);
+}
+
+.warning {
+  border-left: 1px solid var(--line-strong);
+  padding-left: 7px;
+}
+
+.empty {
+  padding: 12px;
+  color: var(--dim);
+}
+
+.spinning {
+  animation: rescan-spin 0.8s linear infinite;
+}
+
+@keyframes rescan-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .spinning {
+    animation: none;
+    opacity: 0.5;
+  }
+}

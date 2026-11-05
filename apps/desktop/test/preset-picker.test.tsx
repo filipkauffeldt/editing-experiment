@@ -155,10 +155,8 @@ describe('the Ingest develop preset select', () => {
     await act(async () => {
       await store.saveSettings({ ingest: { ...ingest, developPresetId: asPresetId('gone-uuid') } });
     });
-    act(() => store.openDialog('ingest'));
-    const select = (await screen.findByText('Develop preset')).parentElement?.querySelector(
-      'select',
-    ) as HTMLSelectElement;
+    fireEvent.click(within(screen.getByTestId('status-bar')).getByRole('tab', { name: 'Ingest' }));
+    const select = (await screen.findByLabelText('Develop preset')) as HTMLSelectElement;
     await waitFor(() => expect(within(select).getByText('Dag')).toBeDefined());
     expect(select.value).toBe('gone-uuid');
     expect(within(select).getByText('gone-uuid (not found)')).toBeDefined();

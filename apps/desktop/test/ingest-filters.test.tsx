@@ -35,12 +35,19 @@ const localSource = (store: AppStore): Extract<SourceConfig, { kind: 'folder' | 
 };
 
 describe('ingest filters', () => {
-  it('shows the three controls per local source on the ingest screen and saves changes', async () => {
+  it('summarises the filters of a local source and edits them inline when opened', async () => {
     const { store, fake } = await renderApp();
     const user = userEvent.setup();
     await user.click(within(screen.getByTestId('status-bar')).getByRole('tab', { name: 'Ingest' }));
     await screen.findByTestId('ingest-view');
 
+    // Closed: one line, no controls.
+    expect(screen.queryAllByTestId('source-filters')).toHaveLength(0);
+    const source = localSource(store);
+    const line = screen.getByRole('button', { name: `Filters for ${source.name}` });
+    expect(line.textContent).toContain('all files');
+
+    await user.click(line);
     const filters = screen.getAllByTestId('source-filters');
     expect(filters).toHaveLength(1);
     const row = within(filters[0]!);
@@ -56,6 +63,7 @@ describe('ingest filters', () => {
     await waitFor(() => expect(localSource(store).lockFilter).toBe('locked'));
     await user.click(row.getByLabelText('Skip already ingested'));
     await waitFor(() => expect(localSource(store).incremental).toBe(false));
+    expect(line.textContent).toContain('JPEG only · locked only · including already ingested');
 
     const saved = fake.calls
       .filter((call) => call.channel === 'sources:save')

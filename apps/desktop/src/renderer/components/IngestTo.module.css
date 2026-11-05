@@ -1,0 +1,194 @@
+.to {
+  min-width: 0;
+  overflow: auto;
+}
+
+.title {
+  margin: 0;
+  padding: 12px;
+  border-bottom: 1px solid var(--line);
+  color: var(--dim);
+  font-size: var(--fs-label);
+  font-weight: 500;
+  letter-spacing: var(--tracking-label);
+  text-transform: uppercase;
+}
+
+.body {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 440px), 1fr));
+  gap: 24px 32px;
+  padding: 16px 12px;
+}
+
+.group {
+  min-width: 0;
+}
+
+/* Label cell, then control cell; a message takes the control column of the next row. */
+.form {
+  display: grid;
+  grid-template-columns: 104px minmax(0, 1fr);
+  align-items: center;
+  gap: 8px 12px;
+}
+
+.label {
+  color: var(--muted);
+  font-size: var(--fs-small);
+}
+
+.box {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  border: 1px solid var(--line-strong);
+  background: var(--bg);
+}
+
+.box:hover {
+  border-color: var(--dim);
+}
+
+.box:focus-within {
+  border-color: var(--text);
+}
+
+.input {
+  flex: 1;
+  min-width: 0;
+  height: 26px;
+  padding: 0 7px;
+  border: 0;
+  background: transparent;
+  color: var(--text);
+  font-size: var(--fs-small);
+  user-select: text;
+}
+
+.input:focus {
+  outline: none;
+}
+
+.input::placeholder {
+  color: var(--dim);
+}
+
+.box select.input {
+  appearance: none;
+}
+
+.action {
+  flex: none;
+  height: 26px;
+  padding: 0 8px;
+  border: 0;
+  border-left: 1px solid var(--line-strong);
+  background: transparent;
+  color: var(--muted);
+  font-size: var(--fs-label);
+}
+
+.action:hover,
+.action:focus-visible {
+  background: var(--raised);
+  color: var(--text);
+  outline: none;
+}
+
+.select {
+  height: 26px;
+  min-width: 0;
+  padding: 0 7px;
+  border: 1px solid var(--line-strong);
+  background: var(--bg);
+  color: var(--text);
+  font-size: var(--fs-small);
+}
+
+.select:hover {
+  border-color: var(--dim);
+}
+
+.select:focus {
+  border-color: var(--text);
+  outline: none;
+}
+
+.pair {
+  display: flex;
+  min-width: 0;
+  gap: 8px;
+}
+
+.pair > .box {
+  flex: 1;
+}
+
+.mode {
+  flex: none;
+}
+
+.error {
+  grid-column: 2;
+  margin-top: -4px;
+  color: var(--muted);
+  font-size: var(--fs-label);
+}
+
+.preview {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  margin: 16px 0 4px;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  background: var(--panel);
+}
+
+.previewLabel {
+  color: var(--dim);
+  font-size: var(--fs-label);
+  letter-spacing: var(--tracking-label);
+  text-transform: uppercase;
+}
+
+.previewPath {
+  overflow-wrap: anywhere;
+  color: var(--text);
+}
+
+.previewMuted {
+  color: var(--dim);
+  font-size: var(--fs-label);
+}
+
+.sub {
+  margin: 0 0 10px;
+  color: var(--dim);
+  font-size: var(--fs-label);
+  font-weight: 500;
+  letter-spacing: var(--tracking-label);
+  text-transform: uppercase;
+}
+
+.saveError {
+  display: flex;
+  grid-column: 1 / -1;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  color: var(--muted);
+  font-size: var(--fs-small);
+}
+
+@media (max-width: 760px) {
+  .form {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 4px;
+  }
+
+  .error {
+    grid-column: 1;
+  }
+}

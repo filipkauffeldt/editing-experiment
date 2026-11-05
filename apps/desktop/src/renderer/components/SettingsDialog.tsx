@@ -1,22 +1,16 @@
 import {
   asDestinationId,
-  asPresetId,
   asSourceId,
   type CredentialSecret,
   type Destination,
-  type FileNamingMode,
   type FtpSecurity,
   type FileTypeFilter,
-  type IngestSettings,
   type LockFilter,
   type SourceConfig,
-  type TemplateApplyMode,
 } from '@ee/contracts';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { ee } from '../ee';
 import type { DialogTab } from '../store';
-import { groupPresets } from '../preset-groups';
-import { sourcesToIngest } from '../cards';
 import { useAppState, useAppStore } from '../store-context';
 import { FolderIcon, PlusIcon, ServerIcon } from './icons';
 import { MetadataSettings } from './MetadataSettings';
@@ -31,13 +25,10 @@ import {
   sourceFilterValues,
 } from './SourceFilters';
 import { TemplateField } from './TemplateField';
-import { Button } from './ui/Button';
 import styles from './SettingsDialog.module.css';
 
 const newId = (prefix: string): string =>
   `${prefix}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`;
-
-const baseName = (path: string): string => path.split(/[\\/]/).pop() ?? path;
 
 interface SourceFormState {
   id: string;
@@ -994,293 +985,7 @@ function DestinationsSection() {
   );
 }
 
-export function IngestSection() {
-  const store = useAppStore();
-  const state = useAppState();
-  const [destination, setDestination] = useState('');
-  const [subfolder, setSubfolder] = useState('');
-  const [backup, setBackup] = useState('');
-  const [fileNaming, setFileNaming] = useState<FileNamingMode>('rename');
-  const [renameTemplate, setRenameTemplate] = useState('{date}_{seq:4}');
-  const [metadataTemplatePath, setMetadataTemplatePath] = useState('');
-  const [metadataTemplateMode, setMetadataTemplateMode] = useState<TemplateApplyMode>('replace');
-  const [developPresetId, setDevelopPresetId] = useState('');
-  const [status, setStatus] = useState<string>();
-  const [error, setError] = useState<string>();
-  const [busy, setBusy] = useState(false);
-  const presetGroups = useMemo(() => groupPresets(state.presets), [state.presets]);
-  const templateOptions = [
-    ...new Set(
-      [
-        ...(state.settings?.metadataTemplates ?? []),
-        state.settings?.ingest.metadataTemplatePath,
-        metadataTemplatePath,
-      ].filter((path): path is string => path !== undefined && path !== ''),
-    ),
-  ];
-
-  // The list is read again when the form is opened, so a preset made in Lightroom is there.
-  useEffect(() => {
-    void store.loadPresetIndex(true);
-  }, [store]);
-
-  useEffect(() => {
-    const ingest = state.settings?.ingest;
-    if (!ingest) return;
-    // The form is a draft of the persisted settings; seed it when they arrive.
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    setDestination(ingest.destination.path);
-    setSubfolder(ingest.destination.subfolderTemplate ?? '');
-    setBackup(ingest.backupDestination?.path ?? '');
-    setFileNaming(ingest.fileNaming);
-    setRenameTemplate(ingest.renameTemplate);
-    setMetadataTemplatePath(ingest.metadataTemplatePath ?? '');
-    setMetadataTemplateMode(ingest.metadataTemplateMode ?? 'replace');
-    setDevelopPresetId(ingest.developPresetId ?? '');
-  }, [state.settings]);
-
-  // What Ingest will copy: unticked discovered cards are left out.
-  const toRun = sourcesToIngest(state.sources, state.pickedCards);
-  const activeRuns = Object.values(state.ingest).filter(
-    (run) => run.state === 'running' || run.state === 'watching',
-  );
-  const stoppingAll =
-    activeRuns.length > 0 && activeRuns.every((run) => state.ingestStopping[run.sourceId]);
-
-  const build = (): IngestSettings => ({
-    destination: {
-      path: destination.trim(),
-      subfolderTemplate: subfolder.trim() || undefined,
-    },
-    backupDestination: backup.trim() ? { path: backup.trim() } : undefined,
-    fileNaming,
-    renameTemplate: renameTemplate.trim(),
-    metadataTemplatePath: metadataTemplatePath.trim() || undefined,
-    metadataTemplateMode,
-    developPresetId: developPresetId ? asPresetId(developPresetId) : undefined,
-  });
-
-  const save = async (andIngest = false): Promise<void> => {
-    if (!destination.trim()) {
-      setError('Destination folder is required');
-      return;
-    }
-    if (fileNaming === 'rename' && !renameTemplate.trim()) {
-      setError('Rename template is required');
-      return;
-    }
-    setBusy(true);
-    setError(undefined);
-    try {
-      const ingest = build();
-      await store.saveSettings({ ingest });
-      if (andIngest) {
-        const started = await store.startIngest(ingest);
-        setStatus(`Ingest started for ${started.length} source(s)`);
-      } else {
-        setStatus('Ingest settings saved.');
-      }
-    } catch (cause) {
-      setStatus(undefined);
-      setError(cause instanceof Error ? cause.message : String(cause));
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  return (
-    <form
-      className={styles.formWide}
-      onSubmit={(event) => {
-        event.preventDefault();
-        void save();
-      }}
-    >
-      <div className={styles.gridTwo}>
-        <label className={styles.field}>
-          <span className={styles.label}>Destination folder</span>
-          <span className={styles.inputRow}>
-            <input
-              className={styles.input}
-              value={destination}
-              onChange={(event) => setDestination(event.target.value)}
-            />
-            <button
-              type="button"
-              className={styles.smallButton}
-              onClick={async () => {
-                const [path] = await ee.invoke('dialog:pick', { kind: 'folder' });
-                if (path) setDestination(path);
-              }}
-            >
-              Browse…
-            </button>
-          </span>
-        </label>
-        <TemplateField
-          label="Subfolder template"
-          context="ingest"
-          value={subfolder}
-          placeholder="{date}/{sourceName}"
-          testId="ingest-subfolder-template"
-          onChange={setSubfolder}
-        />
-      </div>
-
-      <div className={styles.gridTwo}>
-        <label className={styles.field}>
-          <span className={styles.label}>Backup folder (optional)</span>
-          <input
-            className={styles.input}
-            value={backup}
-            onChange={(event) => setBackup(event.target.value)}
-          />
-        </label>
-        <label className={styles.field}>
-          <span className={styles.label}>File names</span>
-          <select
-            className={styles.input}
-            value={fileNaming}
-            data-testid="ingest-file-naming"
-            onChange={(event) => setFileNaming(event.target.value as FileNamingMode)}
-          >
-            <option value="keep">Keep original file names</option>
-            <option value="rename">Rename</option>
-          </select>
-        </label>
-      </div>
-
-      {fileNaming === 'rename' && (
-        <TemplateField
-          label="Rename template"
-          context="ingest"
-          value={renameTemplate}
-          testId="ingest-rename-template"
-          onChange={setRenameTemplate}
-        />
-      )}
-
-      <div className={styles.gridTwo}>
-        <label className={styles.field}>
-          <span className={styles.label}>Metadata template</span>
-          <span className={styles.inputRow}>
-            <select
-              className={styles.input}
-              value={metadataTemplatePath}
-              onChange={(event) => setMetadataTemplatePath(event.target.value)}
-            >
-              <option value="">None</option>
-              {templateOptions.map((path) => (
-                <option key={path} value={path}>
-                  {baseName(path)}
-                </option>
-              ))}
-            </select>
-            <button
-              type="button"
-              className={styles.smallButton}
-              onClick={async () => {
-                const [path] = await ee.invoke('dialog:pick', {
-                  kind: 'file',
-                  title: 'Metadata template',
-                  extensions: ['xmp'],
-                });
-                if (path) {
-                  await store.addMetadataTemplates([path]);
-                  setMetadataTemplatePath(path);
-                }
-              }}
-            >
-              Browse…
-            </button>
-          </span>
-        </label>
-        <label className={styles.field}>
-          <span className={styles.label}>Template mode</span>
-          <select
-            className={styles.input}
-            value={metadataTemplateMode}
-            onChange={(event) => setMetadataTemplateMode(event.target.value as TemplateApplyMode)}
-          >
-            <option value="replace">Replace existing values</option>
-            <option value="fillEmpty">Fill empty fields</option>
-          </select>
-        </label>
-      </div>
-
-      <label className={styles.field}>
-        <span className={styles.label}>Develop preset</span>
-        <select
-          className={styles.input}
-          value={developPresetId}
-          onChange={(event) => setDevelopPresetId(event.target.value)}
-        >
-          <option value="">None</option>
-          {developPresetId !== '' && !state.presets.some((p) => p.id === developPresetId) && (
-            <option value={developPresetId}>{developPresetId} (not found)</option>
-          )}
-          {presetGroups.map((group) =>
-            group.name === '' ? (
-              group.presets.map((preset) => (
-                <option key={preset.id} value={preset.id}>
-                  {preset.name}
-                </option>
-              ))
-            ) : (
-              <optgroup key={group.name} label={group.name}>
-                {group.presets.map((preset) => (
-                  <option key={preset.id} value={preset.id}>
-                    {preset.name}
-                  </option>
-                ))}
-              </optgroup>
-            ),
-          )}
-        </select>
-      </label>
-
-      <p className={styles.hint}>
-        Code replacement files are shared by every caption field and ingest. Manage them in Settings
-        → Metadata.
-      </p>
-
-      {error && <p className={styles.error}>{error}</p>}
-      {status && <p className={styles.status}>{status}</p>}
-
-      <div className={styles.formActions}>
-        <span className={styles.hint}>
-          {toRun.length === 0
-            ? 'Nothing to ingest: tick a card on the Ingest view or add a source.'
-            : `${toRun.length} source(s): ${toRun.map((source) => source.name).join(', ')}`}
-        </span>
-        <span className={styles.spacer} />
-        {activeRuns.length > 0 && (
-          <Button
-            aria-label="Stop all ingests"
-            title="Stop every running and watching source"
-            disabled={stoppingAll}
-            onClick={() => void store.stopIngest()}
-          >
-            {stoppingAll ? 'Stopping…' : 'Stop all'}
-          </Button>
-        )}
-        <button type="submit" className={styles.button} disabled={busy}>
-          Save
-        </button>
-        <button
-          type="button"
-          className={styles.primary}
-          disabled={busy}
-          onClick={() => void save(true)}
-        >
-          Ingest
-        </button>
-      </div>
-    </form>
-  );
-}
-
-/** Settings modal: sources, destinations and ingest. Export lives in its own dialog. */
+/** Settings modal: sources, destinations, metadata, profiles and presets. Ingest and Export have their own views. */
 export function SettingsDialog() {
   const store = useAppStore();
   const state = useAppState();
@@ -1288,7 +993,6 @@ export function SettingsDialog() {
   const tabs: { id: DialogTab; label: string }[] = [
     { id: 'sources', label: 'Sources' },
     { id: 'destinations', label: 'Destinations' },
-    { id: 'ingest', label: 'Ingest' },
     { id: 'metadata', label: 'Metadata' },
     { id: 'profiles', label: 'Profiles' },
     { id: 'presets', label: 'Presets' },
@@ -1323,7 +1027,6 @@ export function SettingsDialog() {
       <div className={styles.tabBody}>
         {tab === 'sources' && <SourcesSection />}
         {tab === 'destinations' && <DestinationsSection />}
-        {tab === 'ingest' && <IngestSection />}
         {tab === 'metadata' && <MetadataSettings />}
         {tab === 'profiles' && <ProfilesSettings />}
         {tab === 'presets' && <PresetsSettings />}

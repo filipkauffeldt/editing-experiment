@@ -105,7 +105,7 @@ export type SortMode = 'filename' | 'capture-time';
 export type SelectionMode = 'replace' | 'toggle' | 'range';
 /** The four modules of the top bar; Retouch is `AppState.retouch` on the Develop view. */
 export type AppModule = 'ingest' | 'library' | 'develop';
-export type DialogTab = 'sources' | 'destinations' | 'ingest' | 'metadata' | 'profiles' | 'presets';
+export type DialogTab = 'sources' | 'destinations' | 'metadata' | 'profiles' | 'presets';
 
 /** A photo's camera profile as the renderer uses it. */
 export interface PhotoProfile {
@@ -3804,12 +3804,17 @@ export class AppStore {
     }
   };
 
-  readonly startIngest = async (ingest: IngestSettings): Promise<IngestJobInfo[]> => {
-    const sources = this.sourcesForIngest();
+  /**
+   * Starts the ticked sources, or only those in `only` (the ones that are not running, while
+   * others run). A source that is still running and is started again has its run replaced.
+   */
+  readonly startIngest = async (
+    ingest: IngestSettings,
+    only?: ReadonlySet<string>,
+  ): Promise<IngestJobInfo[]> => {
+    const sources = this.sourcesForIngest().filter((source) => !only || only.has(source.id));
     if (sources.length === 0) {
-      throw new Error(
-        'Nothing to ingest. Tick a card, folder or server on the Ingest view.',
-      );
+      throw new Error('Nothing to ingest. Tick a card, folder or server on the Ingest view.');
     }
     const infos = await this.bridge.invoke('ingest:start', {
       config: { ...ingest, sources },
