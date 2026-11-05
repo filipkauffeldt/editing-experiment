@@ -39,9 +39,12 @@ Export / Export & send.
   (with label syncing on, the default) and the rating is written to
   `xmp:Rating` and `Prefs`.
 - Library: virtualised grid and loupe, multi-select (click, Shift range,
-  Ctrl/⌘ toggle, Ctrl/⌘+A), quick and colour-class filters. Folders are derived
-  from the local ingest copies only; cards and servers are intentionally not
-  shown there.
+  Ctrl/⌘ toggle, Ctrl/⌘+A). Folders are derived from the local ingest copies
+  only; cards and servers are intentionally not shown there.
+- One filter bar in Library and Develop, kept when you switch between them: tag,
+  stars (N and up), colour classes, status (not sent, failed, edited, metadata
+  differs), camera and source, and a text search over file name, caption and
+  keywords (`Ctrl/⌘+F`), plus the sort order.
 - Batch caption for the selection: replace or append selected IPTC fields,
   with codes and `{variables}` expanded per photo.
 - Star ratings `1`-`5` (`0` clears), colour classes `Ctrl/⌘`+`1`-`8`
