@@ -1,11 +1,13 @@
 // @vitest-environment node
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
+import { renderCpu } from '@ee/develop-gl';
 import { buildDcp, identityTable } from '@ee/develop-gl/profile/testing';
 import { buildLookXmp } from '@ee/develop-gl/profile/testing-look';
-import { asPhotoId } from '@ee/contracts';
+import { asPhotoId, asSourceId, type Photo } from '@ee/contracts';
+import { hasDevelopEdits, versionsEdited } from '../src/jobs/backend/edit-service';
 import { cameraFits, defaultProfileFolders, ProfileLibrary } from '../src/jobs/backend/profiles';
 
 /**
@@ -345,5 +347,91 @@ describe('the default profile (Camera Standard)', () => {
     expect(changes).toBe(2);
     const z9 = { make: 'NIKON CORPORATION', model: 'NIKON Z 9' };
     expect((await lib.resolve({ photoId }, z9)).status).toBe('ok');
+  });
+
+  const indexed = (path: string): Photo => ({
+    id: asPhotoId('p1'),
+    path,
+    sidecarPath: path.replace(/\.[^.]+$/, '.xmp'),
+    fileName: path.split('/').pop() ?? path,
+    sourceId: asSourceId('s'),
+    camera: z6,
+    tagged: false,
+    colorClass: 0,
+    rating: 0,
+    status: {
+      ingest: 'done',
+      edited: false,
+      metadataDiffersFromTemplate: false,
+      export: 'none',
+      upload: 'none',
+    },
+    versions: [],
+  });
+
+  it('applies to raws only: a JPEG of the same camera gets no profile', async () => {
+    const lib = library(await makeFolder());
+    const raw = await lib.resolveFor({ photoId }, indexed('/photos/a.NEF'));
+    expect(raw.status).toBe('ok');
+    for (const name of ['a.jpg', 'a.JPEG', 'a.tif']) {
+      const photo = indexed(`/photos/${name}`);
+      expect(await lib.resolveFor({ photoId }, photo)).toEqual({ status: 'none' });
+      expect(await lib.defaultKeyForPhoto(photo, {})).toBe('');
+    }
+  });
+
+  it('writes nothing: resolving for a photo leaves its folder as it was', async () => {
+    const photos = await tempDir();
+    await writeFile(join(photos, 'a.NEF'), 'raw bytes');
+    const lib = library(await makeFolder());
+    await lib.resolveFor({ photoId }, indexed(join(photos, 'a.NEF')));
+    await lib.defaultKeyForPhoto(indexed(join(photos, 'a.NEF')), {});
+    expect(await readdir(photos)).toEqual(['a.NEF']);
+  });
+
+  it('is not an edit when it is only the default, and "Camera matrix" is', () => {
+    expect(hasDevelopEdits({})).toBe(false);
+    expect(versionsEdited([{ id: 'v' as never, kind: 'develop', ops: {} }])).toBe(false);
+    expect(hasDevelopEdits({ CameraProfileChoice: 'none' })).toBe(true);
+    expect(hasDevelopEdits({ CameraProfile: 'Camera Standard' })).toBe(true);
+  });
+
+  it('changes the pixels: the resolved Camera Standard renders differently from no profile', async () => {
+    const root = await tempDir();
+    // A ForwardMatrix that is not the camera's own, so the colour must move.
+    await writeFile(
+      join(root, 'Nikon Z 6_2 Camera Standard.dcp'),
+      buildDcp({
+        name: 'Camera Standard',
+        camera: 'Nikon Z 6_2',
+        color: [M],
+        forward: [[0.9, 0.05, 0.05, 0.1, 0.8, 0.1, 0.0, 0.2, 0.7]],
+        illuminants: [21, 21],
+      }),
+    );
+    const lib = library(root);
+    const answer = await lib.resolveFor({ photoId }, indexed('/photos/a.NEF'));
+    expect(answer.status).toBe('ok');
+    if (answer.status !== 'ok') return;
+    const header = {
+      width: 4,
+      height: 2,
+      sourceWidth: 4,
+      sourceHeight: 2,
+      sampleType: 'f32' as const,
+      asShotMultipliers: { r: 2, g: 1, b: 1.5 },
+      cameraToSrgb: [1.6, -0.4, -0.2, -0.3, 1.5, -0.2, 0.0, -0.4, 1.4],
+      xyzToCamera: M,
+    };
+    const data = new Float32Array([
+      0.05, 0.08, 0.04, 1, 0.1, 0.1, 0.1, 1, 0.12, 0.05, 0.02, 1, 0.02, 0.1, 0.15, 1, 0.2, 0.1,
+      0.05, 1, 0.05, 0.2, 0.1, 1, 0.08, 0.08, 0.2, 1, 0.15, 0.15, 0.15, 1,
+    ]);
+    const without = renderCpu(header, data, {});
+    const withDefault = renderCpu(header, data, {}, header, { profile: answer.profile });
+    expect([...withDefault]).not.toEqual([...without]);
+    // And the sidecar named nothing: the same call with "Camera matrix" gives today's picture.
+    const matrix = await lib.resolveFor({ photoId, none: true }, indexed('/photos/a.NEF'));
+    expect(matrix).toEqual({ status: 'none' });
   });
 });

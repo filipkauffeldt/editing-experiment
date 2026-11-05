@@ -112,17 +112,28 @@ export interface PhotoProfile {
   key: string;
   status: 'loading' | 'none' | 'ok' | 'missing';
   profile?: ResolvedProfile;
-  /** Why a named profile is not used. */
+  /** The settings name no profile and this is the default one (Camera Standard). */
+  isDefault?: boolean;
+  /** Why a named profile is not used, or the default one could not be. */
   reason?: string;
 }
 
 /** The part of the develop settings that picks the profile; the key of the profile cache. */
 export function profileKey(params: EditParams): string {
-  return JSON.stringify([params.CameraProfile ?? '', params.LookName ?? '', params.LookUUID ?? '']);
+  return JSON.stringify([
+    params.CameraProfile ?? '',
+    params.LookName ?? '',
+    params.LookUUID ?? '',
+    explicitCameraMatrix(params),
+  ]);
 }
 
 export const namesProfile = (params: EditParams): boolean =>
   params.CameraProfile !== undefined || params.LookName !== undefined;
+
+/** An explicit "Camera matrix" choice: no profile, and not the default either. */
+export const explicitCameraMatrix = (params: EditParams): boolean =>
+  !namesProfile(params) && params.CameraProfileChoice === 'none';
 
 export interface FilterState {
   quick: QuickFilter;
@@ -764,10 +775,17 @@ export class AppStore {
     return new EditedPreviewScheduler({
       // The scheduler works on the photo's own settings (what is saved, and whether it
       // is edited at all); the picture is drawn with the raw defaults under them.
-      render: async (photo, params, ops) =>
-        renderEditedPreview(photo, withDefaults(params, await this.loadDefaults(photo.id)), ops, {
-          profile: await this.profileForRender(photo.id, params),
-        }),
+      render: async (photo, params, ops) => {
+        const { profile, defaultKey } = await this.profileForRender(photo.id, params);
+        const images = await renderEditedPreview(
+          photo,
+          withDefaults(params, await this.loadDefaults(photo.id)),
+          ops,
+          { profile },
+        );
+        // Which default profile it was drawn through, so the backend can tell when that changes.
+        return defaultKey === '' ? images : { ...images, defaultProfile: defaultKey };
+      },
       getPhoto: (photoId) => this.photoById.get(photoId),
       settle: (photoId) =>
         this.flushDevelopParams(photoId, activeDevelopVersion(this.photoById.get(photoId))?.id),
@@ -1053,6 +1071,8 @@ export class AppStore {
     const photos = [...this.state.photos];
     for (const photo of queued) this.applyPhoto(photo, photos);
     this.set({ photos });
+    // A photo the backend calls stale (its default profile changed) is drawn again when it is shown.
+    for (const photo of queued) this.editedPreviews?.photoUpdated(photo);
   }
 
   /** The order Shift-click ranges follow: the grid's in the Library, the film strip's elsewhere. */
@@ -2651,8 +2671,21 @@ export class AppStore {
 
   private readonly profileResolutions = new Map<string, Promise<ProfileResolution>>();
 
+  /**
+   * Resolutions are shared by the photos that would get the same answer: the same camera and file
+   * type with the same profile choice. A thumbnail run over a card of one body asks the backend
+   * once, not once per photo, and the parsed profile crosses IPC once.
+   */
+  private resolutionKey(photoId: PhotoId, params: EditParams): string {
+    const photo = this.photoById.get(photoId);
+    if (!photo) return `${photoId}|${profileKey(params)}`;
+    const extension = photo.fileName.slice(photo.fileName.lastIndexOf('.')).toLowerCase();
+    const camera = JSON.stringify([photo.camera?.make ?? '', photo.camera?.model ?? '']);
+    return `${extension}|${camera}|${profileKey(params)}`;
+  }
+
   private resolveProfile(photoId: PhotoId, params: EditParams): Promise<ProfileResolution> {
-    const key = `${photoId}|${profileKey(params)}`;
+    const key = this.resolutionKey(photoId, params);
     let pending = this.profileResolutions.get(key);
     if (!pending) {
       pending = this.bridge.invoke('profiles:resolve', {
@@ -2660,6 +2693,7 @@ export class AppStore {
         ...(params.CameraProfile !== undefined ? { profile: params.CameraProfile } : {}),
         ...(params.LookName !== undefined ? { lookName: params.LookName } : {}),
         ...(params.LookUUID !== undefined ? { lookUuid: params.LookUUID } : {}),
+        ...(explicitCameraMatrix(params) ? { none: true } : {}),
       });
       this.profileResolutions.set(key, pending);
       // A failed lookup is asked again next time.
@@ -2669,29 +2703,38 @@ export class AppStore {
   }
 
   /**
-   * The profile a render of `photoId` with `params` goes through, or null (none named, or not on
-   * this machine, which the Develop panel says). Exports and thumbnails draw what the canvas shows.
+   * The profile a render of `photoId` with `params` goes through, or null (none, or a named one
+   * that is not on this machine, which the Develop panel says), with the key of the default profile
+   * it is when the settings name none. A photo that names nothing is drawn through Camera Standard
+   * where one fits its camera, so the canvas, exports and thumbnails all ask here. An unreadable
+   * profile is no profile: a render never fails because of it.
    */
-  async profileForRender(photoId: PhotoId, params: EditParams): Promise<ResolvedProfile | null> {
-    if (!namesProfile(params)) return null;
+  async profileForRender(
+    photoId: PhotoId,
+    params: EditParams,
+  ): Promise<{ profile: ResolvedProfile | null; defaultKey: string }> {
+    if (explicitCameraMatrix(params)) return { profile: null, defaultKey: '' };
     try {
       const resolution = await this.resolveProfile(photoId, params);
       return resolution.status === 'ok'
-        ? { ...resolution.profile, amount: params.LookAmount ?? 1 }
-        : null;
+        ? {
+            profile: { ...resolution.profile, amount: params.LookAmount ?? 1 },
+            defaultKey: resolution.defaultKey ?? '',
+          }
+        : { profile: null, defaultKey: '' };
     } catch {
-      return null;
+      return { profile: null, defaultKey: '' };
     }
   }
 
-  /** Loads the profile the settings name for the photo on screen (the canvas draws once it is known). */
+  /** Loads the profile the settings name, or the default one, for the photo on screen (the canvas draws once it is known). */
   readonly loadPhotoProfile = (photoId: PhotoId, params: EditParams): void => {
     const key = profileKey(params);
     const known = this.state.photoProfiles[photoId];
     if (known?.key === key) return;
     const put = (profile: PhotoProfile): void =>
       this.set({ photoProfiles: { ...this.state.photoProfiles, [photoId]: profile } });
-    if (!namesProfile(params)) {
+    if (explicitCameraMatrix(params)) {
       put({ key, status: 'none' });
       return;
     }
@@ -2701,15 +2744,29 @@ export class AppStore {
         if (this.state.photoProfiles[photoId]?.key !== key) return;
         put(
           resolution.status === 'ok'
-            ? { key, status: 'ok', profile: resolution.profile }
+            ? {
+                key,
+                status: 'ok',
+                profile: resolution.profile,
+                ...(resolution.defaultKey === undefined ? {} : { isDefault: true }),
+              }
             : resolution.status === 'missing'
               ? { key, status: 'missing', reason: resolution.reason }
-              : { key, status: 'none' },
+              : {
+                  key,
+                  status: 'none',
+                  ...(resolution.problem === undefined ? {} : { reason: resolution.problem }),
+                },
         );
       },
       (cause: unknown) => {
         if (this.state.photoProfiles[photoId]?.key !== key) return;
-        put({ key, status: 'missing', reason: messageOf(cause) });
+        // The default is optional; a failed lookup of it must not look like a missing named profile.
+        put(
+          namesProfile(params)
+            ? { key, status: 'missing', reason: messageOf(cause) }
+            : { key, status: 'none', reason: messageOf(cause) },
+        );
       },
     );
   };
@@ -2724,10 +2781,15 @@ export class AppStore {
     );
   };
 
-  /** The Profile select: a camera profile, a look over one, or none (the decoder's camera matrix). */
+  /**
+   * The Profile select: a camera profile, a look over one, or none (the decoder's camera matrix).
+   * "None" is saved as an explicit choice, because an absent profile now means the default one.
+   */
   readonly setCameraProfile = (choice: ProfileListing | null): void => {
     this.patchParams((current) => {
       const next = { ...current };
+      delete next.CameraProfileChoice;
+      if (choice === null) next.CameraProfileChoice = 'none';
       delete next.CameraProfile;
       delete next.CameraProfileDigest;
       delete next.LookName;
@@ -3165,7 +3227,7 @@ export class AppStore {
         (candidate) => candidate.id === request.presetId,
       );
       if (!preset) throw new Error(`no export preset ${request.presetId}`);
-      const profile = await this.profileForRender(latest.id, params);
+      const { profile } = await this.profileForRender(latest.id, params);
       const rendered = await this.renderForExport({
         photo: latest,
         params,

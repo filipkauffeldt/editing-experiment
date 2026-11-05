@@ -92,6 +92,23 @@ describe('copy settings groups', () => {
     expect(next.Contrast2012).toBeUndefined();
   });
 
+  it('copies only the profile the source names, so the target keeps or gets the default of its own camera', () => {
+    // The default profile is not a setting, so a source that only has the default copies nothing:
+    // the target's explicit profile is cleared and it falls back to its own camera's default.
+    const target = { CameraProfile: 'Adobe Standard', LookName: 'Adobe Color', Exposure2012: 1 };
+    expect(applyDevelopSettingGroups(target, { Exposure2012: 0.5 }, ['profile'])).toEqual({
+      Exposure2012: 1,
+    });
+    // An explicit "Camera matrix" is a setting and travels, replacing a profile on the target.
+    expect(applyDevelopSettingGroups(target, { CameraProfileChoice: 'none' }, ['profile'])).toEqual(
+      { CameraProfileChoice: 'none', Exposure2012: 1 },
+    );
+    // A group that is not ticked leaves the target's profile alone.
+    expect(applyDevelopSettingGroups(target, { Exposure2012: 0.5 }, ['basicTone'])).toMatchObject({
+      CameraProfile: 'Adobe Standard',
+    });
+  });
+
   it('does not copy retouch data because it is not a develop setting', () => {
     expect(EDIT_PARAM_KEYS.some((key) => /retouch|mosaic/i.test(key))).toBe(false);
     expect(developSettingFields(['crop'])).toEqual(['crop']);

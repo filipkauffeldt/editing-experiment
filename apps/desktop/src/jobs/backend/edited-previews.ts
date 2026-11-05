@@ -90,8 +90,10 @@ export class EditedPreviews {
      * The default camera profile a photo with these settings is drawn through ('' for none), see
      * `ProfileLibrary.defaultKeyForPhoto`. A render drawn with another one is out of date.
      */
-    private readonly defaultProfileKey: (photo: Photo, params: EditParams) => Promise<string> = () =>
-      Promise.resolve(''),
+    private readonly defaultProfileKey: (
+      photo: Photo,
+      params: EditParams,
+    ) => Promise<string> = () => Promise.resolve(''),
   ) {}
 
   /** The develop params of a photo were just saved (called under the photo lock). */
