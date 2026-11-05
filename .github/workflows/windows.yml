@@ -35,6 +35,10 @@ jobs:
     # that is broken; the job is red until all of them pass.
     runs-on: windows-latest
     timeout-minutes: 45
+    env:
+      # Link-time optimisation makes every release link slow. This job checks that things build and
+      # work, and ships nothing, so it goes without.
+      CARGO_PROFILE_RELEASE_LTO: 'off'
     steps:
       - uses: actions/checkout@v7
       # Version comes from "packageManager" in package.json.
@@ -90,21 +94,22 @@ jobs:
       - name: Launch the built app
         if: ${{ !cancelled() }}
         run: pnpm test:e2e:launch
-      # The real-mode smoke test ingests a NEF through the built app; the crop overlay test runs
-      # beside it because both come from the existing script.
+      # The three steps below take about 6 minutes, so they run on main and by hand, not on PRs.
       - name: Display size and scaling
-        if: ${{ !cancelled() }}
+        if: ${{ !cancelled() && github.event_name != 'pull_request' }}
         run: |
           Add-Type -AssemblyName System.Windows.Forms
           [System.Windows.Forms.Screen]::AllScreens | ForEach-Object { "$($_.DeviceName) $($_.Bounds) primary=$($_.Primary)" }
           Get-ItemProperty 'HKCU:\Control Panel\Desktop' -Name LogPixels -ErrorAction SilentlyContinue | Out-String
+      # The real-mode smoke test ingests a NEF through the built app; the crop overlay test runs
+      # beside it because both come from the existing script.
       - name: Real-mode smoke (pnpm test:e2e:crop)
-        if: ${{ !cancelled() }}
+        if: ${{ !cancelled() && github.event_name != 'pull_request' }}
         run: pnpm test:e2e:crop
       # What a developer types: `pnpm dev` builds the native core, starts electron-vite and opens the
       # app. Give it three minutes (it rebuilds the native core first) to print that it started Electron and check Electron is running.
       - name: pnpm dev starts the app
-        if: ${{ !cancelled() }}
+        if: ${{ !cancelled() && github.event_name != 'pull_request' }}
         run: |
           $out = Join-Path $env:RUNNER_TEMP 'dev.out.log'
           $err = Join-Path $env:RUNNER_TEMP 'dev.err.log'

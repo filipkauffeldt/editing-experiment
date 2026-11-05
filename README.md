@@ -240,9 +240,12 @@ pnpm fetch-retouch
 pnpm test:unit:windows        # ingest, export, metadata, retouch, contracts, core and the jobs-backend tests
 pnpm --filter "@ee/desktop" run build
 pnpm test:e2e:launch          # starts the built app against a temporary EE_USER_DATA_DIR
-pnpm test:e2e:crop            # the real-mode smoke test (ingests a NEF) and the crop overlay tests
-pnpm dev                      # until it prints "starting electron app", then checks Electron is running
+pnpm test:e2e:crop            # main only: the real-mode smoke test (ingests a NEF) and the crop overlay tests
+pnpm dev                      # main only: until it prints "starting electron app", then checks Electron is running
 ```
+
+The workflow builds with `CARGO_PROFILE_RELEASE_LTO=off` to save link time. The two `main only` steps
+also run when the workflow is started by hand, and pull requests skip them.
 
 Not run on Windows: `pnpm lint` and `pnpm typecheck` (Linux CI covers the same files), the rest of
 `pnpm test:unit` (React and renderer tests, which do not touch the operating system), the WebGL
