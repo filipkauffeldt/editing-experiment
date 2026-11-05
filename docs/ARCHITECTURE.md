@@ -703,6 +703,16 @@ edited previews or the export, and the develop shader is the same one.
   pixels. `wheelPanDelta` negates the wheel delta (scrolling down moves the view down the photo),
   uses both axes, turns line and page deltas into pixels like `wheelZoomFactor` does, and makes
   Shift pan sideways even where Chromium sends it as a vertical delta.
+- **Pixel grid.** A layout at 100 %, 200 % (a whole number of device pixels per picture pixel) or
+  50 % has its offset rounded to whole device pixels (`viewLayout(…, dpr)`, `snapToDevicePixels`):
+  at 1:1 a half-pixel offset makes the LINEAR texture filter average neighbouring pixels, so a
+  focus check would be soft, while on the grid linear and nearest give the same pixels and the
+  sampler stays LINEAR. The stored pan is never rounded (the zoom maths anchors to the unrounded
+  layout), so pans do not accumulate error. The snap only holds if the stage's own corner is on
+  the grid, so a stage that fills the canvas (zoomed, crop) is pinned to the canvas area's corner
+  (not flex-centred) and sized to whole device pixels (`wholeDevicePixels`), which also makes the
+  drawing buffer exactly the stage. Fit and non-integer zoom stay smooth. A canvas wider than the
+  4096 px buffer cap is drawn scaled, and is not 1:1.
 - **Picture.** The picture is what the view shows in full-resolution pixels: the committed crop's
   output in Develop, the whole image in Crop and Retouch. 100 % is one of its pixels per device
   pixel, so `Z` on a 2x display is a layout scale of 0.5.
