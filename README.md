@@ -31,7 +31,8 @@ Export / Export & send.
   empty, `=code=` replacement tables, and `{variables}` in captions and path
   templates. Templates and code replacement files live in Settings → Metadata
   and are shared by ingest, the Metadata panel and batch caption. A develop
-  preset can be applied to every imported photo.
+  preset can be applied to every imported photo, including one that is a file
+  in a Lightroom or Camera Raw preset folder.
 - IPTC metadata in XMP sidecars for raws and embedded IIM + XMP for JPEGs.
   Tagged state and colour class use Photo Mechanic's `Tagged` and `ColorClass`
   fields and the combined `Prefs` string; the class is mirrored to `xmp:Label`
@@ -54,8 +55,11 @@ Export / Export & send.
   Color Mixer, Color Grading wheels, Detail (sharpening and noise reduction),
   Lens Corrections (Nikon's embedded data or Lensfun, manual
   distortion/vignette, Remove chromatic aberration and Defringe), Effects
-  (post-crop vignette and grain), Calibration, camera profiles and imported
-  `.xmp` presets.
+  (post-crop vignette and grain), Calibration, camera profiles and develop
+  presets: the `.xmp` and `.lrtemplate` files found in Camera Raw's and
+  Lightroom's preset folders (macOS and Windows) and in folders you add in
+  Settings → Presets, listed in the groups you made there and read where they
+  are, never changed or copied, plus one-off imports.
 - Histogram read from the rendered frame, clipping `J`, before/after `Y`,
   white balance picker `W`, Auto tone and Auto WB.
 - Lightroom-style crop and straighten `C`, applied in the preview and the
@@ -199,8 +203,10 @@ Set things up in this order:
    **Keep original file names** or **Rename** with a template (and optionally a
    subfolder template and backup folder). Pick the metadata template from the
    global list and its mode, `Replace existing values` (the default) or
-   `Fill empty fields`, and choose the develop preset to apply on import.
-   Import presets with **Develop → Presets → Import** first.
+   `Fill empty fields`, and choose the develop preset to apply on import. The
+   list holds the presets found in the preset folders (Settings → Presets; add
+   the `Lightroom Settings` folder if Lightroom stores presets with the
+   catalog) and the ones imported with **Develop → Presets → Import**.
 3. **Insert a card.** Open the **Ingest** view: the inserted cards (volumes with a
    `DCIM` folder) are listed under **Cards** on their own, with the volume label,
    mount path and image count. No path to type. The cards are looked for when the
