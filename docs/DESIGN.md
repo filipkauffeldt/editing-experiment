@@ -123,5 +123,8 @@ settings, Shift+Ctrl/Cmd+E export, Shift+Ctrl/Cmd+Enter export and send. The bot
 **Sync…** opens the same group dialog for the whole selection. In Develop Ctrl/Cmd+Enter is Next & send, and its bar shows the active export preset
 ("Desk 2048 q90 → Export/Desk → destination").
 
-The export dialog lists the presets on the left; the editor has the sections Location, File,
-Content and Then send; the footer has "Export only" and the primary "Export & send".
+The export dialog lists the presets on the left; the editor is one compact label-left form
+(Folder with its `{ }` variable picker and a live **Saves to** path, File names, If it exists,
+Size and JPEG quality, Sharpen, Metadata, Version, Send to). A single footer row has the preset
+actions (Save preset with an unsaved dot, Set as active for a non-active preset, Delete preset)
+on the left and "Export only" and the primary "Export & send" on the right.

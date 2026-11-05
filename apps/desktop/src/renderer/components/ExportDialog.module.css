@@ -1,4 +1,4 @@
-/* Presets on the left, then Location / File / Content / Then send. Boxed hairline fields. */
+/* Presets on the left, one label-left form, and a single footer row. */
 .split {
   display: grid;
   grid-template-columns: 210px minmax(0, 1fr);
@@ -81,50 +81,61 @@
 .editor {
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: 10px;
 }
 
-.nameRow {
-  display: grid;
-}
-
-.section {
+.form {
   display: flex;
   flex-direction: column;
-  gap: 8px;
-  padding-top: 10px;
-  border-top: 1px solid var(--line);
 }
 
-.sectionTitle {
-  margin: 0;
-  color: var(--dim);
+.formRow {
+  display: grid;
+  grid-template-columns: 88px minmax(0, 1fr);
+  align-items: start;
+  gap: 3px 14px;
+  padding: 3px 0;
+}
+
+.rowLabel {
+  padding-top: 6px;
+  color: var(--muted);
   font-size: var(--fs-label);
-  font-weight: 500;
-  letter-spacing: var(--tracking-label);
-  text-transform: uppercase;
 }
 
-.grid {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-  gap: 10px 14px;
-}
-
-.field {
+.rowControl {
   display: flex;
   flex-direction: column;
-  gap: 3px;
+  gap: 4px;
   min-width: 0;
 }
 
-.wide {
-  grid-column: 1 / -1;
+.inlineRow {
+  flex-direction: row;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
 }
 
-.label {
-  color: var(--muted);
+.grow {
+  flex: 1;
+  width: auto;
+  min-width: 120px;
+}
+
+.target {
+  padding-top: 6px;
+  color: var(--text);
+  font-family: var(--font-mono);
   font-size: var(--fs-label);
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+  user-select: text;
+}
+
+.targetError {
+  color: var(--muted);
+  font-family: inherit;
 }
 
 .input {
@@ -166,13 +177,28 @@ select.input option {
   background: var(--panel);
 }
 
-.row {
+.short {
+  flex: none;
+  width: 86px;
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+
+.quality {
   display: flex;
+  flex: none;
+  align-items: center;
   gap: 6px;
 }
 
-.short {
-  max-width: 110px;
+.unit {
+  color: var(--dim);
+  font-size: var(--fs-label);
+  letter-spacing: var(--tracking-label);
+}
+
+.qualityInput {
+  width: 58px;
   font-family: var(--font-mono);
   font-variant-numeric: tabular-nums;
 }
@@ -210,7 +236,7 @@ select.input option {
   display: flex;
   align-items: center;
   gap: 7px;
-  margin: 0;
+  margin: 10px 0 0;
   font-size: var(--fs-small);
 }
 
@@ -222,11 +248,20 @@ select.input option {
   content: '';
 }
 
-.actions {
+.footerActions {
   display: flex;
-  gap: 8px;
-  justify-content: flex-end;
-  margin-top: 12px;
+  align-items: center;
+  gap: 10px;
+}
+
+.unsavedDot {
+  display: inline-block;
+  width: 5px;
+  height: 5px;
+  margin-left: 7px;
+  border-radius: 50%;
+  background: var(--text);
+  vertical-align: middle;
 }
 
 .spacer {
@@ -245,6 +280,23 @@ select.input option {
 
 .button:hover:not(:disabled) {
   background: var(--raised);
+}
+
+.textButton {
+  height: 24px;
+  padding: 0 2px;
+  border: 0;
+  background: transparent;
+  color: var(--dim);
+  font-size: var(--fs-small);
+}
+
+.textButton:hover:not(:disabled) {
+  color: var(--text);
+}
+
+.textButton:disabled {
+  opacity: 0.5;
 }
 
 /* White on near-black: Export & send. */
