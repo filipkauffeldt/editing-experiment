@@ -258,7 +258,11 @@ exports/             default exportRoot (only a relative folder template uses it
   must be the photo itself or its sibling `<name>.xmp`, and nothing may be a folder. The files go to the system trash through
   `shell.trashItem`, which only exists in main, so the jobs process sends a `trash-request` message and
   main answers by id (`shared/trash-bridge.ts`, `main/trash.ts`). There is no fallback to a permanent
-  delete: when trashing fails the file and the entry stay and the photo is named in the result. Per
+  delete: when trashing fails the file and the entry stay and the photo is named in the result. A
+  failure that is a lock (`EBUSY`, `EPERM`, `EACCES`, or an error with no code, which is all Electron's
+  `shell.trashItem` gives and all the bridge passes on) is tried again after 150 ms and 300 ms, so three
+  attempts in about 450 ms under that photo's lock only; any other code, and the bridge's own
+  `ETIMEDOUT`, is final. Per
   photo, under its lock: sidecar first, then the photo, then the entry and its data (index row, camera
   and edited previews, decoded linear images, tracked preview revisions, queued exports). A leftover
   sidecar would be paired with the next file of the same name, so it must not be what a failure leaves
@@ -938,7 +942,10 @@ Design tokens and component rules are in `docs/DESIGN.md`.
   photo in memory. Matching is case-insensitive with `å`, `ä`, `ö` kept distinct from `a`, `o`
   (NFC on both sides), every word of the query must be somewhere in the file name, caption or
   keywords, and the sidecar stays the source of truth: a caption changed by another program is
-  seen when that photo is next written here. The answer carries `pending`, the photos not read yet
+  seen when that photo is next written here. Each read runs under the photo's lock
+  (`PhotoLibrary.withLock`), held for that one read only, so it cannot overlap a delete or a
+  metadata write (on Windows a file open for reading cannot be moved); a photo that is gone by the
+  time its turn comes is skipped without a log line. The answer carries `pending`, the photos not read yet
   (they match by file name only); while it is above 0 the store asks again every second. The store
   also asks again 400 ms after photos arrive or a caption is written, so the result does not go
   stale. The bar debounces typing 250 ms; an answer for older text is dropped.

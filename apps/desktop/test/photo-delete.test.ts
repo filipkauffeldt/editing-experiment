@@ -62,13 +62,19 @@ const jpeg = (path: string, colour = '#468'): Promise<unknown> =>
 class FakeTrash {
   readonly calls: string[] = [];
   failOn: (path: string) => boolean = () => false;
+  /**
+   * What a failing call throws. The default has a code that is not a lock, so the deleter treats
+   * it as final and tests of a permanent failure see exactly one call per file.
+   */
+  failure: () => Error = () =>
+    Object.assign(new Error('the volume has no trash'), { code: 'ENOSPC' });
   private count = 0;
 
   constructor(readonly directory: string) {}
 
   readonly trash = async (path: string): Promise<void> => {
     this.calls.push(path);
-    if (this.failOn(path)) throw new Error('the volume has no trash');
+    if (this.failOn(path)) throw this.failure();
     await mkdir(this.directory, { recursive: true });
     await rename(path, join(this.directory, `${++this.count}-${basename(path)}`));
   };
@@ -696,7 +702,7 @@ describe('PhotoDeleter path safety (forged index entries)', () => {
     removed: PhotoId[];
   }
 
-  async function setup(): Promise<Setup> {
+  async function setup(retryDelaysMs: readonly number[] = [0, 0]): Promise<Setup> {
     const root = await tempDir();
     const destination = join(root, 'ingest');
     const sourceDir = join(root, 'card');
@@ -716,6 +722,7 @@ describe('PhotoDeleter path safety (forged index entries)', () => {
         removed.push(photoId);
       },
       warn: () => {},
+      retryDelaysMs,
     });
     return { deleter, library, trash, destination, sourceDir, root, removed };
   }
@@ -867,5 +874,105 @@ describe('PhotoDeleter path safety (forged index entries)', () => {
     expect(result.failed[0]!.message).toMatch(/it is a folder/);
     expect(s.trash.calls).toEqual([]);
     expect(await exists(path)).toBe(true);
+  });
+
+  describe('a trash that fails for a lock is tried again', () => {
+    const busy = (): Error =>
+      Object.assign(new Error('EBUSY: resource busy or locked, rename'), { code: 'EBUSY' });
+
+    async function photoIn(s: Setup, name: string): Promise<Photo> {
+      const path = join(s.destination, name);
+      await writeFile(path, 'x');
+      const photo = forge(name, path);
+      s.library.add(photo);
+      return photo;
+    }
+
+    it('succeeds when EBUSY goes away on a later attempt', async () => {
+      const s = await setup();
+      const photo = await photoIn(s, 'a.jpg');
+      let failures = 2;
+      s.trash.failure = busy;
+      s.trash.failOn = () => failures-- > 0;
+
+      expect(await s.deleter.delete({ photoIds: [photo.id] })).toEqual({
+        deleted: [photo.id],
+        failed: [],
+      });
+      expect(s.trash.calls).toEqual([photo.path, photo.path, photo.path]);
+      expect(await exists(photo.path)).toBe(false);
+      expect(s.removed).toEqual([photo.id]);
+    });
+
+    it.each(['EPERM', 'EACCES'])('treats %s as a lock too', async (code) => {
+      const s = await setup();
+      const photo = await photoIn(s, 'a.jpg');
+      let failures = 1;
+      s.trash.failure = () =>
+        Object.assign(new Error(`${code}: operation not permitted`), { code });
+      s.trash.failOn = () => failures-- > 0;
+
+      expect((await s.deleter.delete({ photoIds: [photo.id] })).deleted).toEqual([photo.id]);
+      expect(s.trash.calls).toHaveLength(2);
+    });
+
+    it("retries an error without a code, which is all Electron's shell.trashItem gives", async () => {
+      const s = await setup();
+      const photo = await photoIn(s, 'a.jpg');
+      let failures = 1;
+      s.trash.failure = () => new Error('Failed to perform delete operation');
+      s.trash.failOn = () => failures-- > 0;
+
+      expect((await s.deleter.delete({ photoIds: [photo.id] })).deleted).toEqual([photo.id]);
+      expect(s.trash.calls).toHaveLength(2);
+    });
+
+    it('gives up after three attempts, reports the error and keeps the file and the entry', async () => {
+      const s = await setup();
+      const photo = await photoIn(s, 'a.jpg');
+      s.trash.failure = busy;
+      s.trash.failOn = () => true;
+
+      const result = await s.deleter.delete({ photoIds: [photo.id] });
+
+      expect(result.deleted).toEqual([]);
+      expect(result.failed).toHaveLength(1);
+      expect(result.failed[0]!.message).toContain('a.jpg could not be moved to the trash');
+      expect(result.failed[0]!.message).toContain('EBUSY');
+      expect(s.trash.calls).toHaveLength(3);
+      // No permanent-delete fallback: the file and the entry are still there.
+      expect(await exists(photo.path)).toBe(true);
+      expect(s.library.get(photo.id).id).toBe(photo.id);
+      expect(s.removed).toEqual([]);
+    });
+
+    it('does not retry an error that is not a lock', async () => {
+      const s = await setup();
+      const photo = await photoIn(s, 'a.jpg');
+      s.trash.failOn = () => true; // the default failure: ENOSPC
+
+      const result = await s.deleter.delete({ photoIds: [photo.id] });
+
+      expect(result.failed).toHaveLength(1);
+      expect(s.trash.calls).toHaveLength(1);
+    });
+
+    it('does not hold up another photo while one waits to retry', async () => {
+      const s = await setup([150, 150]);
+      const slow = await photoIn(s, 'slow.jpg');
+      const quick = await photoIn(s, 'quick.jpg');
+      s.trash.failure = busy;
+      s.trash.failOn = (path) => basename(path) === 'slow.jpg';
+
+      const order: string[] = [];
+      const first = s.deleter.delete({ photoIds: [slow.id] }).then(() => order.push('slow'));
+      const second = s.deleter.delete({ photoIds: [quick.id] }).then((r) => {
+        order.push('quick');
+        return r;
+      });
+      expect((await second).deleted).toEqual([quick.id]);
+      await first;
+      expect(order).toEqual(['quick', 'slow']);
+    });
   });
 });

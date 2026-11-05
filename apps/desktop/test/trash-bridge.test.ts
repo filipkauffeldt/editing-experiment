@@ -29,7 +29,11 @@ describe('trash bridge between the jobs process and main', () => {
       const sent: JobsTrashRequestMessage[] = [];
       const bridge = new TrashBridge((message) => sent.push(message), 1000);
       const pending = bridge.trash('/ingest/a.jpg');
-      const rejected = expect(pending).rejects.toThrow(/did not answer/);
+      // Its own code, so the photo deleter does not retry a request that may still be running.
+      const rejected = expect(pending).rejects.toMatchObject({
+        message: expect.stringMatching(/did not answer/),
+        code: 'ETIMEDOUT',
+      });
       await vi.advanceTimersByTimeAsync(1000);
       await rejected;
       expect(() => bridge.handleResult({ kind: 'trash-result', id: sent[0]!.id })).not.toThrow();

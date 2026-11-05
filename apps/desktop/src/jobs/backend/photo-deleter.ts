@@ -34,13 +34,34 @@ export interface PhotoDeleterDeps {
    */
   onRemoved(photoId: PhotoId): Promise<void>;
   warn(message: string): void;
+  /** Waits before each retry of a trash that failed for a lock: its length is the number of retries. */
+  retryDelaysMs?: readonly number[];
 }
+
+/** Three attempts in all, about 450 ms: long enough for an antivirus scan or a preview to let go. */
+export const TRASH_RETRY_DELAYS_MS: readonly number[] = [150, 300];
 
 /** The files of a photo that go to the trash, sidecar first (see {@link PhotoDeleter}). */
 interface Targets {
   sidecar?: string;
   photo: string;
 }
+
+/**
+ * A failed trash worth trying again: a lock another program holds for a moment (Windows
+ * reports `EBUSY`, `EPERM` or `EACCES` for a file that is open elsewhere). An error with another
+ * code (`ENOSPC`, `EXDEV`, the bridge's `ETIMEDOUT`, ...) is final. One with no code is retried
+ * too: Electron's `shell.trashItem` rejects with a plain `Error` such as "Failed to perform delete
+ * operation", and the bridge only passes its message on, so the cause cannot be told. That is
+ * safe because a failed trash leaves the file where it was, each attempt looks first whether the
+ * file is still there, and the last failure is reported as before.
+ */
+function isTransientTrashFailure(error: unknown): boolean {
+  const code = (error as NodeJS.ErrnoException | undefined)?.code;
+  return code === undefined || code === 'EBUSY' || code === 'EPERM' || code === 'EACCES';
+}
+
+const sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
 
 const messageOf = (error: unknown): string =>
   error instanceof Error ? error.message : String(error);
@@ -185,18 +206,28 @@ export class PhotoDeleter {
     what: 'photo' | 'sidecar',
   ): Promise<void> {
     if (!(await exists(path))) return;
-    try {
-      await this.deps.trash(path);
-    } catch (error) {
-      // Gone by now (something else moved it): the goal is reached.
-      if (!(await exists(path))) return;
-      const moved = what === 'photo' && photo.sidecarPath !== photo.path;
-      throw new Error(
-        `${photo.fileName} could not be moved to the trash${
-          moved ? ' (its sidecar already was; delete again to finish)' : ''
-        }: ${messageOf(error)}`,
-        { cause: error },
-      );
+    const delays = this.deps.retryDelaysMs ?? TRASH_RETRY_DELAYS_MS;
+    for (let attempt = 0; ; attempt += 1) {
+      try {
+        await this.deps.trash(path);
+        return;
+      } catch (error) {
+        // Gone by now (something else moved it): the goal is reached.
+        if (!(await exists(path))) return;
+        const delay = delays[attempt];
+        if (delay !== undefined && isTransientTrashFailure(error)) {
+          // Only this photo's lock waits; other photos are not held up. Never a permanent delete.
+          await sleep(delay);
+          continue;
+        }
+        const moved = what === 'photo' && photo.sidecarPath !== photo.path;
+        throw new Error(
+          `${photo.fileName} could not be moved to the trash${
+            moved ? ' (its sidecar already was; delete again to finish)' : ''
+          }: ${messageOf(error)}`,
+          { cause: error },
+        );
+      }
     }
   }
 

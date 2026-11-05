@@ -29,7 +29,12 @@ export class TrashBridge {
     return new Promise<void>((resolve, reject) => {
       const timer = setTimeout(() => {
         this.pending.delete(id);
-        reject(new Error('the system trash did not answer in time'));
+        // A code of its own, so the photo deleter does not retry a request that may still run.
+        reject(
+          Object.assign(new Error('the system trash did not answer in time'), {
+            code: 'ETIMEDOUT',
+          }),
+        );
       }, this.timeoutMs);
       timer.unref?.();
       this.pending.set(id, { resolve, reject, timer });
