@@ -21,7 +21,7 @@ export function CropToolbar({ session }: { session: CropSession }) {
   const ratio = cropAspectRatio(session);
   const square = session.aspect === '1:1' || (ratio !== undefined && Math.abs(ratio - 1) < 1e-9);
   return (
-    <div className={styles.toolbar} data-testid="crop-toolbar">
+    <div className={styles.toolbar} data-blur-on-click data-testid="crop-toolbar">
       <div className={styles.aspects} role="group" aria-label="Aspect ratio">
         {CROP_ASPECTS.map((aspect) => (
           <button

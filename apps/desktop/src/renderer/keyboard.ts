@@ -98,12 +98,26 @@ function isTextEntryTarget(target: EventTarget | null): boolean {
 }
 
 /**
- * Whether a focused element already does something with Enter (a button or link clicks, a field
- * commits), so Enter must not also finish the retouch or crop session.
+ * Whether a focused button or link already does something with Enter (it clicks), so Enter must
+ * not also finish the retouch or crop session. The toolbars give a button's focus back after a
+ * mouse click (`releaseToolbarFocus`), so this is a button the keyboard moved to.
  */
 function enterBelongsToTarget(target: EventTarget | null): boolean {
-  if (!(target instanceof Element)) return false;
-  return target.closest('button, a[href], summary, [role="button"]') !== null;
+  return (
+    target instanceof Element &&
+    target.closest('button, a[href], summary, [role="button"]') !== null
+  );
+}
+
+/**
+ * A button of the Retouch and Crop toolbars (marked `data-blur-on-click`) that the mouse clicked
+ * does not keep the focus, so Enter afterwards is still Done. Keyboard activation (no click count)
+ * keeps it, as Tab navigation expects.
+ */
+function releaseToolbarFocus(event: MouseEvent): void {
+  if (event.detail === 0 || !(event.target instanceof Element)) return;
+  const button = event.target.closest('button');
+  if (button?.closest('[data-blur-on-click]')) button.blur();
 }
 
 /**
@@ -526,12 +540,14 @@ export function useKeyboardShortcuts(store: AppStore): void {
     // Capture, so the blur happens before the slider's own pointerup handling.
     window.addEventListener('pointerup', releaseRangeFocus, true);
     window.addEventListener('pointercancel', releaseRangeFocus, true);
+    window.addEventListener('click', releaseToolbarFocus);
     return () => {
       window.removeEventListener('keydown', onKeyDown);
       window.removeEventListener('keyup', onKeyUp);
       window.removeEventListener('blur', onBlur);
       window.removeEventListener('pointerup', releaseRangeFocus, true);
       window.removeEventListener('pointercancel', releaseRangeFocus, true);
+      window.removeEventListener('click', releaseToolbarFocus);
       setPanHeld(false);
     };
   }, [store]);

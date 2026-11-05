@@ -156,7 +156,7 @@ function Toolbar({ photo }: { photo: Photo }) {
   const showsFacePadding = session.tool === 'faces' || counts.faces.total > 0;
   const hasCounts = counts.faces.total > 0 || counts.drawn.total > 0;
   return (
-    <div className={styles.toolbar} data-testid="retouch-toolbar">
+    <div className={styles.toolbar} data-blur-on-click data-testid="retouch-toolbar">
       <div className={styles.tools} role="group" aria-label="Tool">
         {(Object.keys(TOOL_LABELS) as RetouchTool[]).map((tool) => (
           <button

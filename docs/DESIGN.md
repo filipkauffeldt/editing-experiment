@@ -101,6 +101,16 @@ Built in `components/ui/`:
   that photo's file in the title (*Copy metadata from _DSC8330.NEF*).
 - **Bottom action bar** (40 px): contextual actions on the right, a summary on the left (and
   keyboard hints where a view has no other place for them).
+- **Hidden panels**: `Tab` hides the side panels in the Library, and the side panels, filter row and
+  film strip in Develop; the photo takes the room and the bottom bar stays. Retouch and Crop are focused
+  jobs and open with them hidden; `Tab` shows them for that session and leaving restores the view that
+  was there before.
+- **Retouch and Crop toolbars**: one row in a fixed order, separated by space, not boxes: tools, mode,
+  sliders with typed values, count, then the actions right-aligned (Retouch: `Undo`, `Discard`, primary
+  `Done`; Crop: `Reset`, `Cancel`, primary `Done`). A narrower window wraps the row, never resizes it with
+  the tool. `Done` is the one way to save and leave (`Enter`, or `Esc` in Retouch); Crop's `Esc` cancels.
+  The photo footer carries one short hint line instead, and has no second way out. Outside those modes the
+  footer has `Crop`, `Retouch` and, when the photo has a retouch version, a small `Delete retouch…`.
 - **Side panels**: the Library sidebar and inspector, the Develop metadata and develop panels,
   and the Ingest sources panel have a 1 px hairline on their inner edge that is a drag handle.
   It sits on the centre side of the edge, so a panel's scrollbar stays clear, and its invisible
