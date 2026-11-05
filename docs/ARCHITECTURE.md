@@ -13,8 +13,8 @@ The proof of concept covers one end-to-end workflow:
    template (plus an optional subfolder template), SHA-256
    verification, an optional backup destination, a Photo Mechanic metadata template
    (Replace by default, or Fill empty) and an optional develop preset. Local sources
-   filter by file type (RAW / JPEG / Both), lock state (Locked / Unlocked / All) and
-   incremental ingest (on by default). XMP sidecars are written and thumbnails appear
+   filter by file type (RAW / JPEG / All), lock state (Locked / Unlocked / All) and
+   skipping what was already ingested (on by default). XMP sidecars are written and thumbnails appear
    live in the film strip.
 2. **Library.** A virtualised grid and loupe, multi-selection, the shared filter bar,
    ratings, colour classes, tagging and batch captioning.
@@ -558,7 +558,7 @@ two places: files found in preset folders, and files imported by hand.
   removed file is gone from the next scan.
 - **When it scans.** Once in the background when the backend starts, and when the renderer asks with
   `develop:presetIndex { rescan: true }`: when the Develop preset list is shown, on Refresh, when Settings →
-  Presets or Settings → Ingest opens and after a folder is added or removed. Never a timer or a watcher.
+  Presets or the Ingest view opens and after a folder is added or removed. Never a timer or a watcher.
   Overlapping rescans share one more scan. Folders are scanned side by side, every filesystem call has a 5 s
   timeout, and a call that timed out is joined, not repeated, by the next scan (as `CardScanner` does). A folder
   that does not answer lists nothing and shows as a problem; it neither blocks nor fails the list. (The profile
@@ -580,7 +580,7 @@ two places: files found in preset folders, and files imported by hand.
   photo and section, not preset ids. Ingest asks `PresetLibrary.resolve(id)` when its first file of a job
   arrives, which scans the folders then, so the preset is the file as it is at that moment; a preset that is
   gone, or in a folder that does not answer, gives the one `preset-missing` warning and the copy goes on.
-  Settings → Ingest and the Ingest view say `<id> (not found)` for a saved id that is not in the list.
+  The Ingest view says `<id> (not found)` for a saved id that is not in the list.
   Develop applies the values of the last listing when a preset is clicked (the list is read again when
   Develop is shown and on Refresh).
 - **Cloud Lightroom.** Not supported: its presets live in Adobe's cloud, not in files (they can be exported as
@@ -771,7 +771,7 @@ Settings → Metadata is the global home of Photo Mechanic metadata templates an
 replacement files, like Photo Mechanic itself. `AppSettings.metadataTemplates` is an
 ordered list of `.XMP` paths (the app never copies the files) and
 `AppSettings.codeReplacementPaths` is used everywhere captions expand: ingest, the
-caption/metadata fields and batch caption. Settings → Ingest keeps its own template
+caption/metadata fields and batch caption. The Ingest view keeps its own template
 choice (a dropdown over the global list, plus None and Browse…) and the Replace / Fill
 empty mode. Loading settings written before this split migrates
 `ingest.metadataTemplatePath` into the global list (keeping it selected for ingest) and
@@ -950,6 +950,46 @@ Design tokens and component rules are in `docs/DESIGN.md`.
   writes with `metadata:write`. Caption codes and `{variables}` are expanded per photo.
 - The grid virtualises by rows from the scroll offset and reports its visible photos to the
   edited-preview scheduler like the film strip does.
+
+## Ingest view
+
+`IngestView` is one sentence read left to right: copy **From** these sources **To** that folder, with a
+bar that always holds the one action. It owns the form that Settings → Ingest used to be (that tab is
+gone); Settings keeps Sources, Destinations, Metadata, Profiles and Presets.
+
+- **From** (`IngestFrom`): cards found on their own, then folders and servers from Settings → Sources,
+  as one list. Every row has a tickbox, a name, the card's image count or the source kind on the right and
+  one detail line (location, then the filters that are not the default, or `all files`). The detail line of
+  a folder or card opens that source's filters inline (`SourceFilters`: file types RAW / JPEG / All, lock
+  Locked / Unlocked / All, Skip already ingested); each click saves the source. A run adds its progress,
+  Stop, warning and error under the row. Cards are scanned when the view opens and by Rescan, never on a
+  timer; ticks are in memory only (`pickedCards` for discovered cards, which start unticked and are
+  dropped when the card leaves; `unpickedSources` for folders and servers, which start ticked, as they
+  were always ingested). A removed card whose run is going or failed stays until dismissed.
+  `+ Folder or server` opens Settings → Sources.
+- **To** (`IngestTo`): Folder, Subfolder, File names, the Rename template when renaming, Backup, then a
+  preview, then Apply on the way in: Template (with Replace / Fill empty once one is chosen) and Develop
+  preset. `TemplateField` has an `inline` layout for the `{ }` picker inside the field. Two columns when
+  the column is wide, one when it is not.
+- **Preview.** `ingestPreview` (`renderer/ingest-preview.ts`) calls `previewIngestPath` from
+  `@ee/ingest/destination-path`, which uses the same functions as `ingestFile`: `expandSubfolder`,
+  `plannedFileBase` and the name checks in `path-names.ts` (no Node imports, so the renderer can run
+  them), with the app's template expander in `shared/ingest-template.ts`. Only the final join differs:
+  ingest uses `path.join`, the preview writes the destination in the style it was typed (`E:\Photos`
+  stays backslashes). The first ticked source supplies `{sourceName}`; the file is an example
+  (`_DSC0001.NEF`) because a card's first file is not known before the copy, and the date is today's.
+  A collision suffix is not predicted. A template ingest would refuse shows the reason instead.
+- **Saving.** There is no Save button (`use-ingest-settings.ts`). An edit is written 500 ms after the last
+  one; leaving the view writes a pending edit; a draft that is not valid (no folder, or Rename with no
+  template) is never written and its field says why. A failed write stays on screen as `Not saved: …` and
+  is tried again by the next edit or by Ingest. Settings that change elsewhere replace the form unless
+  there is an edit of its own that has not been written.
+- **Bar.** Left: what is ticked (`2 cards · 483 photos → /Photos/…`), or why nothing can start. Right:
+  `Ingest`, or `Ingest 483 photos` once every ticked source has reported a count (only cards report one;
+  a ticked folder or server keeps it at `Ingest`). Pressing it flushes the form first and starts with the
+  saved values; if that write fails nothing starts. While any source runs the primary button is `Stop all`
+  and, if ticked sources are not running, a plain `Ingest` button starts only those
+  (`startIngest(settings, only)`).
 
 ## Screenshots
 
