@@ -1,16 +1,16 @@
 import { asJobId, type IngestJobInfo, type UploadItem } from '@ee/contracts';
-import { fireEvent, render, screen, within } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, describe, expect, it } from 'vitest';
 import { App } from '../src/renderer/App';
 import { createAppStore, type AppStore } from '../src/renderer/store';
 import { mockSources, mockUploads } from '../src/shared/mock';
-import { createFakeBridge } from './fake-bridge';
+import { createFakeBridge, type FakeBridge } from './fake-bridge';
 
 const stores: AppStore[] = [];
 
 async function renderApp(
   options: Parameters<typeof createFakeBridge>[0] = {},
-): Promise<{ store: AppStore }> {
+): Promise<{ store: AppStore; fake: FakeBridge }> {
   const fake = createFakeBridge(options);
   window.eeTransport = fake.transport;
   const store = createAppStore(fake.bridge, {
@@ -19,7 +19,7 @@ async function renderApp(
   stores.push(store);
   render(<App store={store} />);
   await screen.findByTestId('film-strip');
-  return { store };
+  return { store, fake };
 }
 
 afterEach(async () => {
@@ -108,7 +108,47 @@ describe('top bar activity', () => {
     const summary = screen.getByTestId('upload-summary');
     expect(summary.textContent?.replace(/\s+/g, ' ')).toContain('Sending 2 of 5');
     fireEvent.click(summary);
-    expect(await screen.findByRole('dialog', { name: 'Upload queue' })).toBeTruthy();
+    const popover = await screen.findByRole('dialog', { name: 'Upload queue' });
+    expect(within(popover).getAllByText('Done')).toHaveLength(3);
+  });
+
+  it('keeps the open queue and its finished uploads after the last send finishes', async () => {
+    const { store, fake } = await renderApp({
+      handlers: {
+        'ingest:status': async () => [],
+        'upload:list': async () =>
+          uploadsWithStates(['uploading', 'queued', 'done', 'done', 'done']),
+      },
+    });
+
+    fireEvent.click(screen.getByTestId('upload-summary'));
+    const popover = await screen.findByRole('dialog', { name: 'Upload queue' });
+    expect(within(popover).getAllByText('Done')).toHaveLength(3);
+
+    for (const item of store
+      .getState()
+      .uploads.filter((upload) => upload.state === 'queued' || upload.state === 'uploading')) {
+      fake.emit('jobs:event', {
+        type: 'upload.state',
+        at: Date.now(),
+        uploadId: item.id,
+        photoId: item.photoId,
+        destinationId: item.destinationId,
+        state: 'done',
+      });
+    }
+
+    await waitFor(() =>
+      expect(
+        store
+          .getState()
+          .uploads.some((upload) => upload.state === 'queued' || upload.state === 'uploading'),
+      ).toBe(false),
+    );
+    expect(screen.queryByTestId('upload-summary')).toBeNull();
+    expect(screen.queryByTestId('failed-summary')).toBeNull();
+    expect(screen.getByRole('dialog', { name: 'Upload queue' })).toBeTruthy();
+    expect(within(popover).getAllByText('Done')).toHaveLength(5);
   });
 
   it('keeps failures reachable when nothing is being sent', async () => {
@@ -125,5 +165,6 @@ describe('top bar activity', () => {
     fireEvent.click(failed);
     const popover = await screen.findByRole('dialog', { name: 'Upload queue' });
     expect(within(popover).getByText('Failed')).toBeTruthy();
+    expect(within(popover).getAllByText('Done')).toHaveLength(4);
   });
 });
