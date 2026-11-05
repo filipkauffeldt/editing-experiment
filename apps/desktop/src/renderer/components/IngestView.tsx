@@ -126,7 +126,6 @@ function RescanButton() {
 function CardsSection() {
   const store = useAppStore();
   const state = useAppState();
-  const [dismissed, setDismissed] = useState<ReadonlySet<string>>(new Set());
   // Cards are looked for when the view opens and when the user asks; nothing polls.
   useEffect(() => {
     void store.refreshCards();
@@ -139,9 +138,7 @@ function CardsSection() {
     (source): source is CardSource =>
       isDiscoveredCardSource(source) &&
       !shown.has(source.id) &&
-      (state.ingest[source.id]?.state === 'running' ||
-        (state.ingest[source.id]?.state === 'failed' &&
-          !dismissed.has(state.ingest[source.id]?.jobId ?? ''))),
+      (state.ingest[source.id]?.state === 'running' || state.ingest[source.id]?.state === 'failed'),
   );
 
   return (
@@ -209,9 +206,7 @@ function CardsSection() {
               <RunStatus source={source} run={run} />
               {run?.state === 'failed' && (
                 <div className={styles.sourceFilters}>
-                  <Button onClick={() => setDismissed(new Set([...dismissed, run.jobId]))}>
-                    Dismiss
-                  </Button>
+                  <Button onClick={() => store.dismissIngestFailure(run.jobId)}>Dismiss</Button>
                 </div>
               )}
             </li>

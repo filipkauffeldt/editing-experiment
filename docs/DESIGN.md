@@ -89,8 +89,9 @@ Built in `components/ui/`:
 
 - **Top bar** (36 px): app mark, module switch (**Ingest · Library · Develop**) and
   right-aligned activity, shown only while it is true: **Ingesting 212 of 412**,
-  **Watching FTP**, **Sending 2 of 5** and a red-dot **1 failed**. Sending and failed open
-  the upload queue. Shortcuts and settings sit at the far right.
+  **Watching FTP**, **Sending 2**, a red-dot **1 ingest failed** / **2 ingests failed**
+  (opens Ingest) and a red-dot **1 failed** (opens the upload queue). Shortcuts and settings
+  sit at the far right.
 - **Dialogs** state the job in the title and carry no explaining subtitle. Title-related
   actions such as All and None sit on the title row. A dialog that copies from a photo names
   that photo's file in the title (*Copy metadata from _DSC8330.NEF*).

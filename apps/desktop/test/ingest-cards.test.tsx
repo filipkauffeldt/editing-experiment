@@ -205,8 +205,12 @@ describe('Ingest view cards', () => {
     expect(screen.getByTestId('ingest-card-removed').textContent).toContain(
       'Card "NIKON_Z9" is not available',
     );
+    const failed = screen.getByTestId('ingest-failed-summary');
+    expect(failed.textContent?.replace(/\s+/g, ' ')).toContain('1 ingest failed');
+    expect(failed.getAttribute('title')).toContain('Card "NIKON_Z9" is not available');
     await user.click(within(screen.getByTestId('ingest-card-removed')).getByText('Dismiss'));
     await waitFor(() => expect(screen.queryByTestId('ingest-card-removed')).toBeNull());
+    expect(screen.queryByTestId('ingest-failed-summary')).toBeNull();
   });
 
   it('counts only what Ingest will run, and says so when there is nothing to run', async () => {

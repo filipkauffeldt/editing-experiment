@@ -50,13 +50,11 @@ export function TopBar({ className, loadError }: { className?: string; loadError
     ({ run, source }) =>
       run.state === 'watching' && (source.kind === 'ftp' || source.kind === 'sftp'),
   );
+  const failedRuns = runs.filter(({ run }) => run.state === 'failed');
   const filesDone = running.reduce((sum, { run }) => sum + run.filesDone, 0);
   const filesTotal = running.reduce((sum, { run }) => sum + run.filesTotal, 0);
-  // Cancelled rows were never going to be sent, so they are no part of the queue's size.
-  const uploadCount = state.uploads.filter((upload) => upload.state !== 'cancelled').length;
-  // The failed dot opens the upload queue, so it counts failed uploads only. A failed
-  // ingest run stays on its source row in Ingest, with the job error toast.
-  const failed = summary.failed;
+  // The failed dot opens the upload queue, so it counts failed uploads only.
+  const failedUploads = summary.failed;
   const active: AppModule = state.retouch ? 'develop' : state.module;
 
   const choose = (tab: AppModule): void => {
@@ -122,6 +120,22 @@ export function TopBar({ className, loadError }: { className?: string; loadError
         </span>
       )}
 
+      {failedRuns.length > 0 && (
+        <button
+          type="button"
+          className={`${styles.status} ${styles.statusButton} ${styles.statusOn}`}
+          onClick={() => store.setModule('ingest')}
+          title={failedRuns
+            .map(({ source, run }) => `${source.name}: ${run.error ?? 'Ingest failed'}`)
+            .join('\n')}
+          data-testid="ingest-failed-summary"
+        >
+          <Dot tone="error" />
+          <span className="mono">{failedRuns.length}</span>{' '}
+          {failedRuns.length === 1 ? 'ingest' : 'ingests'} failed
+        </button>
+      )}
+
       <div className={styles.uploadWrap}>
         {summary.active > 0 && (
           <button
@@ -132,13 +146,13 @@ export function TopBar({ className, loadError }: { className?: string; loadError
             data-testid="upload-summary"
           >
             <Dot tone="ok" />
-            Sending <span className="mono">{`${summary.active} of ${uploadCount}`}</span>
+            Sending <span className="mono">{summary.active}</span>
           </button>
         )}
         {uploadOpen && <UploadPopover onClose={() => setUploadOpen(false)} />}
       </div>
 
-      {failed > 0 && (
+      {failedUploads > 0 && (
         <button
           type="button"
           className={`${styles.status} ${styles.statusButton} ${styles.statusOn}`}
@@ -147,7 +161,7 @@ export function TopBar({ className, loadError }: { className?: string; loadError
           data-testid="failed-summary"
         >
           <Dot tone="error" />
-          <span className="mono">{failed}</span> failed
+          <span className="mono">{failedUploads}</span> failed
         </button>
       )}
 

@@ -3705,6 +3705,20 @@ export class AppStore {
   };
 
   /**
+   * Forgets a failed run the user dismissed: a card was removed while its run failed, so the
+   * Ingest view offers Dismiss instead of a Stop. The top bar reads the same run state.
+   */
+  readonly dismissIngestFailure = (jobId: string): void => {
+    const run = Object.values(this.state.ingest).find(
+      (candidate) => candidate.jobId === jobId && candidate.state === 'failed',
+    );
+    if (!run) return;
+    const ingest = { ...this.state.ingest };
+    delete ingest[run.sourceId];
+    this.set({ ingest });
+  };
+
+  /**
    * Stops one source, or every source that is still running or watching. The call
    * returns when the runs have wound down, so the controls stay disabled until then.
    */
