@@ -124,7 +124,7 @@ Untagged, with counts, underline on the active one), **five stars** (click star 
 click the active star to clear; filled stars are white, the rest `--dim`), the **eight colour-class
 dots** (several at once; a ticked dot has a 1 px white outline), a **Status** menu (Not sent,
 Failed, Edited, Metadata differs, ticked boxes, counts), a **Camera** menu (one group of bodies, one
-of sources), the **search** field (underline field, "Search caption, name…"; Ctrl/Cmd+`F` focuses it in both
+of sources), the **search** field (underline field, "Search…"; Ctrl/Cmd+`F` focuses it in both
 views, Enter applies it and leaves, Esc clears it and leaves, and nothing typed in it is a shortcut), then a **×** that
 appears only while something is filtered, the count (`N of M` while filtered), and on the right the
 **Sort** menu (Name, Time) and a slot for the view's own controls (the Library's thumbnail size).

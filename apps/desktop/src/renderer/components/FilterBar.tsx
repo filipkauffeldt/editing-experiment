@@ -244,7 +244,8 @@ function SearchBox() {
     <input
       type="search"
       className={styles.search}
-      placeholder="Search caption, name…"
+      placeholder="Search…"
+      title="Search file name, caption and keywords (Ctrl/⌘+F)"
       aria-label="Search file name, caption and keywords"
       data-filter-search
       data-testid="filter-search"

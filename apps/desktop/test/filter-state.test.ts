@@ -247,7 +247,9 @@ describe('search', () => {
 
   it('does not let a slow answer for an older text replace the newer one', async () => {
     let release!: (value: { photoIds: never[]; pending: number }) => void;
-    const slow = new Promise<{ photoIds: never[]; pending: number }>((resolve) => (release = resolve));
+    const slow = new Promise<{ photoIds: never[]; pending: number }>(
+      (resolve) => (release = resolve),
+    );
     const { store, fake } = await setup({
       handlers: {
         'photos:search': async (...args) => {
