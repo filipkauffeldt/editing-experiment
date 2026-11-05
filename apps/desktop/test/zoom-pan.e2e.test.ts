@@ -1256,4 +1256,30 @@ describe.skipIf(!haveDisplay)('zoom and pan (real Electron app)', { timeout: 240
     await window.keyboard.press('z');
     await waitForZoom('fit');
   });
+  it('types a comma decimal into the Exposure field with the mouse', async () => {
+    if (!photo) throw new Error('no photo was ingested');
+    const value = window.locator('input[aria-label="Exposure value"]');
+    await value.scrollIntoViewIfNeeded();
+    // Triple-click selects the whole value; the field must not reset the row.
+    await value.click({ clickCount: 3 });
+    await window.keyboard.type('-1,5');
+    expect(await value.inputValue()).toBe('-1,5');
+
+    await value.blur();
+    await window.waitForFunction(
+      () =>
+        (document.querySelector('input[aria-label="Exposure value"]') as HTMLInputElement | null)
+          ?.value === '-1.5',
+    );
+    // The last live value and the blur commit reach the sidecar through the store's throttle.
+    let saved: { Exposure2012?: number } | undefined;
+    for (let attempt = 0; attempt < 60; attempt++) {
+      saved = await invoke<{ Exposure2012?: number }>('develop:getParams', {
+        photoId: photo.id,
+      });
+      if (saved.Exposure2012 !== undefined && Math.abs(saved.Exposure2012 + 1.5) < 0.005) break;
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    }
+    expect(saved?.Exposure2012).toBeCloseTo(-1.5, 2);
+  });
 });
