@@ -689,7 +689,7 @@ async function runReal(outDir: string): Promise<void> {
     await window.waitForTimeout(500);
 
     // Committed version is the default view, with its indicator and film badge.
-    await window.locator('[data-testid="commit-retouch"]').click();
+    await window.locator('[data-testid="done-retouch"]').click();
     await window.locator('[data-testid="retouch-toolbar"]').waitFor({ state: 'detached' });
     await window.getByTestId('retouch-version-indicator').waitFor();
     await window.waitForSelector('button[title^="shots_002.jpg"] [aria-label="Retouched"]');

@@ -790,7 +790,7 @@ describe.skipIf(nefs.length === 0 || !haveDisplay)(
       );
 
       const thumbBefore = await thumbPixels('cardB_001.jpg');
-      await window.locator('[data-testid="commit-retouch"]').click();
+      await window.locator('[data-testid="done-retouch"]').click();
       await window.locator('[data-testid="retouch-toolbar"]').waitFor({ state: 'detached' });
       await window.waitForSelector('button[title^="cardB_001.jpg"] [aria-label="Retouched"]');
       // Outside retouch mode the committed version is still the visible image.
@@ -924,12 +924,11 @@ describe.skipIf(nefs.length === 0 || !haveDisplay)(
         await window.keyboard.press('r');
         await toolbar.waitFor();
         await window.locator('[data-tool="faces"][aria-pressed="true"]').waitFor();
-        await window.locator('[data-face-area="rect"][aria-pressed="true"]').waitFor();
         await window.locator('[data-mode="add"][aria-pressed="true"]').waitFor();
         await window.getByTestId('face-count').waitFor();
         // Round 1 resumes what round 0 saved: the first face is off.
         expect(await window.getByTestId('face-count').textContent()).toContain(
-          `${round === 0 ? initial.length : initial.length - 1}/${initial.length} faces on`,
+          `${round === 0 ? initial.length : initial.length - 1} of ${initial.length} faces on`,
         );
         // Click the first face's centre: off in the first round, back on in the second.
         const at = await window
@@ -948,8 +947,8 @@ describe.skipIf(nefs.length === 0 || !haveDisplay)(
         await window.getByTestId('face-count').waitFor();
         expect(await window.getByTestId('face-count').textContent()).toContain(
           round === 0
-            ? `${initial.length - 1}/${initial.length} faces on`
-            : `${initial.length}/${initial.length} faces on`,
+            ? `${initial.length - 1} of ${initial.length} faces on`
+            : `${initial.length} of ${initial.length} faces on`,
         );
         await window.locator('[data-tool="rect"]').click();
         await window.locator('[data-mode="subtract"]').click();
@@ -1026,7 +1025,7 @@ describe.skipIf(nefs.length === 0 || !haveDisplay)(
       expect(await facesOnDisk()).toBe(onDisk);
     }, 60_000);
 
-    it('leaves retouch mode with Done, Escape and the footer toggle, keeping the saved version', async () => {
+    it('leaves retouch mode with Done, Escape and Enter, keeping the saved version', async () => {
       await selectPhoto('cardB_001.jpg');
       await canvasReady();
       const toolbar = window.locator('[data-testid="retouch-toolbar"]');
@@ -1077,10 +1076,11 @@ describe.skipIf(nefs.length === 0 || !haveDisplay)(
       await window.keyboard.press('Escape');
       await toolbar.waitFor({ state: 'detached' });
 
-      // The footer button toggles it off again.
+      // The footer button enters it, and it has no second way out: Enter is Done.
       await window.getByTestId('toggle-retouch').click();
       await toolbar.waitFor();
-      await window.getByTestId('toggle-retouch').click();
+      expect(await window.getByTestId('toggle-retouch').count()).toBe(0);
+      await window.keyboard.press('Enter');
       await toolbar.waitFor({ state: 'detached' });
 
       expect(await versions()).toBe(before);

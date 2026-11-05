@@ -98,6 +98,29 @@ function isTextEntryTarget(target: EventTarget | null): boolean {
 }
 
 /**
+ * Whether a focused button or link already does something with Enter (it clicks), so Enter must
+ * not also finish the retouch or crop session. The toolbars give a button's focus back after a
+ * mouse click (`releaseToolbarFocus`), so this is a button the keyboard moved to.
+ */
+function enterBelongsToTarget(target: EventTarget | null): boolean {
+  return (
+    target instanceof Element &&
+    target.closest('button, a[href], summary, [role="button"]') !== null
+  );
+}
+
+/**
+ * A button of the Retouch and Crop toolbars (marked `data-blur-on-click`) that the mouse clicked
+ * does not keep the focus, so Enter afterwards is still Done. Keyboard activation (no click count)
+ * keeps it, as Tab navigation expects.
+ */
+function releaseToolbarFocus(event: MouseEvent): void {
+  if (event.detail === 0 || !(event.target instanceof Element)) return;
+  const button = event.target.closest('button');
+  if (button?.closest('[data-blur-on-click]')) button.blur();
+}
+
+/**
  * A range input keeps focus after a mouse release, and a focused range counts as
  * text entry, so every global shortcut is ignored. The release can happen
  * outside the slider (or its panel), so listen on the window and hand the
@@ -311,6 +334,39 @@ export function useKeyboardShortcuts(store: AppStore): void {
         return;
       }
 
+      // Tab hides and shows the panels (Shift+Tab is not a toggle). In a text field, a select or a
+      // dialog it keeps its normal job, moving the focus. Not in Ingest, which has no such panels.
+      if (
+        event.key === 'Tab' &&
+        !event.shiftKey &&
+        !command &&
+        !event.altKey &&
+        !typing &&
+        state.module !== 'ingest'
+      ) {
+        event.preventDefault();
+        if (!event.repeat) store.togglePanels();
+        return;
+      }
+
+      // Enter is Done in Retouch and Apply in Crop, unless the focused field or button has its own
+      // use for it (a typed value commits, a focused button clicks).
+      if (
+        (state.retouch || state.crop) &&
+        event.key === 'Enter' &&
+        !event.shiftKey &&
+        !command &&
+        !event.altKey &&
+        !textEntry &&
+        !enterBelongsToTarget(event.target)
+      ) {
+        event.preventDefault();
+        if (event.repeat) return;
+        if (state.crop) store.applyCrop();
+        else void store.requestExitRetouch();
+        return;
+      }
+
       // Space held: a drag pans the photo, whatever the tool. Never in a text field, where it types.
       if (event.key === ' ' && state.module === 'develop' && !command && !event.altKey) {
         if (textEntry) return;
@@ -346,11 +402,6 @@ export function useKeyboardShortcuts(store: AppStore): void {
         return;
       }
 
-      if (state.crop && event.key === 'Enter') {
-        event.preventDefault();
-        store.applyCrop();
-        return;
-      }
       // Ctrl/Cmd+Alt+R resets the crop. `code`, because Option+R types another character on macOS.
       if (state.crop && command && event.altKey && event.code === 'KeyR') {
         event.preventDefault();
@@ -489,12 +540,14 @@ export function useKeyboardShortcuts(store: AppStore): void {
     // Capture, so the blur happens before the slider's own pointerup handling.
     window.addEventListener('pointerup', releaseRangeFocus, true);
     window.addEventListener('pointercancel', releaseRangeFocus, true);
+    window.addEventListener('click', releaseToolbarFocus);
     return () => {
       window.removeEventListener('keydown', onKeyDown);
       window.removeEventListener('keyup', onKeyUp);
       window.removeEventListener('blur', onBlur);
       window.removeEventListener('pointerup', releaseRangeFocus, true);
       window.removeEventListener('pointercancel', releaseRangeFocus, true);
+      window.removeEventListener('click', releaseToolbarFocus);
       setPanHeld(false);
     };
   }, [store]);

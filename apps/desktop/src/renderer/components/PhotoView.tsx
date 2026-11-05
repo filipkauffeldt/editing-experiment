@@ -1,4 +1,6 @@
 import type { Photo } from '@ee/contracts';
+import { CROP_HINT, retouchHint } from '../focus-hint';
+import { topRetouchVersion } from '../store';
 import { useAppState, useAppStore } from '../store-context';
 import { FIT_VIEW, ZOOM_LEVELS, zoomPercent } from '../view-transform';
 import { useZoomState, zoomCommands, zoomKey } from '../zoom-view';
@@ -71,8 +73,14 @@ function ZoomLevels({ photo, mode }: { photo: Photo; mode: 'develop' | 'crop' | 
 export function PhotoView({ className, photo }: PhotoViewProps) {
   const store = useAppStore();
   const state = useAppState();
-  const retouching = photo !== undefined && state.retouch?.photoId === photo.id;
+  const retouch =
+    photo !== undefined && state.retouch?.photoId === photo.id ? state.retouch : undefined;
   const cropping = photo !== undefined && state.crop?.photoId === photo.id;
+  const retouching = retouch !== undefined;
+  // Retouch and Crop end with Done, Esc or the Develop tab, so the footer offers no second way out.
+  const editing = retouching || cropping;
+  const hint = retouch ? retouchHint(retouch.tool, retouch.mode) : cropping ? CROP_HINT : undefined;
+  const hasRetouch = photo !== undefined && topRetouchVersion(photo) !== undefined;
   return (
     <main className={`${styles.view} ${className ?? ''}`} data-testid="photo-view">
       <div className={styles.canvasArea}>
@@ -82,37 +90,53 @@ export function PhotoView({ className, photo }: PhotoViewProps) {
         {photo ? (
           <>
             <span className={styles.fileName}>{photo.fileName}</span>
-            <span className={styles.spacer} />
-            <span className={styles.detail}>
+            {hint ? (
+              <span className={styles.hint} title={hint} data-testid="focus-hint">
+                {hint}
+              </span>
+            ) : (
+              <span className={styles.spacer} />
+            )}
+            <span className={styles.size}>
               {photo.width && photo.height ? `${photo.width} × ${photo.height}` : '—'}
             </span>
             <span className={styles.detail}>{photo.camera?.lens ?? photo.camera?.model ?? ''}</span>
             <span className={styles.detail}>{photo.captureTime?.replace('T', ' ') ?? ''}</span>
-            <button
-              type="button"
-              className={`${styles.retouch} ${cropping ? styles.retouchActive : ''}`}
-              onClick={() => store.toggleCrop()}
-              title="Crop and straighten (C)"
-              data-testid="toggle-crop"
-              disabled={retouching || !photo.width || !photo.height}
-            >
-              <CropIcon size={11} /> {cropping ? 'Apply crop' : 'Crop'}
-            </button>
-            <button
-              type="button"
-              className={`${styles.retouch} ${retouching ? styles.retouchActive : ''}`}
-              onClick={() => store.toggleRetouch()}
-              title={retouching ? 'Leave retouch mode (R or Esc)' : 'Retouch mode (R)'}
-              data-testid="toggle-retouch"
-              disabled={cropping}
-            >
-              {photo.versions.some((version) => version.kind === 'retouch') ? (
-                <StackIcon size={11} />
-              ) : (
-                <PenIcon size={11} />
-              )}
-              {retouching ? 'Exit retouch' : 'Retouch'}
-            </button>
+            {!editing && (
+              <>
+                <button
+                  type="button"
+                  className={styles.retouch}
+                  onClick={() => store.toggleCrop()}
+                  title="Crop and straighten (C)"
+                  data-testid="toggle-crop"
+                  disabled={!photo.width || !photo.height}
+                >
+                  <CropIcon size={11} /> Crop
+                </button>
+                <button
+                  type="button"
+                  className={styles.retouch}
+                  onClick={() => store.toggleRetouch()}
+                  title="Retouch mode (R)"
+                  data-testid="toggle-retouch"
+                >
+                  {hasRetouch ? <StackIcon size={11} /> : <PenIcon size={11} />}
+                  Retouch
+                </button>
+                {hasRetouch && (
+                  <button
+                    type="button"
+                    className={styles.retouch}
+                    onClick={() => void store.deleteRetouch()}
+                    title="Remove the retouch version of this photo"
+                    data-testid="delete-retouch"
+                  >
+                    Delete retouch…
+                  </button>
+                )}
+              </>
+            )}
             <ZoomLevels
               photo={photo}
               mode={cropping ? 'crop' : retouching ? 'retouch' : 'develop'}

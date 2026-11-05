@@ -30,6 +30,7 @@
 }
 
 .fileName {
+  flex: none;
   color: var(--text);
   font-family: var(--font-mono);
   font-size: var(--fs-mono);
@@ -40,14 +41,32 @@
 }
 
 .detail {
+  min-width: 0;
   max-width: 240px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
+/* The picture size is never cut: the lens and the time give way first. */
+.size {
+  flex: none;
+  white-space: nowrap;
+}
+
+/* What a drag does and how Retouch or Crop ends: one line that shortens, never wraps. */
+.hint {
+  flex: 1 1 0;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--dim);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .zoomLevels {
   display: inline-flex;
+  flex: none;
   align-items: center;
   gap: 10px;
   height: 100%;
@@ -80,6 +99,8 @@ button.zoomLevel:hover {
 /* Text with a 1 px underline while the mode is on. */
 .retouch {
   display: inline-flex;
+  flex: none;
+  white-space: nowrap;
   align-items: center;
   gap: 5px;
   height: 100%;
@@ -97,9 +118,4 @@ button.zoomLevel:hover {
 
 .retouch:disabled {
   color: var(--dim);
-}
-
-.retouchActive {
-  border-bottom-color: var(--text);
-  color: var(--text);
 }

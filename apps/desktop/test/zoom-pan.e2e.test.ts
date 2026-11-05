@@ -587,8 +587,14 @@ describe.skipIf(!haveDisplay)('zoom and pan (real Electron app)', { timeout: 240
       await window.keyboard.press('z');
       await waitForZoom('fit');
     }
-    const canvas = await window.locator('[data-testid="photo-canvas"]').boundingBox();
-    if (!canvas) throw new Error('photo canvas has no bounds');
+    // Retouch hides the panels, so the canvas is measured again once it has opened.
+    const canvas: Box = { x: 0, y: 0, width: 0, height: 0 };
+    const measureCanvas = async (): Promise<void> => {
+      const measured = await window.locator('[data-testid="photo-canvas"]').boundingBox();
+      if (!measured) throw new Error('photo canvas has no bounds');
+      Object.assign(canvas, measured);
+    };
+    await measureCanvas();
     const developStage = await stageBox();
     const boxes = async (): Promise<{ toolbar: Box; stage: Box }> => {
       const [toolbar, stage] = await Promise.all([
@@ -642,7 +648,9 @@ describe.skipIf(!haveDisplay)('zoom and pan (real Electron app)', { timeout: 240
 
     await window.keyboard.press('r');
     await window.getByTestId('retouch-toolbar').waitFor();
+    await window.waitForSelector('[data-testid="develop-view"][data-panels="hidden"]');
     await waitForFitBelowToolbar();
+    await measureCanvas();
     const faces = await boxes();
     expect(faces.stage.y).toBeGreaterThanOrEqual(faces.toolbar.y + faces.toolbar.height - 0.5);
     expectInsideCanvas(faces.stage);

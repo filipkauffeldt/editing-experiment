@@ -672,13 +672,13 @@ unchanged: the rotated rectangle in source space, whose output is the leveled fr
 - **Gestures** end on pointer up and are abandoned on pointer cancel or lost capture
   (the pre-gesture crop is restored). A double-click only commits when neither click
   was a drag. Mosaic shapes are not drawn while cropping (the live mosaic preview is
-  cleared in crop mode); they show again after Apply.
+  cleared in crop mode); they show again after Done.
 - **Modifiers**: Shift toggles the aspect lock for the drag (a Free crop locks to its own
   ratio) and snaps a rotation to 1°; Alt/Option resizes or draws about the centre.
 - **Overlays**: rule of thirds while interacting or hovering, a finer grid while
   rotating, `O` cycles thirds, grid, golden ratio, none.
-- **Keys**: `C` enters (and applies), `Enter` or a double-click inside the frame
-  applies, `Esc` cancels, `X` swaps orientation, `Ctrl/Cmd+Alt+R` resets, double-click on
+- **Keys**: `C` enters (and applies), `Enter` (Done, unless a typed value or a keyboard-focused
+  button has it) or a double-click inside the frame applies, `Esc` cancels, `X` swaps orientation, `Ctrl/Cmd+Alt+R` resets, double-click on
   the angle slider resets the angle. The angle is also typeable: a comma or dot decimal
   works, Enter or blur commits and stays in crop, and Escape leaves the field (committing
   through its blur) without cancelling the crop.
@@ -864,13 +864,15 @@ block size and face padding sliders also take typed values in the same units (px
 size is known, % otherwise; % for padding): a draft commits on Enter or blur, is clamped to the
 slider's range and is discarded when it is empty or invalid.
 
-- **Tools.** Retouch always opens on Detect faces with a Rectangle search area in Add mode; nothing is
-  remembered from the last session. Detect faces searches a rectangle, or a lasso's bounding box and
+- **Tools.** Retouch always opens on Faces in Add mode; nothing is remembered from the last session.
+  Faces searches the rectangle that is dragged, or, with Alt held as the drag starts, a lasso's bounding box and
   keeps the faces centred inside the outline, and adds to the faces already there. In Subtract mode the same area deletes the face areas centred inside it instead (one undo step, no detection, no subtract shape). Removing every area of a saved version removes the version.
-- **Gestures.** Drawing adds an area in the current mode; Alt held at the start of a drawing flips the
-  mode for that drawing (AltGr never does). A click on an area switches the topmost one under it on or
+- **Gestures.** Drawing adds an area in the current mode; with Rectangle or Lasso, Alt held at the start of
+  a drawing flips the mode for that drawing (with Faces it picks the lasso instead). AltGr never counts. A click on an area switches the topmost one under it on or
   off. Undo steps back through drawing, detecting and switching. Esc drops a shape being drawn, or
-  otherwise saves and leaves.
+  otherwise saves and leaves; `Enter` and the toolbar's Done do the same (Enter not while a typed value or
+  a keyboard-focused button has it). The photo footer's **Delete retouch…** removes the newest retouch
+  version after a confirmation (`AppStore.deleteRetouch`).
 - **Drawing from outside.** A drag may start in a margin of 24 CSS px around the picture
   (`renderer/retouch-margin.ts`, `HIT_MARGIN`), so an area can reach the very edge. The overlay SVG
   covers the picture plus that margin, cut off at the canvas area (never over the toolbar or the
@@ -891,6 +893,15 @@ slider's range and is discarded when it is empty or invalid.
 `App.tsx` renders the top bar and one module view (`AppState.module`: `ingest`, `library`,
 `develop`; Retouch is the Develop view with `AppState.retouch` set). `D`, `G` and `E` switch
 modules (`keyboard.ts`); leaving Develop applies an open crop and saves a retouch session first.
+
+- **Hidden panels.** `Tab` (`AppStore.togglePanels`, not in a text field, select or dialog, not `Shift+Tab`)
+  hides the side panels in the Library and the side panels, filter row and film strip in Develop.
+  `AppState.panelsHidden` is that view's state, shared by both and kept in memory only (not in settings),
+  so a restart shows the panels. Retouch and Crop open with the panels hidden: while a session is open
+  `panelsAreHidden` follows `focusPanelsShown` instead, which each new session resets and `Tab` flips, and
+  `panelsHidden` is not touched, so leaving shows the view that was there before. Hidden panels stay
+  mounted (the `hidden` attribute and a zero-width grid column), so they keep their scroll and folded
+  sections, and the canvas's `ResizeObserver` refits. Hiding writes pending caption and keyword edits first.
 Design tokens and component rules are in `docs/DESIGN.md`.
 
 - **Library state** (`AppState.library`, `renderer/library.ts`): the folder and the thumbnail size.

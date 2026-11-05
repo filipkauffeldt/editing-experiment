@@ -30,6 +30,7 @@ async function renderApp(
   window.eeTransport = fake.transport;
   const store = createAppStore(fake.bridge, {
     renderForExport: async () => ({ width: 1, height: 1, rgba: new Uint8Array(4) }),
+    confirm: () => true,
   });
   stores.push(store);
   render(<App store={store} />);
@@ -271,7 +272,7 @@ describe('retouch version', () => {
     await screen.findByTestId('retouch-toolbar');
     expect(screen.queryByTestId('discard-retouch')).toBeNull();
     act(() => store.addRetouchShape({ type: 'rect', x: 0.1, y: 0.1, w: 0.2, h: 0.2 }));
-    expect(screen.getByTestId('discard-retouch').textContent).toBe('Discard changes');
+    expect(screen.getByTestId('discard-retouch').textContent).toBe('Discard');
 
     fireEvent.click(screen.getByTestId('done-retouch'));
 
@@ -299,7 +300,7 @@ describe('retouch version', () => {
     const slider = await screen.findByLabelText('Mosaic block size');
     const field = screen.getByLabelText('Block size in px') as HTMLInputElement;
     expect(field.value).toMatch(/^\d+$/);
-    expect(screen.getByTestId('block-size-label').textContent).toBe('Block size');
+    expect(screen.getByTestId('block-size-label').textContent).toBe('Block');
 
     fireEvent.change(slider, { target: { value: '48' } });
 
@@ -455,7 +456,7 @@ describe('retouch version', () => {
     expect(slider.disabled).toBe(true);
     expect(field.closest('[aria-hidden="true"]')).toBeTruthy();
     // Still mounted, so the control keeps the toolbar's height.
-    expect(screen.getByText('Face padding')).toBeTruthy();
+    expect(screen.getByText('Padding')).toBeTruthy();
   });
 
   it('does not rate or pan from the typed retouch fields', async () => {
@@ -508,18 +509,57 @@ describe('retouch version', () => {
     await waitFor(() => expect(store.getState().retouch).toBeUndefined());
   });
 
-  it('leaves with the Develop tab and with the footer toggle', async () => {
+  it('leaves with the Develop tab, and the footer offers no second way out', async () => {
     const { store } = await renderApp();
-    fireEvent.keyDown(window, { key: 'r' });
+    fireEvent.click(screen.getByTestId('toggle-retouch'));
     await screen.findByTestId('retouch-toolbar');
+    expect(store.getState().retouch).toBeDefined();
+    expect(screen.queryByTestId('toggle-retouch')).toBeNull();
+    expect(screen.queryByTestId('toggle-crop')).toBeNull();
+    expect(screen.queryByTestId('commit-retouch')).toBeNull();
 
     fireEvent.click(screen.getByRole('tab', { name: 'Develop' }));
     await waitFor(() => expect(store.getState().retouch).toBeUndefined());
+    expect(screen.getByTestId('toggle-retouch')).toBeTruthy();
+  });
+
+  it('does Done on Enter, but not while a button or a typed value has the key', async () => {
+    const { store, fake } = await renderApp();
+    fireEvent.keyDown(window, { key: 'r' });
+    await screen.findByTestId('retouch-toolbar');
+    act(() => store.addRetouchShape({ type: 'rect', x: 0.1, y: 0.1, w: 0.2, h: 0.2 }));
+
+    const field = screen.getByLabelText('Block size in px') as HTMLInputElement;
+    field.focus();
+    fireEvent.keyDown(field, { key: 'Enter' });
+    expect(store.getState().retouch).toBeDefined();
+    field.blur();
+
+    const undo = screen.getByRole('button', { name: 'Undo' });
+    undo.focus();
+    fireEvent.keyDown(undo, { key: 'Enter' });
+    expect(store.getState().retouch).toBeDefined();
+    undo.blur();
+
+    fireEvent.keyDown(window, { key: 'Enter' });
+    await waitFor(() => expect(store.getState().retouch).toBeUndefined());
+    expect(fake.calls.some((call) => call.channel === 'retouch:set')).toBe(true);
+  });
+
+  it('has no Mosaic button, and Delete retouch… lives in the footer after confirming', async () => {
+    const { store, fake } = await renderApp();
+    store.select(asPhotoId('mock-03'));
+    await waitFor(() => expect(screen.getByTestId('retouch-version-indicator')).toBeTruthy());
+    fireEvent.click(screen.getByTestId('delete-retouch'));
+    await waitFor(() =>
+      expect(fake.calls.some((call) => call.channel === 'photos:deleteVersion')).toBe(true),
+    );
 
     fireEvent.click(screen.getByTestId('toggle-retouch'));
-    expect(store.getState().retouch).toBeDefined();
-    fireEvent.click(screen.getByTestId('toggle-retouch'));
-    await waitFor(() => expect(store.getState().retouch).toBeUndefined());
+    await screen.findByTestId('retouch-toolbar');
+    expect(screen.queryByRole('button', { name: /^Mosaic/ })).toBeNull();
+    expect(screen.queryByRole('button', { name: /Delete version/ })).toBeNull();
+    expect(screen.queryByTestId('delete-retouch')).toBeNull();
   });
 });
 

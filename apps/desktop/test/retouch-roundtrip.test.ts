@@ -112,7 +112,6 @@ describe('retouch commit, exit, resume and edit again (real sidecar)', () => {
     store.toggleRetouch();
     expect(store.getState().retouch).toMatchObject({
       tool: 'faces',
-      faceArea: 'rect',
       mode: 'add',
     });
 
@@ -156,7 +155,6 @@ describe('retouch commit, exit, resume and edit again (real sidecar)', () => {
     const session = store.getState().retouch!;
     expect(session).toMatchObject({
       tool: 'faces',
-      faceArea: 'rect',
       mode: 'add',
       facePadding: 0.3,
       blockSizeRel: 0.02,

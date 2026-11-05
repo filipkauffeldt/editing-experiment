@@ -147,17 +147,12 @@ export interface PhotoFlags {
 /** Which gesture the retouch overlay currently records. */
 export type RetouchTool = 'rect' | 'lasso' | 'faces';
 
-/** How the Detect faces tool takes its search area. */
-export type FaceSearchArea = 'rect' | 'lasso';
-
 /** The retouch editing session for one photo. */
 export interface RetouchSession {
   photoId: PhotoId;
   /** Existing retouch version being edited; absent until the first commit. */
   versionId?: VersionId;
   tool: RetouchTool;
-  /** Shape of the area drawn with Detect faces. */
-  faceArea: FaceSearchArea;
   /** Mosaic block edge relative to the longer image edge. */
   blockSizeRel: number;
   /**
@@ -392,6 +387,17 @@ export interface AppState {
   sectionStash: Record<string, EditParams>;
   retouch?: RetouchSession;
   crop?: CropSession;
+  /**
+   * Tab hid the side panels (and in Develop the filter row and film strip). It is the view of the
+   * Library and of plain Develop; kept in memory, so a restart shows the panels again.
+   */
+  panelsHidden: boolean;
+  /**
+   * Retouch and Crop hide the panels while they are open. Tab shows them for that session only:
+   * this is reset when a session starts, and `panelsHidden` is left alone, so leaving restores the
+   * view that was there before.
+   */
+  focusPanelsShown: boolean;
   /** The open Copy/Sync Settings dialog; absent when closed. */
   copySettings?: { mode: 'copy' | 'sync' };
   /** What Paste (`Ctrl/Cmd+Shift+V`) applies. */
@@ -464,6 +470,21 @@ export interface SearchResult {
   ids: ReadonlySet<PhotoId>;
   /** Photos the backend has not read the caption of yet (see `photos:search`). */
   pending: number;
+}
+
+/** Retouch and Crop are focused jobs on the Develop view: they hide the panels while open. */
+export function inFocusedMode(state: AppState): boolean {
+  return state.module === 'develop' && (state.retouch !== undefined || state.crop !== undefined);
+}
+
+/**
+ * Whether the side panels (and in Develop the filter row and film strip) are hidden now. Ingest
+ * has none. A focused session starts hidden and Tab shows them for that session only; otherwise
+ * the view's own Tab state decides.
+ */
+export function panelsAreHidden(state: AppState): boolean {
+  if (state.module === 'ingest') return false;
+  return inFocusedMode(state) ? !state.focusPanelsShown : state.panelsHidden;
 }
 
 /** The preset Next & send uses. */
@@ -679,6 +700,8 @@ const emptyState = (): AppState => ({
   sort: 'filename',
   toasts: [],
   shortcutsOpen: false,
+  panelsHidden: false,
+  focusPanelsShown: false,
   batchCaptionOpen: false,
   loading: true,
 });
@@ -1144,6 +1167,30 @@ export class AppStore {
     this.editedPreviews?.setVisible(photoIds);
   };
 
+  /**
+   * Tab: hide or show the panels of this view. In Retouch and Crop it only shows or hides them
+   * again for the session at hand. Caption and keyword edits that are still waiting for their
+   * debounce are saved first, as when the photo changes, so hiding the panel can not lose them.
+   */
+  readonly togglePanels = (): void => {
+    const state = this.state;
+    if (state.module === 'ingest') return;
+    const hide = !panelsAreHidden(state);
+    if (hide) this.flushPendingMetadata();
+    if (inFocusedMode(state)) this.set({ focusPanelsShown: !hide });
+    else this.set({ panelsHidden: hide });
+  };
+
+  /** Write caption and keyword edits that wait for their debounce, without waiting for the write. */
+  private flushPendingMetadata(): void {
+    for (const photoId of new Set([
+      ...this.pendingMetadata.keys(),
+      ...this.metadataTimers.keys(),
+    ])) {
+      void this.saveMetadata(photoId);
+    }
+  }
+
   readonly select = (photoId: PhotoId | undefined, mode: SelectionMode = 'replace'): void => {
     if (
       photoId === this.state.selectedId &&
@@ -1480,12 +1527,14 @@ export class AppStore {
     const op = version?.ops.find((candidate): candidate is MosaicOp => candidate.type === 'mosaic');
     // A resumed session starts from the saved areas, faces and padding; the tool, search area and
     // mode always start the same way and are not remembered from the last session.
+    // Retouch hides the panels; the metadata panel's pending edits are written first.
+    this.flushPendingMetadata();
     this.set({
+      focusPanelsShown: false,
       retouch: {
         photoId: photo.id,
         ...(version ? { versionId: version.id } : {}),
         tool: 'faces',
-        faceArea: 'rect',
         mode: 'add',
         blockSizeRel: op?.blockSizeRel ?? DEFAULT_BLOCK_SIZE_REL,
         facePadding: op?.facePadding ?? DEFAULT_FACE_PADDING,
@@ -1500,11 +1549,6 @@ export class AppStore {
   readonly setRetouchTool = (tool: RetouchTool): void => {
     if (!this.state.retouch) return;
     this.set({ retouch: { ...this.state.retouch, tool } });
-  };
-
-  readonly setRetouchFaceArea = (faceArea: FaceSearchArea): void => {
-    if (!this.state.retouch) return;
-    this.set({ retouch: { ...this.state.retouch, faceArea } });
   };
 
   readonly setRetouchBlockSize = (blockSizeRel: number): void => {
@@ -1688,36 +1732,48 @@ export class AppStore {
     }
   }
 
-  /** Remove the retouch version the session edits; a version is only created on commit. */
-  readonly deleteRetouchVersion = async (): Promise<void> => {
-    const session = this.state.retouch;
-    if (!session) return;
-    if (session.versionId === undefined) {
-      this.exitRetouch();
+  /**
+   * Delete the newest retouch version of the open photo (the footer's "Delete retouch…") after
+   * asking. The mosaic goes; the photo and its develop settings stay.
+   */
+  readonly deleteRetouch = async (): Promise<void> => {
+    const photo = activePhoto(this.state);
+    const version = topRetouchVersion(photo);
+    if (!photo || !version || this.state.retouch || this.state.crop) return;
+    if (
+      !this.confirm(
+        `Delete the retouch version of ${photo.fileName}? The mosaic is removed from the photo and its exports.`,
+      )
+    ) {
       return;
     }
-    await this.removeRetouchVersion(session);
+    await this.deleteVersion(photo.id, version.id);
   };
 
-  /** Delete the saved version the session edits and leave retouch; the session stays on failure. */
-  private async removeRetouchVersion(session: RetouchSession): Promise<Photo | undefined> {
-    if (session.versionId === undefined) return undefined;
-    this.setRetouchBusy(true);
+  private async deleteVersion(photoId: PhotoId, versionId: VersionId): Promise<Photo | undefined> {
     try {
-      const photo = await this.bridge.invoke('photos:deleteVersion', {
-        photoId: session.photoId,
-        versionId: session.versionId,
-      });
+      const photo = await this.bridge.invoke('photos:deleteVersion', { photoId, versionId });
       this.upsertPhoto(photo);
-      this.exitRetouch();
       this.editedPreviews?.scheduleNow(photo.id);
       this.toast('success', 'Retouch version deleted');
       return photo;
     } catch (cause) {
       this.toast('error', `Could not delete the version: ${messageOf(cause)}`);
+      return undefined;
+    }
+  }
+
+  /** Delete the saved version the session edits and leave retouch; the session stays on failure. */
+  private async removeRetouchVersion(session: RetouchSession): Promise<Photo | undefined> {
+    if (session.versionId === undefined) return undefined;
+    this.setRetouchBusy(true);
+    const photo = await this.deleteVersion(session.photoId, session.versionId);
+    if (!photo) {
       this.setRetouchBusy(false);
       return undefined;
     }
+    this.exitRetouch();
+    return photo;
   }
 
   // -------------------------------------------------------------------- crop
@@ -1742,7 +1798,9 @@ export class AppStore {
       : largestCropForAspect(image, 0, image.width / image.height);
     const geometry = cropGeometry(crop, image);
     this.cropGesture = undefined;
+    this.flushPendingMetadata();
     this.set({
+      focusPanelsShown: false,
       crop: {
         photoId: photo.id,
         image,

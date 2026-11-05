@@ -1,5 +1,5 @@
 import { useAppState, useAppStore } from '../store-context';
-import { activeExportPreset, activePhoto } from '../store';
+import { activeExportPreset, activePhoto, panelsAreHidden } from '../store';
 import { isFiltering } from '../filters';
 import { modKeyLabel } from '../platform';
 import { usePanelLayout, type ResizablePanelDefinition } from '../panel-resize';
@@ -48,6 +48,9 @@ export function DevelopView() {
   const selected = activePhoto(state);
   const summary = useExportSummary();
   const mod = modKeyLabel();
+  // Tab, and Retouch and Crop, hide the side panels, the filter row and the film strip. They stay
+  // mounted, so a panel keeps its scroll position and folded sections, and the photo gets the room.
+  const hidden = panelsAreHidden(state);
 
   return (
     <div
@@ -55,27 +58,34 @@ export function DevelopView() {
       className={styles.view}
       data-testid="develop-view"
       style={{
-        gridTemplateColumns: `${metadata.width}px minmax(0, 1fr) ${develop.width}px`,
+        gridTemplateColumns: hidden
+          ? '0px minmax(0, 1fr) 0px'
+          : `${metadata.width}px minmax(0, 1fr) ${develop.width}px`,
       }}
+      data-panels={hidden ? 'hidden' : 'shown'}
     >
-      <MetadataPanel className={styles.meta} />
-      <PanelResizeHandle
-        panel="develop-metadata"
-        label="Metadata panel"
-        side="left"
-        controller={metadata}
-        className={styles.metaHandle}
-      />
+      <div className={styles.panels} hidden={hidden} data-testid="develop-left-panels">
+        <MetadataPanel className={styles.meta} />
+        <PanelResizeHandle
+          panel="develop-metadata"
+          label="Metadata panel"
+          side="left"
+          controller={metadata}
+          className={styles.metaHandle}
+        />
+      </div>
       <PhotoView className={styles.photo} photo={selected} />
-      <PanelResizeHandle
-        panel="develop-panel"
-        label="Develop panel"
-        side="right"
-        controller={develop}
-        className={styles.developHandle}
-      />
-      <DevelopPanel className={styles.develop} />
-      <div className={styles.strips}>
+      <div className={styles.panels} hidden={hidden} data-testid="develop-right-panels">
+        <PanelResizeHandle
+          panel="develop-panel"
+          label="Develop panel"
+          side="right"
+          controller={develop}
+          className={styles.developHandle}
+        />
+        <DevelopPanel className={styles.develop} />
+      </div>
+      <div className={styles.strips} hidden={hidden} data-testid="develop-strips">
         <FilterBar scope={state.photos} shown={photos.length} />
         {photos.length === 0 && state.photos.length > 0 && isFiltering(state.filter) ? (
           <FilterEmpty hidden={state.photos.length} />

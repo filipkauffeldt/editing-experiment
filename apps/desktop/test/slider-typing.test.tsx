@@ -162,6 +162,8 @@ describe('typed slider values', () => {
     act(() => store.setSlider('Temperature', 4000));
     fireEvent.keyDown(window, { key: 'r' });
     await screen.findByTestId('retouch-toolbar');
+    // Retouch opens with the develop panel hidden; Tab shows it again.
+    fireEvent.keyDown(window, { key: 'Tab' });
     const user = userEvent.setup();
     const temperature = field('Temperature value');
     await waitFor(() => expect(temperature.value).toBe('4000'));

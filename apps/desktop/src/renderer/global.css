@@ -30,6 +30,11 @@ body {
   line-height: 1.35;
 }
 
+/* Tab hides panels with the attribute; a class that sets `display` must not win over it. */
+[hidden] {
+  display: none !important;
+}
+
 /* A panel drag keeps its cursor and starts no text selection anywhere. */
 body.panel-resizing,
 body.panel-resizing * {

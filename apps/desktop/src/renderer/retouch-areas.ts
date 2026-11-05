@@ -191,10 +191,11 @@ export function withoutFacesInside(
 }
 
 /**
- * Whether Alt is held to flip the mode for one gesture. AltGr (Ctrl+Alt on Windows/Linux, or the
+ * Whether Alt is held as a modifier for one drawing: it picks the lasso for a face search and flips
+ * Add and Subtract for Rectangle and Lasso. AltGr (Ctrl+Alt on Windows/Linux, or the
  * AltGraph modifier) types characters on a Swedish keyboard and must never count.
  */
-export function altFlipsMode(event: {
+export function altHeld(event: {
   altKey: boolean;
   ctrlKey: boolean;
   metaKey: boolean;

@@ -1,7 +1,7 @@
 import { retouchOpsKey, type MosaicOp, type Rect } from '@ee/contracts';
 import { describe, expect, it } from 'vitest';
 import {
-  altFlipsMode,
+  altHeld,
   areaIndexAt,
   areasFromOp,
   countAreas,
@@ -160,22 +160,20 @@ describe('detections are additive', () => {
 });
 
 describe('Alt flips the mode, AltGr never does', () => {
-  const event = (init: Partial<Parameters<typeof altFlipsMode>[0]>) => ({
+  const event = (init: Partial<Parameters<typeof altHeld>[0]>) => ({
     altKey: false,
     ctrlKey: false,
     metaKey: false,
     ...init,
   });
   it('flips on a plain Alt', () => {
-    expect(altFlipsMode(event({ altKey: true }))).toBe(true);
-    expect(altFlipsMode(event({}))).toBe(false);
+    expect(altHeld(event({ altKey: true }))).toBe(true);
+    expect(altHeld(event({}))).toBe(false);
   });
   it('ignores AltGr, reported as AltGraph or as Ctrl+Alt', () => {
-    expect(altFlipsMode(event({ altKey: true, getModifierState: (k) => k === 'AltGraph' }))).toBe(
-      false,
-    );
-    expect(altFlipsMode(event({ altKey: true, ctrlKey: true }))).toBe(false);
-    expect(altFlipsMode(event({ altKey: true, metaKey: true }))).toBe(false);
+    expect(altHeld(event({ altKey: true, getModifierState: (k) => k === 'AltGraph' }))).toBe(false);
+    expect(altHeld(event({ altKey: true, ctrlKey: true }))).toBe(false);
+    expect(altHeld(event({ altKey: true, metaKey: true }))).toBe(false);
   });
 });
 
