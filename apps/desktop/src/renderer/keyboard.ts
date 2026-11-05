@@ -98,6 +98,15 @@ function isTextEntryTarget(target: EventTarget | null): boolean {
 }
 
 /**
+ * Whether a focused element already does something with Enter (a button or link clicks, a field
+ * commits), so Enter must not also finish the retouch or crop session.
+ */
+function enterBelongsToTarget(target: EventTarget | null): boolean {
+  if (!(target instanceof Element)) return false;
+  return target.closest('button, a[href], summary, [role="button"]') !== null;
+}
+
+/**
  * A range input keeps focus after a mouse release, and a focused range counts as
  * text entry, so every global shortcut is ignored. The release can happen
  * outside the slider (or its panel), so listen on the window and hand the
@@ -311,6 +320,39 @@ export function useKeyboardShortcuts(store: AppStore): void {
         return;
       }
 
+      // Tab hides and shows the panels (Shift+Tab is not a toggle). In a text field, a select or a
+      // dialog it keeps its normal job, moving the focus. Not in Ingest, which has no such panels.
+      if (
+        event.key === 'Tab' &&
+        !event.shiftKey &&
+        !command &&
+        !event.altKey &&
+        !typing &&
+        state.module !== 'ingest'
+      ) {
+        event.preventDefault();
+        if (!event.repeat) store.togglePanels();
+        return;
+      }
+
+      // Enter is Done in Retouch and Apply in Crop, unless the focused field or button has its own
+      // use for it (a typed value commits, a focused button clicks).
+      if (
+        (state.retouch || state.crop) &&
+        event.key === 'Enter' &&
+        !event.shiftKey &&
+        !command &&
+        !event.altKey &&
+        !textEntry &&
+        !enterBelongsToTarget(event.target)
+      ) {
+        event.preventDefault();
+        if (event.repeat) return;
+        if (state.crop) store.applyCrop();
+        else void store.requestExitRetouch();
+        return;
+      }
+
       // Space held: a drag pans the photo, whatever the tool. Never in a text field, where it types.
       if (event.key === ' ' && state.module === 'develop' && !command && !event.altKey) {
         if (textEntry) return;
@@ -346,11 +388,6 @@ export function useKeyboardShortcuts(store: AppStore): void {
         return;
       }
 
-      if (state.crop && event.key === 'Enter') {
-        event.preventDefault();
-        store.applyCrop();
-        return;
-      }
       // Ctrl/Cmd+Alt+R resets the crop. `code`, because Option+R types another character on macOS.
       if (state.crop && command && event.altKey && event.code === 'KeyR') {
         event.preventDefault();

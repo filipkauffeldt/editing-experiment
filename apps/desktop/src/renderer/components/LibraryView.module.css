@@ -9,6 +9,11 @@
     'bar bar bar';
 }
 
+/* Wraps panels that Tab hides: it lays out as if it was not there until it is hidden. */
+.panels {
+  display: contents;
+}
+
 .side {
   grid-area: side;
 }

@@ -1,5 +1,5 @@
 import { useMemo } from 'react';
-import { selectLibraryPhotos, selectLibraryScope } from '../store';
+import { panelsAreHidden, selectLibraryPhotos, selectLibraryScope } from '../store';
 import { isFiltering } from '../filters';
 import { THUMB_SIZE_RANGE } from '../library';
 import { modKeyLabel } from '../platform';
@@ -44,6 +44,8 @@ export function LibraryView() {
   const selected = state.selection;
   const mod = modKeyLabel();
   const none = selected.length === 0;
+  // Tab hides the sidebar and the inspector. They stay mounted, so they keep their scroll position.
+  const hidden = panelsAreHidden(state);
 
   return (
     <div
@@ -51,17 +53,22 @@ export function LibraryView() {
       className={styles.view}
       data-testid="library-view"
       style={{
-        gridTemplateColumns: `${sidebar.width}px minmax(0, 1fr) ${inspector.width}px`,
+        gridTemplateColumns: hidden
+          ? '0px minmax(0, 1fr) 0px'
+          : `${sidebar.width}px minmax(0, 1fr) ${inspector.width}px`,
       }}
+      data-panels={hidden ? 'hidden' : 'shown'}
     >
-      <LibrarySidebar className={styles.side} />
-      <PanelResizeHandle
-        panel="library-sidebar"
-        label="Library sidebar"
-        side="left"
-        controller={sidebar}
-        className={styles.sideHandle}
-      />
+      <div className={styles.panels} hidden={hidden} data-testid="library-left-panels">
+        <LibrarySidebar className={styles.side} />
+        <PanelResizeHandle
+          panel="library-sidebar"
+          label="Library sidebar"
+          side="left"
+          controller={sidebar}
+          className={styles.sideHandle}
+        />
+      </div>
       <div className={styles.centre}>
         <FilterBar scope={scope} shown={photos.length}>
           <div className={styles.size}>
@@ -87,14 +94,16 @@ export function LibraryView() {
           <LibraryGrid photos={photos} />
         )}
       </div>
-      <PanelResizeHandle
-        panel="library-inspector"
-        label="Library inspector"
-        side="right"
-        controller={inspector}
-        className={styles.inspectorHandle}
-      />
-      <LibraryInspector className={styles.inspector} />
+      <div className={styles.panels} hidden={hidden} data-testid="library-right-panels">
+        <PanelResizeHandle
+          panel="library-inspector"
+          label="Library inspector"
+          side="right"
+          controller={inspector}
+          className={styles.inspectorHandle}
+        />
+        <LibraryInspector className={styles.inspector} />
+      </div>
       <div className={styles.bar}>
         <ActionBar
           testId="library-action-bar"
