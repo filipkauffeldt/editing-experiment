@@ -171,7 +171,7 @@ describe('ProfileLibrary', () => {
     // A look alone names its base.
     const byUuid = await lib.resolve({ photoId, lookUuid: 'B952C231111CD8E0ECCF14B86BAA7077' }, z6);
     expect(byUuid.status).toBe('ok');
-    expect(await lib.resolve({ photoId }, z6)).toEqual({ status: 'none' });
+    expect(await lib.resolve({ photoId, none: true }, z6)).toEqual({ status: 'none' });
   });
 
   it('says why a profile is missing: another camera, no folder, an unknown look', async () => {
@@ -218,5 +218,132 @@ describe('ProfileLibrary', () => {
     const lib = library(join(await tempDir(), 'missing'));
     const index = await lib.index();
     expect(index).toEqual({ profiles: [], problems: [], folders: [] });
+  });
+});
+
+describe('the default profile (Camera Standard)', () => {
+  const photoId = asPhotoId('p1');
+
+  it('is what a sidecar that names nothing resolves to, when a fitting Camera Standard exists', async () => {
+    const lib = library(await makeFolder());
+    const answer = await lib.resolve({ photoId }, z6);
+    expect(answer.status).toBe('ok');
+    if (answer.status !== 'ok') return;
+    expect(answer.profile.camera).toMatchObject({ name: 'Camera Standard', camera: 'Nikon Z 6_2' });
+    expect(answer.profile.look).toBeUndefined();
+    expect(answer.profile.amount).toBe(1);
+    // The identity of the file, so a preview drawn with it can tell when the default changed.
+    expect(answer.defaultKey).toMatch(/Nikon Z 6_2 Camera Standard\.dcp\|/);
+    // The same answer from the same parse, not a second read of the file.
+    const again = await lib.resolve({ photoId }, z6);
+    expect(again).toEqual(answer);
+    expect(await lib.defaultKeyFor({}, z6)).toBe(answer.defaultKey);
+  });
+
+  it('matches the name without case and takes the first of two files like a named profile does', async () => {
+    const root = await tempDir();
+    const mine = await tempDir();
+    await writeFile(
+      join(root, 'a.dcp'),
+      buildDcp({ name: 'camera standard', camera: 'Nikon Z 6_2', color: [M], forward: [F] }),
+    );
+    await writeFile(
+      join(mine, 'b.dcp'),
+      buildDcp({ name: 'Camera Standard', camera: 'Nikon Z 6_2', color: [M], forward: [F] }),
+    );
+    const lib = library(root, [mine]);
+    const byDefault = await lib.resolve({ photoId }, z6);
+    const byName = await lib.resolve({ photoId, profile: 'Camera Standard' }, z6);
+    expect(byDefault.status === 'ok' && byName.status === 'ok').toBe(true);
+    if (byDefault.status === 'ok' && byName.status === 'ok') {
+      expect(byDefault.profile.camera.name).toBe(byName.profile.camera.name);
+    }
+  });
+
+  it('is absent when no Camera Standard fits the camera: the answer is today’s', async () => {
+    const lib = library(await makeFolder());
+    // The Z 9 only has Adobe Standard, the Z 8 nothing.
+    expect(
+      await lib.resolve({ photoId }, { make: 'NIKON CORPORATION', model: 'NIKON Z 9' }),
+    ).toEqual({ status: 'none' });
+    expect(
+      await lib.resolve({ photoId }, { make: 'NIKON CORPORATION', model: 'NIKON Z 8' }),
+    ).toEqual({ status: 'none' });
+    expect(await lib.resolve({ photoId }, undefined)).toEqual({ status: 'none' });
+    const empty = new ProfileLibrary({ folders: () => [], platform: 'linux' });
+    expect(await empty.resolve({ photoId }, z6)).toEqual({ status: 'none' });
+    expect(await empty.defaultKeyFor({}, z6)).toBe('');
+  });
+
+  it('never replaces a profile, a look or an explicit "Camera matrix"', async () => {
+    const lib = library(await makeFolder());
+    const flat = await lib.resolve({ photoId, profile: 'Camera Flat' }, z6);
+    expect(flat.status === 'ok' && flat.profile.camera.name).toBe('Camera Flat');
+    expect(flat.status === 'ok' && flat.defaultKey).toBeFalsy();
+    // A look keeps its own base profile.
+    const look = await lib.resolve({ photoId, lookName: 'Adobe Color' }, z6);
+    expect(look.status === 'ok' && look.profile.camera.name).toBe('Adobe Standard');
+    // A named profile this machine lacks stays missing: no silent Camera Standard.
+    const missing = await lib.resolve({ photoId, profile: 'Adobe Vivid' }, z6);
+    expect(missing).toMatchObject({ status: 'missing' });
+    const missingLook = await lib.resolve({ photoId, lookName: 'Adobe Landscape' }, z6);
+    expect(missingLook).toMatchObject({ status: 'missing' });
+    expect(await lib.resolve({ photoId, none: true }, z6)).toEqual({ status: 'none' });
+    // A name wins over "Camera matrix" if both somehow arrive.
+    const both = await lib.resolve({ photoId, profile: 'Camera Flat', none: true }, z6);
+    expect(both.status === 'ok' && both.profile.camera.name).toBe('Camera Flat');
+    // None of these depend on the default.
+    for (const params of [
+      { CameraProfile: 'Camera Flat' },
+      { LookName: 'Adobe Color' },
+      { CameraProfileChoice: 'none' },
+    ]) {
+      expect(await lib.defaultKeyFor(params, z6)).toBe('');
+    }
+  });
+
+  it('falls back to no profile, with the reason, when the file cannot be read', async () => {
+    const root = await tempDir();
+    // Identifiable from its header, but without any colour matrix, so parsing it fails.
+    await writeFile(
+      join(root, 'bad.dcp'),
+      buildDcp({ name: 'Camera Standard', camera: 'Nikon Z 6_2' }),
+    );
+    const lib = library(root);
+    const answer = await lib.resolve({ photoId }, z6);
+    expect(answer).toEqual({
+      status: 'none',
+      problem: expect.stringMatching(/^Camera Standard: .*ColorMatrix/),
+    });
+    expect(await lib.defaultKeyFor({}, z6)).toBe('');
+    // Naming it explicitly keeps the existing "missing, with the reason" answer.
+    expect(await lib.resolve({ photoId, profile: 'Camera Standard' }, z6)).toMatchObject({
+      status: 'missing',
+    });
+  });
+
+  it('tells the owner when the set of camera profile files changes, not on a rescan of the same files', async () => {
+    const root = await makeFolder();
+    const extra = await tempDir();
+    let folders: string[] = [];
+    let changes = 0;
+    const lib = new ProfileLibrary({
+      folders: () => [root, ...folders],
+      onCameraProfilesChanged: () => (changes += 1),
+      platform: 'linux',
+    });
+    await lib.index();
+    expect(changes).toBe(1);
+    await lib.index(true);
+    expect(changes).toBe(1);
+    await writeFile(
+      join(extra, 'Nikon Z 9 Camera Standard.dcp'),
+      buildDcp({ name: 'Camera Standard', camera: 'Nikon Z 9', color: [M], forward: [F] }),
+    );
+    folders = [extra];
+    await lib.index();
+    expect(changes).toBe(2);
+    const z9 = { make: 'NIKON CORPORATION', model: 'NIKON Z 9' };
+    expect((await lib.resolve({ photoId }, z9)).status).toBe('ok');
   });
 });
