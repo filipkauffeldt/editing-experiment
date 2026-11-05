@@ -16,8 +16,8 @@ The proof of concept covers one end-to-end workflow:
    filter by file type (RAW / JPEG / Both), lock state (Locked / Unlocked / All) and
    incremental ingest (on by default). XMP sidecars are written and thumbnails appear
    live in the film strip.
-2. **Library.** A virtualised grid and loupe, multi-selection, quick and colour-class
-   filters, ratings, colour classes, tagging and batch captioning.
+2. **Library.** A virtualised grid and loupe, multi-selection, the shared filter bar,
+   ratings, colour classes, tagging and batch captioning.
 3. **Develop.** A `crs:` parameter set that follows Lightroom's names, develop presets from Lightroom
    and Camera Raw's preset folders or imported,
    camera profiles, lens corrections, crop/straighten, copy/paste/sync of settings and a
@@ -90,7 +90,7 @@ in plain Node. Files under Electron's `userData`:
 
 ```
 settings.json        sources, destinations, ingest options, metadata templates, code replacements, export presets, active preset, profile folders, preset folders, last copy selections
-index.sqlite         photo index and the paths removed from the Library (cache; sidecars are the source of truth)
+index.sqlite         photo index, the search text of each photo and the paths removed from the Library (cache; sidecars are the source of truth)
 seen.sqlite          files already ingested per source
 uploads.sqlite       upload queue
 export-jobs.json     resumable export batches (queued photos survive a restart)
@@ -893,8 +893,8 @@ slider's range and is discarded when it is empty or invalid.
 modules (`keyboard.ts`); leaving Develop applies an open crop and saves a retouch session first.
 Design tokens and component rules are in `docs/DESIGN.md`.
 
-- **Library state** (`AppState.library`, `renderer/library.ts`): folder or collection, quick and
-  colour-class filters, thumbnail size. The multi-selection is the shared `AppState.selection`
+- **Library state** (`AppState.library`, `renderer/library.ts`): the folder and the thumbnail size.
+  The filters are not Library state: see "Filters". The multi-selection is the shared `AppState.selection`
   (also used by the film strip and the export actions); a grid click is `select(id, mode)` with
   `replace`, `toggle` (Ctrl/Cmd) or `range` (Shift), where a range follows the grid's order in the
   Library and the film strip's elsewhere. The last clicked photo is `selectedId`, the one the
@@ -902,6 +902,35 @@ Design tokens and component rules are in `docs/DESIGN.md`.
   (Ctrl/Cmd+`1`-`8`, `0` clears) act on the selection in the Library and on the open photo
   elsewhere, in one `photos:setLabels` call. Export… and Export & send
   use `openExportDialog` and `exportSelected(true)`.
+- **Filters** (`AppState.filter`, `renderer/filters.ts`, `components/FilterBar.tsx`): one `FilterState` for
+  the Library and Develop, in memory only (a restart starts unfiltered; panel widths are the only
+  persisted UI state). It is AND between filters: tag (`all`, `tagged`, `untagged`), `minRating`
+  (0 off; star N means "N and up", and unrated photos are out while it is on), `colorClasses`
+  (several, OR), `statuses` (several, a photo must match every ticked one: Not sent, Failed, Edited,
+  Metadata differs), `camera` and `sourceId` (one each, the Camera menu's two groups) and `search`.
+  `filterPhotos` is pure; `filterCounts` gives the numbers beside the options as "what this option
+  would show with the rest of the filter kept". The Library list is its folder (library state), then
+  the filter; Develop's list (`getVisiblePhotos`, the film strip, arrow keys, Next & send) is every
+  photo, then the filter. Sort (`AppState.sort`) is global too, not part of the filter or Clear.
+  **A hidden active photo** (a filter change, or a rating, class or tag change in Develop) follows one
+  rule, `ensureSelectionVisible`, on the list of the module on screen: the selection keeps only the
+  photos still shown; if the active photo is hidden the first shown photo becomes active and the
+  only one selected; with nothing shown there is no active photo and the empty selection. The Library
+  does not re-check after a label change, so the photo you just rated stays selected until the
+  next filter change. Clearing the filter selects the first photo again.
+- **Search** (`photos:search`, `SearchIndex` in the jobs process, `@ee/metadata/search`). The renderer only
+  has a photo's caption and keywords for the photo it has open, so the text is kept in the jobs
+  process: a map in memory, mirrored in `index.sqlite` (`photos.search_text`, NULL until read) so a
+  restart does not read every sidecar again. A background queue (two ExifTool reads at a time)
+  fills it for new photos, for every photo of an index made before search existed, and again after a
+  caption or keywords are written (metadata write, apply template). A query is a substring test per
+  photo in memory. Matching is case-insensitive with `å`, `ä`, `ö` kept distinct from `a`, `o`
+  (NFC on both sides), every word of the query must be somewhere in the file name, caption or
+  keywords, and the sidecar stays the source of truth: a caption changed by another program is
+  seen when that photo is next written here. The answer carries `pending`, the photos not read yet
+  (they match by file name only); while it is above 0 the store asks again every second. The store
+  also asks again 400 ms after photos arrive or a caption is written, so the result does not go
+  stale. The bar debounces typing 250 ms; an answer for older text is dropped.
 - **Folders** come from `libraryFolders(photos)`: the directory of each photo's `path`, which is
   always the ingest copy. Sources are not consulted.
 - **Delete** (`AppState.deleteRequest`): the Delete key (and Backspace on macOS, where the "delete" key

@@ -54,23 +54,3 @@
   flex: none;
   color: var(--dim);
 }
-
-.progress {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  gap: 4px 8px;
-  padding: 4px 12px;
-  color: var(--muted);
-}
-
-.bar {
-  grid-column: 1 / -1;
-  height: 1px;
-  background: var(--line-strong);
-}
-
-.bar > span {
-  display: block;
-  height: 1px;
-  background: var(--text);
-}

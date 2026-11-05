@@ -43,6 +43,7 @@ export class MetadataService {
     return this.photos.withLock(photoId, async () => {
       const photo = this.photos.get(photoId);
       await writeIptc(photo.path, fields, { service: this.exiftool });
+      if ('caption' in fields || 'keywords' in fields) this.photos.searchRefresh(photoId);
       return this.refreshStatus(photoId);
     });
   }
@@ -89,6 +90,7 @@ export class MetadataService {
           const photo = this.photos.get(photoId);
           await applyTemplate(photo.path, fields, args.mode, { service: this.exiftool });
           this.photos.setTemplatePath(photoId, args.templatePath);
+          this.photos.searchRefresh(photoId);
           await this.refreshStatus(photoId);
         });
         result.updated.push(photoId);

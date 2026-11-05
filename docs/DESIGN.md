@@ -114,15 +114,30 @@ Built in `components/ui/`:
 | Module  | Key | What it is                                                                         |
 | ------- | --- | ---------------------------------------------------------------------------------- |
 | Ingest  |     | sources with progress, ingest settings                                             |
-| Library | `G` | folders and collections, virtualised grid, inspector; `E` opens the loupe          |
+| Library | `G` | folders, virtualised grid, inspector; `E` opens the loupe                          |
 | Develop | `D` | metadata, photo, develop sliders, film strip                                       |
 | Retouch | `R` | the retouch session on the Develop layout (`R`, or the Retouch button); leaving it saves first |
 
 The Library's **Folders** are the local ingest copies only. They are derived from each photo's
 own path (always its copy in the ingest destination), never from the configured sources, so a
 card or a remote server can not appear there. Ingest always copies; editing only ever happens
-on the copies. The sidebar also has an **Ingesting → folder** section with per-source progress
-and the Collections Tagged, Sent and Edited.
+on the copies. The sidebar is the folder list and nothing else.
+
+### Filter bar
+
+Library and Develop share one filter bar (`FilterBar`) and one filter state, so what is set in one
+view is still set after `G`/`D`. A single 36 px row, left to right: **Tag** (All · Tagged ·
+Untagged, with counts, underline on the active one), **five stars** (click star N for "N and up",
+click the active star to clear; filled stars are white, the rest `--dim`), the **eight colour-class
+dots** (several at once; a ticked dot has a 1 px white outline), a **Status** menu (Not sent,
+Failed, Edited, Metadata differs, ticked boxes, counts), a **Camera** menu (one group of bodies, one
+of sources), the **search** field (underline field, "Search…"; Ctrl/Cmd+`F` focuses it in both
+views, Enter applies it and leaves, Esc clears it and leaves, and nothing typed in it is a shortcut), then a **×** that
+appears only while something is filtered, the count (`N of M` while filtered), and on the right the
+**Sort** menu (Name, Time) and a slot for the view's own controls (the Library's thumbnail size).
+Menus are text with a small caret and a hairline popover; checks are 9 px squares, radios 9 px
+circles, filled white when on. When a filter shows nothing the grid or film strip gives way to a
+line saying photos are hidden, not lost, and a *Clear filters* button.
 
 Library keys: click, Shift-range, Ctrl/Cmd-toggle, Ctrl/Cmd+A, arrows (Shift extends), `T` tag,
 `1`-`5` rating (`0` clears), Ctrl/Cmd+`1`-`8` class (Ctrl/Cmd+`0` clears), Ctrl/Cmd+I caption, Ctrl/Cmd+K keywords, Shift+Ctrl/Cmd+C copy settings, Shift+Ctrl/Cmd+V paste

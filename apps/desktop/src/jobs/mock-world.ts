@@ -27,6 +27,7 @@ import {
   type UploadItemState,
   type VersionId,
 } from '@ee/contracts';
+import { matchesSearch, searchTerms, searchTextOf } from '@ee/metadata';
 import {
   expandMockCaption,
   mockDestinations,
@@ -354,6 +355,19 @@ export function createMockHandlers(world: MockWorld, emit: Emit): Partial<IpcHan
           ? 'Folder is writable (mock)'
           : `Connected to ${destination.host}:${destination.port} (mock)`,
     }),
+
+    // --- search: the same matching as the real index, over the mock captions ---
+    'photos:search': async ({ query }) => {
+      const terms = searchTerms(query);
+      return {
+        photoIds: world.photos
+          .filter((photo) =>
+            matchesSearch(photo.fileName, searchTextOf(world.metadata.get(photo.id) ?? {}), terms),
+          )
+          .map((photo) => photo.id),
+        pending: 0,
+      };
+    },
 
     // --- metadata ---
     'metadata:read': async ({ photoId }) => {

@@ -6,6 +6,7 @@ import {
   type SourceId,
 } from '@ee/contracts';
 import type { PhotoIndex, PhotoRecord } from './photo-index';
+import type { SearchIndex } from './search-index';
 
 export type Emit = (channel: EventChannel, payload: unknown) => void;
 
@@ -19,6 +20,8 @@ export class PhotoLibrary {
   constructor(
     private readonly index: PhotoIndex,
     private readonly emit: Emit,
+    /** Caption and keyword search; absent in tests that do not need it. */
+    private readonly search?: SearchIndex,
   ) {}
 
   list(sourceId?: SourceId): Photo[] {
@@ -49,7 +52,13 @@ export class PhotoLibrary {
     this.index.save(photo, templatePath, sourcePath);
     // A new file at a path the user had removed is a new photo, not the one they removed.
     this.index.clearExcluded(photo.path);
+    this.search?.track(photo);
     this.emit('photos:added', photo);
+  }
+
+  /** The photo's caption or keywords may have changed on disk: search reads them again. */
+  searchRefresh(photoId: PhotoId): void {
+    this.search?.refresh(photoId);
   }
 
   /** Replace a photo with the result of `change`, announce it, and return it. */
@@ -66,7 +75,10 @@ export class PhotoLibrary {
    */
   remove(photoId: PhotoId): boolean {
     const removed = this.index.remove(photoId);
-    if (removed) this.emit('photos:removed', { photoId });
+    if (removed) {
+      this.search?.forget(photoId);
+      this.emit('photos:removed', { photoId });
+    }
     return removed;
   }
 
@@ -76,7 +88,10 @@ export class PhotoLibrary {
    */
   removeAndExclude(photoId: PhotoId): boolean {
     const removed = this.index.removeAndExclude(photoId);
-    if (removed) this.emit('photos:removed', { photoId });
+    if (removed) {
+      this.search?.forget(photoId);
+      this.emit('photos:removed', { photoId });
+    }
     return removed;
   }
 

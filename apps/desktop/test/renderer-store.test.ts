@@ -114,7 +114,7 @@ describe('photo list', () => {
 });
 
 describe('filters and culling', () => {
-  it('applies the quick filters to the mock photo set', async () => {
+  it('applies the shared filters to the mock photo set', async () => {
     const { store } = await setup();
     expect(visible(store)).toHaveLength(40);
 
@@ -123,24 +123,28 @@ describe('filters and culling', () => {
     store.toggleTag(selected.id);
     expect(visible(store)).toHaveLength(40);
 
-    store.setQuickFilter('tagged');
+    store.setTagFilter('tagged');
     expect(visible(store).map((photo) => photo.id)).toContain(selected.id);
     expect(visible(store)).toHaveLength(5);
 
-    store.setQuickFilter('untagged');
+    store.setTagFilter('untagged');
     expect(visible(store)).toHaveLength(35);
 
-    store.setQuickFilter('edited');
+    store.clearFilters();
+    store.toggleStatusFilter('edited');
     expect(visible(store)).toHaveLength(7);
 
-    store.setQuickFilter('failed-uploads');
+    store.clearFilters();
+    store.toggleStatusFilter('failed');
     expect(visible(store)).toHaveLength(1);
     expect(visible(store)[0]?.status.upload).toBe('failed');
 
-    store.setQuickFilter('metadata-differs');
+    store.clearFilters();
+    store.toggleStatusFilter('metadata-differs');
     expect(visible(store)).toHaveLength(1);
 
-    store.setQuickFilter('not-uploaded');
+    store.clearFilters();
+    store.toggleStatusFilter('not-sent');
     expect(visible(store)).toHaveLength(38);
   });
 

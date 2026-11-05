@@ -39,6 +39,14 @@ export function focusKeywordsField(): void {
   field.setSelectionRange(end, end);
 }
 
+/** Focus the filter bar's search box with its text selected, ready to be replaced. */
+export function focusSearchField(): void {
+  const field = document.querySelector<HTMLInputElement>('[data-filter-search]');
+  if (!field) return;
+  field.focus();
+  field.select();
+}
+
 /**
  * Symbols that a Swedish (and most non-US) layout only produces with AltGr.
  * Windows/Linux report AltGr as Ctrl+Alt, so a combo carrying one of these is
@@ -227,6 +235,19 @@ export function useKeyboardShortcuts(store: AppStore): void {
       if (command && event.key === 'Enter') {
         event.preventDefault();
         if (!library && !event.repeat) void store.nextAndSend();
+        return;
+      }
+      // Find: the filter bar's search, in the two views that have one. The letter is matched by
+      // what the key prints; AltGr and Alt combinations were ruled out above.
+      if (
+        command &&
+        !event.shiftKey &&
+        !event.altKey &&
+        (event.key === 'f' || event.key === 'F') &&
+        state.module !== 'ingest'
+      ) {
+        event.preventDefault();
+        if (!event.repeat) focusSearchField();
         return;
       }
       if (command && (event.key === 'i' || event.key === 'I')) {

@@ -7,6 +7,7 @@ import {
   selectVisiblePhotos,
   type AppStore,
 } from '../src/renderer/store';
+import { mockPhotos } from '../src/shared/mock';
 import { createFakeBridge, type FakeBridge } from './fake-bridge';
 
 const stores: AppStore[] = [];
@@ -128,7 +129,7 @@ describe('Next & send in the background', () => {
 
   it('skips photos a filter hides, using the order at the time of the press', async () => {
     const { store } = await setup();
-    store.setQuickFilter('tagged');
+    store.setTagFilter('tagged');
     const tagged = names(store);
     expect(tagged.length).toBeGreaterThan(2);
     expect(active(store)).toBe(tagged[0]);
@@ -137,6 +138,36 @@ describe('Next & send in the background', () => {
     expect(active(store)).toBe(tagged[1]);
     void store.nextAndSend();
     expect(active(store)).toBe(tagged[2]);
+  });
+
+  it('follows the shared filter: stars and a search decide which photo comes next', async () => {
+    // Photos 2, 5 and 9 have 4 stars; the search keeps the first and the last by caption.
+    const { store, fake } = await setup({
+      photos: mockPhotos().map((photo, index) => ({
+        ...photo,
+        rating: [1, 4, 8].includes(index) ? 4 : 0,
+      })),
+    });
+    const all = selectVisiblePhotos(store.getState());
+    const picked = [all[1], all[4], all[8]];
+    await fake.bridge.invoke('metadata:write', {
+      photoId: picked[0]!.id,
+      fields: { caption: 'Åkerlund' },
+    });
+    await fake.bridge.invoke('metadata:write', {
+      photoId: picked[2]!.id,
+      fields: { keywords: ['åkerlund'] },
+    });
+    store.setMinRating(4);
+    store.setSearch('ÅKERLUND');
+    await vi.waitFor(() => expect(store.getState().searchResult?.query).toBe('ÅKERLUND'));
+    expect(names(store)).toEqual([picked[0]?.fileName, picked[2]?.fileName]);
+    expect(active(store)).toBe(picked[0]?.fileName);
+
+    void store.nextAndSend();
+    expect(active(store)).toBe(picked[2]?.fileName);
+    expect(started(fake)).toHaveLength(0);
+    await vi.waitFor(() => expect(started(fake)).toHaveLength(1));
   });
 
   it('exports what was on screen when pressed, even while the save is slow', async () => {
