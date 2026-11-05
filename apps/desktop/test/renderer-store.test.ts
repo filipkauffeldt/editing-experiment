@@ -2168,4 +2168,32 @@ describe('card discovery', () => {
     await expect(store.startIngest(ingest)).rejects.toThrow(/Nothing to ingest/);
     expect(fake.calls.some((call) => call.channel === 'ingest:start')).toBe(false);
   });
+
+  it('leaves an unticked folder or server out of the ingest, and runs it again once ticked', async () => {
+    const { store, fake } = await setupCards([]);
+    const [first, second] = store.getState().sources;
+    if (!first || !second) throw new Error('needs two sources');
+    const ingest = store.getState().settings!.ingest;
+    const started = (): string[] =>
+      (
+        fake.calls.filter((call) => call.channel === 'ingest:start').at(-1)?.args[0] as {
+          config: { sources: { id: string }[] };
+        }
+      ).config.sources.map((source) => source.id);
+
+    await store.startIngest(ingest);
+    expect(started()).toEqual([first.id, second.id]);
+
+    store.pickSource(first.id, false);
+    await store.startIngest(ingest);
+    expect(started()).toEqual([second.id]);
+
+    store.pickSource(second.id, false);
+    await expect(store.startIngest(ingest)).rejects.toThrow(/Nothing to ingest/);
+
+    store.pickSource(first.id, true);
+    store.pickSource(second.id, true);
+    await store.startIngest(ingest);
+    expect(started()).toEqual([first.id, second.id]);
+  });
 });

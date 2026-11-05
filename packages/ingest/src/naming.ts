@@ -1,5 +1,9 @@
-import { extname, join, normalize, sep } from 'node:path';
+import { join, normalize, sep } from 'node:path';
 import { PathTraversalError } from './errors';
+import { safeFileBase, safeSubfolderParts, splitName } from './path-names';
+
+// The checks live in a module without Node imports so the Ingest view can run them too.
+export { safeFileBase, splitName };
 
 const DIGITS = /\d+/;
 
@@ -87,60 +91,11 @@ export function hasExportMarker(entryNames: Iterable<string>): boolean {
   return false;
 }
 
-export interface SplitName {
-  /** Original file name extension including the dot, or `''`. */
-  extension: string;
-  /** File name without its extension. */
-  base: string;
-}
-
-export function splitName(fileName: string): SplitName {
-  const extension = extname(fileName);
-  return { base: extension ? fileName.slice(0, -extension.length) : fileName, extension };
-}
-
-function hasControlCharacters(value: string): boolean {
-  return [...value].some((character) => character.charCodeAt(0) < 32);
-}
-
-/**
- * A rename template produces a file name, never a path. Reject anything that
- * could write outside the chosen destination directory.
- */
-export function safeFileBase(value: string): string {
-  const trimmed = value.trim();
-  if (trimmed.length === 0) {
-    throw new PathTraversalError('Rename template produced an empty file name');
-  }
-  if (trimmed === '.' || trimmed === '..') {
-    throw new PathTraversalError(`Rename template produced an invalid file name: ${value}`);
-  }
-  if (trimmed.includes('/') || trimmed.includes('\\') || trimmed.includes('\u0000')) {
-    throw new PathTraversalError(`Rename template produced a path, not a file name: ${value}`);
-  }
-  if (hasControlCharacters(trimmed)) {
-    throw new PathTraversalError('Rename template produced a file name with control characters');
-  }
-  return trimmed;
-}
-
 /** Normalizes a destination subfolder template to a safe relative path. */
 export function safeSubfolder(value: string): string {
-  if (/^[\\/]/.test(value) || /^[A-Za-z]:/.test(value)) {
-    throw new PathTraversalError(`Subfolder template must be relative: ${value}`);
-  }
-  const normalized = value.replaceAll('\\', '/').replace(/^\/+|\/+$/g, '');
-  if (normalized.length === 0) {
+  const parts = safeSubfolderParts(value);
+  if (parts.length === 0) {
     return '';
-  }
-  const parts = normalized.split('/');
-  for (const part of parts) {
-    if (part === '' || part === '.' || part === '..') {
-      throw new PathTraversalError(`Subfolder template escapes the destination: ${value}`);
-    }
-    if (part.includes(':') || hasControlCharacters(part)) {
-      throw new PathTraversalError(`Subfolder template contains an invalid segment: ${value}`);
-    }
   }
   const joined = join(...parts);
   const resolved = normalize(joined);

@@ -4,17 +4,6 @@ import { asSourceId, type CardSource, type DetectedCard, type SourceConfig } fro
 export const isDiscoveredCardSource = (source: SourceConfig): source is CardSource =>
   source.kind === 'card' && source.discovered === true;
 
-/** What the Ingest view lists for one card: a mounted volume, or a run left behind by a removed one. */
-export interface CardRow {
-  /** Mount path for a mounted card, source id for a card that is gone. */
-  key: string;
-  /** Absent once the card was removed while its run was still going. */
-  card?: DetectedCard;
-  /** The persisted source for this volume; absent until the card has been picked once. */
-  source?: CardSource;
-  picked: boolean;
-}
-
 /**
  * Links each mounted card to the persisted source that already stands for its volume, so
  * the filter choices and the incremental state of a card survive taking it out and putting
@@ -114,11 +103,18 @@ function uniqueName(label: string, sources: readonly SourceConfig[]): string {
   }
 }
 
-/** Sources `ingest:start` should run: everything except discovered cards that are not picked. */
+/**
+ * Sources `ingest:start` should run: discovered cards only when picked, and every folder or
+ * server unless it was unticked.
+ */
 export function sourcesToIngest(
   sources: readonly SourceConfig[],
   picked: readonly string[],
+  unpicked: readonly string[] = [],
 ): SourceConfig[] {
   const pickedSet = new Set(picked);
-  return sources.filter((source) => !isDiscoveredCardSource(source) || pickedSet.has(source.id));
+  const unpickedSet = new Set(unpicked);
+  return sources.filter((source) =>
+    isDiscoveredCardSource(source) ? pickedSet.has(source.id) : !unpickedSet.has(source.id),
+  );
 }

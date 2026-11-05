@@ -25,8 +25,8 @@ Export / Export & send.
   and no writes to the originals; deleting from a server is opt-in and off by
   default. Keeping names adds a numeric suffix when two sources hold the same
   name, so nothing is overwritten.
-- Per-source local ingest filters: file types RAW / JPEG / Both, lock state
-  Locked / Unlocked / All, and incremental ingest (on by default).
+- Per-source local ingest filters: file types RAW / JPEG / All, lock state
+  Locked / Unlocked / All, and Skip already ingested (on by default).
 - Photo Mechanic `.XMP` metadata templates with Replace (the default) or Fill
   empty, `=code=` replacement tables, and `{variables}` in captions and path
   templates. Templates and code replacement files live in Settings → Metadata
@@ -269,28 +269,33 @@ Set things up in this order:
 1. **Settings → Metadata.** Add the Photo Mechanic metadata template `.XMP` files
    and tab-delimited code replacement files. This global list feeds the
    Metadata panel and ingest.
-2. **Settings → Ingest.** Choose the destination folder and whether to
-   **Keep original file names** or **Rename** with a template (and optionally a
-   subfolder template and backup folder). Pick the metadata template from the
-   global list and its mode, `Replace existing values` (the default) or
-   `Fill empty fields`, and choose the develop preset to apply on import. The
-   list holds the presets found in the preset folders (Settings → Presets; add
-   the `Lightroom Settings` folder if Lightroom stores presets with the
-   catalog) and the ones imported with **Develop → Presets → Import**.
+2. **Ingest → To.** Choose the **Folder** and whether to **Keep original
+   names** or **Rename** with a template (and optionally a **Subfolder**
+   template and a **Backup** folder). The line under the fields shows where the
+   first file will land, with an example file name and today's date. Under
+   **Apply on the way in**, pick the metadata template from the global list and
+   its mode, `Replace existing values` (the default) or `Fill empty fields`, and
+   the develop preset to apply on import. The list holds the presets found in
+   the preset folders (Settings → Presets; add the `Lightroom Settings` folder
+   if Lightroom stores presets with the catalog) and the ones imported with
+   **Develop → Presets → Import**. There is no Save button: the settings are
+   saved as you change them, and a failed save is shown under the fields.
 3. **Insert a card.** Open the **Ingest** view: the inserted cards (volumes with a
-   `DCIM` folder) are listed under **Cards** on their own, with the volume label,
-   mount path and image count. No path to type. The cards are looked for when the
+   `DCIM` folder) are listed under **From** with the volume label, mount path
+   and photo count. No path to type. The cards are looked for when the
    view opens; insert or remove one afterwards and press **Rescan cards**
-   (the circular arrow). Tick the cards to ingest; each ticked card has its own
-   filters: file types RAW / JPEG / Both, lock state Locked / Unlocked / All, and
-   Incremental (on by default). A card is never ingested just because it appeared.
+   (the circular arrow). Tick the sources to ingest; the line under each name
+   shows its filters, and clicking it opens them: file types RAW / JPEG / All,
+   lock state Locked / Unlocked / All, and Skip already ingested (on by default).
+   A card is never ingested just because it appeared.
    Linux (`/media`, `/run/media`), macOS (`/Volumes`) and Windows (drives D: to Z:)
    are scanned; only Linux has been run on a real machine so far. On Windows a card
    is named after its volume label (`NIKON Z 6`), or `Drive E` when it has none.
 4. **Settings → Sources** is the fallback for what is not found on its own:
-   a folder, a card with an unusual mount point, an FTP or SFTP server. **Test** and
-   **Save source**; local sources have the same filters, and these sources are
-   ingested every time. Anonymous FTP needs no password.
+   a folder, a card with an unusual mount point, an FTP or SFTP server (**Folder or
+   server** on the Ingest view opens it). **Test** and **Save source**; local
+   sources have the same filters. They are listed under **From**, ticked, and
+   ingested unless you untick them. Anonymous FTP needs no password.
 5. **Settings → Destinations** for upload targets, and **Export… → New
    preset** for export presets (Location, File, Content, Then send), then
    **Save preset** and **Set as active**. The default preset exports into an
@@ -302,7 +307,7 @@ Set things up in this order:
 6. Optional: **Settings → Profiles → Add folder…** for `.dcp`/`.xmp` camera
    profiles. Adobe's own folders are found automatically on macOS and Windows.
    See [Camera profiles](docs/camera-profiles.md) for the platform details.
-7. Start with **Ingest → Ingest**, then **Library** → **Develop** →
+7. Press **Ingest** in the bar at the bottom of the Ingest view, then **Library** → **Develop** →
    **Export…** or **Export & send** (or **Next & send**, Ctrl/⌘+Enter).
 
 ## Keyboard shortcuts

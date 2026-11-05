@@ -14,7 +14,7 @@ export interface SourceFilterValues {
 const FILE_TYPES: { id: FileTypeFilter; label: string }[] = [
   { id: 'raw', label: 'RAW' },
   { id: 'jpeg', label: 'JPEG' },
-  { id: 'both', label: 'Both' },
+  { id: 'both', label: 'All' },
 ];
 
 const LOCK_FILTERS: { id: LockFilter; label: string }[] = [
@@ -83,7 +83,7 @@ export function SourceFilters({
           checked={value.incremental}
           onChange={(event) => onChange({ ...value, incremental: event.target.checked })}
         />
-        Incremental
+        Skip already ingested
       </label>
     </div>
   );

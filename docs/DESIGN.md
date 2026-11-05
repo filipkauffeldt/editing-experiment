@@ -117,7 +117,7 @@ Built in `components/ui/`:
 
 | Module  | Key | What it is                                                                         |
 | ------- | --- | ---------------------------------------------------------------------------------- |
-| Ingest  |     | sources with progress, ingest settings                                             |
+| Ingest  |     | From (sources, progress) and To (folder, names, preview), one action bar           |
 | Library | `G` | folders, virtualised grid, inspector; `E` opens the loupe                          |
 | Develop | `D` | metadata, photo, develop sliders, film strip                                       |
 | Retouch | `R` | the retouch session on the Develop layout (`R`, or the Retouch button); leaving it saves first |
@@ -150,6 +150,24 @@ selection count on the left and **Caption…**, **Sync settings…** (the same g
 whole selection), **Export…** and the primary **Export & send** on the right; Tag, rating and class
 are the keys above and the right-click menu, not buttons. In Develop Ctrl/Cmd+Enter is Next & send, and its bar shows the active export preset
 ("Desk 2048 q90 → Export/Desk → destination").
+
+### Ingest
+
+Two columns that read as one sentence, with the action in a bar that is always there.
+
+- **From** (left, the resizable panel): one list of cards, folders and servers. A row is a square
+  tickbox, the name, a mono count or kind on the right and one `--dim` detail line. The detail line
+  holds the location and the filters that are not the default; it is a button that opens that source's
+  filter controls inline, below the row. No boxes between rows, only the 1 px hairline.
+- **To** (right): label and field pairs in a grid (labels `--muted`, fields boxed hairlines). Browse and
+  the `{ }` variable picker are compact actions inside the field's box, separated by a hairline. Below the
+  fields a hairline box shows the path of the first file in mono, with a `--dim` note, or the reason a
+  template cannot be used. At 1440 px and wider the form and *Apply on the way in* sit side by side; a
+  narrower column stacks them, and a window under 900 px stacks From above To.
+- **Bar**: the summary on the left, the primary button on the right (the one white button). It reads
+  `Ingest` or `Ingest N photos`, is disabled with its reason in the summary when nothing can start, and
+  becomes `Stop all` while sources run. There is no Save: a failed automatic save shows `Not saved: …`
+  with an `--error` dot under the form.
 
 The export dialog lists the presets on the left; the editor is one compact label-left form
 (Folder with its `{ }` variable picker and a live **Saves to** path, File names, If it exists,

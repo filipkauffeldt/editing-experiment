@@ -12,7 +12,7 @@ import {
   type OnFileIngested,
   type SeenStore,
 } from '@ee/ingest';
-import { expandIngestTemplate } from './ingest-template';
+import { expandIngestTemplate } from '../../shared/ingest-template';
 
 export interface IngestServiceDeps {
   seenStore: SeenStore;

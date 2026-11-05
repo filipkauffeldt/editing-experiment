@@ -35,25 +35,35 @@ const localSource = (store: AppStore): Extract<SourceConfig, { kind: 'folder' | 
 };
 
 describe('ingest filters', () => {
-  it('shows the three controls per local source on the ingest screen and saves changes', async () => {
+  it('summarises the filters of a local source and edits them inline when opened', async () => {
     const { store, fake } = await renderApp();
     const user = userEvent.setup();
     await user.click(within(screen.getByTestId('status-bar')).getByRole('tab', { name: 'Ingest' }));
     await screen.findByTestId('ingest-view');
 
+    // Closed: one line, no controls.
+    expect(screen.queryAllByTestId('source-filters')).toHaveLength(0);
+    const source = localSource(store);
+    const line = screen.getByRole('button', { name: `Filters for ${source.name}` });
+    expect(line.textContent).toContain('all files');
+
+    await user.click(line);
     const filters = screen.getAllByTestId('source-filters');
     expect(filters).toHaveLength(1);
     const row = within(filters[0]!);
-    expect(row.getByRole('button', { name: 'Both' }).getAttribute('aria-pressed')).toBe('true');
-    expect(row.getByRole('button', { name: 'All' }).getAttribute('aria-pressed')).toBe('true');
-    expect((row.getByLabelText('Incremental') as HTMLInputElement).checked).toBe(true);
+    const allOf = (group: RegExp) =>
+      within(row.getByRole('group', { name: group })).getByRole('button', { name: 'All' });
+    expect(allOf(/File types/).getAttribute('aria-pressed')).toBe('true');
+    expect(allOf(/^Lock/).getAttribute('aria-pressed')).toBe('true');
+    expect((row.getByLabelText('Skip already ingested') as HTMLInputElement).checked).toBe(true);
 
     await user.click(row.getByRole('button', { name: 'JPEG' }));
     await waitFor(() => expect(localSource(store).fileTypes).toBe('jpeg'));
     await user.click(row.getByRole('button', { name: 'Locked' }));
     await waitFor(() => expect(localSource(store).lockFilter).toBe('locked'));
-    await user.click(row.getByLabelText('Incremental'));
+    await user.click(row.getByLabelText('Skip already ingested'));
     await waitFor(() => expect(localSource(store).incremental).toBe(false));
+    expect(line.textContent).toContain('JPEG only · locked only · including already ingested');
 
     const saved = fake.calls
       .filter((call) => call.channel === 'sources:save')
@@ -112,7 +122,7 @@ describe('ingest filters', () => {
     await user.click(within(fileTypes).getByRole('button', { name: 'RAW' }));
     const lock = within(dialog).getByRole('group', { name: /^Lock/ });
     await user.click(within(lock).getByRole('button', { name: 'Unlocked' }));
-    const incremental = within(dialog).getByLabelText('Incremental') as HTMLInputElement;
+    const incremental = within(dialog).getByLabelText('Skip already ingested') as HTMLInputElement;
     expect(incremental.checked).toBe(true);
     await user.click(incremental);
     await user.click(within(dialog).getByRole('button', { name: 'Save source' }));

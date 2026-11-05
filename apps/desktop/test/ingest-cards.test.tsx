@@ -54,13 +54,13 @@ const z9: DetectedCard = {
 };
 
 describe('Ingest view cards', () => {
-  it('lists an inserted card with label, mount path and image count, unpicked', async () => {
+  it('lists an inserted card with label, mount path and photo count, unpicked', async () => {
     const { fake } = await renderIngest([z9]);
 
     const row = await screen.findByTestId('ingest-card');
     expect(within(row).getByText('NIKON_Z9')).toBeTruthy();
     expect(within(row).getByText('/media/filip/NIKON_Z9')).toBeTruthy();
-    expect(within(row).getByText('412 images')).toBeTruthy();
+    expect(within(row).getByText('412 photos')).toBeTruthy();
     expect(
       (within(row).getByRole('checkbox', { name: 'NIKON_Z9' }) as HTMLInputElement).checked,
     ).toBe(false);
@@ -82,7 +82,7 @@ describe('Ingest view cards', () => {
     expect(screen.getByText('NIKON_Z9')).toBeTruthy();
 
     release();
-    expect(await screen.findByText('412 images')).toBeTruthy();
+    expect(await screen.findByText('412 photos')).toBeTruthy();
   });
 
   it('scans when the view opens, and only again when Rescan cards is pressed', async () => {
@@ -112,7 +112,7 @@ describe('Ingest view cards', () => {
 
   it('turns the rescan arrow while the scan runs and counts the images again', async () => {
     const { mounted, user } = await renderIngest([z9]);
-    await screen.findByText('412 images');
+    await screen.findByText('412 photos');
     const button = screen.getByRole('button', { name: 'Rescan cards' });
     expect(button.getAttribute('aria-busy')).toBe('false');
 
@@ -126,15 +126,20 @@ describe('Ingest view cards', () => {
     // The old number is not shown as current while the card is scanned again.
     release();
 
-    expect(await screen.findByText('500 images')).toBeTruthy();
+    expect(await screen.findByText('500 photos')).toBeTruthy();
     await waitFor(() => expect(button.getAttribute('aria-busy')).toBe('false'));
   });
 
-  it('picking a card shows its filters and saves them on the card source', async () => {
+  it('shows a card’s filters as one line and edits them inline once it is opened', async () => {
     const { store, user } = await renderIngest([z9]);
     const row = await screen.findByTestId('ingest-card');
 
     await user.click(within(row).getByRole('checkbox', { name: 'NIKON_Z9' }));
+    const line = await within(row).findByRole('button', { name: 'Filters for NIKON_Z9' });
+    expect(line.textContent).toContain('all files');
+    expect(within(row).queryByTestId('source-filters')).toBeNull();
+
+    await user.click(line);
     const filters = await within(row).findByTestId('source-filters');
     await user.click(within(filters).getByRole('button', { name: 'RAW' }));
 
@@ -143,9 +148,13 @@ describe('Ingest view cards', () => {
         store.getState().sources.find((source) => source.kind === 'card' && source.discovered),
       ).toMatchObject({ fileTypes: 'raw', mountPath: z9.mountPath }),
     );
+    expect(line.textContent).toContain('RAW only');
     expect(
       (within(row).getByRole('checkbox', { name: 'NIKON_Z9' }) as HTMLInputElement).checked,
     ).toBe(true);
+
+    await user.click(line);
+    expect(within(row).queryByTestId('source-filters')).toBeNull();
   });
 
   it('lists two cards with the same label as separate rows with their own mount paths', async () => {
@@ -213,18 +222,41 @@ describe('Ingest view cards', () => {
     expect(screen.queryByTestId('ingest-failed-summary')).toBeNull();
   });
 
-  it('counts only what Ingest will run, and says so when there is nothing to run', async () => {
-    const { store, user } = await renderIngest([z9]);
+  it('counts only what Ingest will run, and says why it cannot when there is nothing to run', async () => {
+    const { store, fake, user } = await renderIngest([z9]);
     for (const source of [...store.getState().sources]) await store.removeSource(source.id);
+    // The mock world starts with runs going; this test is about the idle bar.
+    act(() => {
+      for (const run of Object.values(store.getState().ingest)) {
+        fake.emit('jobs:event', {
+          type: 'ingest.state',
+          at: 0,
+          jobId: run.jobId,
+          sourceId: run.sourceId,
+          state: 'stopped',
+        });
+      }
+    });
     const row = await screen.findByTestId('ingest-card');
-    const form = screen.getByTestId('ingest-view');
-    expect(within(form).getByText(/Nothing to ingest/)).toBeTruthy();
+    await screen.findByText('412 photos');
+    const bar = screen.getByTestId('ingest-bar');
+    const button = within(bar).getByRole('button', { name: /^Ingest/ }) as HTMLButtonElement;
+
+    expect(button.disabled).toBe(true);
+    expect(button.textContent).toBe('Ingest');
+    expect(button.title).toMatch(/Nothing to ingest\. Tick a card/);
+    expect(within(bar).getByText(/Nothing to ingest/)).toBeTruthy();
 
     await user.click(within(row).getByRole('checkbox', { name: 'NIKON_Z9' }));
-    await waitFor(() => expect(within(form).getByText(/^1 source\(s\): NIKON_Z9$/)).toBeTruthy());
-    await user.click(within(row).getByRole('checkbox', { name: 'NIKON_Z9' }));
-    await user.click(within(form).getByRole('button', { name: /^Ingest$/ }));
+    await waitFor(() => expect(button.textContent).toBe('Ingest 412 photos'));
+    expect(button.disabled).toBe(false);
+    expect(within(bar).getByTestId('ingest-summary').textContent).toMatch(
+      /^1 card · 412 photos → \/mock\/ingested\/.+\/NIKON_Z9$/,
+    );
 
-    expect(await within(form).findByText(/Nothing to ingest\. Tick a card/)).toBeTruthy();
+    await user.click(within(row).getByRole('checkbox', { name: 'NIKON_Z9' }));
+    await waitFor(() => expect(button.disabled).toBe(true));
+    await user.click(button);
+    expect(fake.calls.some((call) => call.channel === 'ingest:start')).toBe(false);
   });
 });
