@@ -34,7 +34,7 @@ async function setup(options: Parameters<typeof createFakeBridge>[0] = {}) {
     return { thumb: image(2), preview: image(4) };
   };
   const fake = createFakeBridge(options);
-  const store = createAppStore(fake.bridge, { renderEditedPreview });
+  const store = createAppStore(fake.bridge, { renderEditedPreview, confirm: () => true });
   stores.push(store);
   await store.init();
   return { store, fake, rendered };
@@ -142,8 +142,7 @@ describe('edited thumbnails and previews in the store', () => {
     await settle();
     const before = rendered.length;
 
-    store.toggleRetouch();
-    await store.deleteRetouchVersion();
+    await store.deleteRetouch();
     await settle();
     await settle();
     expect(rendered.length).toBe(before + 1);
