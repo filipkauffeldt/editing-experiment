@@ -47,6 +47,58 @@ describe('SettingsStore profile folders', () => {
   });
 });
 
+describe('SettingsStore preset folders', () => {
+  it('keeps the folders the user added across a restart, without repeats', async () => {
+    const file = join(await tempDir(), 'settings.json');
+    const store = new SettingsStore(file, defaults);
+    expect(store.get().presetFolders).toBeUndefined();
+    store.set({ presetFolders: ['/lr/Lightroom Settings', '/more', '/lr/Lightroom Settings'] });
+    expect(store.get().presetFolders).toEqual(['/lr/Lightroom Settings', '/more']);
+    expect(new SettingsStore(file, defaults).get().presetFolders).toEqual([
+      '/lr/Lightroom Settings',
+      '/more',
+    ]);
+    // Emptying the list is a choice that is kept, not a return to "never set".
+    store.set({ presetFolders: [] });
+    expect(new SettingsStore(file, defaults).get().presetFolders).toEqual([]);
+  });
+
+  it('opens a settings file from before the setting existed', async () => {
+    const file = join(await tempDir(), 'settings.json');
+    const old = new SettingsStore(file, defaults);
+    old.set({ profileFolders: ['/profiles'] });
+    const written = JSON.parse(await readFile(file, 'utf8')) as Record<string, unknown>;
+    expect(written['presetFolders']).toBeUndefined();
+    const reopened = new SettingsStore(file, defaults).get();
+    expect(reopened.presetFolders).toBeUndefined();
+    expect(reopened.profileFolders).toEqual(['/profiles']);
+  });
+
+  it('ignores a value that is not a list and drops entries that are not paths', async () => {
+    const dir = await tempDir();
+    const file = join(dir, 'settings.json');
+    new SettingsStore(file, defaults).set({ profileFolders: ['/p'] });
+    const written = JSON.parse(await readFile(file, 'utf8')) as Record<string, unknown>;
+
+    await writeFile(file, JSON.stringify({ ...written, presetFolders: '/not/a/list' }));
+    expect(new SettingsStore(file, defaults).get().presetFolders).toBeUndefined();
+
+    await writeFile(
+      file,
+      JSON.stringify({ ...written, presetFolders: ['/ok', '', 5, null, '/fine'] }),
+    );
+    expect(new SettingsStore(file, defaults).get().presetFolders).toEqual(['/ok', '/fine']);
+  });
+
+  it('refuses a bad value from the renderer', async () => {
+    const store = new SettingsStore(join(await tempDir(), 'settings.json'), defaults);
+    expect(() => store.set({ presetFolders: [''] })).toThrow(/presetFolders/);
+    expect(() => store.set({ presetFolders: 'x' as unknown as string[] })).toThrow(/presetFolders/);
+    expect(() => store.set({ presetFolders: [1] as unknown as string[] })).toThrow(/presetFolders/);
+    expect(store.get().presetFolders).toBeUndefined();
+  });
+});
+
 describe('SettingsStore metadata templates', () => {
   it('round-trips the global template and code replacement lists without repeats', async () => {
     const file = join(await tempDir(), 'settings.json');

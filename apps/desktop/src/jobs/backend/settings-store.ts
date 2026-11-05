@@ -200,6 +200,13 @@ function assertSettingsPatch(patch: Partial<AppSettings>): void {
   ) {
     throw new IpcError('invalid_argument', 'profileFolders must be a list of folder paths');
   }
+  if (
+    patch.presetFolders !== undefined &&
+    (!Array.isArray(patch.presetFolders) ||
+      patch.presetFolders.some((folder) => typeof folder !== 'string' || folder === ''))
+  ) {
+    throw new IpcError('invalid_argument', 'presetFolders must be a list of folder paths');
+  }
   if (patch.metadataTemplates !== undefined && !isPathList(patch.metadataTemplates)) {
     throw new IpcError('invalid_argument', 'metadataTemplates must be a list of file paths');
   }
@@ -377,6 +384,13 @@ export class SettingsStore {
               ),
             }
           : {}),
+        ...(Array.isArray(parsed.presetFolders)
+          ? {
+              presetFolders: parsed.presetFolders.filter(
+                (folder): folder is string => typeof folder === 'string' && folder !== '',
+              ),
+            }
+          : {}),
         metadataTemplates,
         codeReplacementPaths,
         ...(copyMetadataFields === undefined ? {} : { copyMetadataFields }),
@@ -408,6 +422,9 @@ export class SettingsStore {
       ...(this.state.profileFolders === undefined
         ? {}
         : { profileFolders: this.state.profileFolders }),
+      ...(this.state.presetFolders === undefined
+        ? {}
+        : { presetFolders: this.state.presetFolders }),
       metadataTemplates: this.state.metadataTemplates ?? [],
       codeReplacementPaths: this.state.codeReplacementPaths ?? [],
       ...(this.state.copyMetadataFields === undefined
@@ -430,6 +447,9 @@ export class SettingsStore {
       ...(patch.activePresetId !== undefined ? { activePresetId: patch.activePresetId } : {}),
       ...(patch.profileFolders !== undefined
         ? { profileFolders: [...new Set(patch.profileFolders)] }
+        : {}),
+      ...(patch.presetFolders !== undefined
+        ? { presetFolders: [...new Set(patch.presetFolders)] }
         : {}),
       ...(patch.metadataTemplates !== undefined
         ? { metadataTemplates: [...new Set(patch.metadataTemplates)] }

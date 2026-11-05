@@ -20,6 +20,8 @@ import { MetadataService } from './metadata-service';
 import { PhotoDeleter, type TrashItem } from './photo-deleter';
 import { PhotoIndex } from './photo-index';
 import { PhotoLibrary, type Emit } from './photo-library';
+import { PresetFolders } from './preset-folders';
+import { PresetLibrary } from './preset-library';
 import { PresetStore } from './presets';
 import { ProfileLibrary } from './profiles';
 import { PreviewCache } from './previews';
@@ -103,7 +105,13 @@ export async function createBackend(options: BackendOptions): Promise<Backend> {
   const labels = new LabelService(photos, exiftool);
   const seenStore = new SqliteSeenStore(layout.seenDb);
   const presets = new PresetStore(layout.presetsDir);
-  // Scan in the background so the first Develop panel does not wait for it.
+  const presetLibrary = new PresetLibrary(
+    presets,
+    new PresetFolders({ folders: () => settings.get().presetFolders ?? [] }),
+  );
+  // Scan in the background so the first Develop panel does not wait for it. This is the only scan
+  // the app makes by itself: later ones are asked for when the preset list is opened or refreshed.
+  void presetLibrary.index().catch((error: unknown) => console.warn('preset scan failed', error));
   void profiles.index().catch((error: unknown) => console.warn('profile scan failed', error));
   const faces = new FaceService(
     photos,
@@ -119,8 +127,8 @@ export async function createBackend(options: BackendOptions): Promise<Backend> {
 
   const reportJobError = (event: { jobId?: JobId; scope: string; message: string }): void =>
     emitJob({ type: 'job.error', at: Date.now(), ...event });
-  const developPreset = async (presetId: PresetId) =>
-    (await presets.list()).find((preset) => preset.id === presetId);
+  // Resolved from the files as they are when the ingest asks (never from an earlier listing).
+  const developPreset = (presetId: PresetId) => presetLibrary.resolve(presetId);
 
   const ingest = new IngestService({
     seenStore,
@@ -253,6 +261,7 @@ export async function createBackend(options: BackendOptions): Promise<Backend> {
       labels,
       faces,
       presets,
+      presetLibrary,
       profiles,
       ingest,
       queue,

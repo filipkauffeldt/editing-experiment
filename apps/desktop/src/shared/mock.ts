@@ -327,6 +327,7 @@ export function mockPresets(): EditPreset[] {
       id: asPresetId('mock-preset-press'),
       name: 'Press — Punchy',
       path: '/mock/presets/Press Punchy.xmp',
+      group: 'Sport/Fotboll',
       params: {
         Exposure2012: 0.2,
         Contrast2012: 15,
@@ -348,6 +349,7 @@ export function mockPresets(): EditPreset[] {
       id: asPresetId('mock-preset-bw'),
       name: 'Black & White — High Contrast',
       path: '/mock/presets/Black and White.xmp',
+      group: 'Svartvitt',
       params: { Saturation: -100, Contrast2012: 28, Whites2012: 12 },
     },
   ];

@@ -32,6 +32,7 @@ import {
   type DevelopSettingGroupId,
   type EditParams,
   type EditPreset,
+  type PresetIndex,
   type EeBridge,
   type ExportJob,
   type ExportJobId,
@@ -104,7 +105,13 @@ export type SortMode = 'filename' | 'capture-time';
 export type SelectionMode = 'replace' | 'toggle' | 'range';
 /** The four modules of the top bar; Retouch is `AppState.retouch` on the Develop view. */
 export type AppModule = 'ingest' | 'library' | 'develop';
-export type DialogTab = 'sources' | 'destinations' | 'ingest' | 'metadata' | 'profiles';
+export type DialogTab =
+  | 'sources'
+  | 'destinations'
+  | 'ingest'
+  | 'metadata'
+  | 'profiles'
+  | 'presets';
 
 /** A photo's camera profile as the renderer uses it. */
 export interface PhotoProfile {
@@ -382,6 +389,8 @@ export interface AppState {
   profileChoices: Record<string, PhotoProfiles>;
   /** What the profile folders hold, for the Settings tab; loaded when it is opened. */
   profileIndex?: ProfileIndex;
+  /** What the preset folders hold (problems, folders), for the Settings tab; `presets` is its list. */
+  presetIndex?: PresetIndex;
   /**
    * Values of develop sections that are switched off, by `<photoId>:<section>`. Switching a section
    * off resets its sliders (so the render drops it) and parks the values here; switching it on
@@ -903,7 +912,7 @@ export class AppStore {
       this.bridge.invoke('sources:list'),
       this.bridge.invoke('destinations:list'),
       this.bridge.invoke('settings:get'),
-      this.bridge.invoke('develop:listPresets'),
+      this.bridge.invoke('develop:presetIndex'),
       this.bridge.invoke('upload:list'),
       this.bridge.invoke('ingest:status'),
       this.bridge.invoke('exportPresets:list'),
@@ -949,7 +958,8 @@ export class AppStore {
       sources: value(sources) ?? [],
       destinations: value(destinations) ?? [],
       settings: value(settings),
-      presets: value(presets) ?? [],
+      presets: value(presets)?.presets ?? [],
+      ...(value(presets) === undefined ? {} : { presetIndex: value(presets) }),
       exportPresets: value(exportPresets) ?? [],
       exportJobs: value(exportJobs) ?? [],
       uploads: value(uploads) ?? [],
@@ -2919,6 +2929,47 @@ export class AppStore {
   };
 
   readonly clearPresetNotice = (): void => this.set({ presetNotice: undefined });
+
+  /**
+   * The presets in the preset folders and the imported ones. `rescan` reads the folders again: the
+   * panel asks when it is opened and when the user presses Refresh, never on a timer. The backend
+   * joins scans that overlap.
+   */
+  readonly loadPresetIndex = async (rescan = false): Promise<void> => {
+    try {
+      const presetIndex = await this.bridge.invoke('develop:presetIndex', { rescan });
+      this.set({ presetIndex, presets: presetIndex.presets });
+    } catch (cause) {
+      this.toast('error', `Could not read the preset folders: ${messageOf(cause)}`);
+    }
+  };
+
+  /** Adds a folder to the preset search (the Settings tab). */
+  readonly addPresetFolder = async (): Promise<void> => {
+    try {
+      const [path] = await this.bridge.invoke('dialog:pick', {
+        kind: 'folder',
+        title: 'Folder with develop presets (.xmp, .lrtemplate)',
+      });
+      if (!path) return;
+      const folders = this.state.settings?.presetFolders ?? [];
+      if (folders.includes(path)) return;
+      await this.saveSettings({ presetFolders: [...folders, path] });
+      await this.loadPresetIndex(true);
+    } catch (cause) {
+      this.toast('error', `Could not add the folder: ${messageOf(cause)}`);
+    }
+  };
+
+  readonly removePresetFolder = async (path: string): Promise<void> => {
+    try {
+      const folders = (this.state.settings?.presetFolders ?? []).filter((f) => f !== path);
+      await this.saveSettings({ presetFolders: folders });
+      await this.loadPresetIndex(true);
+    } catch (cause) {
+      this.toast('error', `Could not remove the folder: ${messageOf(cause)}`);
+    }
+  };
 
   // ------------------------------------------------------- copy/paste settings
 

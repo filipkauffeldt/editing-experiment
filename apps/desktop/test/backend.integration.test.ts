@@ -425,7 +425,7 @@ describe.skipIf(nefs.length === 0)(
       );
       const preset = await handlers['develop:importPreset']({ path: presetFile });
       expect(preset.params).toMatchObject({ Exposure2012: 0.3, Contrast2012: 20 });
-      expect((await handlers['develop:listPresets']()).map((p) => p.id)).toContain(preset.id);
+      expect((await handlers['develop:presetIndex']()).presets.map((p) => p.id)).toContain(preset.id);
     });
 
     it('applies copied setting groups to a batch and writes every sidecar', async () => {
