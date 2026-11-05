@@ -133,7 +133,13 @@ export class AppResources {
     try {
       // The index decides which JPEG may be shown (see `PreviewCache.resolve`). A
       // file for a photo the index does not know cannot be retouched.
-      served = await previews.resolve(kind, photoId, retouchKey(photos.get(photoId).versions));
+      const photo = photos.get(photoId);
+      served = await previews.resolve(
+        kind,
+        photoId,
+        retouchKey(photo.versions),
+        isRawPath(photo.path),
+      );
     } catch (error) {
       if (!(error instanceof IpcError) || error.code !== 'not_found') throw error;
       served = { file: previews.pathFor(kind, photoId), placeholder: false };

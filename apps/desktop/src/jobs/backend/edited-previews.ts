@@ -9,10 +9,11 @@ import {
   type SetEditedPreviewArgs,
   retouchOpsKey,
 } from '@ee/contracts';
+import { isRawPath } from '@ee/metadata';
 import { createHash } from 'node:crypto';
 import { encodeEditedJpegs } from './image-ops';
 import type { PhotoLibrary } from './photo-library';
-import type { PreviewCache } from './previews';
+import { hasCurrentDefaults, type PreviewCache } from './previews';
 
 /**
  * The retouch ops that previews and export apply: the newest retouch version's.
@@ -105,6 +106,27 @@ export class EditedPreviews {
   forget(photoId: PhotoId): void {
     this.newest.delete(photoId);
     this.saved.delete(photoId);
+  }
+
+  /**
+   * Drop edited previews of raw photos that were drawn with older raw defaults
+   * and mark them stale, once. Otherwise a cache from before a defaults change
+   * would sit next to a canvas drawn with the new values.
+   */
+  async invalidateOutdatedDefaults(): Promise<void> {
+    for (const photo of this.photos.list()) {
+      if (!photo.status.edited || !isRawPath(photo.path)) continue;
+      const meta = await this.cache.readEditedMeta(photo.id);
+      if (meta === undefined || hasCurrentDefaults(meta)) continue;
+      await this.cache.removeEdited(photo.id);
+      this.newest.delete(photo.id);
+      this.saved.delete(photo.id);
+      this.photos.update(photo.id, (current) => ({
+        ...current,
+        previewStale: true,
+        previewRevision: (current.previewRevision ?? 0) + 1,
+      }));
+    }
   }
 
   /** Store a render, unless it is out of date. Resolves with the photo as it is now. */

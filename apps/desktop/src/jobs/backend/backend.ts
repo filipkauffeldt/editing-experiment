@@ -100,6 +100,8 @@ export async function createBackend(options: BackendOptions): Promise<Backend> {
     profiles.defaultKeyForPhoto(photo, params),
   );
   const edits = new EditService(photos, exiftool, editedPreviews);
+  // Before anything is served: a raw preview drawn with older raw defaults is out of date.
+  await editedPreviews.invalidateOutdatedDefaults();
   const labels = new LabelService(photos, exiftool);
   const seenStore = new SqliteSeenStore(layout.seenDb);
   const presets = new PresetStore(layout.presetsDir);

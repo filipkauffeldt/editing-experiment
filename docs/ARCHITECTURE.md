@@ -525,7 +525,8 @@ the per-pixel chain. Their order, pyramid, tiling, caching and CPU parity are in
   show `withDefaults(params, defaults)` and every render (canvas, edited previews,
   export) uses it, but a sidecar write holds only what the user set. An explicit `0`
   is off (so it is written), and putting a slider back on its default removes the key.
-  The other camera settings in the `crd:` block are not applied either.
+  An edited preview drawn with older defaults is discarded at startup and rendered
+  again. The other camera settings in the `crd:` block are not applied either.
 - **No `EXT_color_buffer_float`.** Every Chromium WebGL2 has it, but without it the
   renderer reports `supportsNeighbourhood: false`, leaves the neighbourhood settings out,
   renders the rest and calls `onNeighbourhoodUnavailable` once (the app shows one toast).
