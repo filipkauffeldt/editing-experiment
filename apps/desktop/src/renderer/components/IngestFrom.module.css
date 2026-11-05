@@ -122,6 +122,11 @@
   padding-left: 22px;
 }
 
+.failed .state,
+.failed .error {
+  color: var(--text);
+}
+
 .state {
   display: flex;
   flex-wrap: wrap;

@@ -60,7 +60,7 @@ function RunStatus({ source, run }: { source: SourceConfig; run: IngestRun }) {
   const percent = run.filesTotal > 0 ? Math.min(100, (run.filesDone / run.filesTotal) * 100) : 0;
   const stoppable = run.state === 'running' || run.state === 'watching';
   return (
-    <div className={styles.run}>
+    <div className={`${styles.run} ${run.state === 'failed' ? styles.failed : ''}`}>
       <span className={styles.state}>
         <Dot tone={runTone(run)} />
         <span className="mono">{progressText(source, run)}</span>

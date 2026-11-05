@@ -311,3 +311,46 @@ describe('Ingest action', () => {
     expect(store.getState().ingest).toBeDefined();
   });
 });
+
+describe('a failed run', () => {
+  it('is named in the top bar, which opens Ingest where the source shows the error', async () => {
+    const { store, fake, user } = await renderIngest();
+    const source = store.getState().sources.find((candidate) => candidate.kind === 'folder')!;
+    const jobId = store.getState().ingest[source.id]!.jobId;
+    await user.click(
+      within(screen.getByTestId('status-bar')).getByRole('tab', { name: 'Library' }),
+    );
+    expect(screen.queryByTestId('ingest-view')).toBeNull();
+
+    act(() => {
+      fake.emit('jobs:event', {
+        type: 'job.error',
+        at: 0,
+        jobId,
+        scope: 'ingest',
+        message: 'The folder /media/filip/NIKON_Z9 could not be read.',
+      });
+      fake.emit('jobs:event', {
+        type: 'ingest.state',
+        at: 0,
+        jobId,
+        sourceId: source.id,
+        state: 'failed',
+      });
+    });
+    const failed = await screen.findByTestId('ingest-failed-summary');
+    expect(failed.textContent).toContain('1 ingest failed');
+    expect(failed.title).toContain('could not be read');
+
+    await user.click(failed);
+    const row = (await screen.findAllByTestId('ingest-source')).find((item) =>
+      within(item).queryByText(source.name),
+    )!;
+    expect(row.textContent).toContain('failed');
+    expect(row.textContent).toContain('The folder /media/filip/NIKON_Z9 could not be read.');
+    // The other runs still go, so the bar still offers Stop all.
+    expect(
+      within(screen.getByTestId('ingest-bar')).getByRole('button', { name: 'Stop all ingests' }),
+    ).toBeTruthy();
+  });
+});
