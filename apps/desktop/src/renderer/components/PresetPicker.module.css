@@ -1,6 +1,45 @@
+/* One row: the label, then the menu that fills the rest, like the Profile row below it. */
+.row {
+  display: grid;
+  grid-template-columns: 56px minmax(0, 1fr);
+  gap: 8px;
+  align-items: center;
+  padding: 3px 0;
+}
+
+.label {
+  color: var(--muted);
+  font-size: var(--fs-small);
+}
+
+/* Refresh and Import, at the top of the menu. */
+.tools {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  padding: 5px 12px;
+  border-bottom: 1px solid var(--line);
+}
+
+.tool {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  font-size: var(--fs-small);
+}
+
+.tool:hover {
+  color: var(--text);
+}
+
 .presets {
   display: flex;
   flex-direction: column;
+  padding-bottom: 4px;
 }
 
 .muted {
@@ -92,7 +131,7 @@
   display: flex;
   align-items: center;
   gap: 6px;
-  margin: 4px 12px 8px;
+  margin: 4px 0 2px;
   padding: 4px 7px;
   border: 1px solid var(--line-strong);
   color: var(--muted);

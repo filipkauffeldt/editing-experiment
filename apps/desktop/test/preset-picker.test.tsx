@@ -60,6 +60,12 @@ async function renderApp(
   return { store, calls };
 }
 
+/** The presets are one row with a menu; open it to see the list. */
+async function openPresetMenu(): Promise<HTMLElement> {
+  fireEvent.click(await within(await screen.findByTestId('preset-menu')).findByRole('button'));
+  return screen.findByTestId('presets');
+}
+
 describe('groupPresets', () => {
   it('puts the ungrouped first, then the groups by name, and keeps presets with the same name apart', () => {
     const groups = groupPresets(PRESETS);
@@ -74,15 +80,16 @@ describe('groupPresets', () => {
 describe('the grouped preset list in Develop', () => {
   it('shows the groups the user organised, with a count, and every preset under its own group', async () => {
     await renderApp();
-    const list = await screen.findByTestId('presets');
+    const list = await openPresetMenu();
     await waitFor(() => expect(within(list).getAllByTestId('preset-group')).toHaveLength(2));
     const groups = within(list).getAllByTestId('preset-group');
     expect(groups.map((g) => g.getAttribute('aria-label'))).toEqual(['Hockey', 'Sport/Fotboll']);
-    expect(
-      within(groups[1] as HTMLElement)
-        .getAllByRole('button')
-        .map((b) => b.textContent),
-    ).toEqual(['Sport/Fotboll2', 'Kväll1', 'Dag1']);
+    const sport = within(groups[1] as HTMLElement);
+    expect(sport.getByRole('button').textContent).toBe('Sport/Fotboll2');
+    expect(sport.getAllByRole('menuitem').map((item) => item.textContent)).toEqual([
+      'Kväll1',
+      'Dag1',
+    ]);
     // The two presets that are called Kväll are both there.
     expect(within(list).getAllByText('Kväll')).toHaveLength(2);
     // An ungrouped preset is a plain row before the groups.
@@ -91,7 +98,7 @@ describe('the grouped preset list in Develop', () => {
 
   it('applies a preset from a group to the open photo', async () => {
     const { store } = await renderApp();
-    const list = await screen.findByTestId('presets');
+    const list = await openPresetMenu();
     await waitFor(() => expect(within(list).getByText('Dag')).toBeDefined());
     fireEvent.click(within(list).getByText('Dag'));
     await waitFor(() =>
@@ -103,7 +110,7 @@ describe('the grouped preset list in Develop', () => {
 
   it('closes and opens a group', async () => {
     await renderApp();
-    const list = await screen.findByTestId('presets');
+    const list = await openPresetMenu();
     await waitFor(() => expect(within(list).getByText('Dag')).toBeDefined());
     const header = within(list).getByRole('button', { name: /Sport\/Fotboll/ });
     expect(header.getAttribute('aria-expanded')).toBe('true');
@@ -119,7 +126,7 @@ describe('the grouped preset list in Develop', () => {
       preset(`Preset ${i}`, i % 2 === 0 ? 'Sport' : 'Porträtt', 0, `p${i}`),
     );
     await renderApp(many);
-    const list = await screen.findByTestId('presets');
+    const list = await openPresetMenu();
     await waitFor(() => expect(within(list).getAllByTestId('preset-group')).toHaveLength(2));
     const header = within(list).getByRole('button', { name: /^Sport/ });
     expect(header.getAttribute('aria-expanded')).toBe('false');
@@ -131,8 +138,8 @@ describe('the grouped preset list in Develop', () => {
 
   it('reads the folders when it is shown and when Refresh is pressed, and not otherwise', async () => {
     const { calls } = await renderApp();
-    await screen.findByTestId('presets');
     await waitFor(() => expect(calls.some((c) => c?.rescan === true)).toBe(true));
+    await openPresetMenu();
     const before = calls.length;
     await new Promise((resolve) => setTimeout(resolve, 300));
     expect(calls.length).toBe(before);
@@ -143,6 +150,7 @@ describe('the grouped preset list in Develop', () => {
 
   it('says where to add a folder when there are no presets', async () => {
     await renderApp([]);
+    await openPresetMenu();
     expect(await screen.findByText(/Add a preset folder in Settings → Presets/)).toBeDefined();
   });
 });
