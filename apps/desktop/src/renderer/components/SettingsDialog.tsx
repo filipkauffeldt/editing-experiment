@@ -20,6 +20,7 @@ import { useAppState, useAppStore } from '../store-context';
 import { FolderIcon, PlusIcon, ServerIcon } from './icons';
 import { MetadataSettings } from './MetadataSettings';
 import { Modal } from './Modal';
+import { PresetsSettings } from './PresetsSettings';
 import { ProfilesSettings } from './ProfilesSettings';
 import {
   DEFAULT_FILE_TYPES,
@@ -1212,6 +1213,7 @@ export function SettingsDialog() {
     { id: 'ingest', label: 'Ingest' },
     { id: 'metadata', label: 'Metadata' },
     { id: 'profiles', label: 'Profiles' },
+    { id: 'presets', label: 'Presets' },
   ];
 
   return (
@@ -1247,6 +1249,7 @@ export function SettingsDialog() {
         {tab === 'ingest' && <IngestSection />}
         {tab === 'metadata' && <MetadataSettings />}
         {tab === 'profiles' && <ProfilesSettings />}
+        {tab === 'presets' && <PresetsSettings />}
       </div>
     </Modal>
   );
