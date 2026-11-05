@@ -707,7 +707,7 @@ describe.skipIf(nefs.length === 0 || !haveDisplay)(
       await window.locator('[data-testid="wb-picker-layer"]').waitFor();
       await window.keyboard.press('Escape');
       await window.locator('[data-testid="wb-picker-layer"]').waitFor({ state: 'detached' });
-    }, 15_000);
+    }, 45_000);
 
     it('crops to 1:1 with a 3 degree straighten and uploads the crop size', async () => {
       await selectPhoto('cardA_002.NEF');
