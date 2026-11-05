@@ -472,7 +472,12 @@ export function createMockHandlers(world: MockWorld, emit: Emit): Partial<IpcHan
     },
     'develop:presetIndex': async () => ({
       presets: world.presets,
-      problems: [],
+      problems: [
+        {
+          path: '/mock/Adobe/CameraRaw/Settings/Sport/Ishockey/Trasig.xmp',
+          reason: 'Not valid XML: Unclosed tag',
+        },
+      ],
       folders: ['/mock/Adobe/CameraRaw/Settings'],
     }),
     'develop:importPreset': async ({ path }) => {

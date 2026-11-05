@@ -326,7 +326,7 @@ export function mockPresets(): EditPreset[] {
     {
       id: asPresetId('mock-preset-press'),
       name: 'Press — Punchy',
-      path: '/mock/presets/Press Punchy.xmp',
+      path: '/mock/Adobe/CameraRaw/Settings/Sport/Fotboll/Press Punchy.xmp',
       group: 'Sport/Fotboll',
       params: {
         Exposure2012: 0.2,
@@ -342,15 +342,36 @@ export function mockPresets(): EditPreset[] {
     {
       id: asPresetId('mock-preset-daylight'),
       name: 'Daylight — Neutral',
-      path: '/mock/presets/Daylight Neutral.xmp',
+      path: '/mock/Adobe/CameraRaw/Settings/Daylight Neutral.xmp',
       params: { Temperature: 5500, Tint: 8, Contrast2012: 5 },
     },
     {
       id: asPresetId('mock-preset-bw'),
       name: 'Black & White — High Contrast',
-      path: '/mock/presets/Black and White.xmp',
+      path: '/mock/Adobe/CameraRaw/Settings/Svartvitt/Black and White.xmp',
       group: 'Svartvitt',
       params: { Saturation: -100, Contrast2012: 28, Whites2012: 12 },
+    },
+    {
+      id: asPresetId('mock-preset-floodlit'),
+      name: 'Floodlit Pitch',
+      path: '/mock/Adobe/CameraRaw/Settings/Sport/Fotboll/Floodlit Pitch.xmp',
+      group: 'Sport/Fotboll',
+      params: { Exposure2012: 0.35, Highlights2012: -40, Shadows2012: 25, Vibrance: 12 },
+    },
+    {
+      id: asPresetId('mock-preset-arena'),
+      name: 'Arena Cool',
+      path: '/mock/Adobe/CameraRaw/Settings/Sport/Ishockey/Arena Cool.xmp',
+      group: 'Sport/Ishockey',
+      params: { Temperature: 4800, Tint: -4, Contrast2012: 12, Clarity2012: 8 },
+    },
+    {
+      id: asPresetId('mock-preset-bw-soft'),
+      name: 'Black & White — Soft',
+      path: '/mock/Adobe/CameraRaw/Settings/Svartvitt/Black and White Soft.xmp',
+      group: 'Svartvitt',
+      params: { Saturation: -100, Contrast2012: 8, Shadows2012: 20 },
     },
   ];
 }
