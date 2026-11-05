@@ -7,8 +7,9 @@ const GROUPS: { title: string; rows: [string, string][] }[] = [
     title: 'Navigate',
     rows: [
       ['← / →', 'Previous / next photo'],
+      ['Ctrl/⌘ + F', 'Search the Library (file name, caption, keywords)'],
       ['? / F1', 'Show this shortcut list'],
-      ['Esc', 'Leave the current field'],
+      ['Esc', 'Leave the current field (in the search box: clear it too)'],
     ],
   },
   {
