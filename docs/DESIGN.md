@@ -56,8 +56,10 @@ Built in `components/ui/`:
 
 - **Slider**: a 1 px track, a centre tick at neutral, a 2 x 11 px white bar thumb (no round
   knob), a 1 px white fill from neutral to the value, the value right-aligned in mono and
-  typeable. Double-click resets. Temperature and tint tracks carry the desaturated gradients
-  (3 px so the colour reads).
+  typeable. While typing, an in-range value applies live and an out-of-range one waits for
+  Enter or blur, which clamps and rounds it; Escape restores the focused value. Double-click
+  resets. Temperature and tint tracks carry the desaturated gradients (3 px so the colour
+  reads).
 - **NumberField**: the same mono, right-aligned value at a fixed width next to a toolbar slider
   (retouch block size and face padding, crop angle), keeping a local draft until Enter or blur.
   It commits a parsed, clamped value; an empty or invalid draft restores the current value.
