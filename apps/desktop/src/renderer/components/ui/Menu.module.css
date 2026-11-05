@@ -57,6 +57,10 @@
   left: auto;
 }
 
+.compact {
+  min-width: 0;
+}
+
 .heading {
   padding: 8px 12px 4px;
   color: var(--dim);
@@ -113,4 +117,39 @@
 
 .itemCount {
   color: var(--dim);
+}
+
+/* A menu used as a field: the button takes the whole row; the popover opens leftwards to fit its items. */
+.fill {
+  flex: 1;
+  min-width: 0;
+}
+
+.fill .button {
+  flex: 1;
+  min-width: 0;
+  justify-content: space-between;
+  padding: 3px 0 4px;
+  border-bottom: 1px solid var(--line-strong);
+  font-size: var(--fs-base);
+}
+
+.fill .button {
+  color: var(--text);
+}
+
+.fill .badge {
+  margin-right: auto;
+}
+
+.fill .button:hover {
+  border-bottom-color: var(--dim);
+}
+
+.fill .popover {
+  right: 0;
+  left: auto;
+  width: max-content;
+  min-width: 100%;
+  max-width: 256px;
 }

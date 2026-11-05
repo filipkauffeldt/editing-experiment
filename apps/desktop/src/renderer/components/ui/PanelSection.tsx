@@ -9,6 +9,9 @@ interface PanelSectionProps {
   /** Extra header controls, right of the title. */
   actions?: ReactNode;
   defaultOpen?: boolean;
+  /** Present: the caller owns the open state (to remember it); `defaultOpen` is then unused. */
+  open?: boolean;
+  onOpenChange?(open: boolean): void;
   /** No body padding, for lists that draw their own rows. */
   flush?: boolean;
   testId?: string;
@@ -22,11 +25,18 @@ export function PanelSection({
   onEnabledChange,
   actions,
   defaultOpen = true,
+  open: controlledOpen,
+  onOpenChange,
   flush,
   testId,
   children,
 }: PanelSectionProps) {
-  const [open, setOpen] = useState(defaultOpen);
+  const [ownOpen, setOwnOpen] = useState(defaultOpen);
+  const open = controlledOpen ?? ownOpen;
+  const setOpen = (next: boolean): void => {
+    setOwnOpen(next);
+    onOpenChange?.(next);
+  };
   const classes = [
     styles.section,
     open ? styles.open : '',
@@ -40,7 +50,7 @@ export function PanelSection({
           type="button"
           className={styles.title}
           aria-expanded={open}
-          onClick={() => setOpen((value) => !value)}
+          onClick={() => setOpen(!open)}
         >
           <span className={styles.caret} aria-hidden />
           {title}
