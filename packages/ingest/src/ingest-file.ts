@@ -8,7 +8,9 @@ import {
   type SourceConfig,
 } from '@ee/contracts';
 import { copyPhotoLocal } from './copy';
-import { safeFileBase, safeSubfolder, splitName } from './naming';
+import { expandSubfolder, plannedFileBase } from './destination-path';
+import { safeSubfolder } from './naming';
+import { splitName } from './path-names';
 import { createTemplateContext, type ExpandTemplate, type TemplateContext } from './template';
 import type { FileCopier, IngestedFileInfo } from './types';
 
@@ -17,10 +19,7 @@ export function destinationDirectory(
   context: TemplateContext,
   expandTemplate: ExpandTemplate,
 ): string {
-  const expanded = destination.subfolderTemplate
-    ? expandTemplate(destination.subfolderTemplate, context)
-    : '';
-  const subfolder = safeSubfolder(expanded);
+  const subfolder = safeSubfolder(expandSubfolder(destination, context, expandTemplate));
   return subfolder ? join(destination.path, subfolder) : destination.path;
 }
 
@@ -85,14 +84,17 @@ export async function ingestFile(
 
   const originalBase = splitName(request.sourceFileName).base;
   const reservationKey = `${request.source.id}\u0000${primaryDirectory}\u0000${originalBase}`;
-  let finalBase: string;
+  const planned = plannedFileBase(
+    deps.config,
+    request.sourceFileName,
+    context,
+    deps.expandTemplate,
+  );
+  let finalBase = planned;
   if (deps.config.fileNaming === 'keep') {
-    // Keeping the original base name still runs through the file-name guard: it
-    // is a real name, but must never become a path or an empty name.
-    finalBase = deps.baseNames?.get(reservationKey) ?? safeFileBase(originalBase);
+    // A concurrent source may have taken the name already; the rest of a RAW/JPEG pair follows it.
+    finalBase = deps.baseNames?.get(reservationKey) ?? planned;
     deps.baseNames?.set(reservationKey, finalBase);
-  } else {
-    finalBase = safeFileBase(deps.expandTemplate(deps.config.renameTemplate, context));
   }
 
   const result = await copyPhotoLocal(

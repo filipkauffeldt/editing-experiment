@@ -1,5 +1,6 @@
-import { expandVariables, type CaptionContext } from '@ee/metadata';
-import type { ExpandTemplate, TemplateContext } from '@ee/ingest';
+// No Node imports: the Ingest view expands the same templates for its preview.
+import type { ExpandTemplate, TemplateContext } from '@ee/ingest/template';
+import { expandVariables, type CaptionContext } from '@ee/metadata/variables';
 
 const pad = (value: number, width = 2): string => String(value).padStart(width, '0');
 

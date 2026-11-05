@@ -33,6 +33,13 @@ export {
 } from './filters';
 export type { FilterSourceFilesOptions, FilterSourceFilesResult } from './filters';
 export { IMAGE_EXTENSIONS, RAW_EXTENSIONS, isImageFileName, isRawFileName } from './formats';
+export {
+  expandSubfolder,
+  joinDisplayPath,
+  plannedFileBase,
+  previewIngestPath,
+} from './destination-path';
+export type { FileNaming, IngestPathPreview, IngestPathPreviewInput } from './destination-path';
 export { hashFile } from './hash';
 export {
   EXPORT_MARKER_NAME,

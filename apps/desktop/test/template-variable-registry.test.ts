@@ -11,7 +11,7 @@ import {
   type TemplateVariableContext,
 } from '@ee/metadata/variables';
 import { describe, expect, it } from 'vitest';
-import { expandIngestTemplate } from '../src/jobs/backend/ingest-template';
+import { expandIngestTemplate } from '../src/shared/ingest-template';
 import { resolveExportFileName } from '../src/jobs/backend/export-service';
 import { defaultExportPreset } from '../src/shared/settings';
 

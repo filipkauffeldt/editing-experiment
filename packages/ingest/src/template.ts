@@ -1,5 +1,5 @@
 import type { SourceId } from '@ee/contracts';
-import { splitName } from './naming';
+import { splitName } from './path-names';
 
 /** Values available to rename and destination-subfolder templates. */
 export interface TemplateContext {
