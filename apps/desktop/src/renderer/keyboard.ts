@@ -1,4 +1,5 @@
 import { useEffect } from 'react';
+import { captionCaretPosition } from './caption-caret';
 import {
   cancelWbPicker,
   developViewStore,
@@ -13,13 +14,15 @@ import { zoomKeyAction } from './zoom-keys';
 
 /**
  * Focus the caption editor without threading a ref through every panel: the
- * caret goes to the start with nothing selected, and the field scrolls to it.
+ * caret goes after a leading date (or to the start) with nothing selected, and
+ * the field scrolls to it.
  */
 export function focusCaptionField(): void {
   const field = document.querySelector<HTMLTextAreaElement>('[data-caption-input]');
   if (!field) return;
+  const caret = captionCaretPosition(field.value);
   field.focus();
-  field.setSelectionRange(0, 0);
+  field.setSelectionRange(caret, caret);
   field.scrollTop = 0;
 }
 
