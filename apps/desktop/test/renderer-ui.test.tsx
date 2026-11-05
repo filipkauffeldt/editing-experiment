@@ -209,15 +209,15 @@ describe('film strip', () => {
   it('shows edit, retouch, metadata and upload badges', async () => {
     await renderApp();
 
-    expect(within(thumbnail('_DSC8332.NEF')).getByTitle('Retouch version')).toBeTruthy();
-    expect(within(thumbnail('_DSC8332.NEF')).getByTitle('Uploading')).toBeTruthy();
-    expect(within(thumbnail('_DSC8332.NEF')).queryByTitle('Edited')).toBeNull();
-    expect(within(thumbnail('_DSC8331.NEF')).getByTitle('Queued for upload')).toBeTruthy();
-    expect(within(thumbnail('_DSC8333.NEF')).getByTitle('Upload failed')).toBeTruthy();
-    expect(
-      within(thumbnail('_DSC8334.NEF')).getByTitle('Metadata differs from template'),
-    ).toBeTruthy();
-    expect(within(thumbnail('_DSC8330.NEF')).getByTitle('Uploaded')).toBeTruthy();
+    const icon = (file: string, name: string | RegExp): HTMLElement =>
+      within(thumbnail(file)).getByRole('img', { name });
+    expect(icon('_DSC8332.NEF', 'Retouched')).toBeTruthy();
+    expect(icon('_DSC8332.NEF', /^Uploading/)).toBeTruthy();
+    expect(within(thumbnail('_DSC8332.NEF')).queryByRole('img', { name: 'Edited' })).toBeNull();
+    expect(icon('_DSC8331.NEF', 'Queued for upload')).toBeTruthy();
+    expect(icon('_DSC8333.NEF', 'Upload failed')).toBeTruthy();
+    expect(icon('_DSC8334.NEF', 'Metadata differs from template')).toBeTruthy();
+    expect(icon('_DSC8330.NEF', 'Uploaded')).toBeTruthy();
   });
 });
 

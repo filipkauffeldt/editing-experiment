@@ -11,7 +11,6 @@ import { LibraryInspector } from './LibraryInspector';
 import { LibraryLoupe } from './LibraryLoupe';
 import { LibrarySidebar } from './LibrarySidebar';
 import { FilterBar, FilterEmpty } from './FilterBar';
-import { COLOR_CLASSES, COLOR_CLASS_NAMES } from './PhotoOverlays';
 import { Button } from './ui/Button';
 import { Slider } from './ui/Slider';
 import { PanelResizeHandle } from './ui/PanelResizeHandle';
@@ -43,10 +42,6 @@ export function LibraryView() {
   );
   const hiddenByFilter = photos.length === 0 && scope.length > 0 && isFiltering(state.filter);
   const selected = state.selection;
-  const taggedCount = useMemo(() => {
-    const ids = new Set(selected);
-    return state.photos.filter((photo) => ids.has(photo.id) && photo.tagged).length;
-  }, [state.photos, selected]);
   const mod = modKeyLabel();
   const none = selected.length === 0;
 
@@ -104,42 +99,15 @@ export function LibraryView() {
         <ActionBar
           testId="library-action-bar"
           left={
-            <>
-              <span className={barStyles.count} data-testid="library-selection-count">
-                <span className="mono">{selected.length}</span> selected ·{' '}
-                <span className="mono">{taggedCount}</span> tagged
-              </span>
-              <span className={barStyles.hints} data-testid="library-label-hints">
-                Rating 1–5 · Class {mod}+1–8
-              </span>
-            </>
+            <span className={barStyles.count} data-testid="library-selection-count">
+              <span className="mono">{selected.length}</span> selected
+            </span>
           }
           right={
             <>
-              <Button disabled={none} hint="T" onClick={() => store.toggleTag()}>
-                Tag
-              </Button>
-              <span className={styles.classes} role="group" aria-label="Class">
-                <span className={styles.classLabel}>Class</span>
-                {COLOR_CLASSES.slice(1).map((color, index) => (
-                  <button
-                    key={color}
-                    type="button"
-                    className={styles.classButton}
-                    disabled={none}
-                    title={`Class ${index + 1} · ${COLOR_CLASS_NAMES[index + 1]}`}
-                    aria-label={`Set class ${index + 1}`}
-                    onClick={() => store.setColorClass(index + 1)}
-                  >
-                    <span className={styles.classDot} style={{ background: color }} />
-                    <span className="mono">{index + 1}</span>
-                  </button>
-                ))}
-              </span>
-              <span className={barStyles.separator} />
               <Button
                 disabled={none}
-                hint={`${mod}+I`}
+                title={`Caption (${mod}+I)`}
                 onClick={() => store.toggleBatchCaption(true)}
               >
                 Caption…
@@ -149,9 +117,13 @@ export function LibraryView() {
                 disabled={selected.length < 2}
                 onClick={() => store.openCopySettings('sync')}
               >
-                Sync…
+                Sync settings…
               </Button>
-              <Button disabled={none} hint={`⇧${mod}+E`} onClick={() => store.openExportDialog()}>
+              <Button
+                disabled={none}
+                title={`Export (⇧${mod}+E)`}
+                onClick={() => store.openExportDialog()}
+              >
                 Export…
               </Button>
               <Button

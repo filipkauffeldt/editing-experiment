@@ -18,23 +18,38 @@
   background: var(--text);
 }
 
-.labels {
-  display: flex;
-  flex-wrap: wrap;
+/* The status row: one scrim strip under the icons, nothing when there is no status.
+   It never wraps, so a narrow thumbnail clips it instead of growing a second row. */
+.icons {
+  display: inline-flex;
+  flex-wrap: nowrap;
   align-items: center;
-  gap: 2px;
+  vertical-align: bottom;
+  gap: 1px;
+  max-width: 100%;
+  overflow: hidden;
+  background: var(--scrim);
 }
 
-/* Export and upload icons share the text labels' scrim so they sit in one row. */
+.icons:empty {
+  display: none;
+}
+
+/* Every status icon is the same 14 px cell. */
 .badge {
+  position: relative;
   display: inline-flex;
+  flex: none;
   align-items: center;
   justify-content: center;
   width: 14px;
   height: 14px;
   padding: 0;
-  background: var(--scrim);
   color: var(--text);
+}
+
+.failed {
+  color: var(--error);
 }
 
 /* A rotating ring: transform only, so many thumbnails stay cheap. */
@@ -48,16 +63,18 @@
   animation: export-spin 0.8s linear infinite;
 }
 
-/* Uploading: the arrow bobs, so it reads differently from the export ring. */
-.uploading {
-  display: inline-flex;
-  align-items: center;
-  gap: 3px;
-}
-
+/* Sending: the arrow bobs over a thin progress line, so it reads differently from the export ring. */
 .uploadingIcon {
   flex: none;
   animation: upload-bob 0.9s ease-in-out infinite alternate;
+}
+
+.progress {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  height: 2px;
+  background: var(--text);
 }
 
 @keyframes export-spin {
@@ -72,7 +89,7 @@
   }
 
   to {
-    transform: translateY(-2px);
+    transform: translateY(-1px);
   }
 }
 
@@ -85,31 +102,6 @@
   .spinner {
     opacity: 0.7;
   }
-}
-
-/* Tiny text labels on a translucent black strip: sent, sending 64%, failed. */
-.label {
-  padding: 1px 4px;
-  background: var(--scrim);
-  color: var(--text);
-  font-family: var(--font-mono);
-  font-size: 9px;
-  line-height: 12px;
-  white-space: nowrap;
-}
-
-.labelFailed::before {
-  display: inline-block;
-  width: 5px;
-  height: 5px;
-  margin-right: 4px;
-  border-radius: 50%;
-  background: var(--error);
-  content: '';
-}
-
-.labelDim {
-  color: var(--muted);
 }
 
 /* Star rating: small, muted, filled stars. */

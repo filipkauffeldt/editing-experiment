@@ -230,7 +230,6 @@ describe('library batch actions', () => {
       expect(writes).toHaveLength(1);
       expect(writes[0]?.args[0]).toMatchObject({ photoIds: ids, tagged: true });
     });
-    expect(countText()).toContain('3 tagged');
 
     await user.keyboard('t');
     expect(
@@ -241,14 +240,16 @@ describe('library batch actions', () => {
     ).toBe(false);
   });
 
-  it('sets a colour class on every selected photo from the bar and with Ctrl+1-8', async () => {
+  it('sets a colour class on every selected photo from the right-click menu and with Ctrl+1-8', async () => {
     const { store, fake } = await openLibrary();
     fireEvent.click(cell('_DSC8335.NEF'));
     fireEvent.click(cell('_DSC8336.NEF'), { shiftKey: true });
     const ids = store.getState().selection;
     const user = userEvent.setup();
 
-    await user.click(screen.getByRole('button', { name: 'Set class 5' }));
+    fireEvent.contextMenu(cell('_DSC8335.NEF'), { clientX: 40, clientY: 40 });
+    await user.click(await screen.findByRole('menuitemradio', { name: 'Set class 5' }));
+    expect(screen.queryByTestId('photo-menu')).toBeNull();
     expect(
       store
         .getState()

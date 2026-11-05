@@ -42,46 +42,6 @@
   grid-area: bar;
 }
 
-.classes {
-  display: inline-flex;
-  align-items: center;
-  gap: 2px;
-}
-
-.classLabel {
-  margin-right: 6px;
-  color: var(--dim);
-  font-size: var(--fs-label);
-  letter-spacing: var(--tracking-label);
-  text-transform: uppercase;
-}
-
-.classButton {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  height: 24px;
-  padding: 0 5px;
-  border: 1px solid transparent;
-  background: transparent;
-  color: var(--muted);
-}
-
-.classButton:hover:not(:disabled) {
-  border-color: var(--line-strong);
-  color: var(--text);
-}
-
-.classButton:disabled {
-  opacity: 0.4;
-}
-
-.classDot {
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-}
-
 .size {
   width: 110px;
 }

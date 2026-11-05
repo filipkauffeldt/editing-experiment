@@ -29,7 +29,8 @@ Colour appears only in:
 - colour-class dots (6-7 px circles, `--class-1..8`),
 - the temperature and tint slider tracks (desaturated gradients, `--track-temperature`,
   `--track-tint`),
-- tiny status dots (`--ok`, `--error`): the top bar, toast status, a failed upload.
+- tiny status dots (`--ok`, `--error`): the top bar, toast status; and the failed-upload icon
+  on a thumbnail, which is drawn in `--error`.
 
 ## Shape
 
@@ -80,10 +81,13 @@ Built in `components/ui/`:
   profile folders…*. A profile that is not on this machine is a plain muted line with an `--error`
   status dot, not a coloured box.
 - **Tag**: an 11 px square, filled white when tagged.
-- **Status overlays** on thumbnails: a spinning ring while a photo is queued or
-  exporting, a static export icon once it is exported, and tiny mono text labels
-  on `#000a` (`sent`, `sending 64%`, `queued`, `failed`, `edited`, `retouched`,
-  `meta ≠`). Uploading adds a small bobbing upload icon beside its percentage.
+- **Status overlays** on thumbnails: one row of small monochrome icons on a scrim, bottom-left,
+  all the same size and never wrapping. In order: edited (sliders) or retouched (mosaic), the
+  export step (a spinning ring while queued or exporting, then the export arrow), the upload step
+  (clock when queued, a bobbing arrow over a thin progress line while sending, a tick over a tray
+  once sent), and not-equal when the metadata differs from the ingest template. A failed upload is
+  a warning icon in `--error`. There are no words on the photo; every icon has a tooltip (the
+  sending percentage is in it) and an accessible label.
 
 ## Layout
 
@@ -95,8 +99,8 @@ Built in `components/ui/`:
 - **Dialogs** state the job in the title and carry no explaining subtitle. Title-related
   actions such as All and None sit on the title row. A dialog that copies from a photo names
   that photo's file in the title (*Copy metadata from _DSC8330.NEF*).
-- **Bottom action bar** (40 px): contextual actions on the right, summary and keyboard hints on
-  the left.
+- **Bottom action bar** (40 px): contextual actions on the right, a summary on the left (and
+  keyboard hints where a view has no other place for them).
 - **Side panels**: the Library sidebar and inspector, the Develop metadata and develop panels,
   and the Ingest sources panel have a 1 px hairline on their inner edge that is a drag handle.
   It sits on the centre side of the edge, so a panel's scrollbar stays clear, and its invisible
@@ -141,8 +145,10 @@ line saying photos are hidden, not lost, and a *Clear filters* button.
 
 Library keys: click, Shift-range, Ctrl/Cmd-toggle, Ctrl/Cmd+A, arrows (Shift extends), `T` tag,
 `1`-`5` rating (`0` clears), Ctrl/Cmd+`1`-`8` class (Ctrl/Cmd+`0` clears), Ctrl/Cmd+I caption, Ctrl/Cmd+K keywords, Shift+Ctrl/Cmd+C copy settings, Shift+Ctrl/Cmd+V paste
-settings, Shift+Ctrl/Cmd+E export, Shift+Ctrl/Cmd+Enter export and send. The bottom bar's
-**Sync…** opens the same group dialog for the whole selection. In Develop Ctrl/Cmd+Enter is Next & send, and its bar shows the active export preset
+settings, Shift+Ctrl/Cmd+E export, Shift+Ctrl/Cmd+Enter export and send. The bottom bar has the
+selection count on the left and **Caption…**, **Sync settings…** (the same group dialog for the
+whole selection), **Export…** and the primary **Export & send** on the right; Tag, rating and class
+are the keys above and the right-click menu, not buttons. In Develop Ctrl/Cmd+Enter is Next & send, and its bar shows the active export preset
 ("Desk 2048 q90 → Export/Desk → destination").
 
 The export dialog lists the presets on the left; the editor is one compact label-left form

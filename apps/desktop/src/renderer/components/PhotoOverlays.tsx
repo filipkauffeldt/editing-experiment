@@ -1,7 +1,19 @@
+import type { ReactNode } from 'react';
 import type { ExportJob, ExportPhotoProgress, Photo, UploadItem } from '@ee/contracts';
-import { ExportIcon, UploadIcon } from './icons';
+import {
+  ClockIcon,
+  ExportIcon,
+  MosaicIcon,
+  NotEqualIcon,
+  SentIcon,
+  SlidersIcon,
+  UploadIcon,
+  WarningIcon,
+} from './icons';
 import { Dot } from './ui/Dot';
 import styles from './PhotoOverlays.module.css';
+
+const ICON_SIZE = 10;
 
 /** Colour class dots, index 0 is "none". The only colour on a thumbnail besides the photo. */
 export const COLOR_CLASSES = [
@@ -135,8 +147,38 @@ function exportBadge(
   return undefined;
 }
 
-/** Status text labels for a thumbnail. Titles are what the tests and screen readers read. */
-export function StatusLabels({
+/** One status glyph of the row. The title is the tooltip, the label is what tests and screen readers read. */
+function StatusIcon({
+  label,
+  title = label,
+  status,
+  children,
+}: {
+  label: string;
+  title?: string;
+  status?: 'failed' | 'busy';
+  children: ReactNode;
+}) {
+  const classes = [styles.badge, status === 'failed' ? styles.failed : ''];
+  return (
+    <span
+      className={classes.filter(Boolean).join(' ')}
+      role="img"
+      aria-label={label}
+      title={title}
+      data-status={status}
+    >
+      {children}
+    </span>
+  );
+}
+
+/**
+ * A thumbnail's status as one row of small monochrome icons, bottom-left: edited or retouched,
+ * the export step, the upload step, and metadata that differs from the template. At most four
+ * can show at once, so the row stays inside the thumbnail at the smallest size.
+ */
+export function StatusIcons({
   photo,
   percent,
   exportState,
@@ -149,71 +191,59 @@ export function StatusLabels({
   const upload = photo.status.upload;
   const exporting = exportBadge(photo, exportState);
   return (
-    <span className={styles.labels} data-testid="status-labels">
-      {exporting === 'exporting' && (
-        <span className={styles.badge} role="img" aria-label="Exporting" title="Exporting">
-          <span className={styles.spinner} aria-hidden="true" />
-        </span>
-      )}
-      {exporting === 'exported' && (
-        <span className={styles.badge} role="img" aria-label="Exported" title="Exported">
-          <ExportIcon size={10} />
-        </span>
-      )}
+    <span className={styles.icons} data-testid="status-icons">
       {retouch ? (
-        <span className={`${styles.label} ${styles.labelDim}`} title="Retouch version">
-          retouched
-        </span>
+        <StatusIcon label="Retouched" title="Retouched">
+          <MosaicIcon size={ICON_SIZE} />
+        </StatusIcon>
       ) : (
         photo.status.edited && (
-          <span className={`${styles.label} ${styles.labelDim}`} title="Edited">
-            edited
-          </span>
+          <StatusIcon label="Edited">
+            <SlidersIcon size={ICON_SIZE} />
+          </StatusIcon>
         )
       )}
-      {photo.status.metadataDiffersFromTemplate && (
-        <span
-          className={`${styles.label} ${styles.labelDim}`}
-          title="Metadata differs from template"
-        >
-          meta ≠
-        </span>
+      {exporting === 'exporting' && (
+        <StatusIcon label="Exporting">
+          <span className={styles.spinner} aria-hidden="true" />
+        </StatusIcon>
       )}
-      {upload === 'done' && (
-        <span className={styles.label} role="img" aria-label="Uploaded" title="Uploaded">
-          sent
-        </span>
-      )}
-      {upload === 'uploading' && (
-        <span
-          className={`${styles.label} ${styles.uploading}`}
-          role="img"
-          aria-label={percent === undefined ? 'Uploading' : `Uploading ${percent}%`}
-          title="Uploading"
-        >
-          <UploadIcon size={10} className={styles.uploadingIcon} />
-          {percent === undefined ? 'sending' : `sending ${percent}%`}
-        </span>
+      {exporting === 'exported' && (
+        <StatusIcon label="Exported">
+          <ExportIcon size={ICON_SIZE} />
+        </StatusIcon>
       )}
       {upload === 'queued' && (
-        <span
-          className={`${styles.label} ${styles.labelDim}`}
-          role="img"
-          aria-label="Queued for upload"
-          title="Queued for upload"
+        <StatusIcon label="Queued for upload">
+          <ClockIcon size={ICON_SIZE} />
+        </StatusIcon>
+      )}
+      {upload === 'uploading' && (
+        <StatusIcon
+          label={percent === undefined ? 'Uploading' : `Uploading ${percent}%`}
+          title={percent === undefined ? 'Sending' : `Sending ${percent}%`}
+          status="busy"
         >
-          queued
-        </span>
+          <UploadIcon size={ICON_SIZE} className={styles.uploadingIcon} />
+          {percent !== undefined && (
+            <span className={styles.progress} style={{ width: `${percent}%` }} aria-hidden="true" />
+          )}
+        </StatusIcon>
+      )}
+      {upload === 'done' && (
+        <StatusIcon label="Uploaded" title="Sent">
+          <SentIcon size={ICON_SIZE} />
+        </StatusIcon>
       )}
       {upload === 'failed' && (
-        <span
-          className={`${styles.label} ${styles.labelFailed}`}
-          role="img"
-          aria-label="Upload failed"
-          title="Upload failed"
-        >
-          failed
-        </span>
+        <StatusIcon label="Upload failed" status="failed">
+          <WarningIcon size={ICON_SIZE} />
+        </StatusIcon>
+      )}
+      {photo.status.metadataDiffersFromTemplate && (
+        <StatusIcon label="Metadata differs from template">
+          <NotEqualIcon size={ICON_SIZE} />
+        </StatusIcon>
       )}
     </span>
   );

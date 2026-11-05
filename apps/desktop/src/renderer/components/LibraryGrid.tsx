@@ -4,7 +4,7 @@ import { useAppState, useAppStore } from '../store-context';
 import {
   ColorDot,
   RatingStars,
-  StatusLabels,
+  StatusIcons,
   TagSquare,
   exportBadgesByPhoto,
   uploadPercent,
@@ -131,7 +131,7 @@ export function LibraryGrid({ photos }: { photos: Photo[] }) {
                   <TagSquare tagged={photo.tagged} onToggle={() => store.toggleTag(photo.id)} />
                 </span>
                 <span className={styles.labels}>
-                  <StatusLabels
+                  <StatusIcons
                     photo={photo}
                     percent={uploadPercent(uploads.get(photo.id))}
                     exportState={exports.get(photo.id)}

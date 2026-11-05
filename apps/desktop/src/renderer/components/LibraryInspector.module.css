@@ -1,36 +1,43 @@
+.panel {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: auto;
+  background: var(--panel);
+}
+
 .empty {
   margin: 12px;
   color: var(--dim);
 }
 
-.preview {
+.count {
+  padding: 10px 12px 8px;
+  color: var(--text);
+  font-size: var(--fs-base);
+}
+
+/* The file facts as a two-column table: label left, value right. */
+.table {
   display: grid;
-  place-items: center;
-  height: 190px;
-  background: var(--bg);
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 4px 12px;
+  margin: 0;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--line);
 }
 
-.preview img {
-  max-width: 100%;
-  max-height: 100%;
-  object-fit: contain;
-}
-
-.row {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 12px;
-  padding: 2px 0;
+.count + .table {
+  padding-top: 2px;
 }
 
 .rowLabel {
-  flex: none;
   color: var(--dim);
   font-size: var(--fs-label);
 }
 
 .rowValue {
+  margin: 0;
   overflow: hidden;
   color: var(--text);
   text-align: right;
@@ -38,8 +45,65 @@
   white-space: nowrap;
 }
 
+/* A range or several values may need a second line. */
+.count ~ .table .rowValue {
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+.differs {
+  color: var(--muted);
+  font-style: italic;
+}
+
 .template {
   margin: 0;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--line);
   color: var(--muted);
+  font-size: var(--fs-small);
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 8px 12px 10px;
+  border-bottom: 1px solid var(--line);
+}
+
+.fieldHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 20px;
+}
+
+.fieldLabel {
+  color: var(--dim);
+  font-size: var(--fs-label);
+  letter-spacing: var(--tracking-label);
+  text-transform: uppercase;
+}
+
+.readonly {
+  color: var(--muted);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.muted {
+  color: var(--dim);
+}
+
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.chip {
+  padding: 1px 6px;
+  border: 1px solid var(--line-strong);
   font-size: var(--fs-small);
 }

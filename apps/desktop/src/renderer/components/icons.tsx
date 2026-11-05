@@ -164,3 +164,44 @@ export function RefreshIcon(props: IconProps) {
     </Icon>
   );
 }
+
+/** Edited: two slider rows with their knobs, as in Lightroom's edited badge. */
+export function SlidersIcon(props: IconProps) {
+  return (
+    <Icon {...props}>
+      <path d="M2 5h5.6M12.4 5H14M2 11h1.6M8.4 11H14" />
+      <circle cx="10" cy="5" r="2.4" />
+      <circle cx="6" cy="11" r="2.4" />
+    </Icon>
+  );
+}
+
+/** Retouched: a block of mosaic squares. */
+export function MosaicIcon(props: IconProps) {
+  return (
+    <Icon {...props}>
+      <rect x="2.5" y="2.5" width="11" height="11" />
+      <path d="M8 2.5v11M2.5 8h11" />
+      <path d="M8 8h5.5v5.5H8z" fill="currentColor" />
+    </Icon>
+  );
+}
+
+/** Sent: a tick over a tray, the finished state of the upload arrow. */
+export function SentIcon(props: IconProps) {
+  return (
+    <Icon {...props}>
+      <path d="m5 6 2.2 2.2L11.2 3.8" />
+      <path d="M2.8 10v2.4c0 .5.3.8.8.8h8.8c.5 0 .8-.3.8-.8V10" />
+    </Icon>
+  );
+}
+
+/** Metadata differs from the ingest template: not-equal. */
+export function NotEqualIcon(props: IconProps) {
+  return (
+    <Icon {...props}>
+      <path d="M3 6h10M3 10.2h10M10.2 2.8 5.8 13.4" />
+    </Icon>
+  );
+}
