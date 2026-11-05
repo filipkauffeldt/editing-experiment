@@ -1,14 +1,17 @@
 .menu {
   position: fixed;
   z-index: 70;
-  min-width: 140px;
+  min-width: 236px;
   padding: 3px;
   border: 1px solid var(--line-strong);
   background: var(--raised);
 }
 
 .item {
-  display: block;
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 16px;
   width: 100%;
   padding: 6px 10px;
   border: 1px solid transparent;
@@ -23,4 +26,63 @@
   border-color: var(--line-strong);
   background: var(--panel);
   outline: none;
+}
+
+.hint {
+  color: var(--dim);
+}
+
+.row {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 2px 4px 2px 10px;
+}
+
+.rowLabel {
+  flex: none;
+  width: 44px;
+  color: var(--dim);
+  font-size: var(--fs-label);
+}
+
+/* A 20 px square target for a rating digit or a class dot. */
+.swatch {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--muted);
+  font-size: var(--fs-small);
+}
+
+.swatch:hover,
+.swatch:focus-visible {
+  border-color: var(--line-strong);
+  background: var(--panel);
+  color: var(--text);
+  outline: none;
+}
+
+/* The value every targeted photo already has. */
+.swatch[aria-checked='true'] {
+  border-color: var(--text);
+  color: var(--text);
+}
+
+.dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+}
+
+.separator {
+  height: 1px;
+  margin: 3px 0;
+  border: 0;
+  background: var(--line-strong);
 }

@@ -931,11 +931,16 @@ Design tokens and component rules are in `docs/DESIGN.md`.
   (they match by file name only); while it is above 0 the store asks again every second. The store
   also asks again 400 ms after photos arrive or a caption is written, so the result does not go
   stale. The bar debounces typing 250 ms; an answer for older text is dropped.
+- **Inspector** (`LibraryInspector`): one selected photo shows its file facts and editable caption
+  and keywords; several show the count, the values they share and `Differs` where they do not
+  (`selection-summary.ts`), read-only, with Edit… buttons into the batch caption dialog (`ensureMetadata`
+  reads the fields of up to 100 selected photos for the comparison).
 - **Folders** come from `libraryFolders(photos)`: the directory of each photo's `path`, which is
   always the ingest copy. Sources are not consulted.
 - **Delete** (`AppState.deleteRequest`): the Delete key (and Backspace on macOS, where the "delete" key
-  reports it) and a right-click menu with two items, "Delete…" and "Remove from Library…", on the grid and
-  the film strip (the menu measures itself to stay inside the window). Both act on
+  reports it) and a right-click menu on the grid and the film strip with Tag, a rating row and a class row
+  (the same `toggleTag`, `setRating` and `setColorClass` as the keys, so they act on the whole Library
+  selection) above "Delete…" and "Remove from Library…" (the menu measures itself to stay inside the window). Both act on
   the Library's selection and on the open photo in Develop; a right-click on a photo outside the
   selection selects it first. It does nothing in a text field, behind a dialog, in Ingest or during crop
   and retouch. A dialog states the count and that the files go to the system trash; Enter confirms, Esc

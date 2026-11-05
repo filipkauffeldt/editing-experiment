@@ -99,8 +99,8 @@ Built in `components/ui/`:
 - **Dialogs** state the job in the title and carry no explaining subtitle. Title-related
   actions such as All and None sit on the title row. A dialog that copies from a photo names
   that photo's file in the title (*Copy metadata from _DSC8330.NEF*).
-- **Bottom action bar** (40 px): contextual actions on the right, summary and keyboard hints on
-  the left.
+- **Bottom action bar** (40 px): contextual actions on the right, a summary on the left (and
+  keyboard hints where a view has no other place for them).
 - **Side panels**: the Library sidebar and inspector, the Develop metadata and develop panels,
   and the Ingest sources panel have a 1 px hairline on their inner edge that is a drag handle.
   It sits on the centre side of the edge, so a panel's scrollbar stays clear, and its invisible
@@ -145,8 +145,10 @@ line saying photos are hidden, not lost, and a *Clear filters* button.
 
 Library keys: click, Shift-range, Ctrl/Cmd-toggle, Ctrl/Cmd+A, arrows (Shift extends), `T` tag,
 `1`-`5` rating (`0` clears), Ctrl/Cmd+`1`-`8` class (Ctrl/Cmd+`0` clears), Ctrl/Cmd+I caption, Ctrl/Cmd+K keywords, Shift+Ctrl/Cmd+C copy settings, Shift+Ctrl/Cmd+V paste
-settings, Shift+Ctrl/Cmd+E export, Shift+Ctrl/Cmd+Enter export and send. The bottom bar's
-**Sync…** opens the same group dialog for the whole selection. In Develop Ctrl/Cmd+Enter is Next & send, and its bar shows the active export preset
+settings, Shift+Ctrl/Cmd+E export, Shift+Ctrl/Cmd+Enter export and send. The bottom bar has the
+selection count on the left and **Caption…**, **Sync settings…** (the same group dialog for the
+whole selection), **Export…** and the primary **Export & send** on the right; Tag, rating and class
+are the keys above and the right-click menu, not buttons. In Develop Ctrl/Cmd+Enter is Next & send, and its bar shows the active export preset
 ("Desk 2048 q90 → Export/Desk → destination").
 
 The export dialog lists the presets on the left; the editor is one compact label-left form

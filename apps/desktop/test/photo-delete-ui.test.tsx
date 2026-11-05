@@ -145,7 +145,7 @@ describe('delete from the right-click menu', () => {
       within(menu)
         .getAllByRole('menuitem')
         .map((item) => item.textContent),
-    ).toEqual(['Delete…', 'Remove from Library…']);
+    ).toEqual(['UntagT', 'Delete…', 'Remove from Library…']);
     await user.click(screen.getByTestId('photo-menu-delete'));
     expect(screen.queryByTestId('photo-menu')).toBeNull();
     expect(screen.getByTestId('delete-photos-message').textContent).toMatch(/^1 photo will/);
