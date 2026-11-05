@@ -137,6 +137,13 @@ export interface ProfileIndex {
   folders: string[];
 }
 
+/**
+ * The profile a raw goes through when its settings name none: a `.dcp` of this name (compared
+ * without case) that fits the photo's camera. Nikon's profile of this name is the one Lightroom
+ * calls Camera Standard. Worked out when the picture is drawn, never written to a sidecar.
+ */
+export const DEFAULT_CAMERA_PROFILE = 'Camera Standard';
+
 /** The profile choice stored in a sidecar, as the renderer asks the backend to resolve it. */
 export interface ProfileRequest {
   photoId: PhotoId;
@@ -147,12 +154,32 @@ export interface ProfileRequest {
   lookUuid?: string;
   /** `crs:LookAmount`, 1 = 100 %. */
   lookAmount?: number;
+  /**
+   * An explicit "Camera matrix" choice (`ee:CameraProfile` = `none`): no profile, and not the
+   * default either. Ignored when a profile or look is named.
+   */
+  none?: boolean;
 }
 
-/** Answer to {@link ProfileRequest}: the profile, or why it is not used. */
+/**
+ * Answer to {@link ProfileRequest}: the profile, or why it is not used. A request that names
+ * nothing gets the default profile ({@link DEFAULT_CAMERA_PROFILE}) when the photo has one.
+ */
 export type ProfileResolution =
-  | { status: 'none' }
-  | { status: 'ok'; profile: ResolvedProfile }
+  | {
+      status: 'none';
+      /** Why the default profile could not be used (a corrupt file); the picture uses the camera matrix. */
+      problem?: string;
+    }
+  | {
+      status: 'ok';
+      profile: ResolvedProfile;
+      /**
+       * Set when nothing was named and the default profile was applied: the identity of that file
+       * (path and stamp), which an edited preview records so it can tell when the default changed.
+       */
+      defaultKey?: string;
+    }
   | { status: 'missing'; reason: string };
 
 /** `profiles:list`: what the Develop panel's profile select offers for one photo. */

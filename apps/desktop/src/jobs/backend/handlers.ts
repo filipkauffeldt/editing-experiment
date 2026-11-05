@@ -116,7 +116,7 @@ export function createBackendHandlers(deps: HandlerDeps): IpcHandlers {
     'profiles:index': async (args) => profiles.index(args?.rescan === true),
     'profiles:resolve': async (args) => {
       const photo = photos.get(args.photoId);
-      return isRawPath(photo.path) ? profiles.resolve(args, photo.camera) : { status: 'none' };
+      return profiles.resolveFor(args, photo);
     },
 
     'retouch:get': (ref) => edits.getRetouch(ref),

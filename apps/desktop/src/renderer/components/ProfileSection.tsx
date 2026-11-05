@@ -29,15 +29,22 @@ export function ProfileSection() {
   const params = paramsForPhoto(state, photo);
   const photoId = photo?.id;
 
-  useEffect(() => {
-    if (photoId) store.loadProfileChoices(photoId);
-  }, [store, photoId]);
-
   const choices = photo ? state.profileChoices[photo.id] : undefined;
   const loaded = photo ? state.photoProfiles[photo.id] : undefined;
   const listings = choices?.profiles ?? [];
+  const choicesKnown = choices !== undefined;
+
+  // Loaded again after a rescan of the profile folders has forgotten them.
+  useEffect(() => {
+    if (photoId) store.loadProfileChoices(photoId);
+  }, [store, photoId, choicesKnown]);
 
   const named = namesProfile(params);
+  // Nothing named: the default profile is in effect (and shown as selected) when it was found.
+  const defaultName =
+    !named && loaded?.status === 'ok' && loaded.isDefault === true
+      ? loaded.profile?.camera.name.toLowerCase()
+      : undefined;
   const current: ProfileListing | undefined = params.LookName
     ? listings.find(
         (p) =>
@@ -46,9 +53,14 @@ export function ProfileSection() {
       )
     : params.CameraProfile
       ? listings.find((p) => p.kind === 'camera' && p.name === params.CameraProfile)
-      : undefined;
+      : defaultName
+        ? listings.find((p) => p.kind === 'camera' && p.name.toLowerCase() === defaultName)
+        : undefined;
+  const usingDefault = current !== undefined && defaultName !== undefined;
   const value = current ? current.id : named ? MISSING : '';
   const label = params.LookName ?? params.CameraProfile;
+  // The default profile could not be read: the picture uses the camera matrix, and the panel says why.
+  const defaultProblem = !named && loaded?.status === 'none' ? loaded.reason : undefined;
 
   const select = (id: string): void => {
     if (id === MISSING) return;
@@ -61,11 +73,15 @@ export function ProfileSection() {
       ? 'Loading profile…'
       : loaded?.status === 'missing'
         ? `${label} is not in the profile folders${loaded.reason ? `: ${loaded.reason}` : ''} The name is kept; the picture uses the camera matrix.`
-        : choices && listings.length === 0
-          ? `No profiles for ${choices.camera || 'this camera'} in the profile folders.`
-          : !named
-            ? 'The decoder’s camera matrix.'
-            : undefined;
+        : defaultProblem !== undefined
+          ? `${defaultProblem}. The default profile is not used; the picture uses the camera matrix.`
+          : usingDefault
+            ? 'The default for this camera. Nothing is saved until you choose a profile.'
+            : choices && listings.length === 0
+              ? `No profiles for ${choices.camera || 'this camera'} in the profile folders.`
+              : !named
+                ? 'The decoder’s camera matrix.'
+                : undefined;
 
   const supportsAmount = current?.kind === 'look' && current.supportsAmount === true;
   const amount = Math.round((params.LookAmount ?? 1) * 100);
@@ -89,7 +105,7 @@ export function ProfileSection() {
               <optgroup key={group.id} label={group.label}>
                 {members.map((p) => (
                   <option key={p.id} value={p.id}>
-                    {p.name}
+                    {usingDefault && p.id === current?.id ? `${p.name} (default)` : p.name}
                   </option>
                 ))}
               </optgroup>
@@ -114,7 +130,7 @@ export function ProfileSection() {
           onReset={() => store.setLookAmount(undefined)}
         />
       )}
-      {loaded?.status === 'missing' ? (
+      {loaded?.status === 'missing' || defaultProblem !== undefined ? (
         <p className={styles.missing} role="status" data-testid="profile-note">
           <span className={styles.missingDot} aria-hidden />
           <span>{note}</span>

@@ -17,6 +17,8 @@ export interface EditedPreviewRenderer {
   ): Promise<{
     thumb: RenderedImage;
     preview: RenderedImage;
+    /** The default camera profile the pixels went through (see `SetEditedPreviewArgs`). */
+    defaultProfile?: string;
   }>;
 }
 
@@ -215,6 +217,16 @@ export class EditedPreviewScheduler {
     job.revision = this.nextRevision();
     job.refusals = 0;
     this.enqueue(job, 'background');
+  }
+
+  /**
+   * The backend sent a photo that is stale: if it is on screen, draw it again. This is how a
+   * change it noticed by itself (the default camera profile changed) reaches a strip that is
+   * already showing the photo.
+   */
+  photoUpdated(photo: Photo): void {
+    if (this.disposed || !photo.previewStale) return;
+    this.ensure(photo.id);
   }
 
   /** Render everything that is waiting now, and resolve when the queue is empty. */

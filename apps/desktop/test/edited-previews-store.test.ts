@@ -24,12 +24,13 @@ interface Rendered {
   photoId: Photo['id'];
   params: EditParams;
   ops: RetouchOp[];
+  profile: unknown;
 }
 
 async function setup(options: Parameters<typeof createFakeBridge>[0] = {}) {
   const rendered: Rendered[] = [];
-  const renderEditedPreview: EditedPreviewRenderer = async (photo, params, ops) => {
-    rendered.push({ photoId: photo.id, params, ops });
+  const renderEditedPreview: EditedPreviewRenderer = async (photo, params, ops, drawn) => {
+    rendered.push({ photoId: photo.id, params, ops, profile: drawn?.profile ?? null });
     return { thumb: image(2), preview: image(4) };
   };
   const fake = createFakeBridge(options);
@@ -182,6 +183,51 @@ describe('edited thumbnails and previews in the store', () => {
     store.setVisibleEditedPreviews([second!.id, third!.id]);
     await vi.advanceTimersByTimeAsync(400);
     expect(rendered.map((r) => r.photoId)).toEqual([second!.id, third!.id]);
+  });
+
+  it('draws a photo again when the backend reports it stale while it is on screen, through the default profile', async () => {
+    const [first, second] = mockPhotos();
+    const edited = (photo: Photo, stale: boolean): Photo => ({
+      ...photo,
+      status: { ...photo.status, edited: true },
+      previewStale: stale,
+      versions: photo.versions.map((v) =>
+        v.kind === 'develop' ? { ...v, ops: { Exposure2012: 0.3 } } : v,
+      ),
+    });
+    const camera = {
+      name: 'Camera Standard',
+      camera: 'Sportfotografen Mock Camera',
+      copyright: '',
+      illuminants: [6504],
+      colorMatrices: [],
+      forwardMatrices: [[1, 0, 0, 0, 1, 0, 0, 0, 1]],
+      hueSatMaps: [],
+      baselineExposureOffset: 0,
+      defaultBlackRender: 'none' as const,
+      embedPolicy: 0,
+    };
+    const { store, fake, rendered } = await setup({
+      photos: [first!, edited(second!, false)],
+      handlers: {
+        'profiles:resolve': async () => ({
+          status: 'ok',
+          profile: { camera, amount: 1 },
+          defaultKey: 'standard.dcp|1',
+        }),
+      },
+    });
+    store.selectRelative(1);
+    await settle();
+    expect(rendered).toHaveLength(0);
+
+    // A profile folder was added: the backend marks the photo stale and announces it.
+    fake.emit('photos:updated', edited(second!, true));
+    await vi.advanceTimersByTimeAsync(400);
+    expect(rendered).toHaveLength(1);
+    expect(rendered[0]?.profile).toMatchObject({ camera: { name: 'Camera Standard' } });
+    // The render says which default it went through, for the backend to record.
+    expect(stored(fake).at(-1)?.defaultProfile).toBe('standard.dcp|1');
   });
 
   it('clears the stale flag of a photo that turns out to have no edits', async () => {

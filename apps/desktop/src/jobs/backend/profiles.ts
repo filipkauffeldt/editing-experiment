@@ -1,8 +1,11 @@
 import {
+  DEFAULT_CAMERA_PROFILE,
   IpcError,
   type CameraInfo,
+  type EditParams,
   type CameraProfileData,
   type LookProfileData,
+  type Photo,
   type PhotoProfiles,
   type ProfileGroup,
   type ProfileIndex,
@@ -11,6 +14,7 @@ import {
   type ProfileRequest,
   type ProfileResolution,
 } from '@ee/contracts';
+import { isRawPath } from '@ee/metadata';
 import { identifyDcp, parseDcp, parseLookXmp, ProfileParseError } from '@ee/develop-gl/profile';
 import { open, readdir, readFile, stat } from 'node:fs/promises';
 import { homedir } from 'node:os';
@@ -97,6 +101,11 @@ type Scanned =
 export interface ProfileLibraryOptions {
   /** The user's extra folders (settings). */
   folders: () => readonly string[];
+  /**
+   * Called when a scan finds a different set of camera profile files than the one before (the
+   * first scan included). What a photo without a named profile renders through depends on it.
+   */
+  onCameraProfilesChanged?: () => void;
   platform?: NodeJS.Platform;
   env?: NodeJS.ProcessEnv;
   home?: string;
@@ -108,6 +117,7 @@ export class ProfileLibrary {
   private readonly look = new Map<string, LookProfileData>();
   private readonly camera = new Map<string, { stamp: string; data: CameraProfileData }>();
   private readonly identified = new Map<string, Found>();
+  private readonly failed = new Map<string, { stamp: string; error: unknown }>();
 
   constructor(private readonly options: ProfileLibraryOptions) {}
 
@@ -126,9 +136,26 @@ export class ProfileLibrary {
     const key = this.folders().join('\n');
     if (rescan || !this.scan || key !== this.foldersKey) {
       this.foldersKey = key;
-      this.scan = this.run();
+      this.scan = this.run().then((index) => {
+        this.noteScan(index);
+        return index;
+      });
     }
     return this.scan;
+  }
+
+  private fingerprint: string | undefined;
+
+  /** Tells the owner when the camera profiles on disk are not the ones the last scan saw. */
+  private noteScan(index: ProfileIndex): void {
+    const stamps = index.profiles
+      .filter((p) => p.kind === 'camera')
+      .map((p) => `${p.id}|${this.identified.get(p.path)?.stamp ?? ''}`)
+      .sort();
+    const next = stamps.join('\n');
+    if (next === this.fingerprint) return;
+    this.fingerprint = next;
+    this.options.onCameraProfilesChanged?.();
   }
 
   private async run(): Promise<ProfileIndex> {
@@ -229,13 +256,28 @@ export class ProfileLibrary {
     };
   }
 
-  /** The profile a sidecar names for a photo shot with `camera`, or the reason it cannot be used. */
+  /**
+   * The profile a sidecar names for a photo shot with `camera`, or the reason it cannot be used.
+   * A sidecar that names nothing gets the default profile when this machine has one for the
+   * camera, unless it says "Camera matrix" explicitly. A profile or look that is named wins and is
+   * never replaced by the default, also when it is missing.
+   */
   async resolve(
     request: ProfileRequest,
     camera: CameraInfo | undefined,
   ): Promise<ProfileResolution> {
     const wantsLook = request.lookName !== undefined || request.lookUuid !== undefined;
-    if (!request.profile && !wantsLook) return { status: 'none' };
+    if (!request.profile && !wantsLook) {
+      if (request.none === true) return { status: 'none' };
+      const fallback = await this.defaultProfile(camera);
+      if (fallback.kind === 'none') return { status: 'none' };
+      if (fallback.kind === 'broken') return { status: 'none', problem: fallback.problem };
+      return {
+        status: 'ok',
+        profile: { camera: fallback.data, amount: 1 },
+        defaultKey: fallback.key,
+      };
+    }
     const { profiles, folders } = await this.index();
     const who = [camera?.make, camera?.model].filter(Boolean).join(' ') || 'this camera';
 
@@ -256,12 +298,7 @@ export class ProfileLibrary {
     }
     const baseName = request.profile ?? look?.base;
     if (!baseName) return { status: 'none' };
-    const base = profiles.find(
-      (p) =>
-        p.kind === 'camera' &&
-        p.name.toLowerCase() === baseName.toLowerCase() &&
-        cameraFits(p.camera, camera),
-    );
+    const base = findCameraProfile(profiles, baseName, camera);
     if (!base) {
       return {
         status: 'missing',
@@ -296,6 +333,58 @@ export class ProfileLibrary {
     }
   }
 
+  /**
+   * The default profile for `camera`: the `Camera Standard` file that fits it, parsed once (the
+   * parse is cached by file and stamp). The same lookup as a named profile's, so duplicates in
+   * Adobe's folder and the user's resolve the same way whichever way the profile is asked for. A
+   * file that cannot be read gives `broken`, never an error: the photo is drawn without a profile.
+   */
+  private async defaultProfile(camera: CameraInfo | undefined): Promise<DefaultProfile> {
+    const { profiles } = await this.index();
+    const listing = findCameraProfile(profiles, DEFAULT_CAMERA_PROFILE, camera);
+    if (!listing) return { kind: 'none' };
+    try {
+      const data = await this.loadCamera(listing);
+      return {
+        kind: 'ok',
+        data,
+        key: `${listing.path}|${this.identified.get(listing.path)?.stamp ?? ''}`,
+      };
+    } catch (error) {
+      return { kind: 'broken', problem: `${listing.name}: ${describe(error)}` };
+    }
+  }
+
+  /** {@link resolve} for an indexed photo. A JPEG or TIFF is already rendered and has no profile. */
+  resolveFor(request: ProfileRequest, photo: Photo): Promise<ProfileResolution> {
+    return isRawPath(photo.path)
+      ? this.resolve(request, photo.camera)
+      : Promise.resolve({ status: 'none' });
+  }
+
+  /** {@link defaultKeyFor} for an indexed photo ('' for a JPEG or TIFF). */
+  async defaultKeyForPhoto(photo: Photo, params: EditParams): Promise<string> {
+    return isRawPath(photo.path) ? this.defaultKeyFor(params, photo.camera) : '';
+  }
+
+  /**
+   * Identity of the default profile a photo with these settings is drawn through, or '' when it is
+   * drawn through something else (a named profile or look, "Camera matrix") or through none.
+   * Matches `defaultKey` of {@link resolve}.
+   */
+  async defaultKeyFor(params: EditParams, camera: CameraInfo | undefined): Promise<string> {
+    if (
+      params.CameraProfile ||
+      params.LookName !== undefined ||
+      params.LookUUID !== undefined ||
+      params.CameraProfileChoice === 'none'
+    ) {
+      return '';
+    }
+    const fallback = await this.defaultProfile(camera);
+    return fallback.kind === 'ok' ? fallback.key : '';
+  }
+
   private notFound(name: string, folders: readonly string[]): string {
     return folders.length === 0
       ? `"${name}" is not available: no profile folder is set up.`
@@ -307,9 +396,17 @@ export class ProfileLibrary {
     const stamp = `${info.mtimeMs}:${info.size}`;
     const cached = this.camera.get(listing.path);
     if (cached?.stamp === stamp) return cached.data;
-    const data = parseDcp(new Uint8Array(await readFile(listing.path)));
-    this.camera.set(listing.path, { stamp, data });
-    return data;
+    // A corrupt file is not parsed again for every photo that asks for it.
+    const failed = this.failed.get(listing.path);
+    if (failed?.stamp === stamp) throw failed.error;
+    try {
+      const data = parseDcp(new Uint8Array(await readFile(listing.path)));
+      this.camera.set(listing.path, { stamp, data });
+      return data;
+    } catch (error) {
+      this.failed.set(listing.path, { stamp, error });
+      throw error;
+    }
   }
 
   private async loadLook(listing: ProfileListing): Promise<LookProfileData> {
@@ -317,6 +414,25 @@ export class ProfileLibrary {
     if (!data) throw new IpcError('not_found', `${listing.name} is not loaded`);
     return data;
   }
+}
+
+type DefaultProfile =
+  | { kind: 'none' }
+  | { kind: 'broken'; problem: string }
+  | { kind: 'ok'; data: CameraProfileData; key: string };
+
+/** The camera profile of this name (without case) that fits `camera`; the first one found wins. */
+function findCameraProfile(
+  profiles: readonly ProfileListing[],
+  name: string,
+  camera: CameraInfo | undefined,
+): ProfileListing | undefined {
+  return profiles.find(
+    (p) =>
+      p.kind === 'camera' &&
+      p.name.toLowerCase() === name.toLowerCase() &&
+      cameraFits(p.camera, camera),
+  );
 }
 
 function tryIdentify(

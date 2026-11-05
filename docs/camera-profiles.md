@@ -20,6 +20,14 @@ is copied into the app or the repository).
   an HSV table. They are found in any folder you add; if Adobe's installer puts them
   elsewhere on your machine, add that folder too.
 
+A raw whose settings name no profile is rendered through **Camera Standard** when you have a
+`Camera Standard` profile for its camera (Adobe ships Nikon's under that name), and
+through the camera matrix when you do not. The Develop panel shows it selected and marked
+`(default)`. Nothing is written to the sidecar for it, so the photo is not counted as edited; pick
+a profile to save a choice, or "Camera matrix" to keep the plain camera colours. Photos that were
+edited before now look different, and their thumbnails are drawn again as they come into view.
+JPEGs have no profile.
+
 The Profile select at the top of the Develop panel offers the profiles made for the photo's
 camera, grouped Adobe Raw / Camera Matching / Other. The choice is written to the sidecar as
 `crs:CameraProfile` (and `crs:Look` for an XMP profile), using Lightroom's keys. A photo

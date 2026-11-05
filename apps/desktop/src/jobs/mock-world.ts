@@ -63,7 +63,7 @@ export interface MockWorld {
 
 /** Mock mode has no Adobe files: a made-up camera profile (sRGB primaries, a mild S curve) and a few names. */
 const MOCK_CAMERA_PROFILE: CameraProfileData = {
-  name: 'Mock Standard',
+  name: 'Camera Standard',
   camera: 'Sportfotografen Mock Camera',
   copyright: '',
   illuminants: [6504],
@@ -454,9 +454,17 @@ export function createMockHandlers(world: MockWorld, emit: Emit): Partial<IpcHan
       problems: [],
       folders: ['/mock/Adobe/CameraRaw/CameraProfiles'],
     }),
-    'profiles:resolve': async ({ photoId, profile, lookName, lookAmount }) => {
+    'profiles:resolve': async ({ photoId, profile, lookName, lookAmount, none }) => {
       findPhoto(photoId);
-      if (!profile && !lookName) return { status: 'none' };
+      if (!profile && !lookName) {
+        // Camera Standard is the default, as with a real profile folder.
+        if (none === true) return { status: 'none' };
+        return {
+          status: 'ok',
+          profile: { camera: MOCK_CAMERA_PROFILE, amount: 1 },
+          defaultKey: '/mock/Camera Standard|1',
+        };
+      }
       return {
         status: 'ok',
         profile: { camera: MOCK_CAMERA_PROFILE, amount: lookAmount ?? 1 },

@@ -30,7 +30,6 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { ee } from '../ee';
 import {
   hasPendingRetouch,
-  namesProfile,
   paramsForPhoto,
   topRetouchVersion,
   type FaceSearchArea,
@@ -426,8 +425,9 @@ function CanvasForPhoto({ photo }: { photo: Photo }) {
   const lensContext = state.photoLens[photo.id];
   const profileState = state.photoProfiles[photo.id];
   const lookAmount = params.LookAmount;
-  // The profile the settings name, or null (none named, not on this machine). The canvas waits for
-  // a named profile to load, so a photo never flashes in the camera-matrix colours first.
+  // The profile the settings name or, for a raw that names none, the default one (Camera Standard);
+  // null for no profile (a JPEG, "Camera matrix", nothing that fits, not on this machine). The
+  // canvas waits for it to load, so a photo never flashes in the camera-matrix colours first.
   const profile = useMemo(
     () =>
       profileState?.status === 'ok' && profileState.profile
@@ -435,8 +435,8 @@ function CanvasForPhoto({ photo }: { photo: Photo }) {
         : null,
     [profileState, lookAmount],
   );
-  const profilePending =
-    namesProfile(params) && (profileState === undefined || profileState.status === 'loading');
+  const profilePending = profileState === undefined || profileState.status === 'loading';
+  const profileIsDefault = profileState?.isDefault === true;
   const session = state.retouch?.photoId === photo.id ? state.retouch : undefined;
   const cropSession = state.crop?.photoId === photo.id ? state.crop : undefined;
   const image = state.photos.find((candidate) => candidate.id === photo.id) ?? photo;
@@ -697,14 +697,25 @@ function CanvasForPhoto({ photo }: { photo: Photo }) {
   // A zoomed view mosaics what the canvas shows, so the draw effect above does it.
   const zoomedMosaic = zoomed && !cropping && !contextLost ? previewOp : undefined;
 
+  const profileKnown = profileState !== undefined;
   useEffect(() => {
     store.loadPhotoProfile(photo.id, {
       CameraProfile: params.CameraProfile,
+      CameraProfileChoice: params.CameraProfileChoice,
       LookName: params.LookName,
       LookUUID: params.LookUUID,
     });
-    // `params` itself changes with every slider; only the profile choice matters here.
-  }, [store, photo.id, params.CameraProfile, params.LookName, params.LookUUID]);
+    // `params` itself changes with every slider; only the profile choice matters here. A rescan of
+    // the profile folders forgets what was loaded (`profileKnown`), and the photo asks again.
+  }, [
+    store,
+    photo.id,
+    params.CameraProfile,
+    params.CameraProfileChoice,
+    params.LookName,
+    params.LookUUID,
+    profileKnown,
+  ]);
 
   // Create the WebGL renderer once per canvas; the image is uploaded separately.
   useEffect(() => {
@@ -841,7 +852,11 @@ function CanvasForPhoto({ photo }: { photo: Photo }) {
           clipping: { shadows: viewMode.clipShadows, highlights: viewMode.clipHighlights },
         };
         const clipping = viewMode.clipShadows || viewMode.clipHighlights;
-        const before = beforeParams(renderParams);
+        // Before is the photo without the user's edits, not without its colour profile: the default
+        // one is how the photo starts, so the before side is drawn through it too.
+        const base = beforeParams(renderParams);
+        const before =
+          profile && profileIsDefault ? { ...base, CameraProfile: profile.camera.name } : base;
         const draw = (drawOptions: typeof options | undefined): void => {
           if (cropView) renderer.renderView(renderParams, cropView);
           else if (viewMode.beforeAfter === 'split')
@@ -931,6 +946,7 @@ function CanvasForPhoto({ photo }: { photo: Photo }) {
     viewMode.clipHighlights,
     histogramReadback,
     profile,
+    profileIsDefault,
     profilePending,
   ]);
 

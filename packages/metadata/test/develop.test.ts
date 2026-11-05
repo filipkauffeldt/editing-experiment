@@ -440,6 +440,30 @@ describe('develop and retouch XMP', () => {
     });
   });
 
+  it('keeps an explicit "Camera matrix" choice in the raw sidecar as ee:CameraProfile, not as an empty crs: value', async () => {
+    const dir = await makeTempDir();
+    const raw = join(dir, 'shot.NEF');
+    await makeJpeg(raw);
+
+    await writeEditParams(raw, { CameraProfileChoice: 'none' }, { service });
+    // It survives a reopen, and Lightroom's own key stays unwritten: it would read an empty or
+    // unknown profile name as a profile it has to find.
+    expect(await readEditParams(raw, service)).toEqual({
+      ProcessVersion: '11.0',
+      CameraProfileChoice: 'none',
+    });
+    const tags = await service.read(sidecarPathFor(raw));
+    expect(tags['XMP-ee:CameraProfile']).toBe('none');
+    expect(tags['XMP-crs:CameraProfile']).toBeUndefined();
+
+    // Choosing a profile (or going back to the default) takes the marker away.
+    await writeEditParams(raw, { CameraProfile: 'Camera Standard' }, { service });
+    expect((await readEditParams(raw, service)).CameraProfileChoice).toBeUndefined();
+    await writeEditParams(raw, { CameraProfileChoice: 'none' }, { service });
+    await writeEditParams(raw, {}, { service });
+    expect(await readEditParams(raw, service)).toEqual({});
+  });
+
   it('clears modelled settings but leaves unrelated crs: properties', async () => {
     const dir = await makeTempDir();
     const jpeg = join(dir, 'photo.jpg');

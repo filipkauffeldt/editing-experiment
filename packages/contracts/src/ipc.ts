@@ -205,6 +205,13 @@ export interface SetEditedPreviewArgs {
    * values can never mark the photo's previews as up to date.
    */
   params: EditParams;
+  /**
+   * The `defaultKey` of the default profile the pixels went through (`profiles:resolve`), absent
+   * when they went through none or through a profile the settings name. The backend refuses a
+   * render drawn with another default than the one it resolves now (profile folders changed
+   * meanwhile) and records the key, so it can mark the render stale when the default changes.
+   */
+  defaultProfile?: string;
   /** About 320 px on the long edge, upright and cropped. */
   thumb: RenderedImage;
   /** About 2560 px on the long edge, upright and cropped. */

@@ -219,10 +219,20 @@ export interface EditParams {
 
   /**
    * Camera profile (`crs:CameraProfile`): the name of a DNG camera profile (`Adobe Standard`,
-   * `Camera Standard`, ...). Absent means no profile: colour comes from the decoder's camera matrix.
-   * The name is kept when the file is not on this machine (the panel says so).
+   * `Camera Standard`, ...). Absent means the default: a raw is rendered through the `Camera Standard`
+   * profile when a `.dcp` of that name fits its camera, else through the decoder's camera matrix.
+   * The default is worked out when the picture is drawn and never written, so an absent value is
+   * not an edit. The name is kept when the file is not on this machine (the panel says so) and
+   * then the picture uses the camera matrix; it does not fall back to the default.
    */
   CameraProfile?: string;
+  /**
+   * An explicit "Camera matrix" choice (`ee:CameraProfile`): `'none'` renders the raw through the
+   * decoder's camera matrix even where a default profile exists. Our own key, not a `crs:` one,
+   * because Lightroom has no such value and would look for an Adobe profile of that name; it is
+   * ignored when `CameraProfile` or a look is set. Any other value means nothing.
+   */
+  CameraProfileChoice?: string;
   /** `crs:CameraProfileDigest`; kept for round trips, never computed. */
   CameraProfileDigest?: string;
   /** Lightroom 7+ look over the camera profile (`crs:Look`): its name (flattened `crs:LookName`) ... */
@@ -508,7 +518,14 @@ export const DEVELOP_SETTING_GROUPS = [
   {
     id: 'profile',
     label: 'Treatment & Profile',
-    fields: ['CameraProfile', 'CameraProfileDigest', 'LookName', 'LookUUID', 'LookAmount'],
+    fields: [
+      'CameraProfile',
+      'CameraProfileChoice',
+      'CameraProfileDigest',
+      'LookName',
+      'LookUUID',
+      'LookAmount',
+    ],
   },
   {
     id: 'whiteBalance',
@@ -803,6 +820,7 @@ export const EDIT_PARAM_KEYS = [
   'DefringeGreenHueHi',
   'LensProfileChoice',
   'CameraProfile',
+  'CameraProfileChoice',
   'CameraProfileDigest',
   'LookName',
   'LookUUID',
