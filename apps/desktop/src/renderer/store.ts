@@ -3763,7 +3763,6 @@ export class AppStore {
       };
     }
     this.set({ ingest: runs });
-    this.toast('success', `Ingest started for ${infos.length} source(s)`);
     return infos;
   };
 

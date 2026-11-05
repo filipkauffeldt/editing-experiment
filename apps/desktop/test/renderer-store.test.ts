@@ -393,13 +393,17 @@ describe('uploads and export', () => {
 });
 
 describe('settings', () => {
-  it('starts ingest for every configured source', async () => {
+  it('starts ingest for every configured source without a success toast', async () => {
     const { store, fake } = await setup();
     const ingest = store.getState().settings?.ingest;
     if (!ingest) throw new Error('no settings');
     const infos = await store.startIngest(ingest);
     expect(infos).toHaveLength(store.getState().sources.length);
     expect(fake.calls.some((call) => call.channel === 'ingest:start')).toBe(true);
+    // The top bar shows the runs; a toast would say the same thing twice.
+    expect(
+      store.getState().toasts.some((toast) => toast.message.startsWith('Ingest started')),
+    ).toBe(false);
   });
 
   it('surfaces a failed stop and clears the per-source stopping state', async () => {
