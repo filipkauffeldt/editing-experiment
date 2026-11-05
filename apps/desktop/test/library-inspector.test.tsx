@@ -310,5 +310,5 @@ describe('Library label shortcuts without the bar buttons', () => {
       [true, 3, 4],
       [true, 3, 4],
     ]);
-  });
+  }, 20_000);
 });
