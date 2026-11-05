@@ -83,11 +83,12 @@ function modifiersOf(event: PointerEvent | KeyboardEvent): {
 interface WheelProps {
   region: GradingRegion;
   params: EditParams;
+  sourceKey?: string;
   disabled?: boolean;
   onChange(name: SliderParam, value: number | undefined): void;
 }
 
-function Wheel({ region, params, disabled = false, onChange }: WheelProps) {
+function Wheel({ region, params, sourceKey, disabled = false, onChange }: WheelProps) {
   const dragRef = useRef<DragState | null>(null);
   const hue = normalizeHue(value(params, hueParam(region)));
   const sat = clampSaturation(value(params, satParam(region)));
@@ -231,6 +232,7 @@ function Wheel({ region, params, disabled = false, onChange }: WheelProps) {
         display={lum}
         compact
         disabled={disabled}
+        sourceKey={sourceKey}
         onRange={(next) => onChange(lumParam(region), next)}
         onNumber={(next) => onChange(lumParam(region), next)}
         onReset={() => onChange(lumParam(region), undefined)}
@@ -242,12 +244,20 @@ function Wheel({ region, params, disabled = false, onChange }: WheelProps) {
 export interface ColorGradingWheelsProps {
   view: GradingView;
   params: EditParams;
+  /** Identity of the edited photo, passed through to each luminance slider. */
+  sourceKey?: string;
   disabled?: boolean;
   onChange(name: SliderParam, value: number | undefined): void;
 }
 
 /** 3-way shows Shadows/Midtones/Highlights; the other views show one larger wheel. */
-export function ColorGradingWheels({ view, params, disabled, onChange }: ColorGradingWheelsProps) {
+export function ColorGradingWheels({
+  view,
+  params,
+  sourceKey,
+  disabled,
+  onChange,
+}: ColorGradingWheelsProps) {
   const regions: readonly GradingRegion[] =
     view === '3-way' ? ['Shadows', 'Midtones', 'Highlights'] : [view];
   return (
@@ -260,6 +270,7 @@ export function ColorGradingWheels({ view, params, disabled, onChange }: ColorGr
           key={region}
           region={region}
           params={params}
+          sourceKey={sourceKey}
           disabled={disabled}
           onChange={onChange}
         />

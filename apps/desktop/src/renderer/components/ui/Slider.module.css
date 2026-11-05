@@ -26,12 +26,6 @@
   user-select: text;
 }
 
-.number::-webkit-inner-spin-button,
-.number::-webkit-outer-spin-button {
-  margin: 0;
-  -webkit-appearance: none;
-}
-
 .number:hover {
   border-bottom-color: var(--line-strong);
 }

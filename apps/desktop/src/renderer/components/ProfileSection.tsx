@@ -125,6 +125,7 @@ export function ProfileSection() {
           numberMin={0}
           numberMax={200}
           numberStep={1}
+          sourceKey={photo?.id}
           onRange={(v) => store.setLookAmount(v / 100)}
           onNumber={(v) => store.setLookAmount(v === undefined ? undefined : v / 100)}
           onReset={() => store.setLookAmount(undefined)}

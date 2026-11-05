@@ -267,6 +267,7 @@ function Slider({ name }: { name: SliderParam }) {
       numberStep={spec.step}
       tone={isTemperature ? 'temperature' : isTint ? 'tint' : undefined}
       disabled={!photo}
+      sourceKey={photo?.id}
       onRange={(next) =>
         store.setSlider(
           name,
@@ -526,6 +527,7 @@ function ColorGradingSection() {
         view={view}
         params={params}
         disabled={!photo}
+        sourceKey={photo?.id}
         onChange={(name, value) => store.setSlider(name, value)}
       />
       <Slider name="ColorGradeBlending" />

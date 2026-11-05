@@ -1058,9 +1058,11 @@ describe('develop panel', () => {
     const tint = screen.getByLabelText('Tint value') as HTMLInputElement;
     await waitFor(() => expect(temperature.value).toBe('0'));
     expect(tint.value).toBe('0');
-    expect(temperature.min).toBe('-100');
-    expect(temperature.max).toBe('100');
-    expect(screen.getByLabelText('Temperature')).toHaveProperty('value', '0');
+    expect(temperature.type).toBe('text');
+    const track = screen.getByLabelText('Temperature') as HTMLInputElement;
+    expect(track.min).toBe('-100');
+    expect(track.max).toBe('100');
+    expect(track.value).toBe('0');
   });
 });
 
