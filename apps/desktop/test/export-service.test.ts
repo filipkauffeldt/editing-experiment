@@ -201,6 +201,56 @@ describe('ExportService', () => {
     expect(library.get(photo.id).status.export).toBe('failed');
   });
 
+  it('previews the export path with the same expansion as the export', async () => {
+    const photo = await addPhoto('preview');
+    await expect(
+      service.previewTarget({
+        photoId: photo.id,
+        preset: preset({
+          folderTemplate: '{photofolder}/export',
+          fileNaming: 'keep',
+          ifExists: 'suffix',
+          sendTo: [],
+        }),
+      }),
+    ).resolves.toEqual({
+      folder: join(root, 'export'),
+      fileName: 'preview.jpg',
+      path: join(root, 'export', 'preview.jpg'),
+    });
+
+    await expect(
+      service.previewTarget({
+        photoId: photo.id,
+        preset: preset({
+          folderTemplate: '{photofolder}/web',
+          fileNaming: 'rename',
+          fileNameTemplate: '{headline}-{filenamebase}',
+          sendTo: [],
+        }),
+      }),
+    ).resolves.toMatchObject({
+      folder: join(root, 'web'),
+      fileName: 'Cup final-preview.jpg',
+      path: join(root, 'web', 'Cup final-preview.jpg'),
+    });
+
+    // A preview is read-only: no folder was created and the photo's status is untouched.
+    expect(library.get(photo.id).status.export).toBe('none');
+    await expect(readFile(join(root, 'export', 'preview.jpg'))).rejects.toThrow();
+  });
+
+  it('previews the reason a template cannot be used instead of writing anything', async () => {
+    const photo = await addPhoto('bad-template');
+    await expect(
+      service.previewTarget({
+        photoId: photo.id,
+        preset: preset({ folderTemplate: '{photofolder}/../outside', sendTo: [] }),
+      }),
+    ).rejects.toThrowError(/leaves the photo's folder/);
+    expect(library.get(photo.id).status.export).toBe('none');
+  });
+
   it('waits for an edit in progress on the photo before reading its metadata', async () => {
     const photo = await addPhoto('locked');
     let release: () => void = () => {};

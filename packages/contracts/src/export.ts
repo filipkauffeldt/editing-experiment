@@ -119,6 +119,19 @@ export interface ExportRenderRequest {
   opsKey: string;
 }
 
+/** Arguments of `export:previewTarget`. */
+export interface PreviewExportTargetArgs {
+  photoId: PhotoId;
+  preset: ExportPreset;
+}
+
+/** Where the preset would put the photo's export; nothing is written or created. */
+export interface ExportTargetPreview {
+  folder: string;
+  fileName: string;
+  path: string;
+}
+
 /** Arguments of `export:start`. */
 export interface StartExportArgs {
   photoIds: PhotoId[];

@@ -178,7 +178,7 @@ describe('film strip', () => {
 
     fireEvent.keyDown(window, { key: 'e', ctrlKey: true, shiftKey: true });
     await screen.findByTestId('export-dialog');
-    expect(screen.getByTestId('export-dialog').textContent).toContain('3 photos selected');
+    expect(screen.getByTestId('export-dialog').textContent).toContain('Export 3 photos');
 
     fireEvent.click(screen.getByTestId('export-only'));
     await waitFor(() => {

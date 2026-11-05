@@ -1200,9 +1200,7 @@ describe.skipIf(nefs.length === 0 || !haveDisplay)(
       await clickThumb('cardA_002.NEF', ['Control']);
       await clickThumb('cardB_002.NEF', ['Control']);
       await openExportDialog();
-      expect(await window.getByTestId('export-dialog').textContent()).toContain(
-        '3 photos selected',
-      );
+      expect(await window.getByTestId('export-dialog').textContent()).toContain('Export 3 photos');
       await choosePreset('Batch');
       await window.getByTestId('export-only').click();
 

@@ -2,9 +2,11 @@ import {
   IpcError,
   type ExportPreset,
   type ExportState,
+  type ExportTargetPreview,
   type IptcFields,
   type JobEvent,
   type PhotoId,
+  type PreviewExportTargetArgs,
   type RenderedImage,
   type UploadId,
   type UploadItem,
@@ -160,9 +162,9 @@ export class ExportService {
       if (preset.metadata !== 'none') throw error;
     }
     const context = contextFor(photo.path, photo.fileName, fields, photo.captureTime, photo.camera);
-    const target = resolveExportTarget(preset, context, settings.get().exportRoot);
+    const target = resolveExportFile(preset, context, settings.get().exportRoot);
     const outputDir = target.folder;
-    const fileName = resolveExportFileName(preset, context);
+    const fileName = target.fileName;
     const originals = this.originalPaths();
 
     this.setStatus(photo.id, { export: 'encoding' });
@@ -196,6 +198,26 @@ export class ExportService {
       this.setStatus(photo.id, { export: 'failed' });
       throw error;
     }
+  }
+
+  /**
+   * The path an export of this photo with this preset would write to, without touching the disk.
+   * It expands exactly like {@link exportOne}, so the dialog's live path cannot drift from it.
+   */
+  async previewTarget(args: PreviewExportTargetArgs): Promise<ExportTargetPreview> {
+    const { photoId, preset } = args;
+    const photo = this.deps.photos.get(photoId);
+    let fields: IptcFields = {};
+    try {
+      fields = await this.deps.photos.withLock(photo.id, () =>
+        readIptc(photo.path, this.deps.exiftool),
+      );
+    } catch (error) {
+      if (preset.metadata !== 'none') throw error;
+    }
+    const context = contextFor(photo.path, photo.fileName, fields, photo.captureTime, photo.camera);
+    const target = resolveExportFile(preset, context, this.deps.settings.get().exportRoot);
+    return { folder: target.folder, fileName: target.fileName, path: target.path };
   }
 
   /** Sends an already exported file to the given destinations. */
@@ -591,6 +613,18 @@ export function resolveExportFolder(
   pathApi: path.PlatformPath = path,
 ): string {
   return resolveExportTarget(preset, context, exportRoot, pathApi).folder;
+}
+
+/** The folder, file name and full path of one export; see {@link resolveExportTarget}. */
+export function resolveExportFile(
+  preset: ExportPreset,
+  context: CaptionContext,
+  exportRoot: string,
+  pathApi: path.PlatformPath = path,
+): ResolvedExportFolder & { fileName: string; path: string } {
+  const target = resolveExportTarget(preset, context, exportRoot, pathApi);
+  const fileName = resolveExportFileName(preset, context);
+  return { ...target, fileName, path: pathApi.join(target.folder, fileName) };
 }
 
 export function resolveExportFileName(preset: ExportPreset, context: CaptionContext): string {

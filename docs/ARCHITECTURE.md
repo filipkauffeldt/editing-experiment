@@ -379,9 +379,10 @@ Key types (names are binding, fields can grow):
 - `JobEvent` stream (ingest progress, upload progress, errors)
 - IPC: one typed map `IpcApi` of `channel -> (args) => Promise<result>` plus
   typed event channels. Preload exposes it as `window.ee`.
-- `exportPresets:list/save/remove`, `export:start/cancel/list`, `export:render` and
+- `exportPresets:list/save/remove`, `export:previewTarget`, `export:start/cancel/list`, `export:render` and
   `export:rendererReady`; progress arrives as `export.progress` / `export.state`
-  job events. `export:render` sends the RGBA render over IPC (full-resolution only
+  job events. `export:previewTarget` expands the folder and file templates exactly as the export does,
+  without writing anything, so the dialog can show where the first photo would be saved. `export:render` sends the RGBA render over IPC (full-resolution only
   for `resize: none`: about 180 MB for a 45 MP Z9 frame). That is fine for the PoC
   but a known cost to optimise later (e.g. MessagePort transfer or a shared temp file).
 

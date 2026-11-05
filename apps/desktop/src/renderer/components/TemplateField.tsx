@@ -59,6 +59,8 @@ interface TemplateFieldProps {
   testId?: string;
   placeholder?: string;
   className?: string;
+  /** No visible label and a `{ }` picker button, for a label-left form. */
+  compact?: boolean;
 }
 
 /**
@@ -74,6 +76,7 @@ export function TemplateField({
   testId,
   placeholder,
   className,
+  compact = false,
 }: TemplateFieldProps) {
   const id = useId();
   const inputRef = useRef<HTMLInputElement>(null);
@@ -285,10 +288,12 @@ export function TemplateField({
     );
 
   return (
-    <div className={`${styles.field} ${className ?? ''}`}>
-      <label className={styles.label} htmlFor={id}>
-        {label}
-      </label>
+    <div className={`${styles.field} ${compact ? styles.compact : ''} ${className ?? ''}`}>
+      {!compact && (
+        <label className={styles.label} htmlFor={id}>
+          {label}
+        </label>
+      )}
       <div className={styles.row}>
         <input
           id={id}
@@ -296,6 +301,7 @@ export function TemplateField({
           className={styles.input}
           value={value}
           placeholder={placeholder}
+          aria-label={compact ? label : undefined}
           data-testid={testId}
           aria-describedby={unknown.length > 0 ? `${id}-unknown` : undefined}
           spellCheck={false}
@@ -303,7 +309,7 @@ export function TemplateField({
         />
         <button
           type="button"
-          className={styles.trigger}
+          className={`${styles.trigger} ${compact ? styles.triggerCompact : ''}`}
           aria-haspopup="dialog"
           aria-expanded={open}
           aria-controls={listId}
@@ -318,7 +324,7 @@ export function TemplateField({
             setOpen(true);
           }}
         >
-          Variables
+          {compact ? '{ }' : 'Variables'}
         </button>
       </div>
       {unknown.length > 0 && (
