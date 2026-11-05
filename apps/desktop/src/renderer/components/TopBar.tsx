@@ -40,9 +40,7 @@ export function TopBar({ className, loadError }: { className?: string; loadError
   }, []);
 
   const summary = uploadSummary(state.uploads);
-  // Sending is already a dot; only a running export needs words.
-  const exportText = exportStatusText(state);
-  const exportStatus = exportText?.startsWith('Exporting') ? exportText : undefined;
+  const exportStatus = exportStatusText(state);
   const runs = state.sources.flatMap((source) => {
     const run = state.ingest[source.id];
     return run ? [{ source, run }] : [];
@@ -52,9 +50,11 @@ export function TopBar({ className, loadError }: { className?: string; loadError
     ({ run, source }) =>
       run.state === 'watching' && (source.kind === 'ftp' || source.kind === 'sftp'),
   );
+  const failedRuns = runs.filter(({ run }) => run.state === 'failed');
   const filesDone = running.reduce((sum, { run }) => sum + run.filesDone, 0);
   const filesTotal = running.reduce((sum, { run }) => sum + run.filesTotal, 0);
-  const failed = summary.failed + runs.filter(({ run }) => run.state === 'failed').length;
+  // The failed dot opens the upload queue, so it counts failed uploads only.
+  const failedUploads = summary.failed;
   const active: AppModule = state.retouch ? 'develop' : state.module;
 
   const choose = (tab: AppModule): void => {
@@ -102,49 +102,68 @@ export function TopBar({ className, loadError }: { className?: string; loadError
         </span>
       )}
 
-      <span
-        className={`${styles.status} ${running.length > 0 ? styles.statusOn : ''}`}
-        title={runs.map(({ source, run }) => `${source.name}: ${run.state}`).join('\n')}
-      >
-        <Dot tone={running.length > 0 ? 'ok' : 'idle'} />
-        {running.length > 0 ? (
-          <>
-            ingesting <span className="mono">{`${filesDone}/${filesTotal}`}</span>
-          </>
-        ) : (
-          'ingest idle'
-        )}
-      </span>
+      {running.length > 0 && (
+        <span
+          className={`${styles.status} ${styles.statusOn}`}
+          title={runs.map(({ source, run }) => `${source.name}: ${run.state}`).join('\n')}
+          data-testid="ingest-status"
+        >
+          <Dot tone="ok" />
+          Ingesting <span className="mono">{`${filesDone} of ${filesTotal}`}</span>
+        </span>
+      )}
 
-      <span className={`${styles.status} ${watching.length > 0 ? styles.statusOn : ''}`}>
-        <Dot tone={watching.length > 0 ? 'ok' : 'idle'} />
-        FTP watching
-        {watching.length > 1 && <span className="mono">{watching.length}</span>}
-      </span>
+      {watching.length > 0 && (
+        <span className={`${styles.status} ${styles.statusOn}`} data-testid="watching-status">
+          <Dot tone="ok" />
+          Watching FTP
+        </span>
+      )}
 
-      <div className={styles.uploadWrap}>
+      {failedRuns.length > 0 && (
         <button
           type="button"
-          className={`${styles.status} ${styles.statusButton} ${summary.active > 0 ? styles.statusOn : ''}`}
-          onClick={() => setUploadOpen((open) => !open)}
-          aria-expanded={uploadOpen}
-          data-testid="upload-summary"
+          className={`${styles.status} ${styles.statusButton} ${styles.statusOn}`}
+          onClick={() => store.setModule('ingest')}
+          title={failedRuns
+            .map(({ source, run }) => `${source.name}: ${run.error ?? 'Ingest failed'}`)
+            .join('\n')}
+          data-testid="ingest-failed-summary"
         >
-          <Dot tone={summary.active > 0 ? 'ok' : 'idle'} />
-          sending <span className="mono">{summary.active}</span>
+          <Dot tone="error" />
+          <span className="mono">{failedRuns.length}</span>{' '}
+          {failedRuns.length === 1 ? 'ingest' : 'ingests'} failed
         </button>
+      )}
+
+      <div className={styles.uploadWrap}>
+        {summary.active > 0 && (
+          <button
+            type="button"
+            className={`${styles.status} ${styles.statusButton} ${styles.statusOn}`}
+            onClick={() => setUploadOpen((open) => !open)}
+            aria-expanded={uploadOpen}
+            data-testid="upload-summary"
+          >
+            <Dot tone="ok" />
+            Sending <span className="mono">{summary.active}</span>
+          </button>
+        )}
         {uploadOpen && <UploadPopover onClose={() => setUploadOpen(false)} />}
       </div>
 
-      <button
-        type="button"
-        className={`${styles.status} ${styles.statusButton} ${failed > 0 ? styles.statusOn : ''}`}
-        onClick={() => setUploadOpen(true)}
-        title="Show failed uploads"
-      >
-        <Dot tone={failed > 0 ? 'error' : 'idle'} />
-        failed <span className="mono">{failed}</span>
-      </button>
+      {failedUploads > 0 && (
+        <button
+          type="button"
+          className={`${styles.status} ${styles.statusButton} ${styles.statusOn}`}
+          onClick={() => setUploadOpen(true)}
+          title="Show failed uploads"
+          data-testid="failed-summary"
+        >
+          <Dot tone="error" />
+          <span className="mono">{failedUploads}</span> failed
+        </button>
+      )}
 
       <button
         type="button"

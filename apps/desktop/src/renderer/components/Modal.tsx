@@ -5,6 +5,8 @@ import styles from './Modal.module.css';
 interface ModalProps {
   title: string;
   subtitle?: string;
+  /** Small controls shown on the title row, e.g. All / None. */
+  headerActions?: ReactNode;
   onClose(): void;
   children: ReactNode;
   footer?: ReactNode;
@@ -13,7 +15,16 @@ interface ModalProps {
 }
 
 /** Overlay dialog. Owns Escape and backdrop clicks so global shortcuts pause. */
-export function Modal({ title, subtitle, onClose, children, footer, width, testId }: ModalProps) {
+export function Modal({
+  title,
+  subtitle,
+  headerActions,
+  onClose,
+  children,
+  footer,
+  width,
+  testId,
+}: ModalProps) {
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent): void => {
       if (event.key === 'Escape') {
@@ -43,8 +54,11 @@ export function Modal({ title, subtitle, onClose, children, footer, width, testI
         data-testid={testId}
       >
         <header className={styles.header}>
-          <div>
-            <h2 className={styles.title}>{title}</h2>
+          <div className={styles.heading}>
+            <div className={styles.titleRow}>
+              <h2 className={styles.title}>{title}</h2>
+              {headerActions && <div className={styles.headerActions}>{headerActions}</div>}
+            </div>
             {subtitle && <p className={styles.subtitle}>{subtitle}</p>}
           </div>
           <button type="button" className={styles.close} aria-label="Close" onClick={onClose}>

@@ -88,8 +88,13 @@ Built in `components/ui/`:
 ## Layout
 
 - **Top bar** (36 px): app mark, module switch (**Ingest · Library · Develop**) and
-  right-aligned status dots (ingesting, FTP watching, sending N, failed N), then shortcuts and
-  settings.
+  right-aligned activity, shown only while it is true: **Ingesting 212 of 412**,
+  **Watching FTP**, **Sending 2**, a red-dot **1 ingest failed** / **2 ingests failed**
+  (opens Ingest) and a red-dot **1 failed** (opens the upload queue). Shortcuts and settings
+  sit at the far right.
+- **Dialogs** state the job in the title and carry no explaining subtitle. Title-related
+  actions such as All and None sit on the title row. A dialog that copies from a photo names
+  that photo's file in the title (*Copy metadata from _DSC8330.NEF*).
 - **Bottom action bar** (40 px): contextual actions on the right, summary and keyboard hints on
   the left.
 - **Side panels**: the Library sidebar and inspector, the Develop metadata and develop panels,
@@ -101,6 +106,8 @@ Built in `components/ui/`:
   320 px, and a smaller window re-clamps the shown widths without losing the saved preference.
   Double-click resets a panel to its default. Widths are saved to settings when the drag ends,
   not on every move, and are restored on the next launch.
+- **Settings → Sources** lists the sources and adds a new one from a single **Add ▾** menu
+  (Folder, Card, FTP, SFTP), rather than one button per kind.
 
 ### Modules
 

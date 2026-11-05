@@ -72,6 +72,32 @@ const shooter = (window: Page, outDir: string) => async (name: string, selector?
   console.log(`wrote ${path}`);
 };
 
+const UPLOAD_STATUS = '[data-testid="upload-summary"], [data-testid="failed-summary"]';
+
+/**
+ * The top bar only shows the upload queue while something is sending or has failed.
+ * Click its status from inside the wait, so a quick local-folder upload cannot finish
+ * between finding the button and clicking it. The popover stays open once it is shown.
+ * Returns false when the queue went idle before any status appeared.
+ */
+async function openUploadQueue(window: Page, timeout = 15_000): Promise<boolean> {
+  const opened = await window
+    .waitForFunction(
+      (selector) => {
+        const status = document.querySelector<HTMLElement>(selector);
+        if (!status) return false;
+        status.click();
+        return true;
+      },
+      UPLOAD_STATUS,
+      { timeout },
+    )
+    .then(() => true)
+    .catch(() => false);
+  if (opened) await window.getByRole('dialog', { name: 'Upload queue' }).waitFor();
+  return opened;
+}
+
 async function runMock(outDir: string): Promise<void> {
   const app = await launch({ EE_MOCK: '1', EE_SOFTWARE_GL: '1', EE_SCREENSHOTS: '1' });
   const shoot = shooter(await app.firstWindow(), outDir);
@@ -89,7 +115,7 @@ async function runMock(outDir: string): Promise<void> {
     await window.getByText('MOCK', { exact: true }).waitFor();
     // Let the mock ingest/upload simulation produce a little progress.
     await window.waitForFunction(() =>
-      /ingesting [1-9]\d*\/\d+/.test(document.body.textContent ?? ''),
+      /Ingesting [1-9]\d* of \d+/.test(document.body.textContent ?? ''),
     );
     await shoot('01-main-1440.png');
 
@@ -156,14 +182,17 @@ async function runMock(outDir: string): Promise<void> {
     );
     await shoot('03-metadata-template-diff.png', '[data-testid="metadata-panel"]');
 
-    await window.locator('[data-testid="upload-summary"]').click();
-    await window.getByRole('dialog', { name: 'Upload queue' }).waitFor();
-    await shoot('04-upload-popover.png');
+    if (await openUploadQueue(window)) await shoot('04-upload-popover.png');
+    else console.log('skipping upload popover: the queue is idle');
 
     await window.keyboard.press('Escape');
     await window.locator('[data-testid="open-settings"]').click();
     await window.getByRole('dialog', { name: 'Settings' }).waitFor();
     await shoot('05-source-settings.png');
+    await window.getByTestId('add-source').click();
+    await window.getByRole('menu', { name: 'Add source' }).waitFor();
+    await shoot('05a-source-add-menu.png');
+    await window.keyboard.press('Escape');
     await window.getByTestId('settings-dialog').getByRole('tab', { name: 'Ingest' }).click();
     await window.getByText('Develop preset', { exact: true }).waitFor();
     await shoot('05c-ingest-settings.png');
@@ -671,16 +700,25 @@ async function runReal(outDir: string): Promise<void> {
     await shoot('14-real-committed-retouch.png');
     await shoot('15-real-film-strip-retouch.png', '[data-testid="film-strip"]');
 
-    // Next & send, then show the upload popover.
+    // Next & send, then open the upload queue while the top bar still shows it.
+    // The bar hides the queue while everything is done and nothing failed.
     await window.getByTestId('next-send').click();
-    for (let i = 0; i < 400; i++) {
-      const uploads = (await invoke('upload:list')) as { state: string }[];
-      if (uploads.length > 0 && uploads.every((item) => item.state === 'done')) break;
-      await new Promise((resolve) => setTimeout(resolve, 100));
+    const opened = await openUploadQueue(window, 30_000);
+    if (opened) {
+      for (let i = 0; i < 400; i++) {
+        const uploads = (await invoke('upload:list')) as { state: string }[];
+        if (
+          uploads.length > 0 &&
+          uploads.every((item) => ['done', 'failed', 'cancelled'].includes(item.state))
+        ) {
+          break;
+        }
+        await new Promise((resolve) => setTimeout(resolve, 100));
+      }
+      await shoot('16-real-upload-popover.png');
+    } else {
+      console.log('skipping upload popover: the uploads finished before their status appeared');
     }
-    await window.locator('[data-testid="upload-summary"]').click();
-    await window.getByRole('dialog', { name: 'Upload queue' }).waitFor();
-    await shoot('16-real-upload-popover.png');
 
     // Library over the ingested files, everything selected.
     // Close the upload popover by clicking outside it.

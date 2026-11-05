@@ -90,6 +90,12 @@ describe.skipIf(nefs.length < 3 || !haveDisplay)(
       return typed.value;
     };
 
+    /** The toast stack's text, or empty when no toast is shown at all. */
+    const toastText = async (): Promise<string> => {
+      const toasts = window.locator('[data-testid=toasts]');
+      return (await toasts.count()) === 0 ? '' : ((await toasts.textContent()) ?? '');
+    };
+
     async function launch(): Promise<void> {
       const electronPath = createRequire(join(desktopDir, 'package.json'))('electron') as string;
       app = await electron.launch({
@@ -210,11 +216,11 @@ describe.skipIf(nefs.length < 3 || !haveDisplay)(
       // Nothing happened yet. Selecting the photo whose file is gone may already have raised its
       // "file not found" toast; the removal must add none.
       expect(await cells().count()).toBe(3);
-      const toastsBefore = await window.locator('[data-testid=toasts]').textContent();
+      const toastsBefore = await toastText();
       await window.keyboard.press('Enter');
       await dialog.waitFor({ state: 'detached' });
       await until('the photo to leave the grid', async () => (await cells().count()) === 2);
-      expect(await window.locator('[data-testid=toasts]').textContent()).toBe(toastsBefore);
+      expect(await toastText()).toBe(toastsBefore);
 
       // A photo whose file is still on disk, with its sidecar: Escape cancels, Enter removes.
       await cellFor('game_2.NEF').click({ button: 'right' });

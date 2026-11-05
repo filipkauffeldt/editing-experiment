@@ -493,15 +493,12 @@ export function exportJobTerminal(job: ExportJob): boolean {
   return job.state === 'done' || job.state === 'failed' || job.state === 'cancelled';
 }
 
-/** Text for the status bar, e.g. `Exporting 12/40 · Sending 3`. */
+/** Text for the status bar while an export batch runs, e.g. `Exporting 2 of 5`. */
 export function exportStatusText(state: AppState): string | undefined {
   const job = state.exportJobs.find(
     (candidate) => candidate.state === 'running' || candidate.state === 'queued',
   );
-  const sending = state.uploads.filter(
-    (upload) => upload.state === 'queued' || upload.state === 'uploading',
-  ).length;
-  if (!job) return sending > 0 ? `Sending ${sending}` : undefined;
+  if (!job) return undefined;
   const done = job.photos.filter(
     (photo) =>
       photo.state === 'done' ||
@@ -509,7 +506,7 @@ export function exportStatusText(state: AppState): string | undefined {
       photo.state === 'failed' ||
       photo.state === 'cancelled',
   ).length;
-  return `Exporting ${done}/${job.photos.length}${sending > 0 ? ` · Sending ${sending}` : ''}`;
+  return `Exporting ${done} of ${job.photos.length}`;
 }
 
 /** Whether a develop section is on for the photo (see `AppState.sectionStash`). */
@@ -3708,6 +3705,20 @@ export class AppStore {
   };
 
   /**
+   * Forgets a failed run the user dismissed: a card was removed while its run failed, so the
+   * Ingest view offers Dismiss instead of a Stop. The top bar reads the same run state.
+   */
+  readonly dismissIngestFailure = (jobId: string): void => {
+    const run = Object.values(this.state.ingest).find(
+      (candidate) => candidate.jobId === jobId && candidate.state === 'failed',
+    );
+    if (!run) return;
+    const ingest = { ...this.state.ingest };
+    delete ingest[run.sourceId];
+    this.set({ ingest });
+  };
+
+  /**
    * Stops one source, or every source that is still running or watching. The call
    * returns when the runs have wound down, so the controls stay disabled until then.
    */
@@ -3763,7 +3774,6 @@ export class AppStore {
       };
     }
     this.set({ ingest: runs });
-    this.toast('success', `Ingest started for ${infos.length} source(s)`);
     return infos;
   };
 

@@ -29,6 +29,23 @@
   border-bottom: 1px solid var(--line);
 }
 
+.heading {
+  flex: 1;
+  min-width: 0;
+}
+
+.titleRow {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+}
+
+.headerActions {
+  display: inline-flex;
+  gap: 6px;
+}
+
 .title {
   margin: 0;
   color: var(--text);

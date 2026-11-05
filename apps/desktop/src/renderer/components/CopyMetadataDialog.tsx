@@ -25,7 +25,6 @@ export function CopyMetadataDialog() {
       : METADATA_FIELD_NAMES.filter((name) => remembered.includes(name)),
   );
   const selected = new Set(checked);
-  const targetCount = Math.max(1, state.selection.length);
 
   const toggle = (name: MetadataFieldName): void =>
     setChecked((current) =>
@@ -37,12 +36,8 @@ export function CopyMetadataDialog() {
 
   return (
     <Modal
-      title="Copy Metadata"
-      subtitle={`Copy from ${photo?.fileName ?? 'the active photo'}, then paste only those fields onto ${targetCount} selected photo${targetCount === 1 ? '' : 's'}.`}
-      onClose={() => store.closeMetadataCopy()}
-      width={620}
-      testId="copy-metadata-dialog"
-      footer={
+      title={`Copy metadata from ${photo?.fileName ?? 'the active photo'}`}
+      headerActions={
         <>
           <Button
             size="small"
@@ -60,7 +55,13 @@ export function CopyMetadataDialog() {
           >
             None
           </Button>
-          <span className={styles.spacer} />
+        </>
+      }
+      onClose={() => store.closeMetadataCopy()}
+      width={620}
+      testId="copy-metadata-dialog"
+      footer={
+        <>
           <Button onClick={() => store.closeMetadataCopy()}>Cancel</Button>
           <Button
             variant="primary"
@@ -98,10 +99,6 @@ export function CopyMetadataDialog() {
           </section>
         ))}
       </div>
-      <p className={styles.note}>
-        Paste overwrites only the checked fields and leaves every other field as it is. Raws keep
-        their metadata in XMP sidecars; the raw file itself is never written.
-      </p>
     </Modal>
   );
 }
