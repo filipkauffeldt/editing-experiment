@@ -26,7 +26,7 @@ text). There are no blue accents, no coloured buttons and no coloured badges.
 Colour appears only in:
 
 - the photo,
-- colour-class dots (6-7 px circles, `--class-1..8`),
+- colour-label dots (6-7 px circles, `--class-1..8`),
 - the temperature and tint slider tracks (desaturated gradients, `--track-temperature`,
   `--track-tint`),
 - tiny status dots (`--ok`, `--error`): the top bar, toast status; and the failed-upload icon
@@ -73,7 +73,7 @@ Built in `components/ui/`:
   (a hairline box) in dialogs.
 - **Button**: hairline outline; the `primary` variant is white with near-black text and is the
   one emphasised action in a bar or dialog.
-- **Dot**: 6-7 px status and colour-class dots.
+- **Dot**: 6-7 px status and colour-label dots.
 - Tabs and modes are text with a 1 px underline for the active one.
 - **Selection** in the grid and film strip: a 2 px white outline with a 2 px offset.
 - **Profile** (a row under the histogram in Develop): the label *Profile* and an underline Select grouped
@@ -144,9 +144,9 @@ on the copies. The sidebar is the folder list and nothing else.
 Library and Develop share one filter bar (`FilterBar`) and one filter state, so what is set in one
 view is still set after `G`/`D`. A single 36 px row, left to right: **Tag** (All · Tagged ·
 Untagged, with counts, underline on the active one), **five stars** (click star N for "N and up",
-click the active star to clear; filled stars are white, the rest `--dim`), the **eight colour-class
+click the active star to clear; filled stars are white, the rest `--dim`), the **eight colour-label
 dots** (several at once; a ticked dot has a 1 px white outline), a **Status** menu (Not sent,
-Failed, Edited, Metadata differs, ticked boxes, counts), a **Camera** menu (one group of bodies, one
+Failed, Edited, Differs from template, ticked boxes, counts), a **Camera** menu (one group of bodies, one
 of sources), the **search** field (underline field, "Search…"; Ctrl/Cmd+`F` focuses it in both
 views, Enter applies it and leaves, Esc clears it and leaves, and nothing typed in it is a shortcut), then a **×** that
 appears only while something is filtered, the count (`N of M` while filtered), and on the right the
@@ -156,11 +156,11 @@ circles, filled white when on. When a filter shows nothing the grid or film stri
 line saying photos are hidden, not lost, and a *Clear filters* button.
 
 Library keys: click, Shift-range, Ctrl/Cmd-toggle, Ctrl/Cmd+A, arrows (Shift extends), `T` tag,
-`1`-`5` rating (`0` clears), Ctrl/Cmd+`1`-`8` class (Ctrl/Cmd+`0` clears), Ctrl/Cmd+I caption, Ctrl/Cmd+K keywords, Shift+Ctrl/Cmd+C copy settings, Shift+Ctrl/Cmd+V paste
+`1`-`5` rating (`0` clears), Ctrl/Cmd+`1`-`8` colour label (Ctrl/Cmd+`0` clears), Ctrl/Cmd+I caption, Ctrl/Cmd+K keywords, Shift+Ctrl/Cmd+C copy settings, Shift+Ctrl/Cmd+V paste
 settings, Shift+Ctrl/Cmd+E export, Shift+Ctrl/Cmd+Enter export and send. The bottom bar has the
 selection count on the left and **Caption…**, **Sync settings…** (the same group dialog for the
-whole selection), **Export…** and the primary **Export & send** on the right; Tag, rating and class
-are the keys above and the right-click menu, not buttons. In Develop Ctrl/Cmd+Enter is Next & send, and the button's tooltip names the active export
+whole selection), **Export…** and the primary **Export & send** on the right; Tag, rating and colour
+label are the keys above and the right-click menu, not buttons. In Develop Ctrl/Cmd+Enter is Next & send, and the button's tooltip names the active export
 preset ("Desk 2048 q90 → Export/Desk → destination").
 
 ### Develop
@@ -180,10 +180,10 @@ two side panels default to 280 px. There is no bottom bar.
   aperture, shutter) stays under the histogram.
 - **Metadata panel**: one row first, a template select (or a link to Settings → Metadata when there is
   no template), `Apply` (it only fills empty fields, so it never overwrites a caption written by hand) with a
-  small menu beside it that offers the other way, *Replace all, overwriting*; then `Copy` and `Paste`. Then Caption with real height, Keywords,
+  small menu beside it that offers the other way, *Replace all, overwriting*; then `Copy metadata…` and `Paste`. Then Caption with real height, Keywords,
   Headline and Object name, always shown. **Credits**, **Location** and **Event / job** are folded; a
-  folded header shows the values that are set as one line and `≠ template` when one of them differs from
-  the template, so a difference never hides. Which groups are open is remembered while the app runs.
+  folded header shows the values that are set as one line and `≠ template` (tooltip: Differs from
+  template) when one of them differs from the template, so a difference never hides. Which groups are open is remembered while the app runs.
   Templates are added in Settings → Metadata, not in the panel.
 - **Develop panel**: `Copy settings…` on the first row, the histogram and its exposure line, then
   **Preset** and **Profile** as one row each (a label and a field). Preset is a menu over the grouped
