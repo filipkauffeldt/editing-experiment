@@ -29,6 +29,8 @@ import {
   mockTemplate,
   mockUploads,
 } from '../src/shared/mock';
+import { dirname, parse } from 'node:path';
+import { resolveExportFile } from '../src/jobs/backend/export-service';
 
 type Handler = (...args: unknown[]) => Promise<unknown>;
 
@@ -344,6 +346,28 @@ export function createFakeBridge(
     'exportPresets:remove': async (...args) => {
       const { presetId } = args[0] as { presetId: ExportPreset['id'] };
       exportPresets = exportPresets.filter((preset) => preset.id !== presetId);
+    },
+    'export:previewTarget': async (...args) => {
+      const { photoId, preset } = args[0] as {
+        photoId: PhotoId;
+        preset: ExportPreset;
+      };
+      const photo = findPhoto(photoId);
+      const target = resolveExportFile(
+        preset,
+        {
+          filePath: photo.path,
+          photoFolder: dirname(photo.path),
+          fileName: photo.fileName,
+          fileNameBase: parse(photo.fileName).name,
+          ...(photo.captureTime === undefined ? {} : { captureTime: photo.captureTime }),
+          ...(photo.camera === undefined ? {} : { camera: photo.camera }),
+          fields: metadata.get(photoId) ?? {},
+          now: new Date(),
+        },
+        settings.exportRoot,
+      );
+      return { folder: target.folder, fileName: target.fileName, path: target.path };
     },
     'export:start': async (...args) => {
       const { photoIds, presetId, send, forceTop } = args[0] as {

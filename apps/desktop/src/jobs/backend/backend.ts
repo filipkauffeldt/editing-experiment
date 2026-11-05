@@ -267,6 +267,7 @@ export async function createBackend(options: BackendOptions): Promise<Backend> {
       ingest,
       queue,
       exports,
+      exporter,
     }),
   );
 

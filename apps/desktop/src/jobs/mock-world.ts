@@ -40,6 +40,8 @@ import {
   mockUploads,
   MOCK_TEMPLATE_PATH,
 } from '../shared/mock';
+import { dirname, parse } from 'node:path';
+import { resolveExportFile } from './backend/export-service';
 
 type Emit = (channel: EventChannel, payload: unknown) => void;
 
@@ -519,6 +521,24 @@ export function createMockHandlers(world: MockWorld, emit: Emit): Partial<IpcHan
     },
     'exportPresets:remove': async ({ presetId }) => {
       world.exportPresets = world.exportPresets.filter((preset) => preset.id !== presetId);
+    },
+    'export:previewTarget': async ({ photoId, preset }) => {
+      const photo = findPhoto(photoId);
+      const target = resolveExportFile(
+        preset,
+        {
+          filePath: photo.path,
+          photoFolder: dirname(photo.path),
+          fileName: photo.fileName,
+          fileNameBase: parse(photo.fileName).name,
+          ...(photo.captureTime === undefined ? {} : { captureTime: photo.captureTime }),
+          ...(photo.camera === undefined ? {} : { camera: photo.camera }),
+          fields: world.metadata.get(photoId) ?? {},
+          now: new Date(),
+        },
+        mockSettings().exportRoot,
+      );
+      return { folder: target.folder, fileName: target.fileName, path: target.path };
     },
     'export:start': async ({ photoIds, presetId, send, forceTop }) => {
       const preset = world.exportPresets.find((candidate) => candidate.id === presetId);

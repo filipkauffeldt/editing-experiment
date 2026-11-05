@@ -9,6 +9,7 @@ import type { Emit, PhotoLibrary } from './photo-library';
 import type { EditService } from './edit-service';
 import type { EditedPreviews } from './edited-previews';
 import type { ExportQueue } from './export-queue';
+import type { ExportService } from './export-service';
 import type { FaceService } from './faces';
 import type { IngestService } from './ingest-service';
 import type { LabelService } from './label-service';
@@ -37,6 +38,7 @@ export interface HandlerDeps {
   ingest: IngestService;
   queue: UploadQueue;
   exports: ExportQueue;
+  exporter: ExportService;
 }
 
 /**
@@ -137,6 +139,7 @@ export function createBackendHandlers(deps: HandlerDeps): IpcHandlers {
     'exportPresets:remove': async ({ presetId }) => settings.removeExportPreset(presetId),
 
     'export:start': async (args) => exports.start(args),
+    'export:previewTarget': (args) => deps.exporter.previewTarget(args),
     'export:cancel': async ({ jobId }) => exports.cancel(jobId),
     'export:list': async () => exports.list(),
     'export:render': async (args) => exports.deliverRender(args),

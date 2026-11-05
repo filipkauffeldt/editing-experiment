@@ -37,6 +37,7 @@ import {
   type ExportJob,
   type ExportJobId,
   type ExportPreset,
+  type ExportTargetPreview,
   type PresetId,
   type IngestJobInfo,
   type IngestSettings,
@@ -3351,6 +3352,13 @@ export class AppStore {
 
   readonly openExportDialog = (): void => this.set({ exportOpen: true, dialog: undefined });
   readonly closeExportDialog = (): void => this.set({ exportOpen: false });
+
+  /** Where a preset would put a photo's export, expanded by the jobs process. */
+  readonly previewExportTarget = (
+    photoId: PhotoId,
+    preset: ExportPreset,
+  ): Promise<ExportTargetPreview> =>
+    this.bridge.invoke('export:previewTarget', { photoId, preset });
 
   readonly saveExportPreset = async (preset: ExportPreset): Promise<void> => {
     const saved = await this.bridge.invoke('exportPresets:save', { preset });

@@ -11,6 +11,8 @@ import type {
   Destination,
   ExportJob,
   ExportPreset,
+  ExportTargetPreview,
+  PreviewExportTargetArgs,
   RenderedImage,
   StartExportArgs,
   UploadItem,
@@ -439,6 +441,8 @@ export interface IpcApi {
   'exportPresets:remove': (args: { presetId: PresetId }) => Promise<void>;
 
   // --- export jobs (renderer renders, jobs process encodes and sends) ---
+  /** Where the preset would put the photo's export, expanded as the export expands it. */
+  'export:previewTarget': (args: PreviewExportTargetArgs) => Promise<ExportTargetPreview>;
   'export:start': (args: StartExportArgs) => Promise<ExportJobId>;
   'export:cancel': (args: { jobId: ExportJobId }) => Promise<void>;
   'export:list': () => Promise<ExportJob[]>;
@@ -523,6 +527,7 @@ export const INVOKE_CHANNELS = [
   'exportPresets:list',
   'exportPresets:save',
   'exportPresets:remove',
+  'export:previewTarget',
   'export:start',
   'export:cancel',
   'export:list',
