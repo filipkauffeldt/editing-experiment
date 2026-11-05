@@ -146,17 +146,20 @@
   z-index: 3;
 }
 
-.tools,
-.actions {
+.tools {
   display: flex;
+  flex: none;
   align-items: center;
   gap: 14px;
 }
 
-/* Wrapped sliders go below; the actions stay on the first row, at its right end. */
-.toolbar .actions {
+/* Reset, Cancel, Undo, Done: at the right end of the last row, however many rows there are. */
+.actions {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 8px;
   margin-left: auto;
-  flex-wrap: wrap;
 }
 
 /* Tools and modes are text; the active one has a 1 px underline. */
@@ -169,8 +172,12 @@
   font: inherit;
 }
 
-.tool:hover {
+.tool:hover:not(:disabled) {
   color: var(--text);
+}
+
+.tool:disabled {
+  color: var(--dim);
 }
 
 .toolActive {
@@ -198,24 +205,6 @@
   border-color: var(--line);
 }
 
-/* The way out of a mode: outlined in the text colour so it reads as the exit. */
-.done {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  height: 22px;
-  padding: 0 9px;
-  border: 1px solid var(--text);
-  background: transparent;
-  color: var(--text);
-  font: inherit;
-  font-weight: 600;
-}
-
-.done:hover:not(:disabled) {
-  background: var(--raised);
-}
-
 /* The one filled control in a toolbar. */
 .commit {
   display: inline-flex;
@@ -233,6 +222,7 @@
 
 .control {
   display: inline-flex;
+  flex: none;
   align-items: center;
   gap: 8px;
   color: var(--muted);
@@ -267,44 +257,24 @@
   visibility: hidden;
 }
 
-.faceHint {
+.counts {
   display: inline-flex;
   flex: none;
   align-items: center;
-  gap: 4px;
+  gap: 12px;
   color: var(--muted);
   white-space: nowrap;
 }
 
-/* The slots stay wide enough for their counts, so showing the first count adds no row. */
-.faceHint[data-empty='true'] {
+/* The slots stay wide enough for their counts, so a count appearing never adds a row. */
+.counts[data-empty='true'] {
   visibility: hidden;
 }
 
-.faceHintCount {
+.count {
   display: inline-block;
-  min-width: 14ch;
+  min-width: 16ch;
   min-height: 1lh;
-}
-
-/* Room for the longest tool hint: a shorter hint must not change the row count. */
-.toolHint {
-  display: grid;
-  flex: 1 1 auto;
-  min-width: 0;
-  margin-left: auto;
-  color: var(--muted);
-}
-
-.toolHintText {
-  grid-area: 1 / 1;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.toolHintMeasure {
-  visibility: hidden;
 }
 
 .versionBadge {
@@ -325,32 +295,8 @@
 
 .aspects {
   display: flex;
-  flex-wrap: wrap;
-  gap: 6px 14px;
-}
-
-.cropToolbar {
-  position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 6px;
-  padding: 6px 12px;
-  background: var(--panel);
-  border-bottom: 1px solid var(--line);
-  color: var(--text);
-  font-size: var(--fs-small);
-  z-index: 3;
-}
-
-.cropRow {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 6px 18px;
+  flex: none;
+  gap: 14px;
 }
 
 .cropOverlay {

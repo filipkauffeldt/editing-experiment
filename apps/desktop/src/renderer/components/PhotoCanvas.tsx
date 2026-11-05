@@ -28,13 +28,7 @@ import {
 import { polygonBounds, shapeBounds, simplifyPolygon } from '@ee/retouch';
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { ee } from '../ee';
-import {
-  hasPendingRetouch,
-  paramsForPhoto,
-  topRetouchVersion,
-  type FaceSearchArea,
-  type RetouchTool,
-} from '../store';
+import { hasPendingRetouch, paramsForPhoto, topRetouchVersion, type RetouchTool } from '../store';
 import {
   clearDevelopAction,
   setHistogram,
@@ -60,7 +54,7 @@ import {
   photoLongEdge,
 } from '../retouch-block-size';
 import {
-  altFlipsMode,
+  altHeld,
   areaIndexAt,
   areaShape,
   countAreas,
@@ -74,7 +68,7 @@ import { renderMosaicPreview } from '../retouch-preview';
 import { useAppState, useAppStore } from '../store-context';
 import { CropOverlay } from './CropOverlay';
 import { CropToolbar } from './CropToolbar';
-import { CheckIcon, EyeIcon, PenIcon } from './icons';
+import { CheckIcon, PenIcon } from './icons';
 import { NumberField } from './ui/NumberField';
 import styles from './PhotoCanvas.module.css';
 
@@ -137,9 +131,9 @@ const shapeBox = (shape: Shape): { x: number; y: number; w: number; h: number } 
   shapeBounds(shape);
 
 const TOOL_LABELS: Record<RetouchTool, string> = {
+  faces: 'Faces',
   rect: 'Rectangle',
   lasso: 'Lasso',
-  faces: 'Detect faces',
 };
 
 const MODE_LABELS: Record<RetouchMode, string> = {
@@ -147,24 +141,11 @@ const MODE_LABELS: Record<RetouchMode, string> = {
   subtract: 'Subtract',
 };
 
-const FACE_AREA_LABELS: Record<FaceSearchArea, string> = {
-  rect: 'Rectangle',
-  lasso: 'Lasso',
-};
-
-const HINT_END = 'Click an area to switch it on or off. Esc saves and leaves.';
-const HINT_PREFIXES = {
-  facesSubtract: 'Draw an area: the faces inside it are removed.',
-  facesLasso: 'Draw a loose outline around the faces.',
-  facesRect: 'Drag a rough area around the faces.',
-  lasso: 'Draw a freehand outline.',
-  rect: 'Drag a rectangle around what to pixelate.',
-} as const;
-/** The widest hint: the toolbar keeps its width for every tool, so its rows never change. */
-const LONGEST_HINT = `${Object.values(HINT_PREFIXES).reduce((longest, prefix) =>
-  prefix.length > longest.length ? prefix : longest,
-)} ${HINT_END}`;
-
+/**
+ * One row, always in the same order: tools, mode, sliders, count, then the actions at the right.
+ * Every control keeps its room (a control that does not apply is hidden, not removed), so the row
+ * count only depends on the width and the toolbar never changes height.
+ */
 function Toolbar({ photo }: { photo: Photo }) {
   const store = useAppStore();
   const state = useAppState();
@@ -172,21 +153,11 @@ function Toolbar({ photo }: { photo: Photo }) {
   if (!session) return null;
   const counts = countAreas(session.areas);
   const unsaved = hasPendingRetouch(session);
-  const showsFaceArea = session.tool === 'faces';
-  const showsFacePadding = showsFaceArea || counts.faces.total > 0;
+  const showsFacePadding = session.tool === 'faces' || counts.faces.total > 0;
   const hasCounts = counts.faces.total > 0 || counts.drawn.total > 0;
-  const hintPrefix = showsFaceArea
-    ? session.mode === 'subtract'
-      ? HINT_PREFIXES.facesSubtract
-      : session.faceArea === 'lasso'
-        ? HINT_PREFIXES.facesLasso
-        : HINT_PREFIXES.facesRect
-    : session.tool === 'lasso'
-      ? HINT_PREFIXES.lasso
-      : HINT_PREFIXES.rect;
   return (
     <div className={styles.toolbar} data-testid="retouch-toolbar">
-      <div className={styles.tools}>
+      <div className={styles.tools} role="group" aria-label="Tool">
         {(Object.keys(TOOL_LABELS) as RetouchTool[]).map((tool) => (
           <button
             key={tool}
@@ -194,64 +165,18 @@ function Toolbar({ photo }: { photo: Photo }) {
             className={`${styles.tool} ${session.tool === tool ? styles.toolActive : ''}`}
             onClick={() => store.setRetouchTool(tool)}
             aria-pressed={session.tool === tool}
+            title={
+              tool === 'faces'
+                ? 'Drag around faces to find them (hold Alt for a lasso)'
+                : tool === 'rect'
+                  ? 'Drag a rectangle to pixelate'
+                  : 'Draw a freehand outline to pixelate'
+            }
             data-tool={tool}
           >
             {TOOL_LABELS[tool]}
           </button>
         ))}
-      </div>
-      {/* The way out comes right after the tools, so a narrow window wraps the sliders, not it. */}
-      <div className={styles.actions}>
-        <button
-          type="button"
-          className={styles.secondary}
-          onClick={() => store.undoRetouchShape()}
-          disabled={session.undo.length === 0}
-          title="Undo the last change to the areas (Ctrl/⌘+Z)"
-        >
-          Undo
-        </button>
-        <button
-          type="button"
-          className={styles.secondary}
-          onClick={() => void store.deleteRetouchVersion()}
-          title="Remove the saved retouch version of this photo"
-        >
-          Delete version
-        </button>
-        <button
-          type="button"
-          className={`${styles.secondary} ${unsaved ? '' : styles.hiddenControl}`}
-          onClick={() => store.exitRetouch()}
-          disabled={!unsaved}
-          aria-hidden={unsaved ? undefined : true}
-          title="Leave retouch mode and throw away the changes you have not saved"
-          data-testid={unsaved ? 'discard-retouch' : undefined}
-        >
-          Discard changes
-        </button>
-        <button
-          type="button"
-          className={styles.commit}
-          onClick={() => void store.commitRetouch()}
-          disabled={session.busy}
-          data-testid="commit-retouch"
-        >
-          <PenIcon size={11} /> {session.busy ? 'Saving…' : 'Mosaic'}
-        </button>
-        <button
-          type="button"
-          className={styles.done}
-          onClick={() => void store.requestExitRetouch()}
-          title={
-            unsaved
-              ? 'Save the mosaic and leave retouch mode (Esc)'
-              : 'Leave retouch mode, keeping what is saved (Esc)'
-          }
-          data-testid="done-retouch"
-        >
-          <CheckIcon size={11} /> Done
-        </button>
       </div>
       <div className={styles.tools} role="group" aria-label="Mode" data-testid="retouch-mode">
         {(Object.keys(MODE_LABELS) as RetouchMode[]).map((mode) => (
@@ -264,30 +189,11 @@ function Toolbar({ photo }: { photo: Photo }) {
             title={
               mode === 'add'
                 ? 'New shapes and faces add mosaic'
-                : 'New shapes and faces take mosaic away (hold Alt while drawing to flip the mode)'
+                : 'New shapes and faces take mosaic away (with Rectangle or Lasso, hold Alt while drawing to flip the mode)'
             }
             data-mode={mode}
           >
             {MODE_LABELS[mode]}
-          </button>
-        ))}
-      </div>
-      <div
-        className={`${styles.tools} ${showsFaceArea ? '' : styles.hiddenControl}`}
-        role="group"
-        aria-label="Search area"
-        aria-hidden={showsFaceArea ? undefined : true}
-      >
-        {(Object.keys(FACE_AREA_LABELS) as FaceSearchArea[]).map((area) => (
-          <button
-            key={area}
-            type="button"
-            className={`${styles.tool} ${session.faceArea === area ? styles.toolActive : ''}`}
-            onClick={() => store.setRetouchFaceArea(area)}
-            aria-pressed={session.faceArea === area}
-            data-face-area={area}
-          >
-            {FACE_AREA_LABELS[area]}
           </button>
         ))}
       </div>
@@ -296,7 +202,7 @@ function Toolbar({ photo }: { photo: Photo }) {
         className={`${styles.control} ${showsFacePadding ? '' : styles.hiddenControl}`}
         aria-hidden={showsFacePadding ? undefined : true}
       >
-        <span>Face padding</span>
+        <span>Padding</span>
         <NumberField
           label="Face padding in percent"
           value={Math.round(session.facePadding * 100)}
@@ -321,32 +227,58 @@ function Toolbar({ photo }: { photo: Photo }) {
         />
       </div>
       <div
-        className={styles.faceHint}
+        className={styles.counts}
         data-testid="area-counts"
         data-empty={hasCounts ? undefined : 'true'}
         aria-hidden={hasCounts ? undefined : true}
       >
-        <EyeIcon size={10} />
         <span
-          className={styles.faceHintCount}
+          className={styles.count}
           data-testid={counts.faces.total > 0 ? 'face-count' : undefined}
         >
-          {counts.faces.total > 0 ? `${counts.faces.on}/${counts.faces.total} faces on` : ''}
+          {counts.faces.total > 0 ? `${counts.faces.on} of ${counts.faces.total} faces on` : ''}
         </span>
         <span
-          className={styles.faceHintCount}
+          className={styles.count}
           data-testid={counts.drawn.total > 0 ? 'drawn-count' : undefined}
         >
-          {counts.drawn.total > 0 ? `${counts.drawn.on}/${counts.drawn.total} areas on` : ''}
+          {counts.drawn.total > 0 ? `${counts.drawn.on} of ${counts.drawn.total} areas on` : ''}
         </span>
       </div>
-      <div className={styles.toolHint}>
-        <span className={styles.toolHintText}>
-          {hintPrefix} {HINT_END}
-        </span>
-        <span className={`${styles.toolHintText} ${styles.toolHintMeasure}`} aria-hidden>
-          {LONGEST_HINT}
-        </span>
+      <div className={styles.actions}>
+        <button
+          type="button"
+          className={styles.secondary}
+          onClick={() => store.undoRetouchShape()}
+          disabled={session.undo.length === 0}
+          title="Undo the last change to the areas (Ctrl/⌘+Z)"
+        >
+          Undo
+        </button>
+        <button
+          type="button"
+          className={`${styles.secondary} ${unsaved ? '' : styles.hiddenControl}`}
+          onClick={() => store.exitRetouch()}
+          disabled={!unsaved}
+          aria-hidden={unsaved ? undefined : true}
+          title="Leave retouch mode and throw away the changes you have not saved"
+          data-testid={unsaved ? 'discard-retouch' : undefined}
+        >
+          Discard
+        </button>
+        <button
+          type="button"
+          className={styles.commit}
+          onClick={() => void store.requestExitRetouch()}
+          title={
+            unsaved
+              ? 'Save the mosaic and leave retouch mode (Enter or Esc)'
+              : 'Leave retouch mode, keeping what is saved (Enter or Esc)'
+          }
+          data-testid="done-retouch"
+        >
+          <CheckIcon size={11} /> Done
+        </button>
       </div>
     </div>
   );
@@ -361,7 +293,7 @@ function BlockSizeControl({ photo }: { photo: Photo }) {
   if (longEdge === undefined) {
     return (
       <div className={styles.control}>
-        <span>Block size</span>
+        <span>Block</span>
         <NumberField
           label="Block size in percent"
           value={Number((session.blockSizeRel * 100).toFixed(1))}
@@ -392,7 +324,7 @@ function BlockSizeControl({ photo }: { photo: Photo }) {
       className={styles.control}
       title="Block edge in pixels of the full-resolution photo. Small selections get larger blocks, so a face stays unrecognisable."
     >
-      <span data-testid="block-size-label">Block size</span>
+      <span data-testid="block-size-label">Block</span>
       <NumberField
         label="Block size in px"
         value={px}
@@ -483,6 +415,8 @@ function CanvasForPhoto({ photo }: { photo: Photo }) {
   const dragEntered = useRef(false);
   const dragPointer = useRef<number | null>(null);
   const drawMode = useRef<RetouchMode>('add');
+  // Whether this drag draws an outline: the Lasso tool, or Faces with Alt held at the start.
+  const dragLasso = useRef(false);
   const [pickerPoint, setPickerPoint] = useState<{ x: number; y: number } | null>(null);
   const [splitting, setSplitting] = useState(false);
   const lastHistogramAt = useRef(0);
@@ -1091,10 +1025,6 @@ function CanvasForPhoto({ photo }: { photo: Photo }) {
     bufferHeight,
   ]);
 
-  // Detect faces can take its search area as a lasso too; both lassos are drawn the same way.
-  const drawsLasso =
-    session?.tool === 'lasso' || (session?.tool === 'faces' && session.faceArea === 'lasso');
-
   const updateDraft = (event: React.PointerEvent): void => {
     const surface = overlayRef.current;
     if (!surface) return;
@@ -1103,7 +1033,7 @@ function CanvasForPhoto({ photo }: { photo: Photo }) {
     if (isOnPicture(raw)) dragEntered.current = true;
     const point = clampToPicture(raw);
     dragMoved.current = true;
-    if (drawsLasso) {
+    if (dragLasso.current) {
       setDraftPoints((current) => {
         const last = current[current.length - 1];
         if (last && Math.hypot(last.x - point.x, last.y - point.y) < 0.004 / zoomRatio) {
@@ -1132,7 +1062,7 @@ function CanvasForPhoto({ photo }: { photo: Photo }) {
     // A click, not a drag, switches the topmost area under it on or off, wherever the tool is.
     const clicked =
       Math.hypot(end.x - start.x, end.y - start.y) < CLICK_DISTANCE / zoomRatio &&
-      (!drawsLasso || draftPoints.length < 3 || !dragMoved.current);
+      (!dragLasso.current || draftPoints.length < 3 || !dragMoved.current);
     if (clicked) {
       setDraftPoints([]);
       setDraftRect(undefined);
@@ -1142,7 +1072,7 @@ function CanvasForPhoto({ photo }: { photo: Photo }) {
       if (index >= 0) store.toggleRetouchArea(index);
       return;
     }
-    if (drawsLasso) {
+    if (dragLasso.current) {
       const points = [...draftPoints, end];
       setDraftPoints([]);
       // A lasso that never touched the picture would be clamped onto its border.
@@ -1214,19 +1144,20 @@ function CanvasForPhoto({ photo }: { photo: Photo }) {
     if (!surface) return;
     event.preventDefault();
     dragPointer.current = event.pointerId;
-    // Alt flips Add and Subtract for this one gesture; AltGr never does.
-    drawMode.current = altFlipsMode(event)
-      ? session.mode === 'add'
-        ? 'subtract'
-        : 'add'
-      : session.mode;
+    // Alt held as the drag starts (AltGr never counts) picks the lasso for a face search; with
+    // Rectangle or Lasso it flips Add and Subtract for this one drawing.
+    const alt = altHeld(event);
+    const faceLasso = session.tool === 'faces' && alt;
+    dragLasso.current = session.tool === 'lasso' || faceLasso;
+    drawMode.current =
+      alt && !faceLasso ? (session.mode === 'add' ? 'subtract' : 'add') : session.mode;
     const raw = retouchPoint(event, surface);
     dragStart.current = clampToPicture(raw);
     dragOnPicture.current = isOnPicture(raw);
     dragEntered.current = dragOnPicture.current;
     dragMoved.current = false;
     surface.setPointerCapture(event.pointerId);
-    if (drawsLasso) setDraftPoints([dragStart.current]);
+    if (dragLasso.current) setDraftPoints([dragStart.current]);
   };
   const onPointerMove = (event: React.PointerEvent): void => {
     if (!dragStart.current) return;
@@ -1282,6 +1213,7 @@ function CanvasForPhoto({ photo }: { photo: Photo }) {
       {/* In flow above the photo, so the canvas area below it fits the space the toolbar leaves
           however many rows it wraps to. */}
       <Toolbar photo={photo} />
+      {cropSession && <CropToolbar session={cropSession} />}
       <div className={styles.canvasArea} ref={containerRef}>
         <div
           className={styles.stage}
@@ -1418,7 +1350,6 @@ function CanvasForPhoto({ photo }: { photo: Photo }) {
             </div>
           )}
           {cropSession && <CropOverlay session={cropSession} stage={stage} layout={stageLayout} />}
-          {cropSession && <CropToolbar session={cropSession} />}
           {session && (
             <svg
               ref={overlayRef}

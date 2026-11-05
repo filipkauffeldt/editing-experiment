@@ -249,7 +249,6 @@ describe('PhotoCanvas preview', () => {
     act(() => {
       store.toggleRetouch();
       store.setRetouchTool('faces');
-      store.setRetouchFaceArea('lasso');
     });
     const overlay = await screen.findByTestId('retouch-overlay');
     vi.spyOn(stageOf(overlay), 'getBoundingClientRect').mockReturnValue({
@@ -268,8 +267,15 @@ describe('PhotoCanvas preview', () => {
       releasePointerCapture: vi.fn(),
       hasPointerCapture: () => false,
     });
-    // Lower-left triangle of the picture: (0.1, 0.1) (0.1, 0.9) (0.9, 0.9).
-    fireEvent.pointerDown(overlay, { clientX: 40, clientY: 30, pointerId: 1, button: 0 });
+    // Lower-left triangle of the picture: (0.1, 0.1) (0.1, 0.9) (0.9, 0.9). Alt at the start of a
+    // face search draws an outline instead of a rectangle.
+    fireEvent.pointerDown(overlay, {
+      clientX: 40,
+      clientY: 30,
+      pointerId: 1,
+      button: 0,
+      altKey: true,
+    });
     fireEvent.pointerMove(overlay, { clientX: 40, clientY: 270, pointerId: 1 });
     fireEvent.pointerMove(overlay, { clientX: 200, clientY: 270, pointerId: 1 });
     fireEvent.pointerMove(overlay, { clientX: 360, clientY: 270, pointerId: 1 });
@@ -330,28 +336,19 @@ describe('PhotoCanvas preview', () => {
       fireEvent.pointerUp(overlay, { clientX: to[0], clientY: to[1], pointerId: 1, button: 0 });
     };
 
-    it('opens on Detect faces, Rectangle and Add, whatever the last session used', async () => {
+    it('opens on Faces and Add, whatever the last session used', async () => {
       const overlay = await openOverlay();
-      expect(store.getState().retouch).toMatchObject({
-        tool: 'faces',
-        faceArea: 'rect',
-        mode: 'add',
-      });
+      expect(store.getState().retouch).toMatchObject({ tool: 'faces', mode: 'add' });
       expect(screen.getByRole('button', { name: 'Add' }).getAttribute('aria-pressed')).toBe('true');
 
       act(() => {
         store.setRetouchTool('lasso');
         store.setRetouchMode('subtract');
-        store.setRetouchFaceArea('lasso');
       });
       drag(overlay, [40, 40], [200, 200]);
       act(() => store.exitRetouch());
       act(() => store.toggleRetouch());
-      expect(store.getState().retouch).toMatchObject({
-        tool: 'faces',
-        faceArea: 'rect',
-        mode: 'add',
-      });
+      expect(store.getState().retouch).toMatchObject({ tool: 'faces', mode: 'add' });
     });
 
     it('draws in Add or Subtract mode, and a click on an area switches it off and on', async () => {
@@ -365,7 +362,7 @@ describe('PhotoCanvas preview', () => {
         ['rect', 'add', true],
         ['rect', 'subtract', true],
       ]);
-      expect(screen.getByTestId('drawn-count').textContent).toContain('2/2 areas on');
+      expect(screen.getByTestId('drawn-count').textContent).toContain('2 of 2 areas on');
 
       // Click inside the hole: the topmost area there is the subtract area.
       drag(overlay, [200, 150], [200, 150]);
@@ -373,7 +370,7 @@ describe('PhotoCanvas preview', () => {
       expect(
         overlay.querySelector('[data-area-index="1"]')?.getAttribute('data-area-enabled'),
       ).toBe('false');
-      expect(screen.getByTestId('drawn-count').textContent).toContain('1/2 areas on');
+      expect(screen.getByTestId('drawn-count').textContent).toContain('1 of 2 areas on');
       // A click on the outer area only, outside the hole, switches that one.
       drag(overlay, [60, 40], [60, 40]);
       expect(store.getState().retouch?.areas.map((a) => a.enabled)).toEqual([false, false]);
@@ -447,12 +444,17 @@ describe('PhotoCanvas preview', () => {
         const calls = (): number =>
           fake.calls.filter((call) => call.channel === 'retouch:detectFaces').length;
         const before = calls();
-        // Detect faces, Rectangle: down the left margin, then along the top margin.
+        // Faces, rectangle: down the left margin, then along the top margin.
         drag(overlay, [-10, 20], [-10, 280]);
         drag(overlay, [20, -10], [380, -10]);
-        // Detect faces, Lasso: around the outside of a corner.
-        act(() => store.setRetouchFaceArea('lasso'));
-        fireEvent.pointerDown(overlay, { clientX: -10, clientY: -10, pointerId: 1, button: 0 });
+        // Faces with Alt (a lasso): around the outside of a corner.
+        fireEvent.pointerDown(overlay, {
+          clientX: -10,
+          clientY: -10,
+          pointerId: 1,
+          button: 0,
+          altKey: true,
+        });
         for (const [x, y] of [
           [-10, -4],
           [-4, -10],
@@ -485,20 +487,14 @@ describe('PhotoCanvas preview', () => {
       drag(overlay, [40, 30], [200, 150]);
       expect(store.getState().retouch?.areas.map((a) => a.face?.box.x)).toEqual([0.7]);
 
-      // Alt in Add mode does the same: flipping the mode removes instead of detecting.
-      act(() => {
-        store.setRetouchMode('add');
-        store.addRetouchFaces([{ box: { type: 'rect', x: 0.2, y: 0.2, w: 0.1, h: 0.1 } }]);
+      // Lasso search area (Alt at the start of the drag): the same removal, outline-shaped.
+      fireEvent.pointerDown(overlay, {
+        clientX: 240,
+        clientY: 180,
+        pointerId: 1,
+        button: 0,
+        altKey: true,
       });
-      drag(overlay, [40, 30], [200, 150], { altKey: true });
-      expect(store.getState().retouch?.areas.map((a) => a.face?.box.x)).toEqual([0.7]);
-
-      // Lasso search area.
-      act(() => {
-        store.setRetouchFaceArea('lasso');
-        store.setRetouchMode('subtract');
-      });
-      fireEvent.pointerDown(overlay, { clientX: 240, clientY: 180, pointerId: 1, button: 0 });
       for (const [x, y] of [
         [240, 270],
         [360, 270],
