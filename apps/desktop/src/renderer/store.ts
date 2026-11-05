@@ -360,6 +360,11 @@ export interface AppState {
   cardsCounting: boolean;
   /** Ids of the discovered card sources the user ticked; only these are ingested. Starts empty. */
   pickedCards: string[];
+  /**
+   * Ids of folders and servers the user unticked on the Ingest view. They are ingested unless
+   * listed here, as before the tick existed; like the card ticks, nothing is saved.
+   */
+  unpickedSources: string[];
   metadata: Record<string, IptcFields>;
   metadataUnresolved: Record<string, string[]>;
   template?: IptcFields;
@@ -660,6 +665,7 @@ const emptyState = (): AppState => ({
   cardsScanning: false,
   cardsCounting: false,
   pickedCards: [],
+  unpickedSources: [],
   metadata: {},
   metadataUnresolved: {},
   editParams: {},
@@ -3480,7 +3486,10 @@ export class AppStore {
         this.toast('error', `Could not remove the source credential: ${messageOf(cause)}`);
       }
     }
-    this.set({ sources: this.state.sources.filter((candidate) => candidate.id !== sourceId) });
+    this.set({
+      sources: this.state.sources.filter((candidate) => candidate.id !== sourceId),
+      unpickedSources: this.state.unpickedSources.filter((id) => id !== sourceId),
+    });
   };
 
   readonly testSource = async (source: SourceConfig, secret?: CredentialSecret) => {
@@ -3707,14 +3716,14 @@ export class AppStore {
    * so the ingest takes the mount path from the last scan instead of from the saved source.
    */
   private sourcesForIngest(): SourceConfig[] {
-    const { cards, sources, pickedCards } = this.state;
+    const { cards, sources, pickedCards, unpickedSources } = this.state;
     const matches = matchCardSources(cards, sources);
     const cardOf = new Map<string, DetectedCard>();
     for (const card of cards) {
       const source = matches.get(card.mountPath);
       if (source) cardOf.set(source.id, card);
     }
-    return sourcesToIngest(sources, pickedCards).map((source) => {
+    return sourcesToIngest(sources, pickedCards, unpickedSources).map((source) => {
       if (!isDiscoveredCardSource(source)) return source;
       const card = cardOf.get(source.id);
       return card ? cardSourceFor(card, source, sources) : source;
@@ -3743,6 +3752,12 @@ export class AppStore {
     if (!this.state.pickedCards.includes(saved.id)) {
       this.set({ pickedCards: [...this.state.pickedCards, saved.id] });
     }
+  };
+
+  /** Ticks or unticks a folder or server: an unticked one is left out of the next ingest. */
+  readonly pickSource = (sourceId: SourceId, picked: boolean): void => {
+    const others = this.state.unpickedSources.filter((id) => id !== sourceId);
+    this.set({ unpickedSources: picked ? others : [...others, sourceId] });
   };
 
   /**
@@ -3793,7 +3808,7 @@ export class AppStore {
     const sources = this.sourcesForIngest();
     if (sources.length === 0) {
       throw new Error(
-        'Nothing to ingest. Tick a card on the Ingest view, or add a folder or server in Settings → Sources.',
+        'Nothing to ingest. Tick a card, folder or server on the Ingest view.',
       );
     }
     const infos = await this.bridge.invoke('ingest:start', {

@@ -114,11 +114,18 @@ function uniqueName(label: string, sources: readonly SourceConfig[]): string {
   }
 }
 
-/** Sources `ingest:start` should run: everything except discovered cards that are not picked. */
+/**
+ * Sources `ingest:start` should run: discovered cards only when picked, and every folder or
+ * server unless it was unticked.
+ */
 export function sourcesToIngest(
   sources: readonly SourceConfig[],
   picked: readonly string[],
+  unpicked: readonly string[] = [],
 ): SourceConfig[] {
   const pickedSet = new Set(picked);
-  return sources.filter((source) => !isDiscoveredCardSource(source) || pickedSet.has(source.id));
+  const unpickedSet = new Set(unpicked);
+  return sources.filter((source) =>
+    isDiscoveredCardSource(source) ? pickedSet.has(source.id) : !unpickedSet.has(source.id),
+  );
 }
