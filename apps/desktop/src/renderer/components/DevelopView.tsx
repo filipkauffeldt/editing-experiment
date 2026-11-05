@@ -1,12 +1,13 @@
 import { useAppState, useAppStore } from '../store-context';
 import { activeExportPreset, activePhoto } from '../store';
+import { isFiltering } from '../filters';
 import { modKeyLabel } from '../platform';
 import { usePanelLayout, type ResizablePanelDefinition } from '../panel-resize';
 import { describeFolderTemplate } from '../../shared/export-folder';
 import { ActionBar, Hints, barStyles } from './ActionBar';
 import { DevelopPanel } from './DevelopPanel';
 import { FilmStrip } from './FilmStrip';
-import { FiltersStrip } from './FiltersStrip';
+import { FilterBar, FilterEmpty } from './FilterBar';
 import { MetadataPanel } from './MetadataPanel';
 import { PhotoView } from './PhotoView';
 import { Button } from './ui/Button';
@@ -75,8 +76,12 @@ export function DevelopView() {
       />
       <DevelopPanel className={styles.develop} />
       <div className={styles.strips}>
-        <FiltersStrip visibleCount={photos.length} />
-        <FilmStrip photos={photos} />
+        <FilterBar scope={state.photos} shown={photos.length} />
+        {photos.length === 0 && state.photos.length > 0 && isFiltering(state.filter) ? (
+          <FilterEmpty hidden={state.photos.length} />
+        ) : (
+          <FilmStrip photos={photos} />
+        )}
       </div>
       <div className={styles.bar}>
         <ActionBar

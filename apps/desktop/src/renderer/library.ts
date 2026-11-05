@@ -1,39 +1,15 @@
 import type { IptcFields, Photo } from '@ee/contracts';
 
-/** Library collections: smart groups across every folder. */
-export type Collection = 'tagged' | 'sent' | 'edited';
-
-export const COLLECTIONS: readonly { id: Collection; label: string }[] = [
-  { id: 'tagged', label: 'Tagged' },
-  { id: 'sent', label: 'Sent' },
-  { id: 'edited', label: 'Edited' },
-];
-
-/** The quick filters the Library offers; "Not sent" is `not-uploaded` in the store. */
-export type LibraryQuick = 'all' | 'tagged' | 'untagged' | 'not-uploaded';
-
-export const LIBRARY_QUICK: readonly { id: LibraryQuick; label: string }[] = [
-  { id: 'all', label: 'All' },
-  { id: 'tagged', label: 'Tagged' },
-  { id: 'untagged', label: 'Untagged' },
-  { id: 'not-uploaded', label: 'Not sent' },
-];
-
 export const THUMB_SIZE_RANGE = { min: 96, max: 280, default: 160 } as const;
 
 export interface LibraryState {
   /** Folder (directory of the local copy) shown in the grid; absent means every folder. */
   folder?: string;
-  collection?: Collection;
-  quick: LibraryQuick;
-  /** 1..8, or absent for any class. */
-  colorClass?: number;
   view: 'grid' | 'loupe';
   thumbSize: number;
 }
 
 export const initialLibrary = (): LibraryState => ({
-  quick: 'all',
   view: 'grid',
   thumbSize: THUMB_SIZE_RANGE.default,
 });
@@ -70,34 +46,9 @@ export function libraryFolders(photos: readonly Photo[]): LibraryFolder[] {
     .sort((left, right) => left.path.localeCompare(right.path, undefined, { numeric: true }));
 }
 
-export function inCollection(photo: Photo, collection: Collection): boolean {
-  switch (collection) {
-    case 'tagged':
-      return photo.tagged;
-    case 'sent':
-      return photo.status.upload === 'done';
-    case 'edited':
-      return photo.status.edited || photo.versions.some((version) => version.kind === 'retouch');
-  }
-}
-
-export function matchesLibrary(photo: Photo, library: LibraryState): boolean {
-  if (library.folder !== undefined && folderOf(photo.path) !== library.folder) return false;
-  if (library.collection && !inCollection(photo, library.collection)) return false;
-  switch (library.quick) {
-    case 'tagged':
-      if (!photo.tagged) return false;
-      break;
-    case 'untagged':
-      if (photo.tagged) return false;
-      break;
-    case 'not-uploaded':
-      if (photo.status.upload === 'done') return false;
-      break;
-    case 'all':
-      break;
-  }
-  return library.colorClass === undefined || photo.colorClass === library.colorClass;
+/** Whether the photo is in the folder the Library shows (every folder when none is picked). */
+export function inLibraryFolder(photo: Photo, library: LibraryState): boolean {
+  return library.folder === undefined || folderOf(photo.path) === library.folder;
 }
 
 /** What one IPTC field should become on every selected photo. */

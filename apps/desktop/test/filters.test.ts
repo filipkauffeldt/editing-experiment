@@ -13,7 +13,7 @@ import {
 } from '../src/renderer/filters';
 
 let sequence = 0;
-function photo(overrides: Partial<Photo> & { status?: Partial<Photo['status']> } = {}): Photo {
+function photo(overrides: Omit<Partial<Photo>, 'status'> & { status?: Partial<Photo['status']> } = {}): Photo {
   sequence += 1;
   const { status, ...rest } = overrides;
   return {

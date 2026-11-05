@@ -18,6 +18,7 @@ import {
   type UploadItem,
   type VersionId,
 } from '@ee/contracts';
+import { matchesSearch, searchTerms, searchTextOf } from '@ee/metadata';
 import {
   expandMockCaption,
   mockDestinations,
@@ -116,6 +117,17 @@ export function createFakeBridge(
       return { echo: message, jobsPid: 1, jobsTime: 0 };
     },
     'photos:list': async () => photos,
+    'photos:search': async (...args) => {
+      const terms = searchTerms((args[0] as { query: string }).query);
+      return {
+        photoIds: photos
+          .filter((photo) =>
+            matchesSearch(photo.fileName, searchTextOf(metadata.get(photo.id) ?? {}), terms),
+          )
+          .map((photo) => photo.id),
+        pending: 0,
+      };
+    },
     'photos:get': async (...args) => findPhoto((args[0] as { photoId: PhotoId }).photoId),
     'photos:createVersion': async (...args) => {
       const { photoId, kind, name } = args[0] as {

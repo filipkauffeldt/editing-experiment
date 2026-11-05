@@ -111,7 +111,7 @@ describe('library folders', () => {
     const list = within(screen.getByTestId('library-folders'));
     const names = list.getAllByRole('button').map((button) => button.textContent);
     expect(names).toEqual(['All photos40', '10-03 AIK–IFK20', '10-03 IFK–AIK20']);
-    // The Ingesting section names sources on purpose; the Folders list must not.
+    // The sidebar is folders only: no source name, path or host may appear in it.
     const text = screen.getByTestId('library-folders').textContent ?? '';
     for (const source of sources) {
       expect(text).not.toContain(source.name);

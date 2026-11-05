@@ -1,5 +1,7 @@
 import { useMemo } from 'react';
-import { selectLibraryPhotos } from '../store';
+import { selectLibraryPhotos, selectLibraryScope } from '../store';
+import { isFiltering } from '../filters';
+import { THUMB_SIZE_RANGE } from '../library';
 import { modKeyLabel } from '../platform';
 import { usePanelLayout, type ResizablePanelDefinition } from '../panel-resize';
 import { useAppState, useAppStore } from '../store-context';
@@ -8,9 +10,10 @@ import { LibraryGrid } from './LibraryGrid';
 import { LibraryInspector } from './LibraryInspector';
 import { LibraryLoupe } from './LibraryLoupe';
 import { LibrarySidebar } from './LibrarySidebar';
-import { LibraryToolbar } from './LibraryToolbar';
+import { FilterBar, FilterEmpty } from './FilterBar';
 import { COLOR_CLASSES, COLOR_CLASS_NAMES } from './PhotoOverlays';
 import { Button } from './ui/Button';
+import { Slider } from './ui/Slider';
 import { PanelResizeHandle } from './ui/PanelResizeHandle';
 import styles from './LibraryView.module.css';
 
@@ -31,15 +34,14 @@ export function LibraryView() {
   const photos = useMemo(
     () => selectLibraryPhotos(state),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [
-      state.photos,
-      state.library.folder,
-      state.library.collection,
-      state.library.quick,
-      state.library.colorClass,
-      state.sort,
-    ],
+    [state.photos, state.library.folder, state.filter, state.searchResult, state.sort],
   );
+  const scope = useMemo(
+    () => selectLibraryScope(state),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [state.photos, state.library.folder],
+  );
+  const hiddenByFilter = photos.length === 0 && scope.length > 0 && isFiltering(state.filter);
   const selected = state.selection;
   const taggedCount = useMemo(() => {
     const ids = new Set(selected);
@@ -66,8 +68,25 @@ export function LibraryView() {
         className={styles.sideHandle}
       />
       <div className={styles.centre}>
-        <LibraryToolbar count={photos.length} total={state.photos.length} />
-        {library.view === 'loupe' ? (
+        <FilterBar scope={scope} shown={photos.length}>
+          <div className={styles.size}>
+            <Slider
+              label="Size"
+              value={library.thumbSize}
+              min={THUMB_SIZE_RANGE.min}
+              max={THUMB_SIZE_RANGE.max}
+              step={4}
+              neutral={THUMB_SIZE_RANGE.min}
+              display={library.thumbSize}
+              onRange={(value) => store.setThumbSize(value)}
+              onNumber={(value) => store.setThumbSize(value ?? THUMB_SIZE_RANGE.default)}
+              onReset={() => store.setThumbSize(THUMB_SIZE_RANGE.default)}
+            />
+          </div>
+        </FilterBar>
+        {hiddenByFilter ? (
+          <FilterEmpty hidden={scope.length} />
+        ) : library.view === 'loupe' ? (
           <LibraryLoupe photos={photos} />
         ) : (
           <LibraryGrid photos={photos} />

@@ -70,12 +70,21 @@ import { renderFullResolution } from './export-render';
 import { nextPhotoAfterRemoval, photoIdOfKey, withoutPhotos } from './photo-removal';
 import { copyMetadataFields, type MetadataFieldName } from './metadata-fields';
 import {
+  cameraKey,
+  filterPhotos,
+  initialFilter,
+  hasSearch,
+  matchesStatus,
+  toggleInList,
+  type FilterState,
+  type StatusFilter,
+  type TagFilter,
+} from './filters';
+import {
   initialLibrary,
-  matchesLibrary,
+  inLibraryFolder,
   mergeFieldEdits,
-  type Collection,
   type FieldEdit,
-  type LibraryQuick,
   type LibraryState,
 } from './library';
 import {
@@ -89,18 +98,8 @@ import {
 } from './retouch-areas';
 import type { PhotoLensContext } from './retouch-geometry';
 
-export type QuickFilter =
-  'all' | 'untagged' | 'tagged' | 'edited' | 'not-uploaded' | 'failed-uploads' | 'metadata-differs';
-
-export const QUICK_FILTERS: readonly { id: QuickFilter; label: string }[] = [
-  { id: 'all', label: 'All' },
-  { id: 'untagged', label: 'Untagged' },
-  { id: 'tagged', label: 'Tagged' },
-  { id: 'edited', label: 'Edited' },
-  { id: 'not-uploaded', label: 'Not uploaded' },
-  { id: 'failed-uploads', label: 'Failed uploads' },
-  { id: 'metadata-differs', label: 'Metadata differs' },
-];
+// The camera helpers moved with the filter; the tests and panels still import them from here.
+export { cameraOptions } from './filters';
 
 export type SortMode = 'filename' | 'capture-time';
 export type SelectionMode = 'replace' | 'toggle' | 'range';
@@ -136,12 +135,6 @@ export const namesProfile = (params: EditParams): boolean =>
 /** An explicit "Camera matrix" choice: no profile, and not the default either. */
 export const explicitCameraMatrix = (params: EditParams): boolean =>
   !namesProfile(params) && params.CameraProfileChoice === 'none';
-
-export interface FilterState {
-  quick: QuickFilter;
-  camera?: string;
-  sourceId?: SourceId;
-}
 
 export interface PhotoFlags {
   tagged: boolean;
@@ -412,7 +405,13 @@ export interface AppState {
   selection: PhotoId[];
   /** Anchor for Shift-click ranges. */
   selectionAnchor?: PhotoId;
+  /** The one filter of the Library and Develop; it stays on when the module changes. */
   filter: FilterState;
+  /**
+   * What the text search found, for the query it ran with. Absent while the search text is
+   * empty. A newer query keeps the older result on screen until its own arrives.
+   */
+  searchResult?: SearchResult;
   sort: SortMode;
   toasts: Toast[];
   presetNotice?: string;
@@ -451,30 +450,15 @@ export function activeDevelopVersion(photo: Photo | undefined) {
   return photo?.versions.find((version) => version.kind === 'develop');
 }
 
-export function cameraKey(photo: Photo): string {
-  const camera = photo.camera;
-  if (!camera) return '';
-  return [camera.model ?? camera.make ?? 'Unknown', camera.serialNumber ?? ''].join('|');
-}
-
-export function cameraLabel(key: string): string {
-  const [model, serial] = key.split('|');
-  return serial ? `${model} · ${serial}` : (model ?? key);
-}
-
-export function cameraOptions(photos: Photo[]): { key: string; label: string }[] {
-  const seen = new Map<string, string>();
-  for (const photo of photos) {
-    const key = cameraKey(photo);
-    if (key && !seen.has(key)) seen.set(key, cameraLabel(key));
-  }
-  return [...seen]
-    .map(([key, label]) => ({ key, label }))
-    .sort((a, b) => a.label.localeCompare(b.label));
-}
-
 export function activePhoto(state: AppState): Photo | undefined {
   return state.photos.find((photo) => photo.id === state.selectedId);
+}
+
+export interface SearchResult {
+  query: string;
+  ids: ReadonlySet<PhotoId>;
+  /** Photos the backend has not read the caption of yet (see `photos:search`). */
+  pending: number;
 }
 
 /** The preset Next & send uses. */
@@ -552,25 +536,6 @@ export function paramsForPhoto(state: AppState, photo: Photo | undefined): EditP
   return withDefaults(editedParamsForPhoto(state, photo), state.editDefaults[photo.id]);
 }
 
-function matchesQuickFilter(state: AppState, photo: Photo, quick: QuickFilter): boolean {
-  switch (quick) {
-    case 'all':
-      return true;
-    case 'untagged':
-      return !photo.tagged;
-    case 'tagged':
-      return photo.tagged;
-    case 'edited':
-      return photo.status.edited;
-    case 'not-uploaded':
-      return photo.status.upload !== 'done';
-    case 'failed-uploads':
-      return photo.status.upload === 'failed';
-    case 'metadata-differs':
-      return photo.status.metadataDiffersFromTemplate;
-  }
-}
-
 const NAME_COLLATOR = new Intl.Collator(undefined, { numeric: true, sensitivity: 'base' });
 
 const naturalName = (left: Photo, right: Photo): number =>
@@ -591,23 +556,20 @@ function sortPhotos(photos: Photo[], sort: SortMode): Photo[] {
   });
 }
 
-/** Photos after the quick/camera/source filters, in the chosen order. */
+/** Photos after the shared filter, in the chosen order (Develop's film strip, Next & send). */
 export function selectVisiblePhotos(state: AppState): Photo[] {
-  return sortPhotos(
-    state.photos.filter((photo) => {
-      if (!matchesQuickFilter(state, photo, state.filter.quick)) return false;
-      if (state.filter.camera && cameraKey(photo) !== state.filter.camera) return false;
-      if (state.filter.sourceId && photo.sourceId !== state.filter.sourceId) return false;
-      return true;
-    }),
-    state.sort,
-  );
+  return sortPhotos(filterPhotos(state.photos, state.filter, state.searchResult?.ids), state.sort);
 }
 
-/** The photos of the Library grid: folder, collection and quick/class filters, in the chosen order. */
+/** The photos in the Library's folder, before the filter: what "N of M" counts against. */
+export function selectLibraryScope(state: AppState): Photo[] {
+  return state.photos.filter((photo) => inLibraryFolder(photo, state.library));
+}
+
+/** The photos of the Library grid: the folder, then the shared filter, in the chosen order. */
 export function selectLibraryPhotos(state: AppState): Photo[] {
   return sortPhotos(
-    state.photos.filter((photo) => matchesLibrary(photo, state.library)),
+    filterPhotos(selectLibraryScope(state), state.filter, state.searchResult?.ids),
     state.sort,
   );
 }
@@ -662,9 +624,16 @@ export const hasPendingRetouch = (session: RetouchSession | undefined): boolean 
 /** Throttle for develop writes: first change goes out at once, then at most every 80 ms. */
 const DEVELOP_THROTTLE_MS = 80;
 
+/** How long to wait before asking the search again while captions are still being read. */
+const SEARCH_POLL_MS = 1000;
+
+/** After photos are added or a caption written, the search is asked again after this. */
+const SEARCH_REFRESH_MS = 400;
+
 interface VisibleCache {
   ids: PhotoId[];
   filter: FilterState;
+  searchResult: SearchResult | undefined;
   sort: SortMode;
 }
 
@@ -703,7 +672,7 @@ const emptyState = (): AppState => ({
   photoProfiles: {},
   profileChoices: {},
   sectionStash: {},
-  filter: { quick: 'all' },
+  filter: initialFilter(),
   sort: 'filename',
   toasts: [],
   shortcutsOpen: false,
@@ -740,6 +709,8 @@ export class AppStore {
   private readonly pendingPhotos = new Map<PhotoId, Photo>();
   private photoFlush: ReturnType<typeof setTimeout> | number | null = null;
   private visibleCache: VisibleCache | undefined;
+  private searchRun = 0;
+  private searchTimer: ReturnType<typeof setTimeout> | undefined;
   private beforeUnload: (() => void) | undefined;
   private toastId = 0;
   private started = false;
@@ -884,6 +855,8 @@ export class AppStore {
       this.beforeUnload = undefined;
     }
     this.editedPreviews?.dispose();
+    this.searchRun += 1;
+    clearTimeout(this.searchTimer);
     this.cancelPhotoFlush();
     this.flushQueuedPhotos();
     await this.flushPendingEdits();
@@ -980,15 +953,20 @@ export class AppStore {
    * reused and only the objects are re-mapped.
    */
   readonly getVisiblePhotos = (): Photo[] => {
-    const { filter, sort } = this.state;
+    const { filter, sort, searchResult } = this.state;
     const cache = this.visibleCache;
-    if (cache && cache.filter === filter && cache.sort === sort) {
+    if (
+      cache &&
+      cache.filter === filter &&
+      cache.sort === sort &&
+      cache.searchResult === searchResult
+    ) {
       return cache.ids
         .map((id) => this.photoById.get(id))
         .filter((photo): photo is Photo => photo !== undefined);
     }
     const result = selectVisiblePhotos(this.state);
-    this.visibleCache = { ids: result.map((photo) => photo.id), filter, sort };
+    this.visibleCache = { ids: result.map((photo) => photo.id), filter, searchResult, sort };
     return result;
   };
 
@@ -998,20 +976,13 @@ export class AppStore {
     if (previous.fileName !== next.fileName || previous.captureTime !== next.captureTime)
       return true;
     if (cameraKey(previous) !== cameraKey(next) || previous.sourceId !== next.sourceId) return true;
-    switch (this.state.filter.quick) {
-      case 'edited':
-        return previous.status.edited !== next.status.edited;
-      case 'not-uploaded':
-        return (previous.status.upload === 'done') !== (next.status.upload === 'done');
-      case 'failed-uploads':
-        return (previous.status.upload === 'failed') !== (next.status.upload === 'failed');
-      case 'metadata-differs':
-        return (
-          previous.status.metadataDiffersFromTemplate !== next.status.metadataDiffersFromTemplate
-        );
-      default:
-        return false;
-    }
+    // Only what an active filter reads can change membership; an upload tick must not reorder.
+    const { statuses, minRating, colorClasses } = this.state.filter;
+    if (minRating > 0 && previous.rating !== next.rating) return true;
+    if (colorClasses.length > 0 && previous.colorClass !== next.colorClass) return true;
+    return statuses.some(
+      (status) => matchesStatus(previous, status) !== matchesStatus(next, status),
+    );
   }
 
   private applyPhoto(photo: Photo, photos = [...this.state.photos]): Photo[] {
@@ -1074,8 +1045,11 @@ export class AppStore {
     const queued = [...this.pendingPhotos.values()];
     this.pendingPhotos.clear();
     const photos = [...this.state.photos];
+    const before = photos.length;
     for (const photo of queued) this.applyPhoto(photo, photos);
     this.set({ photos });
+    // A new photo is not in the last search's answer.
+    if (photos.length > before) this.refreshSearch(SEARCH_REFRESH_MS);
     // A photo the backend calls stale (its default profile changed) is drawn again when it is shown.
     for (const photo of queued) this.editedPreviews?.photoUpdated(photo);
   }
@@ -1199,8 +1173,14 @@ export class AppStore {
     if (next) this.select(next.id);
   };
 
+  /**
+   * The rule when a filter (or a label change) hides the active photo: the selection keeps only
+   * the photos still shown; if the active photo is hidden, the first shown photo becomes active
+   * and selected, and with nothing shown there is no active photo or selection. It is the list
+   * of the module on screen: the Library grid (its folder included) or Develop's film strip.
+   */
   private ensureSelectionVisible(): void {
-    const visible = this.getVisiblePhotos();
+    const visible = this.selectionOrder();
     const visibleIds = new Set(visible.map((photo) => photo.id));
     if (visible.some((photo) => photo.id === this.state.selectedId)) {
       const selection = this.state.selection.filter((id) => visibleIds.has(id));
@@ -1212,20 +1192,84 @@ export class AppStore {
     else this.set({ selectedId: undefined, selection: [], selectionAnchor: undefined });
   }
 
-  readonly setQuickFilter = (quick: QuickFilter): void => {
-    this.set({ filter: { ...this.state.filter, quick } });
+  // ------------------------------------------------------------------- filter
+
+  private applyFilter(patch: Partial<FilterState>): void {
+    const filter = { ...this.state.filter, ...patch };
+    if (hasSearch(filter)) {
+      this.set({ filter });
+    } else {
+      this.searchRun += 1;
+      clearTimeout(this.searchTimer);
+      this.set({ filter, searchResult: undefined });
+    }
+    this.ensureSelectionVisible();
+  }
+
+  readonly setTagFilter = (tag: TagFilter): void => this.applyFilter({ tag });
+
+  /** Stars and up; 0 turns it off. */
+  readonly setMinRating = (minRating: number): void => this.applyFilter({ minRating });
+
+  readonly toggleColorFilter = (colorClass: number): void =>
+    this.applyFilter({ colorClasses: toggleInList(this.state.filter.colorClasses, colorClass) });
+
+  readonly toggleStatusFilter = (status: StatusFilter): void =>
+    this.applyFilter({ statuses: toggleInList(this.state.filter.statuses, status) });
+
+  readonly setCameraFilter = (camera: string | undefined): void => this.applyFilter({ camera });
+
+  readonly setSourceFilter = (sourceId: SourceId | undefined): void =>
+    this.applyFilter({ sourceId });
+
+  /** Back to every photo: the Clear × and the empty state's action. */
+  readonly clearFilters = (): void => {
+    this.searchRun += 1;
+    clearTimeout(this.searchTimer);
+    this.set({ filter: initialFilter(), searchResult: undefined });
     this.ensureSelectionVisible();
   };
 
-  readonly setCameraFilter = (camera: string | undefined): void => {
-    this.set({ filter: { ...this.state.filter, camera } });
-    this.ensureSelectionVisible();
+  /**
+   * Set the search text (the bar debounces typing). The backend looks in file names, captions and
+   * keywords across the whole Library; the answer replaces the filter's photo set when it arrives.
+   */
+  readonly setSearch = (search: string): void => {
+    if (search === this.state.filter.search) return;
+    this.applyFilter({ search });
+    if (hasSearch(this.state.filter)) this.runSearch();
   };
 
-  readonly setSourceFilter = (sourceId: SourceId | undefined): void => {
-    this.set({ filter: { ...this.state.filter, sourceId } });
-    this.ensureSelectionVisible();
-  };
+  private runSearch(): void {
+    clearTimeout(this.searchTimer);
+    const run = (this.searchRun += 1);
+    const query = this.state.filter.search.trim();
+    if (query === '') return;
+    void this.bridge
+      .invoke('photos:search', { query })
+      .then((result) => {
+        if (run !== this.searchRun) return;
+        this.set({
+          searchResult: { query, ids: new Set(result.photoIds), pending: result.pending },
+        });
+        this.ensureSelectionVisible();
+        // Captions still being read: ask again, so the list catches up without a new keystroke.
+        if (result.pending > 0) this.refreshSearch(SEARCH_POLL_MS);
+      })
+      .catch((cause: unknown) => {
+        if (run !== this.searchRun) return;
+        this.toast('error', `Search failed: ${messageOf(cause)}`);
+      });
+  }
+
+  /** Run the current search again soon: photos were added, or a caption was written. */
+  private refreshSearch(delay: number): void {
+    if (!hasSearch(this.state.filter)) return;
+    clearTimeout(this.searchTimer);
+    this.searchTimer = setTimeout(() => {
+      if (hasSearch(this.state.filter)) this.runSearch();
+    }, delay);
+  }
 
   readonly setSort = (sort: SortMode): void => {
     this.set({ sort });
@@ -1287,6 +1331,7 @@ export class AppStore {
     if (ids.length === 0) return;
     this.applyLabelPatch(ids, { colorClass });
     this.persistLabels(ids, { colorClass });
+    if (this.state.module !== 'library') this.ensureSelectionVisible();
   };
 
   readonly setRating = (rating: number, photoId?: PhotoId): void => {
@@ -1295,6 +1340,7 @@ export class AppStore {
     if (ids.length === 0) return;
     this.applyLabelPatch(ids, { rating });
     this.persistLabels(ids, { rating });
+    if (this.state.module !== 'library') this.ensureSelectionVisible();
   };
 
   // ------------------------------------------------------------------ modules
@@ -1336,17 +1382,8 @@ export class AppStore {
   readonly getLibraryPhotos = (): Photo[] => selectLibraryPhotos(this.state);
 
   readonly setLibraryFolder = (folder: string | undefined): void => {
-    this.setLibrary({ folder, collection: undefined });
+    this.setLibrary({ folder });
   };
-
-  readonly setLibraryCollection = (collection: Collection | undefined): void => {
-    this.setLibrary({ collection, folder: undefined });
-  };
-
-  readonly setLibraryQuick = (quick: LibraryQuick): void => this.setLibrary({ quick });
-
-  readonly setLibraryColorFilter = (colorClass: number | undefined): void =>
-    this.setLibrary({ colorClass });
 
   readonly setThumbSize = (thumbSize: number): void => this.setLibrary({ thumbSize });
 
@@ -1418,6 +1455,7 @@ export class AppStore {
     if (failed.length > 0) {
       this.toast('error', `Could not caption ${failed.length} photo(s): ${failed[0]}`);
     }
+    if (written > 0) this.refreshSearch(SEARCH_REFRESH_MS);
     if (written > 0) this.toast('success', `Captioned ${written} photo${written === 1 ? '' : 's'}`);
     return written;
   };
@@ -2158,6 +2196,7 @@ export class AppStore {
       .invoke('metadata:write', { photoId, fields })
       .then((photo) => {
         this.upsertPhoto(photo);
+        if ('caption' in fields || 'keywords' in fields) this.refreshSearch(SEARCH_REFRESH_MS);
       })
       .catch((cause: unknown) => {
         if (this.isGoing(photoId)) return;
@@ -2256,6 +2295,7 @@ export class AppStore {
         templatePath: path,
         mode,
       });
+      this.refreshSearch(SEARCH_REFRESH_MS);
       const [fieldsByPhoto, template] = await Promise.all([
         Promise.all(
           result.updated.map(
@@ -2359,6 +2399,7 @@ export class AppStore {
         photoIds: targets,
         fields: copied.fields,
       });
+      this.refreshSearch(SEARCH_REFRESH_MS);
       const fieldsByPhoto = await Promise.all(
         result.updated.map(
           async (photoId) =>

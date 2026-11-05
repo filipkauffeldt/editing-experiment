@@ -1,5 +1,5 @@
 import { useMemo } from 'react';
-import { COLLECTIONS, baseName, inCollection, libraryFolders } from '../library';
+import { libraryFolders } from '../library';
 import { useAppState, useAppStore } from '../store-context';
 import styles from './LibrarySidebar.module.css';
 
@@ -13,12 +13,7 @@ export function LibrarySidebar({ className }: { className?: string }) {
   const state = useAppState();
   const { library } = state;
   const folders = useMemo(() => libraryFolders(state.photos), [state.photos]);
-  const destination = state.settings?.ingest.destination.path;
-  const running = state.sources.flatMap((source) => {
-    const run = state.ingest[source.id];
-    return run && run.state === 'running' ? [{ source, run }] : [];
-  });
-  const everything = library.folder === undefined && library.collection === undefined;
+  const everything = library.folder === undefined;
 
   return (
     <aside className={`${styles.side} ${className ?? ''}`} data-testid="library-sidebar">
@@ -44,49 +39,6 @@ export function LibrarySidebar({ className }: { className?: string }) {
             >
               <span className={styles.name}>{folder.name}</span>
               <span className={`${styles.count} mono`}>{folder.count}</span>
-            </button>
-          </li>
-        ))}
-      </ul>
-
-      {running.length > 0 && (
-        <>
-          <h3 className={styles.title}>
-            Ingesting{destination ? ` → ${baseName(destination)}` : ''}
-          </h3>
-          <ul className={styles.list} data-testid="library-ingesting">
-            {running.map(({ source, run }) => {
-              const percent =
-                run.filesTotal > 0 ? Math.min(100, (run.filesDone / run.filesTotal) * 100) : 0;
-              return (
-                <li key={source.id} className={styles.progress}>
-                  <span className={styles.name}>{source.name}</span>
-                  <span className={`${styles.count} mono`}>
-                    {run.filesDone}/{run.filesTotal}
-                  </span>
-                  <span className={styles.bar}>
-                    <span style={{ width: `${percent}%` }} />
-                  </span>
-                </li>
-              );
-            })}
-          </ul>
-        </>
-      )}
-
-      <h3 className={styles.title}>Collections</h3>
-      <ul className={styles.list}>
-        {COLLECTIONS.map((collection) => (
-          <li key={collection.id}>
-            <button
-              type="button"
-              className={`${styles.row} ${library.collection === collection.id ? styles.active : ''}`}
-              onClick={() => store.setLibraryCollection(collection.id)}
-            >
-              <span className={styles.name}>{collection.label}</span>
-              <span className={`${styles.count} mono`}>
-                {state.photos.filter((photo) => inCollection(photo, collection.id)).length}
-              </span>
             </button>
           </li>
         ))}

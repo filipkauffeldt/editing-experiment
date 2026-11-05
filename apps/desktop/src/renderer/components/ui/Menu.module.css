@@ -1,0 +1,116 @@
+.root {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  flex: none;
+}
+
+.button {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 5px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  font-size: var(--fs-small);
+  white-space: nowrap;
+}
+
+.button:hover,
+.button[aria-expanded='true'],
+.active {
+  color: var(--text);
+}
+
+.badge {
+  color: var(--dim);
+}
+
+/* A 4 px caret made of two borders, like the section caret. */
+.caret {
+  align-self: center;
+  width: 4px;
+  height: 4px;
+  border-right: 1px solid currentcolor;
+  border-bottom: 1px solid currentcolor;
+  transform: translateY(-1px) rotate(45deg);
+}
+
+.popover {
+  position: absolute;
+  top: calc(100% + 8px);
+  left: 0;
+  z-index: 40;
+  display: flex;
+  min-width: 190px;
+  max-height: 340px;
+  flex-direction: column;
+  overflow: auto;
+  border: 1px solid var(--line-strong);
+  background: var(--panel);
+  color: var(--text);
+}
+
+.right {
+  right: 0;
+  left: auto;
+}
+
+.heading {
+  padding: 8px 12px 4px;
+  color: var(--dim);
+  font-size: var(--fs-label);
+  letter-spacing: var(--tracking-label);
+  text-transform: uppercase;
+}
+
+.item {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 6px 12px;
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  font-size: var(--fs-small);
+  text-align: left;
+  white-space: nowrap;
+}
+
+.item:hover,
+.item:focus-visible {
+  background: var(--raised);
+  color: var(--text);
+  outline: none;
+}
+
+.checked {
+  color: var(--text);
+}
+
+.mark {
+  flex: none;
+  width: 9px;
+  height: 9px;
+  border: 1px solid var(--dim);
+}
+
+.round {
+  border-radius: 50%;
+}
+
+.checked .mark {
+  border-color: var(--text);
+  background: var(--text);
+}
+
+.itemLabel {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.itemCount {
+  color: var(--dim);
+}
