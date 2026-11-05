@@ -125,7 +125,10 @@ describe('SearchIndex with real ExifTool and sidecars', () => {
     expect(search.search('före').photoIds).toEqual([photo.id]);
 
     await metadata.write({ photoId: photo.id, fields: { caption: 'Efter', keywords: ['mål'] } });
+    // Between the write and the re-read the old text still matches, but the caller is told.
+    expect(search.search('före').pending).toBe(1);
     await search.idle();
+    expect(search.search('före').pending).toBe(0);
     expect(search.search('före').photoIds).toEqual([]);
     expect(search.search('efter').photoIds).toEqual([photo.id]);
     expect(search.search('mål').photoIds).toEqual([photo.id]);

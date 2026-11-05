@@ -6,6 +6,8 @@ interface Entry {
   fileName: string;
   /** Caption and keywords, normalised; null until they have been read. */
   text: string | null;
+  /** Changed since `text` was read: still searchable, but counted as pending. */
+  stale?: boolean;
 }
 
 /**
@@ -53,6 +55,8 @@ export class SearchIndex {
   /** The photo's caption or keywords may have changed: read them again. */
   refresh(photoId: PhotoId): void {
     if (this.closed) return;
+    const entry = this.entries.get(photoId);
+    if (entry) entry.stale = true;
     this.queue.add(photoId);
     this.drain();
   }
@@ -67,7 +71,7 @@ export class SearchIndex {
     const photoIds: PhotoId[] = [];
     let pending = 0;
     for (const [id, entry] of this.entries) {
-      if (entry.text === null) pending += 1;
+      if (entry.text === null || entry.stale === true) pending += 1;
       if (matchesSearch(entry.fileName, entry.text ?? '', terms)) photoIds.push(id);
     }
     return { photoIds, pending };
@@ -122,6 +126,8 @@ export class SearchIndex {
     // Forgotten or removed while the read was going.
     if (this.closed || this.entries.get(photoId) !== entry || !this.index.get(photoId)) return;
     entry.text = text;
+    // Changed again while this read was going: it is queued once more and stays pending.
+    if (!this.queue.has(photoId)) entry.stale = false;
     this.index.setSearchText(photoId, text);
   }
 }
