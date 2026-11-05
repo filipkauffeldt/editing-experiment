@@ -277,7 +277,7 @@ export function MetadataPanel({ className }: { className?: string }) {
                 data-testid="metadata-template-settings"
                 onClick={() => store.openDialog('metadata')}
               >
-                No template · Add one in Settings
+                No template · Settings → Metadata
               </button>
             ) : (
               <Select
