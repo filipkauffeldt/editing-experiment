@@ -42,7 +42,7 @@ copies them into the repo, userData or fixtures.
   *Camera Matching* (`Camera ...`, or under a `Camera Matching` folder) and *Other*. IPC:
   `profiles:list` (what fits a photo; empty for JPEG/TIFF), `profiles:index` (Settings), and
   `profiles:resolve` (the parsed profile a sidecar names, or `missing` with the reason).
-- **Parameters.** `crs:CameraProfile` (the DCP name; for an XMP look, its base profile) and
+- **Parameters.** `crs:CameraProfile` (the DCP name; for an XMP look, its base profile; absent = the default below) and
   `crs:CameraProfileDigest` (kept, never computed) are scalars; `crs:Look` is a struct
   (`Name`, `UUID`, `Amount`) as Lightroom 7+ writes it, and is `EditParams.LookName/LookUUID/LookAmount`
   (Amount 1 = 100 %, 0..2). Presets read the same keys (`parsePresetXmp` reads the `crs:Look` struct);
@@ -52,6 +52,45 @@ copies them into the repo, userData or fixtures.
   Lightroom). Exports (rendered directly at the preset's output size) and thumbnails draw what
   the canvas shows. Copy/Paste/Sync Settings has a first group, *Treatment & Profile*, holding
   `CameraProfile`, `CameraProfileDigest` and the look fields.
+- **Default profile.** A raw whose settings name no profile and no look is rendered through
+  **Camera Standard** when a `.dcp` of that name (compared without case) fits the photo's camera, and
+  through the decoder's camera matrix when none does, as before. Nikon's profile of that name is what
+  Lightroom calls Camera Standard. The default is worked out in one place, `ProfileLibrary.resolve`
+  behind `profiles:resolve`, so the Develop canvas, the histogram (which measures the canvas), the
+  edited thumbnails and previews, the export, Next & send, Retouch and Crop all get the same answer; the
+  renderer asks per camera and file type and keeps the answer, and the profile is parsed once (a file that
+  fails to parse is remembered by its stamp and not parsed again). It is a rule of rendering, never a
+  value in a sidecar: ingesting or opening a photo writes nothing, and `EditParams.CameraProfile`
+  absent still means "not edited". The lookup is the one a named profile uses (`findCameraProfile`), so
+  when Adobe's folder and the user's both hold a Camera Standard for the camera, the same file wins
+  either way; there is no separate preference order. A JPEG or TIFF has no profile and no default.
+  - **Precedence.** A profile or look named in the sidecar, a preset or the panel always wins. A look
+    keeps its own base profile. A named profile that is not on this machine stays "not found" and the
+    picture uses the camera matrix; it does not fall back to Camera Standard. Copy/Paste/Sync Settings
+    copies what the sidecar holds: a photo that only has the default copies no profile, and the target
+    gets the default of its own camera.
+  - **Explicit "Camera matrix".** Because absent now means the default, choosing "Camera matrix" in
+    the Profile select is saved as `ee:CameraProfile` = `none` (`EditParams.CameraProfileChoice`), the
+    same way the lens choice is saved as `ee:LensProfile`. It counts as an edit, is in the Treatment &
+    Profile copy group, and a named profile (from the panel or a preset) removes it. Writing it as
+    `crs:CameraProfile=""` was rejected: the preset parser drops empty strings, and Lightroom would
+    read an empty or invented name as a profile it must find. The `ee:` namespace is ignored by
+    Lightroom, which keeps the sidecar valid for it.
+  - **Unreadable default.** A Camera Standard that cannot be parsed gives no profile and the reason
+    (`ProfileResolution.problem`, shown in the Profile section); a render or export never fails
+    because of it.
+  - **White balance.** As Shot and the Temperature/Tint display go through the profile in effect,
+    including the default, and the as-shot values are computed, not stored, so opening a photo changes
+    no stored white balance. The before side of the before/after split is drawn through the default
+    too, since it is the photo without the user's edits, not without its colour profile.
+  - **Edited previews.** The pixels of an edited thumbnail and preview depend on the default, so the
+    preview marker records the file (path and stamp) of the default it was drawn through
+    (`SetEditedPreviewArgs.defaultProfile`, `EditedPreviewMeta.defaultProfile`). When a scan finds
+    another set of camera profile files (the first scan after a start, a profile folder added or
+    removed in Settings, a rescan that finds a changed file), the backend marks the edited raws that
+    depend on the default and were drawn with another one `previewStale`, and the renderer draws
+    those that are on screen again. A render drawn with a default that no longer applies is refused.
+    Unedited photos show the camera's own preview, as before.
 - **Pipeline order** (CPU: `profile/render.ts`, shader: `glsl/profile.ts`; the stages are their own
   files, the shaders have two insertion points `baseColor` and `profileFinish`):
 
@@ -68,7 +107,7 @@ copies them into the repo, userData or fixtures.
   The neighbourhood stages (Texture, Clarity, Dehaze, noise reduction) run on the base pass, so
   they see the HueSatMap but not the look tables and tone curve, as they see the shoulder-less
   linear image today. `u_color` holds the profile's camera-to-ProPhoto matrix, so the base pass
-  changes in one place. Without a profile nothing changes: `cameraToSrgb`, the shoulder, the same
+  changes in one place. Without a profile (a JPEG, "Camera matrix", or no fitting Camera Standard) nothing changes: `cameraToSrgb`, the shoulder, the same
   shader branches off.
 - **White balance** through the profile, like the DNG SDK's `dng_color_spec`: the profile's
   `ColorMatrix` (interpolated between the two calibration illuminants, linearly in inverse

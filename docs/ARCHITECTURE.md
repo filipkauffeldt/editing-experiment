@@ -297,6 +297,11 @@ embedded preview is only made once, at ingest.
   they were drawn with exactly the current ops, and a grey placeholder (`no-store`) until they exist.
   `previewRevision` is bumped the moment the retouch ops change, so the `<img>` leaves the old image
   at once.
+- **Default camera profile.** A raw that names no profile is drawn through Camera Standard where one
+  fits (ADR 0001), so the edited previews depend on which profile files exist. The marker
+  (`<id>.edited.json`) records the default profile file the render went through; when the profile
+  folders change, the backend marks the edited photos that were drawn with another default
+  `previewStale` and the scheduler draws the ones on screen again (`photoUpdated`).
 - **Cache busting.** `appUrl.thumb|preview(id, previewRevision)` adds `?v=<n>`. The canvas does not
   show the cached image under a crop or retouch session, where the stage is the uncropped image.
 
@@ -510,7 +515,8 @@ the per-pixel chain. Their order, pyramid, tiling, caching and CPU parity are in
 
 ## Camera profiles
 
-A raw is rendered through a camera profile when one is available: DNG `.dcp` files and
+A raw is rendered through a camera profile when one is available, **Camera Standard** by default when
+the settings name none and a profile of that name fits the camera: DNG `.dcp` files and
 Adobe XMP looks provide the camera matrices, hue/saturation tables, look table and tone
 curve. The formats, parsers, matching, pipeline order, white balance, current limitations
 and tests are in [ADR 0001](decisions/0001-camera-profiles.md).
