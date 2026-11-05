@@ -4,7 +4,6 @@ import { isFiltering } from '../filters';
 import { modKeyLabel } from '../platform';
 import { usePanelLayout, type ResizablePanelDefinition } from '../panel-resize';
 import { describeFolderTemplate } from '../../shared/export-folder';
-import { ActionBar, Hints, barStyles } from './ActionBar';
 import { DevelopPanel } from './DevelopPanel';
 import { FilmStrip } from './FilmStrip';
 import { FilterBar, FilterEmpty } from './FilterBar';
@@ -50,6 +49,8 @@ export function DevelopView() {
   const mod = modKeyLabel();
   // Tab, and Retouch and Crop, hide the side panels, the filter row and the film strip. They stay
   // mounted, so a panel keeps its scroll position and folded sections, and the photo gets the room.
+  // Next & send is in that row and goes with it: Ctrl/Cmd+Enter still works while it is hidden,
+  // and a button that stays on screen would put a one-click send beside an unfinished retouch.
   const hidden = panelsAreHidden(state);
 
   return (
@@ -86,65 +87,31 @@ export function DevelopView() {
         <DevelopPanel className={styles.develop} />
       </div>
       <div className={styles.strips} hidden={hidden} data-testid="develop-strips">
-        <FilterBar scope={state.photos} shown={photos.length} />
+        <FilterBar scope={state.photos} shown={photos.length}>
+          <Button
+            size="small"
+            data-testid="open-export"
+            title={`⇧${mod}+E`}
+            onClick={() => store.openExportDialog()}
+          >
+            Export…
+          </Button>
+          <Button
+            size="small"
+            variant="primary"
+            data-testid="next-send"
+            hint={`${mod}+Enter`}
+            title={summary}
+            onClick={() => void store.nextAndSend()}
+          >
+            Next &amp; send
+          </Button>
+        </FilterBar>
         {photos.length === 0 && state.photos.length > 0 && isFiltering(state.filter) ? (
           <FilterEmpty hidden={state.photos.length} />
         ) : (
           <FilmStrip photos={photos} />
         )}
-      </div>
-      <div className={styles.bar}>
-        <ActionBar
-          left={
-            <>
-              <span
-                className={barStyles.summary}
-                title="Active export preset"
-                data-testid="export-summary"
-              >
-                {summary}
-              </span>
-              <Hints
-                items={[
-                  ['← →', 'photo'],
-                  ['T', 'tag'],
-                  ['1–5', 'rating'],
-                  [`${mod}+1–8`, 'class'],
-                  ['C', 'crop'],
-                  ['R', 'retouch'],
-                  ['Y', 'before/after'],
-                  ['J', 'clipping'],
-                ]}
-              />
-            </>
-          }
-          right={
-            <>
-              <Button
-                data-testid="open-copy-settings"
-                hint={`⇧${mod}+C`}
-                onClick={() => store.openCopySettings('copy')}
-              >
-                Copy settings…
-              </Button>
-              <Button
-                data-testid="open-export"
-                hint={`⇧${mod}+E`}
-                onClick={() => store.openExportDialog()}
-              >
-                Export…
-              </Button>
-              <Button
-                variant="primary"
-                data-testid="next-send"
-                hint={`${mod}+Enter`}
-                onClick={() => void store.nextAndSend()}
-              >
-                Next &amp; send
-              </Button>
-            </>
-          }
-        />
       </div>
     </div>
   );

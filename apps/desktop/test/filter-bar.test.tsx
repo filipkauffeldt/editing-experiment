@@ -52,15 +52,20 @@ function rate(store: AppStore): void {
 describe('the filter bar in Develop and in the Library', () => {
   it('has the same controls in both views, in the same order', async () => {
     await renderApp();
-    const develop = bar()
-      .getAllByRole('button')
-      .map((button) => button.getAttribute('aria-label') ?? button.textContent);
+    // The shared controls: everything but the view's own slot on the right.
+    const shared = (): (string | null)[] =>
+      bar()
+        .getAllByRole('button')
+        .filter((button) => !button.closest('[data-testid="filter-slot"]'))
+        .map((button) => button.getAttribute('aria-label') ?? button.textContent);
+    const develop = shared();
+    // Develop keeps its export actions in the slot.
+    const developSlot = within(screen.getByTestId('filter-slot'));
+    expect(developSlot.getByTestId('open-export')).toBeTruthy();
+    expect(developSlot.getByTestId('next-send')).toBeTruthy();
     await userEvent.setup().keyboard('g');
     await screen.findByTestId('library-grid');
-    const library = bar()
-      .getAllByRole('button')
-      .map((button) => button.getAttribute('aria-label') ?? button.textContent);
-    // The Library adds only its right-hand slot (the size slider has no button).
+    const library = shared();
     expect(library).toEqual(develop);
     expect(develop.slice(0, 3)).toEqual(['All40', 'Tagged4', 'Untagged36']);
     expect(develop).toContain('5 stars and up');

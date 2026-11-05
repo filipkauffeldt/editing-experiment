@@ -2240,20 +2240,6 @@ export class AppStore {
     if (await this.loadTemplate(path)) await this.rememberMetadataTemplate(path);
   };
 
-  /** Browse for another Photo Mechanic `.XMP` template and select it. */
-  readonly browseMetadataTemplate = async (): Promise<void> => {
-    try {
-      const [path] = await this.bridge.invoke('dialog:pick', {
-        kind: 'file',
-        title: 'Metadata template',
-        extensions: ['xmp'],
-      });
-      if (path) await this.selectMetadataTemplate(path);
-    } catch (cause) {
-      this.toast('error', `Could not open the template: ${messageOf(cause)}`);
-    }
-  };
-
   /** Photos the Metadata panel's template and paste actions apply to. */
   private metadataTargets(photoIds?: readonly PhotoId[]): PhotoId[] {
     if (photoIds !== undefined) {

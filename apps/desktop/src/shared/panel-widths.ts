@@ -18,8 +18,8 @@ export const CENTRE_MIN_WIDTH = 320;
 export const PANEL_WIDTH_SPECS: Record<PanelWidthId, PanelWidthSpec> = {
   'library-sidebar': { defaultWidth: 220, minWidth: 160, maxWidth: 520 },
   'library-inspector': { defaultWidth: 300, minWidth: 240, maxWidth: 560 },
-  'develop-metadata': { defaultWidth: 320, minWidth: 260, maxWidth: 620 },
-  'develop-panel': { defaultWidth: 300, minWidth: 260, maxWidth: 620 },
+  'develop-metadata': { defaultWidth: 280, minWidth: 260, maxWidth: 620 },
+  'develop-panel': { defaultWidth: 280, minWidth: 260, maxWidth: 620 },
   'ingest-sources': { defaultWidth: 360, minWidth: 260, maxWidth: 680 },
 };
 
