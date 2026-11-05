@@ -14,6 +14,7 @@ import type { IngestService } from './ingest-service';
 import type { LabelService } from './label-service';
 import type { MetadataService } from './metadata-service';
 import type { PhotoDeleter } from './photo-deleter';
+import type { PresetLibrary } from './preset-library';
 import type { PresetStore } from './presets';
 import type { ProfileLibrary } from './profiles';
 import type { SettingsStore } from './settings-store';
@@ -31,6 +32,7 @@ export interface HandlerDeps {
   labels: LabelService;
   faces: FaceService;
   presets: PresetStore;
+  presetLibrary: PresetLibrary;
   profiles: ProfileLibrary;
   ingest: IngestService;
   queue: UploadQueue;
@@ -52,7 +54,7 @@ function cardScannerFromEnv(env: NodeJS.ProcessEnv): CardScanner {
 export function createBackendHandlers(deps: HandlerDeps): IpcHandlers {
   const { photos, settings, metadata, edits, editedPreviews, labels, faces, presets, ingest } =
     deps;
-  const { profiles } = deps;
+  const { profiles, presetLibrary } = deps;
   const { queue, exports } = deps;
   const servedByMain = (channel: string) => async (): Promise<never> => {
     throw new IpcError('internal', `${channel} is served by the main process`);
@@ -107,8 +109,13 @@ export function createBackendHandlers(deps: HandlerDeps): IpcHandlers {
     'develop:getDefaults': ({ photoId }) => edits.getDefaults(photoId),
     'develop:setParams': (args) => edits.setParams(args),
     'develop:applySettings': (args) => edits.applySettings(args),
-    'develop:listPresets': () => presets.list(),
-    'develop:importPreset': ({ path }) => presets.import(path),
+    'develop:presetIndex': (args) => presetLibrary.index(args?.rescan === true),
+    'develop:importPreset': async ({ path }) => {
+      const imported = await presets.import(path);
+      // The list the library holds has to include it from now on.
+      await presetLibrary.index(true);
+      return imported;
+    },
 
     // Camera profiles describe a raw sensor; a JPEG or TIFF is already rendered and has none.
     'profiles:list': async ({ photoId }) => {

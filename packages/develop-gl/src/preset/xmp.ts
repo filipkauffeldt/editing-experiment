@@ -138,6 +138,8 @@ export function parsePresetXmp(xml: string, options: ParseOptions = {}): ParsedP
       }
       if (name === 'UUID') meta.uuid = textOf(value);
       if (name === 'Name') meta.name = altText(value);
+      if (name === 'Group') meta.group = altText(value);
+      if (name === 'PresetType') meta.presetType = textOf(value);
 
       if (
         typeof value === 'string' ||

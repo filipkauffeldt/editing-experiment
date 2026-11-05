@@ -1,7 +1,7 @@
 import { useEffect } from 'react';
 import { useAppState, useAppStore } from '../store-context';
 import { Button } from './ui/Button';
-import styles from './ProfilesSettings.module.css';
+import { FolderList, ProblemList, folderSettingsStyles as styles } from './FolderSettings';
 
 /**
  * Settings → Profiles: where the app looks for camera profiles. The files are Adobe's (or the
@@ -34,34 +34,12 @@ export function ProfilesSettings() {
         and add it here.
       </p>
 
-      <div>
-        <h3 className={styles.heading}>Folders</h3>
-        <div className={styles.folders}>
-          {adobe.map((folder) => (
-            <div key={folder} className={styles.folder}>
-              <span className={`${styles.path} mono`} title={folder}>
-                {folder}
-              </span>
-              <span className={styles.tag}>Adobe</span>
-            </div>
-          ))}
-          {added.map((folder) => (
-            <div key={folder} className={styles.folder}>
-              <span className={`${styles.path} mono`} title={folder}>
-                {folder}
-              </span>
-              <Button size="small" onClick={() => void store.removeProfileFolder(folder)}>
-                Remove
-              </Button>
-            </div>
-          ))}
-          {adobe.length === 0 && added.length === 0 && (
-            <div className={styles.folder}>
-              <span className={styles.tag}>No profile folder yet.</span>
-            </div>
-          )}
-        </div>
-      </div>
+      <FolderList
+        adobe={adobe}
+        added={added}
+        empty="No profile folder yet."
+        onRemove={(folder) => void store.removeProfileFolder(folder)}
+      />
 
       <div className={styles.actions}>
         <Button onClick={() => void store.addProfileFolder()}>Add folder…</Button>
@@ -76,22 +54,7 @@ export function ProfilesSettings() {
         </p>
       )}
 
-      {index && index.problems.length > 0 && (
-        <div>
-          <h3 className={styles.heading}>Could not be used</h3>
-          <ul className={styles.problems}>
-            {index.problems.slice(0, 25).map((problem) => (
-              <li key={problem.path}>
-                <span className={`${styles.problemPath} mono`} title={problem.path}>
-                  {problem.path}
-                </span>
-                {problem.reason}
-              </li>
-            ))}
-            {index.problems.length > 25 && <li>…and {index.problems.length - 25} more.</li>}
-          </ul>
-        </div>
-      )}
+      {index && <ProblemList problems={index.problems} />}
     </div>
   );
 }

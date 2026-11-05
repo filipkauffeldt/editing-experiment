@@ -883,8 +883,27 @@ export interface EditPreset {
   id: PresetId;
   /** Display name (`crs:PresetName`, falling back to the file name). */
   name: string;
-  /** Path of the file it was imported from. */
+  /** Path of the file it was imported from or found at. */
   path: string;
+  /**
+   * Where the preset is listed: the group the file names (`crs:Group`), else, for a discovered
+   * preset, its folder below the folder it was found in (`Sport/Fotboll`). Absent: ungrouped.
+   */
+  group?: string;
   /** Only the parameters the preset sets; apply by spreading over the current params. */
   params: EditParams;
+}
+
+/** A file in a preset folder that could not be used (or a folder that could not be read), and why. */
+export interface PresetProblem {
+  path: string;
+  reason: string;
+}
+
+/** Every develop preset the app knows: the ones found in the preset folders and the imported ones. */
+export interface PresetIndex {
+  presets: EditPreset[];
+  problems: PresetProblem[];
+  /** The folders that were scanned: Adobe's own that exist on this machine, plus the user's. */
+  folders: string[];
 }

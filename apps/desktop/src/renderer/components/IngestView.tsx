@@ -271,7 +271,7 @@ export function IngestView() {
   const templateMode = ingest?.metadataTemplateMode ?? 'replace';
   const presetId = ingest?.developPresetId;
   const presetName = presetId
-    ? (state.presets.find((preset) => preset.id === presetId)?.name ?? presetId)
+    ? (state.presets.find((preset) => preset.id === presetId)?.name ?? `${presetId} (not found)`)
     : 'None';
   // Discovered cards have their own section; hand-added sources and servers are listed as before.
   const listedSources = state.sources.filter(

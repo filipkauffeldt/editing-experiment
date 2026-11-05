@@ -470,7 +470,16 @@ export function createMockHandlers(world: MockWorld, emit: Emit): Partial<IpcHan
         profile: { camera: MOCK_CAMERA_PROFILE, amount: lookAmount ?? 1 },
       };
     },
-    'develop:listPresets': async () => world.presets,
+    'develop:presetIndex': async () => ({
+      presets: world.presets,
+      problems: [
+        {
+          path: '/mock/Adobe/CameraRaw/Settings/Sport/Ishockey/Trasig.xmp',
+          reason: 'Not valid XML: Unclosed tag',
+        },
+      ],
+      folders: ['/mock/Adobe/CameraRaw/Settings'],
+    }),
     'develop:importPreset': async ({ path }) => {
       const name =
         path

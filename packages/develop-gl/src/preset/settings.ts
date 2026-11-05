@@ -24,10 +24,16 @@ export interface PresetMeta {
   /** Display name from the file, if it has one. */
   name?: string;
   uuid?: string;
+  /** `crs:Group` of an XMP preset: where Adobe's apps list it. */
+  group?: string;
+  /** `crs:PresetType`: `Normal` for a develop preset, `Look` for a profile. */
+  presetType?: string;
 }
 
 export interface ParsedPreset {
   preset: EditPreset;
+  /** `crs:PresetType` when the file names one (`Normal`, `Look`, ...). */
+  presetType?: string;
   /**
    * `crs:` settings the file sets that this app does not implement (names without
    * the namespace prefix, in file order). Settings at their zero/empty default are
@@ -278,13 +284,17 @@ export function settingsToPreset(
 
   const path = options.path ?? '';
   const name = meta.name?.trim() || (path ? baseName(path) : 'Untitled preset');
+  const group = meta.group?.trim();
+  const presetType = meta.presetType?.trim();
   return {
     preset: {
       id: asPresetId(meta.uuid?.trim() || `preset-${hash(path || name)}`),
       name,
       path,
+      ...(group ? { group } : {}),
       params,
     },
+    ...(presetType ? { presetType } : {}),
     unsupported: [...new Set(unsupported)],
   };
 }

@@ -3,6 +3,7 @@ import type {
   DevelopSettingGroupId,
   EditParams,
   EditPreset,
+  PresetIndex,
 } from './develop';
 import type {
   CredentialSecret,
@@ -249,6 +250,12 @@ export interface AppSettings {
    */
   profileFolders?: string[];
   /**
+   * Folders the user added to the develop preset search (`.xmp` and `.lrtemplate`), besides
+   * Adobe's own folders where they exist on this machine, e.g. the `Lightroom Settings` folder
+   * next to a catalog that stores presets with it. Scanned recursively, read-only.
+   */
+  presetFolders?: string[];
+  /**
    * Photo Mechanic `.XMP` metadata templates the app knows about, as paths.
    * The app never copies the template files. The Metadata panel's picker and
    * Settings → Ingest's template dropdown read this list.
@@ -401,7 +408,12 @@ export interface IpcApi {
    * are never touched. Resolves with the updated photos.
    */
   'develop:applySettings': (args: ApplyDevelopSettingsArgs) => Promise<Photo[]>;
-  'develop:listPresets': () => Promise<EditPreset[]>;
+  /**
+   * The develop presets: those found in Adobe's preset folders and the user's (read where they are,
+   * never copied), then the imported ones, one entry per preset. `rescan` reads the folders again;
+   * without it the last scan answers. Files that could not be used come back as problems.
+   */
+  'develop:presetIndex': (args?: { rescan?: boolean }) => Promise<PresetIndex>;
   /** Parse a Lightroom/Camera Raw `.xmp` preset and remember it. */
   'develop:importPreset': (args: { path: string }) => Promise<EditPreset>;
 
@@ -499,7 +511,7 @@ export const INVOKE_CHANNELS = [
   'develop:getDefaults',
   'develop:setParams',
   'develop:applySettings',
-  'develop:listPresets',
+  'develop:presetIndex',
   'develop:importPreset',
   'profiles:list',
   'profiles:index',

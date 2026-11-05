@@ -12,14 +12,16 @@ import {
   type SourceConfig,
   type TemplateApplyMode,
 } from '@ee/contracts';
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { ee } from '../ee';
 import type { DialogTab } from '../store';
+import { groupPresets } from '../preset-groups';
 import { sourcesToIngest } from '../cards';
 import { useAppState, useAppStore } from '../store-context';
 import { FolderIcon, PlusIcon, ServerIcon } from './icons';
 import { MetadataSettings } from './MetadataSettings';
 import { Modal } from './Modal';
+import { PresetsSettings } from './PresetsSettings';
 import { ProfilesSettings } from './ProfilesSettings';
 import {
   DEFAULT_FILE_TYPES,
@@ -950,6 +952,7 @@ export function IngestSection() {
   const [status, setStatus] = useState<string>();
   const [error, setError] = useState<string>();
   const [busy, setBusy] = useState(false);
+  const presetGroups = useMemo(() => groupPresets(state.presets), [state.presets]);
   const templateOptions = [
     ...new Set(
       [
@@ -959,6 +962,11 @@ export function IngestSection() {
       ].filter((path): path is string => path !== undefined && path !== ''),
     ),
   ];
+
+  // The list is read again when the form is opened, so a preset made in Lightroom is there.
+  useEffect(() => {
+    void store.loadPresetIndex(true);
+  }, [store]);
 
   useEffect(() => {
     const ingest = state.settings?.ingest;
@@ -1152,11 +1160,26 @@ export function IngestSection() {
           onChange={(event) => setDevelopPresetId(event.target.value)}
         >
           <option value="">None</option>
-          {state.presets.map((preset) => (
-            <option key={preset.id} value={preset.id}>
-              {preset.name}
-            </option>
-          ))}
+          {developPresetId !== '' && !state.presets.some((p) => p.id === developPresetId) && (
+            <option value={developPresetId}>{developPresetId} (not found)</option>
+          )}
+          {presetGroups.map((group) =>
+            group.name === '' ? (
+              group.presets.map((preset) => (
+                <option key={preset.id} value={preset.id}>
+                  {preset.name}
+                </option>
+              ))
+            ) : (
+              <optgroup key={group.name} label={group.name}>
+                {group.presets.map((preset) => (
+                  <option key={preset.id} value={preset.id}>
+                    {preset.name}
+                  </option>
+                ))}
+              </optgroup>
+            ),
+          )}
         </select>
       </label>
 
@@ -1212,6 +1235,7 @@ export function SettingsDialog() {
     { id: 'ingest', label: 'Ingest' },
     { id: 'metadata', label: 'Metadata' },
     { id: 'profiles', label: 'Profiles' },
+    { id: 'presets', label: 'Presets' },
   ];
 
   return (
@@ -1247,6 +1271,7 @@ export function SettingsDialog() {
         {tab === 'ingest' && <IngestSection />}
         {tab === 'metadata' && <MetadataSettings />}
         {tab === 'profiles' && <ProfilesSettings />}
+        {tab === 'presets' && <PresetsSettings />}
       </div>
     </Modal>
   );

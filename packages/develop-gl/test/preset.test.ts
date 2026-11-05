@@ -209,6 +209,22 @@ describe('parsePreset', () => {
   });
 });
 
+describe('preset group and type', () => {
+  it('reads crs:Group and crs:PresetType from an XMP preset', () => {
+    const parsed = parsePresetXmp(fixture('lightroom-preset.xmp'), { path: '/p/x.xmp' });
+    expect(parsed.preset.group).toBeTruthy();
+    expect(parsed.presetType).toBe('Normal');
+  });
+
+  it('has no group or type when the file names none', () => {
+    const parsed = parsePresetLrtemplate(fixture('classic.lrtemplate'), {
+      path: '/p/x.lrtemplate',
+    });
+    expect(parsed.preset.group).toBeUndefined();
+    expect(parsed.presetType).toBeUndefined();
+  });
+});
+
 describe('per-pixel colour preset groups', () => {
   const { preset, unsupported } = parsePresetXmp(fixture('sport-color.xmp'), {
     path: '/presets/Floodlit Pitch.xmp',

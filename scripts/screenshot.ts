@@ -102,6 +102,10 @@ async function runMock(outDir: string): Promise<void> {
     await window.getByRole('tab', { name: 'Develop' }).click();
     await window.locator('[data-testid="film-strip"]').waitFor();
 
+    // The develop presets, grouped as the preset folders organise them.
+    await window.getByTestId('preset-group').first().waitFor();
+    await shoot('01f-preset-groups.png', '[data-testid="presets"]');
+
     // Copy Settings: Lightroom-style groups, Crop off by default.
     await window.getByTestId('open-copy-settings').click();
     await window.getByTestId('copy-settings-dialog').waitFor();
@@ -166,6 +170,9 @@ async function runMock(outDir: string): Promise<void> {
     await window.getByTestId('settings-dialog').getByRole('tab', { name: 'Metadata' }).click();
     await window.getByTestId('metadata-settings').waitFor();
     await shoot('05d-metadata-settings.png');
+    await window.getByTestId('settings-dialog').getByRole('tab', { name: 'Presets' }).click();
+    await window.getByTestId('presets-summary').waitFor();
+    await shoot('05e-preset-settings.png');
 
     await window.getByRole('button', { name: 'Close', exact: true }).last().click();
     await window.getByTestId('open-export').click();

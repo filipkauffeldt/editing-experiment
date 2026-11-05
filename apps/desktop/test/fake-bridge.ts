@@ -305,7 +305,7 @@ export function createFakeBridge(
         return photo;
       });
     },
-    'develop:listPresets': async () => presets,
+    'develop:presetIndex': async () => ({ presets, problems: [], folders: [] }),
     'develop:importPreset': async (...args) => {
       const { path } = args[0] as { path: string };
       return {

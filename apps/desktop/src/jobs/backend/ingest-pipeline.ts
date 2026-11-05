@@ -32,7 +32,7 @@ export interface IngestPipelineDeps {
   metadata: MetadataService;
   edits: EditService;
   exiftool: ExifToolService;
-  /** Find an imported develop preset; `undefined` when it was deleted. */
+  /** Find a develop preset (a file in a preset folder or an imported one); `undefined` when it is gone. */
   developPreset?: (presetId: PresetId) => Promise<EditPreset | undefined>;
   /** Report a problem that does not stop the file from being indexed. */
   report(event: Omit<Extract<JobEvent, { type: 'job.error' }>, 'type' | 'at'>): void;
@@ -228,7 +228,7 @@ export function createOnFileIngested(
         warnOnce(
           'preset-missing',
           'develop preset',
-          `Develop preset "${presetId}" no longer exists; ingest continues without it.`,
+          `Develop preset "${presetId}" no longer exists (or its folder is not reachable); ingest continues without it.`,
         );
       } else {
         try {

@@ -1,4 +1,4 @@
-import { IpcError, type EditPreset } from '@ee/contracts';
+import { IpcError, type EditPreset, type PresetProblem } from '@ee/contracts';
 import { parsePreset } from '@ee/develop-gl/preset';
 import { createHash } from 'node:crypto';
 import { mkdir, readFile, readdir } from 'node:fs/promises';
@@ -13,21 +13,36 @@ export class PresetStore {
   constructor(private readonly dir: string) {}
 
   async list(): Promise<StoredPreset[]> {
+    return (await this.read()).presets;
+  }
+
+  /** The imported presets; a stored file that cannot be read is a problem, not a failure of the list. */
+  async read(): Promise<{ presets: StoredPreset[]; problems: PresetProblem[] }> {
     let names: string[];
     try {
       names = await readdir(this.dir);
     } catch (error) {
-      if ((error as NodeJS.ErrnoException).code === 'ENOENT') return [];
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') return { presets: [], problems: [] };
       throw error;
     }
-    const presets = await Promise.all(
+    const presets: StoredPreset[] = [];
+    const problems: PresetProblem[] = [];
+    await Promise.all(
       names
         .filter((name) => name.endsWith('.json'))
-        .map(
-          async (name) => JSON.parse(await readFile(join(this.dir, name), 'utf8')) as StoredPreset,
-        ),
+        .map(async (name) => {
+          const file = join(this.dir, name);
+          try {
+            presets.push(JSON.parse(await readFile(file, 'utf8')) as StoredPreset);
+          } catch (error) {
+            problems.push({
+              path: file,
+              reason: error instanceof Error ? error.message : String(error),
+            });
+          }
+        }),
     );
-    return presets.sort((a, b) => a.name.localeCompare(b.name));
+    return { presets: presets.sort((a, b) => a.name.localeCompare(b.name)), problems };
   }
 
   /** Parse a preset file and remember it. Importing the same preset again replaces it. */

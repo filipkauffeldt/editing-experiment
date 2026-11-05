@@ -18,7 +18,8 @@ The proof of concept covers one end-to-end workflow:
    live in the film strip.
 2. **Library.** A virtualised grid and loupe, multi-selection, quick and colour-class
    filters, ratings, colour classes, tagging and batch captioning.
-3. **Develop.** A `crs:` parameter set that follows Lightroom's names, imported `.xmp` presets,
+3. **Develop.** A `crs:` parameter set that follows Lightroom's names, develop presets from Lightroom
+   and Camera Raw's preset folders or imported,
    camera profiles, lens corrections, crop/straighten, copy/paste/sync of settings and a
    live WebGL2 preview.
 4. **Retouch.** Rectangle and lasso areas, YuNet face detection inside a rectangle or lasso, and
@@ -88,13 +89,13 @@ Electron dependency (`createBackend({ userDataDir, emit, getSecret })`), so inte
 in plain Node. Files under Electron's `userData`:
 
 ```
-settings.json        sources, destinations, ingest options, metadata templates, code replacements, export presets, active preset, profile folders, last copy selections
+settings.json        sources, destinations, ingest options, metadata templates, code replacements, export presets, active preset, profile folders, preset folders, last copy selections
 index.sqlite         photo index and the paths removed from the Library (cache; sidecars are the source of truth)
 seen.sqlite          files already ingested per source
 uploads.sqlite       upload queue
 export-jobs.json     resumable export batches (queued photos survive a restart)
 exported-files.json  paths the app exported; the only targets `overwrite` may replace
-presets/*.json       imported develop presets
+presets/*.json       develop presets imported by hand (presets found in preset folders are not copied here)
 credentials.json     written by main only: ciphertext from safeStorage
 cache/{thumb,preview,linear}   disposable (see "Edited thumbnails and previews")
 exports/             default exportRoot (only a relative folder template uses it; the default template exports next to the photo)
@@ -105,8 +106,8 @@ exports/             default exportRoot (only a relative folder template uses it
   existing values by default, or fill empty fields) and the configured develop preset, indexes the
   photo and emits `photos:added`. Ingest awaits the hook per source, so photos appear in copy order.
   A preset is merged over the file's current `crs:` settings, so a photo that arrived with its own
-  develop settings (e.g. an existing Lightroom sidecar) keeps them; a missing preset is skipped with
-  one warning per job. Applying a preset marks the photo edited and `previewStale`, so the
+  develop settings (e.g. an existing Lightroom sidecar) keeps them; a missing preset (see "Develop
+  presets") is skipped with one warning per job, and never fails the copy. Applying a preset marks the photo edited and `previewStale`, so the
   edited-preview scheduler draws it.
 - Modified times: every ingested copy (primary, backup and both sidecars) gets the source file's
   modified time, set on the verified temp file before it is placed, so the final name never shows
@@ -532,6 +533,55 @@ the per-pixel chain. Their order, pyramid, tiling, caching and CPU parity are in
   settings with `renderCpu`, the same maths, up to `CPU_FALLBACK_MAX_PIXELS` (16 MP,
   about 100 bytes per pixel of float planes), and beyond that fails with a message
   saying which settings need GPU float support.
+
+## Develop presets
+
+Presets are Lightroom/Camera Raw `.xmp` and `.lrtemplate` files, parsed by `parsePreset`
+(`@ee/develop-gl/preset`), which also reads the file's `crs:Group` and `crs:PresetType`. They come from
+two places: files found in preset folders, and files imported by hand.
+
+- **Folders** (`jobs/backend/preset-folders.ts`, modelled on `ProfileLibrary`). `defaultPresetFolders(platform,
+  env, home)` is `~/Library/Application Support/Adobe/CameraRaw/Settings` and
+  `~/Library/Application Support/Adobe/Lightroom/Develop Presets` on macOS, `%APPDATA%\Adobe\CameraRaw\Settings`
+  and `%APPDATA%\Adobe\Lightroom\Develop Presets` on Windows (with `path.win32`, so it is testable on any
+  host), and none on Linux (TODO, as for profiles). `AppSettings.presetFolders` (Settings → Presets) adds the
+  user's, e.g. the `Lightroom Settings` folder next to a catalog that stores presets with it. Scans go
+  to a depth of 8; `.xmp` and `.lrtemplate` only. A folder that does not exist is skipped without a word.
+  The folder names come from Adobe's preset FAQ (as search results quote it) and Lightroom Queen's
+  file-location guide; they have not been compared with a real install.
+- **Read only.** The module makes `readdir`, `stat` and `readFile` calls and nothing else, and nothing found
+  is copied into userData. A parse is cached by the file's modified time and size (an entry read within 2.5 s of its
+  modified time is read again next time, as timestamps are coarse), so a changed file is read again and a
+  removed file is gone from the next scan.
+- **When it scans.** Once in the background when the backend starts, and when the renderer asks with
+  `develop:presetIndex { rescan: true }`: when the Develop preset list is shown, on Refresh, when Settings →
+  Presets or Settings → Ingest opens and after a folder is added or removed. Never a timer or a watcher.
+  Overlapping rescans share one more scan. Folders are scanned side by side, every filesystem call has a 5 s
+  timeout, and a call that timed out is joined, not repeated, by the next scan (as `CardScanner` does). A folder
+  that does not answer lists nothing and shows as a problem; it neither blocks nor fails the list. (The profile
+  scan has no timeout.)
+- **What is listed.** `.xmp` files with `crs:PresetType="Look"` (Adobe Color, Vivid…) are profiles and belong
+  to the profile list; other preset types that are not `Normal` are left out too, neither as presets nor as
+  problems. A file that cannot be parsed, is too large (4 MB) or cannot be read is a `PresetProblem` with its path
+  and reason. A `.xmp` that has `crs:` settings is a preset even without `PresetType`, so a photo's sidecar in a
+  folder that was added is listed as one.
+- **Groups.** `EditPreset.group` is the file's `crs:Group` when it names one, otherwise the folder below
+  the scanned folder (`Sport/Fotboll`). Imported presets keep the group their file named.
+- **Identity.** A preset's id is the `crs:UUID` (`id` in a `.lrtemplate`), else a hash of the path;
+  ids compare without regard to case. The same id found twice is one preset, and the one shown is:
+  a file in a folder over an imported copy (the copy shows again if the file goes), `.xmp` over
+  `.lrtemplate`, then the earlier folder and path. Different ids with the same name are all listed.
+  A preset without a UUID has a path-based id, so moving its file makes it a new preset.
+- **Where an id is stored.** Only `IngestSettings.developPresetId` stores a develop preset id.
+  `AppSettings.activePresetId` is an export preset. `sectionStash` holds parked slider values per
+  photo and section, not preset ids. Ingest asks `PresetLibrary.resolve(id)` when its first file of a job
+  arrives, which scans the folders then, so the preset is the file as it is at that moment; a preset that is
+  gone, or in a folder that does not answer, gives the one `preset-missing` warning and the copy goes on.
+  Settings → Ingest and the Ingest view say `<id> (not found)` for a saved id that is not in the list.
+  Develop applies the values of the last listing when a preset is clicked (the list is read again when
+  Develop is shown and on Refresh).
+- **Cloud Lightroom.** Not supported: its presets live in Adobe's cloud, not in files (they can be exported as
+  `.xmp` and the folder added).
 
 ## Camera profiles
 
