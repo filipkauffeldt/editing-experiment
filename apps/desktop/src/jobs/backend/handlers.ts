@@ -15,6 +15,7 @@ import type { IngestService } from './ingest-service';
 import type { LabelService } from './label-service';
 import type { MetadataService } from './metadata-service';
 import type { PhotoDeleter } from './photo-deleter';
+import type { SearchIndex } from './search-index';
 import type { PresetLibrary } from './preset-library';
 import type { PresetStore } from './presets';
 import type { ProfileLibrary } from './profiles';
@@ -25,6 +26,7 @@ export interface HandlerDeps {
   emit: Emit;
   getSecret: GetSecret;
   photos: PhotoLibrary;
+  search: SearchIndex;
   deleter: PhotoDeleter;
   settings: SettingsStore;
   metadata: MetadataService;
@@ -71,6 +73,7 @@ export function createBackendHandlers(deps: HandlerDeps): IpcHandlers {
 
     'photos:list': async (args) => photos.list(args?.sourceId),
     'photos:get': async ({ photoId }) => photos.get(photoId),
+    'photos:search': async ({ query }) => deps.search.search(query),
     'photos:createVersion': (args) => edits.createVersion(args),
     'photos:deleteVersion': (args) => edits.deleteVersion(args),
     'photos:setLabels': (args) => labels.setLabels(args),

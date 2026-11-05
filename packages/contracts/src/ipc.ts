@@ -70,6 +70,23 @@ export interface ListPhotosArgs {
   sourceId?: SourceId;
 }
 
+/** Arguments of `photos:search`. */
+export interface SearchPhotosArgs {
+  /** Free text; every word must be in the file name, caption or keywords. */
+  query: string;
+}
+
+/** Result of `photos:search`. */
+export interface SearchPhotosResult {
+  /** The photos that match, from the whole Library. */
+  photoIds: PhotoId[];
+  /**
+   * Photos whose caption and keywords are not in the search index yet (just ingested, or the
+   * index is being built after an update). They can only match by file name until it catches up.
+   */
+  pending: number;
+}
+
 /** Outcome of probing a source or destination. */
 export interface ConnectionTestResult {
   ok: boolean;
@@ -318,6 +335,8 @@ export interface IpcApi {
   // --- photos (the index) ---
   'photos:list': (args?: ListPhotosArgs) => Promise<Photo[]>;
   'photos:get': (args: { photoId: PhotoId }) => Promise<Photo>;
+  /** Find photos by file name, caption and keywords, across the whole Library. */
+  'photos:search': (args: SearchPhotosArgs) => Promise<SearchPhotosResult>;
   'photos:createVersion': (args: CreateVersionArgs) => Promise<PhotoVersion>;
   /** Delete a retouch version and its ops. The develop version cannot be deleted. */
   'photos:deleteVersion': (args: DeleteVersionArgs) => Promise<Photo>;
@@ -486,6 +505,7 @@ export const INVOKE_CHANNELS = [
   'system:info',
   'photos:list',
   'photos:get',
+  'photos:search',
   'photos:createVersion',
   'photos:deleteVersion',
   'photos:setLabels',

@@ -41,6 +41,8 @@ export class PhotoIndex {
   private readonly excludeStatement: StatementSync;
   private readonly includeStatement: StatementSync;
   private readonly excludedStatement: StatementSync;
+  private readonly searchRowsStatement: StatementSync;
+  private readonly setSearchStatement: StatementSync;
 
   constructor(filePath: string) {
     if (filePath !== ':memory:') mkdirSync(dirname(filePath), { recursive: true });
@@ -68,6 +70,11 @@ export class PhotoIndex {
     if (!columns.some((column) => column.name === 'source_path')) {
       this.db.exec('ALTER TABLE photos ADD COLUMN source_path TEXT');
     }
+    // Caption and keywords for search, as `normalizeForSearch` makes them. NULL means "not read
+    // yet": the search index fills it in the background. A cache like the rest of the file.
+    if (!columns.some((column) => column.name === 'search_text')) {
+      this.db.exec('ALTER TABLE photos ADD COLUMN search_text TEXT');
+    }
     this.upsertStatement = this.db.prepare(
       `INSERT INTO photos (id, source_id, path, template_path, source_path, json)
        VALUES (?, ?, ?, ?, ?, ?)
@@ -91,6 +98,10 @@ export class PhotoIndex {
     );
     this.includeStatement = this.db.prepare('DELETE FROM removed_paths WHERE path = ?');
     this.excludedStatement = this.db.prepare('SELECT path FROM removed_paths');
+    this.searchRowsStatement = this.db.prepare(
+      "SELECT id, json_extract(json, '$.fileName') AS file_name, search_text FROM photos ORDER BY seq",
+    );
+    this.setSearchStatement = this.db.prepare('UPDATE photos SET search_text = ? WHERE id = ?');
     this.hasPathStatement = this.db.prepare('SELECT 1 FROM photos WHERE path = ? LIMIT 1');
     this.pathsStatement = this.db.prepare(
       "SELECT json_extract(json, '$.path') AS path FROM photos",
@@ -123,6 +134,24 @@ export class PhotoIndex {
       ? this.listStatement.all()
       : this.listBySourceStatement.all(sourceId)) as unknown as Row[];
     return rows.map((row) => toRecord(row).photo);
+  }
+
+  /** Every photo's file name and indexed search text (null until it has been read). */
+  searchRows(): { id: PhotoId; fileName: string; text: string | null }[] {
+    const rows = this.searchRowsStatement.all() as unknown as {
+      id: string;
+      file_name: string | null;
+      search_text: string | null;
+    }[];
+    return rows.map((row) => ({
+      id: row.id as PhotoId,
+      fileName: row.file_name ?? '',
+      text: row.search_text,
+    }));
+  }
+
+  setSearchText(photoId: PhotoId, text: string): void {
+    this.setSearchStatement.run(text, photoId);
   }
 
   /** Drop a photo's entry. Returns whether there was one. */

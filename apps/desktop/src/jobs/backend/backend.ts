@@ -1,7 +1,7 @@
 import type { IpcHandlers, JobEvent, JobId, PresetId } from '@ee/contracts';
 import { SqliteSeenStore, type GetSecret } from '@ee/ingest';
 import { UploadQueue, type UploadQueueOptions } from '@ee/export';
-import { ExifToolService, readLensShot } from '@ee/metadata';
+import { ExifToolService, readIptc, readLensShot } from '@ee/metadata';
 import { homedir } from 'node:os';
 import { mkdirSync } from 'node:fs';
 import { defaultSettings } from '../../shared/settings';
@@ -30,6 +30,7 @@ import { ExportService, clearInterruptedExportStates } from './export-service';
 import { ExportedFileStore } from './exported-files';
 import { SettingsStore } from './settings-store';
 import { reconcileDestination } from './reconcile';
+import { SearchIndex } from './search-index';
 import { runTeardown } from './teardown';
 
 export interface BackendOptions {
@@ -87,7 +88,14 @@ export async function createBackend(options: BackendOptions): Promise<Backend> {
     (message) => console.warn(message),
   );
   const index = new PhotoIndex(layout.indexDb);
-  const photos = new PhotoLibrary(index, emit);
+  const search = new SearchIndex(
+    index,
+    (photo) => readIptc(photo.path, exiftool),
+    (message) => console.warn(message),
+  );
+  const photos = new PhotoLibrary(index, emit, search);
+  // Reads the captions of photos that have none in the search index yet, in the background.
+  search.start();
   const previews = new PreviewCache(layout.thumbDir, layout.previewDir);
   const metadata = new MetadataService(photos, exiftool, settings);
   const profiles = new ProfileLibrary({
@@ -254,6 +262,7 @@ export async function createBackend(options: BackendOptions): Promise<Backend> {
       emit,
       getSecret,
       photos,
+      search,
       deleter,
       settings,
       metadata,
@@ -286,6 +295,7 @@ export async function createBackend(options: BackendOptions): Promise<Backend> {
         { name: 'face detection', run: () => faces.dispose() },
         { name: 'export queue', run: async () => exports.close() },
         { name: 'upload queue', run: () => queue.close() },
+        { name: 'search index', run: () => search.close() },
         { name: 'exiftool', run: () => exiftool.close() },
         { name: 'seen files', run: () => seenStore.close() },
         { name: 'photo index', run: () => index.close() },
