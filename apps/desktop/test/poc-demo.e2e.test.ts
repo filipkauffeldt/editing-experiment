@@ -792,7 +792,7 @@ describe.skipIf(nefs.length === 0 || !haveDisplay)(
       const thumbBefore = await thumbPixels('cardB_001.jpg');
       await window.locator('[data-testid="commit-retouch"]').click();
       await window.locator('[data-testid="retouch-toolbar"]').waitFor({ state: 'detached' });
-      await window.waitForSelector('button[title^="cardB_001.jpg"] [title="Retouch version"]');
+      await window.waitForSelector('button[title^="cardB_001.jpg"] [aria-label="Retouched"]');
       // Outside retouch mode the committed version is still the visible image.
       await window.getByTestId('retouch-version-indicator').waitFor();
       await window.waitForFunction(

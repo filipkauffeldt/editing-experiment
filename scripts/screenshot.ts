@@ -696,7 +696,7 @@ async function runReal(outDir: string): Promise<void> {
     await window.locator('[data-testid="commit-retouch"]').click();
     await window.locator('[data-testid="retouch-toolbar"]').waitFor({ state: 'detached' });
     await window.getByTestId('retouch-version-indicator').waitFor();
-    await window.waitForSelector('button[title^="shots_002.jpg"] [title="Retouch version"]');
+    await window.waitForSelector('button[title^="shots_002.jpg"] [aria-label="Retouched"]');
     await shoot('14-real-committed-retouch.png');
     await shoot('15-real-film-strip-retouch.png', '[data-testid="film-strip"]');
 
