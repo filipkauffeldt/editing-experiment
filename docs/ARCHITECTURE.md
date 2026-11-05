@@ -777,11 +777,14 @@ empty mode. Loading settings written before this split migrates
 `ingest.metadataTemplatePath` into the global list (keeping it selected for ingest) and
 moves `ingest.codeReplacementPaths` to the global list.
 
-The Metadata panel (Develop) has a template picker over the global list; **Browse…** adds
-the picked `.XMP` to the list. Applying a template targets the whole multi-selection in
-the film strip (or the open photo) and keeps the existing Fill empty / Replace all mode.
+The Metadata panel (Develop) has a template select over the global list, or a link to Settings → Metadata
+when the list is empty; templates are added there, not in the panel. **Apply** targets the whole
+multi-selection in the film strip (or the open photo), and the small menu beside it picks Fill empty or
+Replace all (until one is picked, the Replace / Fill empty mode of Settings → Ingest). Credits, Location and
+Event / job are folded, with their values and `≠ template` on the header; the open groups are kept in
+`metadata-view.ts` for the session and not saved.
 
-**Copy…** opens a field picker grouped like the panel sections (Caption, Credits,
+**Copy** opens a field picker grouped like the panel sections (Caption, Credits,
 Location, Event / job). It snapshots the checked fields from the active photo, including
 explicit empty values, in `AppState.copiedMetadata`. The picker opens with the fields last
 confirmed there, or every field when none was saved; Cancel/×/Esc leave the stored choice
