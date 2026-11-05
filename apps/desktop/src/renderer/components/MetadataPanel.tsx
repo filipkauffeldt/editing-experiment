@@ -1,4 +1,4 @@
-import type { IptcFields, Photo, PhotoId, TemplateApplyMode } from '@ee/contracts';
+import type { IptcFields, Photo, PhotoId } from '@ee/contracts';
 import { useState } from 'react';
 import {
   METADATA_SECTIONS,
@@ -97,11 +97,6 @@ export function KeywordsEditor({
     </div>
   );
 }
-
-const MODES: readonly { id: TemplateApplyMode; label: string }[] = [
-  { id: 'fillEmpty', label: 'Fill empty' },
-  { id: 'replace', label: 'Replace all' },
-];
 
 /** The labelled editor of one field; a field that differs from the template says so. */
 function FieldRow({
@@ -244,10 +239,6 @@ export function MetadataPanel({ className }: { className?: string }) {
   const fields = photo ? (state.metadata[photo.id] ?? {}) : {};
   const template = state.template;
   const unresolved = photo ? (state.metadataUnresolved[photo.id] ?? []) : [];
-  // Until a mode is picked here, Apply follows the template mode chosen for ingest in Settings.
-  const [pickedMode, setPickedMode] = useState<TemplateApplyMode>();
-  const templateMode = pickedMode ?? state.settings?.ingest.metadataTemplateMode ?? 'fillEmpty';
-  const modeLabel = MODES.find((mode) => mode.id === templateMode)?.label ?? '';
   const copied = state.copiedMetadata;
   const copiedCount = copied ? Object.keys(copied.fields).length : 0;
   const templateOptions = [
@@ -309,12 +300,12 @@ export function MetadataPanel({ className }: { className?: string }) {
                 size="small"
                 data-testid="metadata-template-apply"
                 disabled={!templatePath}
-                onClick={() => void store.applyTemplate({ mode: templateMode })}
+                onClick={() => void store.applyTemplate({ mode: 'fillEmpty' })}
                 title={`${
                   state.selection.length > 1
                     ? `Apply to ${state.selection.length} selected photos`
                     : 'Apply to the current photo'
-                } · ${modeLabel}`}
+                } · fills empty fields, keeps what is written`}
               >
                 Apply
               </Button>
@@ -323,19 +314,25 @@ export function MetadataPanel({ className }: { className?: string }) {
                 compact
                 closeOnPick
                 align="right"
-                ariaLabel="How Apply treats existing values"
+                ariaLabel="Apply options"
                 testId="metadata-apply-mode"
               >
-                {MODES.map((mode) => (
-                  <MenuItem
-                    key={mode.id}
-                    kind="radio"
-                    checked={templateMode === mode.id}
-                    onSelect={() => setPickedMode(mode.id)}
-                  >
-                    {mode.label}
-                  </MenuItem>
-                ))}
+                {/*
+                  A plain Apply never overwrites a caption written by hand. Overwriting is a
+                  deliberate second step, and it is named as such. Ingest has its own mode.
+                */}
+                <MenuItem
+                  kind="action"
+                  onSelect={() => void store.applyTemplate({ mode: 'fillEmpty' })}
+                >
+                  Fill empty fields
+                </MenuItem>
+                <MenuItem
+                  kind="action"
+                  onSelect={() => void store.applyTemplate({ mode: 'replace' })}
+                >
+                  Replace all, overwriting
+                </MenuItem>
               </Menu>
             </span>
             <Button

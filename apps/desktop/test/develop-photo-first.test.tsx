@@ -165,36 +165,43 @@ describe('the photo footer is one info line', () => {
 });
 
 describe('the Metadata panel', () => {
-  it('has one row: template, Apply with its mode, Copy and Paste; Browse is only in Settings', async () => {
+  it('has one row: template, Apply with its options, Copy and Paste; Browse is only in Settings', async () => {
     await renderApp();
     const row = screen.getByTestId('metadata-toolbar');
     expect(within(row).getByTestId('metadata-template-select')).toBeTruthy();
     expect(within(row).getByTestId('metadata-template-apply').textContent).toBe('Apply');
-    expect(within(row).getByRole('button', { name: /How Apply treats/ })).toBeTruthy();
+    expect(within(row).getByRole('button', { name: 'Apply options' })).toBeTruthy();
     expect(within(row).getByTestId('metadata-copy').textContent).toBe('Copy');
     expect(within(row).getByTestId('metadata-paste').textContent).toBe('Paste');
     expect(screen.queryByTestId('metadata-template-browse')).toBeNull();
     expect(screen.queryByLabelText('Template apply mode')).toBeNull();
   });
 
-  it('applies with the template mode of the ingest settings until another is picked in the menu', async () => {
+  it('fills empty fields on a plain Apply, whatever the ingest template mode is, and overwrites only from the menu', async () => {
     const { fake } = await renderApp();
     const applied = () =>
       fake.calls
         .filter((call) => call.channel === 'metadata:applyTemplate')
         .map((call) => call.args[0]);
-    // The mock ingest settings use Replace.
+    // The mock ingest settings use Replace; the panel does not read it.
+    expect(fake.settings.ingest.metadataTemplateMode).toBe('replace');
+    expect(screen.getByTestId('metadata-template-apply').title).toMatch(/fills empty/);
     fireEvent.click(screen.getByTestId('metadata-template-apply'));
     await vi.waitFor(() => expect(applied()).toHaveLength(1));
-    expect(applied()[0]).toMatchObject({ mode: 'replace' });
+    expect(applied()[0]).toMatchObject({ mode: 'fillEmpty' });
 
+    // Replace is one step away, named for what it does, and does not stay selected.
     fireEvent.click(within(screen.getByTestId('metadata-apply-mode')).getByRole('button'));
-    fireEvent.click(screen.getByRole('menuitemradio', { name: 'Fill empty' }));
-    expect(screen.queryByRole('menu')).toBeNull();
-    expect(screen.getByTestId('metadata-template-apply').title).toMatch(/Fill empty/);
-    fireEvent.click(screen.getByTestId('metadata-template-apply'));
+    const items = screen.getAllByRole('menuitem').map((item) => item.textContent);
+    expect(items).toEqual(['Fill empty fields', 'Replace all, overwriting']);
+    fireEvent.click(screen.getByRole('menuitem', { name: /Replace all/ }));
     await vi.waitFor(() => expect(applied()).toHaveLength(2));
-    expect(applied()[1]).toMatchObject({ mode: 'fillEmpty' });
+    expect(applied()[1]).toMatchObject({ mode: 'replace' });
+    expect(screen.queryByRole('menu')).toBeNull();
+
+    fireEvent.click(screen.getByTestId('metadata-template-apply'));
+    await vi.waitFor(() => expect(applied()).toHaveLength(3));
+    expect(applied()[2]).toMatchObject({ mode: 'fillEmpty' });
   });
 
   it('offers a way to Settings, not a select, when there is no template', async () => {

@@ -179,8 +179,8 @@ two side panels default to 280 px. There is no bottom bar.
   nothing is cut in half. The tooltip of the details lists all of them. Exposure data (ISO, focal length,
   aperture, shutter) stays under the histogram.
 - **Metadata panel**: one row first, a template select (or a link to Settings → Metadata when there is
-  no template), `Apply` with a small menu beside it for Fill empty or Replace all (it starts as the
-  template mode in Settings → Ingest), `Copy` and `Paste`. Then Caption with real height, Keywords,
+  no template), `Apply` (it only fills empty fields, so it never overwrites a caption written by hand) with a
+  small menu beside it that offers the other way, *Replace all, overwriting*; then `Copy` and `Paste`. Then Caption with real height, Keywords,
   Headline and Object name, always shown. **Credits**, **Location** and **Event / job** are folded; a
   folded header shows the values that are set as one line and `≠ template` when one of them differs from
   the template, so a difference never hides. Which groups are open is remembered while the app runs.

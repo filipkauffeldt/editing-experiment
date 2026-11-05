@@ -100,20 +100,30 @@ export function MenuHeading({ children }: { children: ReactNode }) {
   );
 }
 
-/** One entry: a check (several can be on) or a radio (one per group), with an optional count. */
+/**
+ * One entry: a check (several can be on) or a radio (one per group), with an optional count; or an
+ * `action`, which does something when chosen and has no state or mark.
+ */
 export function MenuItem({
   kind,
-  checked,
+  checked = false,
   count,
   onSelect,
   children,
 }: {
-  kind: 'check' | 'radio';
-  checked: boolean;
+  kind: 'check' | 'radio' | 'action';
+  checked?: boolean;
   count?: number;
   onSelect: () => void;
   children: ReactNode;
 }) {
+  if (kind === 'action') {
+    return (
+      <button type="button" role="menuitem" className={styles.item} onClick={onSelect}>
+        <span className={styles.itemLabel}>{children}</span>
+      </button>
+    );
+  }
   return (
     <button
       type="button"

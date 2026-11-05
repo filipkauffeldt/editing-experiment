@@ -779,8 +779,10 @@ moves `ingest.codeReplacementPaths` to the global list.
 
 The Metadata panel (Develop) has a template select over the global list, or a link to Settings → Metadata
 when the list is empty; templates are added there, not in the panel. **Apply** targets the whole
-multi-selection in the film strip (or the open photo), and the small menu beside it picks Fill empty or
-Replace all (until one is picked, the Replace / Fill empty mode of Settings → Ingest). Credits, Location and
+multi-selection in the film strip (or the open photo), and applies Fill empty; the small menu beside it
+also has Replace all, labelled as overwriting, which applies at once and is not remembered. The panel does not
+read the template mode of Settings → Ingest, whose Replace default suits what cameras write at ingest, not a
+caption written by hand. Credits, Location and
 Event / job are folded, with their values and `≠ template` on the header; the open groups are kept in
 `metadata-view.ts` for the session and not saved.
 
