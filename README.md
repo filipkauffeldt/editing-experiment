@@ -84,9 +84,10 @@ Export / Export & send.
   rendered; `DefaultBlackRender` and the camera's own baseline exposure are
   not applied.
 - Texture, Clarity, Dehaze, sharpening and noise reduction follow RAWmakase's
-  fits of Camera Raw, not Camera Raw itself. Raws start with Lightroom's
-  sharpening and colour noise reduction (or the camera's own `crd:` values), shown
-  on the sliders but never written to the sidecar.
+  fits of Camera Raw, not Camera Raw itself. Raws start with Adobe Camera Raw's
+  default sharpening and noise reduction (the camera's own `crd:` values are
+  ignored, as Adobe Default does), shown on the sliders but never written to the
+  sidecar.
 - Nikon HE/HE* NEFs (TicoRAW) are not supported by the vendored LibRaw 0.22.3.
 - Full-size exports (`resize: none`) send the rendered RGBA buffer over IPC
   (about 180 MB for a 45 MP frame). Smaller exports render at the preset's

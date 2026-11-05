@@ -192,7 +192,6 @@ export async function createBackend(options: BackendOptions): Promise<Backend> {
     onRemoved: async (photoId) => {
       // The entry is gone, so none of these can write for the photo again.
       editedPreviews.forget(photoId);
-      edits.forget(photoId);
       exports.photoRemoved(photoId);
       exporter.discard(photoId);
       await Promise.all([previews.removeAll(photoId), apps.forget(photoId)]);

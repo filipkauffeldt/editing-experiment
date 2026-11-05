@@ -20,6 +20,35 @@ describe('raw detail defaults', () => {
       expect(value).toBeLessThanOrEqual(spec.max);
     }
   });
+
+  it('are Adobe Camera Raw’s Adobe Default values for every detail setting', () => {
+    expect(RAW_DETAIL_DEFAULTS).toEqual({
+      Sharpness: 40,
+      SharpenRadius: 1,
+      SharpenDetail: 25,
+      SharpenEdgeMasking: 0,
+      LuminanceSmoothing: 0,
+      LuminanceNoiseReductionDetail: 50,
+      LuminanceNoiseReductionContrast: 0,
+      ColorNoiseReduction: 25,
+      ColorNoiseReductionDetail: 50,
+      ColorNoiseReductionSmoothness: 50,
+    });
+  });
+
+  it('uses the slider neutral where the raw default is neutral too', () => {
+    for (const name of [
+      'SharpenDetail',
+      'SharpenEdgeMasking',
+      'LuminanceSmoothing',
+      'LuminanceNoiseReductionDetail',
+      'LuminanceNoiseReductionContrast',
+      'ColorNoiseReductionDetail',
+      'ColorNoiseReductionSmoothness',
+    ] as const) {
+      expect(RAW_DETAIL_DEFAULTS[name]).toBe(SLIDER_SPECS[name].neutral);
+    }
+  });
 });
 
 describe('withDefaults', () => {

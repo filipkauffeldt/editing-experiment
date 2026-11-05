@@ -430,8 +430,8 @@ export const SLIDER_SPECS: Readonly<Record<SliderParam, SliderSpec>> = {
   Texture: { min: -100, max: 100, step: 1, neutral: 0 },
   Clarity2012: { min: -100, max: 100, step: 1, neutral: 0 },
   Dehaze: { min: -100, max: 100, step: 1, neutral: 0 },
-  // Absent sharpening and noise reduction mean "off" (Lightroom's own raw defaults, Sharpness 40
-  // and colour noise reduction 25, are not applied); the detail sliders' neutrals are Lightroom's.
+  // Absent values mean neutral: off for sharpening and noise reduction. A raw starts at
+  // `RAW_DETAIL_DEFAULTS` instead (Adobe Default); JPEG and TIFF have no raw defaults.
   Sharpness: { min: 0, max: 150, step: 1, neutral: 0 },
   SharpenRadius: { min: 0.5, max: 3, step: 0.1, neutral: 1 },
   SharpenDetail: { min: 0, max: 100, step: 1, neutral: 25 },
@@ -456,11 +456,11 @@ export const SLIDER_SPECS: Readonly<Record<SliderParam, SliderSpec>> = {
 };
 
 /**
- * The sharpening and noise reduction settings Lightroom applies to **raw** files
- * when the sidecar does not set them (Sharpness 40, colour noise reduction 25),
- * each overridden by the camera's own `crd:` camera-raw-defaults when the file
- * carries them. Absent means "the default"; an explicit `0` is off. Never applied
- * to JPEG or TIFF, and never written to the sidecar.
+ * The sharpening and noise reduction settings a **raw** starts with, Adobe
+ * Camera Raw's "Adobe Default". The camera's own `crd:` camera-raw-defaults
+ * block is deliberately ignored, as Camera Raw's Adobe Default does. Absent
+ * means "the default"; an explicit `0` is off. Never applied to JPEG or TIFF,
+ * and never written to the sidecar.
  */
 export const DETAIL_DEFAULT_PARAMS = [
   'Sharpness',
@@ -477,12 +477,15 @@ export const DETAIL_DEFAULT_PARAMS = [
 
 export type DetailDefaultParam = (typeof DETAIL_DEFAULT_PARAMS)[number];
 
-/** Lightroom's raw defaults for the detail settings, before any `crd:` override. */
-export const RAW_DETAIL_DEFAULTS: Readonly<Partial<Record<DetailDefaultParam, number>>> = {
+/** Adobe Camera Raw's default detail settings for a raw ("Adobe Default"). */
+export const RAW_DETAIL_DEFAULTS: Readonly<Record<DetailDefaultParam, number>> = {
   Sharpness: 40,
   SharpenRadius: 1,
   SharpenDetail: 25,
   SharpenEdgeMasking: 0,
+  LuminanceSmoothing: 0,
+  LuminanceNoiseReductionDetail: 50,
+  LuminanceNoiseReductionContrast: 0,
   ColorNoiseReduction: 25,
   ColorNoiseReductionDetail: 50,
   ColorNoiseReductionSmoothness: 50,
