@@ -159,7 +159,8 @@ describe.skipIf(!haveDisplay)(
         window.getByTestId('photo-view').boundingBox(),
       ]);
       if (!view) throw new Error('no photo view');
-      expect(stage.width).toBeLessThanOrEqual(view.width - 44 + 1);
+      // The fit keeps its own 32 px margin and the centre adds no padding of its own.
+      expect(stage.width).toBeLessThanOrEqual(view.width - 32 + 1);
       expect(stage.width / stage.height).toBeCloseTo(IMAGE.width / IMAGE.height, 1);
     };
 
@@ -247,7 +248,7 @@ describe.skipIf(!haveDisplay)(
     }, 60_000);
 
     it('drags the develop panel live and the canvas fits the new space', async () => {
-      expect(await widthOf('develop-panel')).toBe(300);
+      expect(await widthOf('develop-panel')).toBe(280);
       const stageBefore = await stageBox();
       await expectCanvasFits();
 
@@ -261,13 +262,13 @@ describe.skipIf(!haveDisplay)(
       await settle();
 
       // The width follows the pointer before the button is released.
-      expect(await widthOf('develop-panel')).toBe(380);
+      expect(await widthOf('develop-panel')).toBe(360);
       expect((await stageBox()).width).toBeLessThan(stageBefore.width - 60);
       await expectCanvasFits();
 
       await window.mouse.up();
-      await waitForWidth('develop-panel', 380);
-      await waitForSavedWidth('develop-panel', 380);
+      await waitForWidth('develop-panel', 360);
+      await waitForSavedWidth('develop-panel', 360);
       await settle();
       expect((await stageBox()).width).toBeLessThan(stageBefore.width - 60);
       await expectCanvasFits();
@@ -293,7 +294,7 @@ describe.skipIf(!haveDisplay)(
       const box = await handle('develop-panel').boundingBox();
       if (!box) throw new Error('no develop handle');
       await window.mouse.dblclick(box.x + box.width / 2, box.y + box.height / 2);
-      await waitForWidth('develop-panel', 300);
+      await waitForWidth('develop-panel', 280);
       await waitFor('the reset width in settings', async () => {
         const settings = await invoke<{ panelWidths?: Record<string, number> }>('settings:get');
         return settings.panelWidths?.['develop-panel'] === undefined;
@@ -303,8 +304,8 @@ describe.skipIf(!haveDisplay)(
     it('re-clamps when the window shrinks and keeps the preference', async () => {
       await dragBy('develop-panel', -120);
       const wide = await widthOf('develop-panel');
-      expect(wide).toBe(420);
-      await waitForSavedWidth('develop-panel', 420);
+      expect(wide).toBe(400);
+      await waitForSavedWidth('develop-panel', 400);
 
       await app.evaluate(({ BrowserWindow }) => {
         BrowserWindow.getAllWindows()[0]?.setSize(960, 700);
@@ -361,8 +362,8 @@ describe.skipIf(!haveDisplay)(
             ?.getAttribute('data-zoom') === '100',
       );
       await dragBy('develop-metadata', 40);
-      expect(await widthOf('develop-metadata')).toBe(360);
-      await waitForSavedWidth('develop-metadata', 360);
+      expect(await widthOf('develop-metadata')).toBe(320);
+      await waitForSavedWidth('develop-metadata', 320);
       await settle();
       expect(
         await window.evaluate(() =>
@@ -397,7 +398,7 @@ describe.skipIf(!haveDisplay)(
       expect(mosaicBefore?.height).toBeCloseTo(stageBefore.height, 0);
 
       await dragBy('develop-panel', -20);
-      expect(await widthOf('develop-panel')).toBe(440);
+      expect(await widthOf('develop-panel')).toBe(420);
       await settle();
       const mosaicAfter = await window.getByTestId('mosaic-canvas').boundingBox();
       const stageAfter = await stageBox();
@@ -406,7 +407,7 @@ describe.skipIf(!haveDisplay)(
       expect(mosaicAfter?.height).toBeCloseTo(stageAfter.height, 0);
 
       await dragBy('develop-panel', 20);
-      await waitForSavedWidth('develop-panel', 420);
+      await waitForSavedWidth('develop-panel', 400);
       await window.keyboard.press('Escape');
       await window.waitForFunction(
         () =>
@@ -421,10 +422,10 @@ describe.skipIf(!haveDisplay)(
       ({ app, window } = await launch());
       await settle();
 
-      expect(await widthOf('develop-panel')).toBe(420);
-      expect(await widthOf('develop-metadata')).toBe(360);
+      expect(await widthOf('develop-panel')).toBe(400);
+      expect(await widthOf('develop-metadata')).toBe(320);
       const developPanel = await window.getByTestId('develop-panel').boundingBox();
-      expect(developPanel?.width).toBe(420);
+      expect(developPanel?.width).toBe(400);
 
       await openModule('Library');
       expect(await widthOf('library-sidebar')).toBe(280);
