@@ -167,4 +167,55 @@ describe('Retouch and Crop hide the panels while open', () => {
     expect(JSON.stringify(call?.args)).toContain('Header in the box');
     expect(store.getState().metadata[photoId]?.caption).toBe('Header in the box');
   });
+
+  it('keeps Esc, Enter and Tab for the search box during Retouch and Crop', async () => {
+    const { store } = await renderApp();
+    const search = (): HTMLInputElement => screen.getByTestId('filter-search') as HTMLInputElement;
+    for (const key of ['r', 'c']) {
+      fireEvent.keyDown(window, { key });
+      await screen.findByTestId(key === 'r' ? 'retouch-toolbar' : 'crop-toolbar');
+      // The filter bar goes with the film strip; Tab shows both.
+      expect(screen.getByTestId('develop-strips').hasAttribute('hidden')).toBe(true);
+      fireEvent.keyDown(window, { key: 'Tab' });
+      expect(screen.getByTestId('develop-strips').hasAttribute('hidden')).toBe(false);
+
+      search().focus();
+      fireEvent.change(search(), { target: { value: 'goal' } });
+      for (const init of [{ key: 'Enter' }, { key: 'Escape' }]) {
+        search().focus();
+        fireEvent.keyDown(search(), init);
+        expect(store.getState().retouch !== undefined || store.getState().crop !== undefined).toBe(
+          true,
+        );
+      }
+      // Tab in the box is not a toggle and is left to move the focus.
+      search().focus();
+      const tab = new KeyboardEvent('keydown', { key: 'Tab', bubbles: true, cancelable: true });
+      search().dispatchEvent(tab);
+      expect(tab.defaultPrevented).toBe(false);
+      expect(screen.getByTestId('develop-strips').hasAttribute('hidden')).toBe(false);
+
+      search().blur();
+      fireEvent.keyDown(window, { key: 'Escape' });
+      await waitFor(() =>
+        expect(store.getState().retouch === undefined && store.getState().crop === undefined).toBe(
+          true,
+        ),
+      );
+    }
+  });
+
+  it('hides the filter bar with the film strip in Develop and keeps it in the Library', async () => {
+    const { store } = await renderApp();
+    tab();
+    expect(screen.getByTestId('develop-strips').contains(screen.getByTestId('filter-search'))).toBe(
+      true,
+    );
+    expect(screen.getByTestId('develop-strips').hasAttribute('hidden')).toBe(true);
+    act(() => store.openLibrary('grid'));
+    await screen.findByTestId('library-view');
+    expect(screen.getByTestId('library-left-panels').hasAttribute('hidden')).toBe(true);
+    const bar = screen.getByTestId('filter-search');
+    expect(bar.closest('[hidden]')).toBeNull();
+  });
 });
