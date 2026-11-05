@@ -40,8 +40,23 @@ export const ZOOM_STEP = 1.25;
 /** How much empty room panning may show past the picture's edge, in CSS pixels. */
 export const PAN_MARGIN = 64;
 
-/** The layout the view gives: Fit is `base` itself; otherwise the picture is scaled about its centre and panned. */
-export function viewLayout(view: ZoomView, base: ViewLayout, image: Size): ViewLayout {
+/**
+ * The layout the view gives: Fit is `base` itself; otherwise the picture is scaled about its
+ * centre and panned. With `dpr`, a one-to-one (or two-to-one…) view is snapped to the device pixel
+ * grid, see {@link snapToDevicePixels}. The stored pan is never rounded.
+ */
+export function viewLayout(
+  view: ZoomView,
+  base: ViewLayout,
+  image: Size,
+  dpr?: number,
+): ViewLayout {
+  const layout = unsnappedLayout(view, base, image);
+  return dpr === undefined || view.scale === null ? layout : snapToDevicePixels(layout, dpr);
+}
+
+/** {@link viewLayout} before snapping: what the zoom maths anchors to, so rounding never accumulates in the pan. */
+function unsnappedLayout(view: ZoomView, base: ViewLayout, image: Size): ViewLayout {
   if (view.scale === null) return base;
   const centre = fitCentre(base, image);
   return {
@@ -52,6 +67,33 @@ export function viewLayout(view: ZoomView, base: ViewLayout, image: Size): ViewL
     },
   };
 }
+
+/**
+ * Puts the picture's corner on a whole device pixel when a picture pixel is a whole number of
+ * device pixels (100%, 200%…) or exactly two per device pixel (50%). Anywhere else the texture
+ * filter blends neighbours: at 1:1 a half-pixel offset averages every pair of columns into grey,
+ * where on the grid linear and nearest give the same pixels. At 50% on the grid the same filter is
+ * a clean 2x2 average of a full-resolution texture (a downscaled one is not on the grid, and the
+ * snap does it no harm). At 200% and up the filter still smooths, but with one phase everywhere,
+ * so panning does not shimmer. Other scales (Fit, Ctrl+scroll) have
+ * no grid to land on and stay smooth, so they are returned as they are. `layout.offset` is in CSS
+ * pixels of the stage, whose own corner is on a device pixel (see `PhotoCanvas`).
+ */
+export function snapToDevicePixels(layout: ViewLayout, dpr: number): ViewLayout {
+  const perDevice = layout.scale * dpr;
+  const half = Math.abs(perDevice - 0.5) < 1e-6;
+  const whole = Math.round(perDevice);
+  if (!half && !(whole >= 1 && Math.abs(perDevice - whole) < 1e-6)) return layout;
+  const snap = (value: number): number => Math.round(value * dpr) / dpr;
+  return {
+    scale: (half ? 0.5 : whole) / dpr,
+    offset: { x: snap(layout.offset.x), y: snap(layout.offset.y) },
+  };
+}
+
+/** The largest size at most `css` CSS pixels that is a whole number of device pixels, in CSS pixels. */
+export const wholeDevicePixels = (css: number, dpr: number): number =>
+  Math.floor(css * dpr + 1e-6) / dpr;
 
 /** Where Fit puts the picture's centre. */
 export function fitCentre(base: ViewLayout, image: Size): Point {
@@ -134,7 +176,7 @@ export function zoomTo(
   const { min, max } = scaleLimits(context);
   const next = clamp(scale, min, max);
   if (next <= min * 1.002) return FIT_VIEW;
-  const current = viewLayout(view, context.base, context.image);
+  const current = unsnappedLayout(view, context.base, context.image);
   const ratio = next / current.scale;
   const offset = {
     x: anchor.x - (anchor.x - current.offset.x) * ratio,
@@ -158,7 +200,7 @@ export function zoomBy(
   anchor: Point,
   factor: number,
 ): ZoomView {
-  const current = viewLayout(view, context.base, context.image);
+  const current = unsnappedLayout(view, context.base, context.image);
   return zoomTo(view, context, anchor, current.scale * factor);
 }
 

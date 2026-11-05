@@ -13,7 +13,9 @@ import {
   reclamp,
   screenToImage,
   screenToUnit,
+  snapToDevicePixels,
   viewLayout,
+  wholeDevicePixels,
   wheelPanDelta,
   wheelPixels,
   wheelZoomFactor,
@@ -226,3 +228,169 @@ describe('wheel pan delta', () => {
     });
   });
 });
+
+describe('the device pixel grid', () => {
+  const RATIOS = [1, 1.25, 1.5, 2];
+  /** Canvas sizes in CSS pixels, odd and even, the way `PhotoCanvas` derives the stage from them. */
+  const CANVASES = [
+    { width: 900, height: 600 },
+    { width: 901, height: 599 },
+    { width: 1263, height: 787 },
+    { width: 1111, height: 703 },
+  ];
+  /** Odd and even pictures, so the centre of the picture is on and off a pixel. */
+  const PICTURES = [
+    { width: 4000, height: 3000 },
+    { width: 4001, height: 2999 },
+    { width: 6001, height: 4000 },
+  ];
+  const onGrid = (css: number, dpr: number): boolean => {
+    const device = css * dpr;
+    return Math.abs(device - Math.round(device)) < 1e-6;
+  };
+  const setup = (canvas: { width: number; height: number }, picture: typeof image, dpr: number) => {
+    const stage = {
+      width: wholeDevicePixels(canvas.width, dpr),
+      height: wholeDevicePixels(canvas.height, dpr),
+    };
+    const fit = Math.min(stage.width / picture.width, stage.height / picture.height);
+    const fitted: ViewLayout = {
+      scale: fit,
+      offset: {
+        x: (stage.width - picture.width * fit) / 2,
+        y: (stage.height - picture.height * fit) / 2,
+      },
+    };
+    return { stage, ctx: { base: fitted, image: picture, viewport: stage, dpr } as ZoomContext };
+  };
+
+  it.each([1, 2])(
+    'puts the picture on whole device pixels at %s00% for any canvas, picture, ratio, anchor and pan',
+    (level) => {
+      for (const dpr of RATIOS) {
+        for (const canvas of CANVASES) {
+          for (const picture of PICTURES) {
+            const { stage, ctx } = setup(canvas, picture, dpr);
+            for (const anchor of [
+              { x: stage.width / 2, y: stage.height / 2 },
+              { x: 13.3, y: 401.7 },
+              { x: stage.width - 0.4, y: 2.9 },
+            ]) {
+              let view = zoomTo(FIT_VIEW, ctx, anchor, levelScale(level, dpr));
+              const check = (): void => {
+                const layout = viewLayout(view, ctx.base, picture, dpr);
+                expect(layout.scale * dpr).toBeCloseTo(level, 6);
+                expect(onGrid(layout.offset.x, dpr)).toBe(true);
+                expect(onGrid(layout.offset.y, dpr)).toBe(true);
+              };
+              check();
+              for (const delta of [
+                { x: 1, y: 0 },
+                { x: -0.7, y: 3.3 },
+                { x: 0, y: -1 },
+                { x: 123.456, y: -78.9 },
+              ]) {
+                view = panBy(view, ctx, delta);
+                check();
+              }
+              // A resize re-clamps the view; the result is on the grid too.
+              const smaller = setup(
+                { width: canvas.width - 37, height: canvas.height - 11 },
+                picture,
+                dpr,
+              );
+              view = reclamp(view, smaller.ctx);
+              const layout = viewLayout(view, smaller.ctx.base, picture, dpr);
+              expect(onGrid(layout.offset.x, dpr)).toBe(true);
+              expect(onGrid(layout.offset.y, dpr)).toBe(true);
+            }
+          }
+        }
+      }
+    },
+  );
+
+  it('also snaps 50%, and keeps the picture point under the anchor within half a device pixel', () => {
+    for (const dpr of RATIOS) {
+      const { ctx } = setup(CANVASES[1]!, PICTURES[1]!, dpr);
+      const anchor = { x: 311.3, y: 207.9 };
+      // A smooth zoom first, as Ctrl+scroll leaves it, then the level.
+      const smooth = zoomTo(FIT_VIEW, ctx, anchor, ctx.base.scale * 1.7);
+      const under = screenToImage(viewLayout(smooth, ctx.base, ctx.image), anchor);
+      for (const level of [0.5, 1, 2]) {
+        const view = zoomTo(smooth, ctx, anchor, levelScale(level, dpr));
+        if (view.scale === null) continue;
+        const layout = viewLayout(view, ctx.base, ctx.image, dpr);
+        expect(onGrid(layout.offset.x, dpr)).toBe(true);
+        expect(onGrid(layout.offset.y, dpr)).toBe(true);
+        const at = imageToScreen(layout, under);
+        expect(Math.abs(at.x - anchor.x)).toBeLessThanOrEqual(0.5 / dpr + 1e-6);
+        expect(Math.abs(at.y - anchor.y)).toBeLessThanOrEqual(0.5 / dpr + 1e-6);
+      }
+    }
+  });
+
+  it('leaves Fit and in-between zooms smooth and untouched', () => {
+    const { ctx } = setup(CANVASES[1]!, PICTURES[1]!, 1.25);
+    expect(viewLayout(FIT_VIEW, ctx.base, ctx.image, 1.25)).toBe(ctx.base);
+    const view = zoomTo(FIT_VIEW, ctx, { x: 100.3, y: 90.1 }, 0.37);
+    const raw = viewLayout(view, ctx.base, ctx.image);
+    expect(viewLayout(view, ctx.base, ctx.image, 1.25)).toEqual(raw);
+    expect(
+      snapToDevicePixels({ scale: 1.5 / 1.25, offset: { x: 0.1, y: 0.2 } }, 1.25).offset,
+    ).toEqual({
+      x: 0.1,
+      y: 0.2,
+    });
+  });
+
+  it('adds no drift over many pans: the pan is the exact sum and the offset the rounded true position', () => {
+    for (const dpr of RATIOS) {
+      const { ctx } = setup(CANVASES[1]!, PICTURES[0]!, dpr);
+      let view = zoomTo(FIT_VIEW, ctx, { x: 450, y: 300 }, levelScale(1, dpr));
+      const start = view.pan;
+      const startOffset = unsnappedOffset(view, ctx);
+      let travelled = { x: 0, y: 0 };
+      for (let i = 0; i < 2000; i++) {
+        // Small, uneven steps, well inside the clamp.
+        const delta = { x: i % 3 === 0 ? 0.3 : -0.1, y: i % 2 === 0 ? 0.7 : -0.2 };
+        view = panBy(view, ctx, delta);
+        travelled = { x: travelled.x + delta.x, y: travelled.y + delta.y };
+      }
+      expect(view.pan.x).toBeCloseTo(start.x + travelled.x, 6);
+      expect(view.pan.y).toBeCloseTo(start.y + travelled.y, 6);
+      const layout = viewLayout(view, ctx.base, ctx.image, dpr);
+      expect(Math.abs(layout.offset.x - (startOffset.x + travelled.x))).toBeLessThanOrEqual(
+        0.5 / dpr + 1e-6,
+      );
+      expect(Math.abs(layout.offset.y - (startOffset.y + travelled.y))).toBeLessThanOrEqual(
+        0.5 / dpr + 1e-6,
+      );
+    }
+  });
+
+  it('moves the picture by exactly the pan at device pixel ratio 1', () => {
+    const { ctx } = setup(CANVASES[1]!, PICTURES[0]!, 1);
+    const view = zoomTo(FIT_VIEW, ctx, { x: 450, y: 300 }, 1);
+    const before = viewLayout(view, ctx.base, ctx.image, 1);
+    const after = viewLayout(panBy(view, ctx, { x: 1, y: -1 }), ctx.base, ctx.image, 1);
+    expect(after.offset.x - before.offset.x).toBe(1);
+    expect(after.offset.y - before.offset.y).toBe(-1);
+  });
+
+  it('sizes a stage to whole device pixels without growing it', () => {
+    for (const dpr of RATIOS) {
+      for (const css of [599, 600, 901, 1263]) {
+        const whole = wholeDevicePixels(css, dpr);
+        expect(onGrid(whole, dpr)).toBe(true);
+        expect(whole).toBeLessThanOrEqual(css);
+        expect(css - whole).toBeLessThan(1 / dpr + 1e-9);
+      }
+    }
+  });
+});
+
+/** The offset the view has before snapping. */
+function unsnappedOffset(view: Parameters<typeof viewLayout>[0], ctx: ZoomContext) {
+  return viewLayout(view, ctx.base, ctx.image).offset;
+}

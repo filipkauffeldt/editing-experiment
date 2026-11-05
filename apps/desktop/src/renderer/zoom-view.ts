@@ -126,7 +126,7 @@ export function useZoomControls(
 ): ZoomControls {
   const state = useZoomState();
   const view = reclamp(viewFor(state, key), geometry);
-  const layout = viewLayout(view, geometry.base, geometry.image);
+  const layout = viewLayout(view, geometry.base, geometry.image, geometry.dpr);
 
   const latest = useRef(geometry);
   useLayoutEffect(() => {
@@ -155,7 +155,8 @@ export function useZoomControls(
         }
         const at = pointer.current;
         const anchor =
-          at && overPicture(viewLayout(now, context.base, context.image), context.image, at)
+          at &&
+          overPicture(viewLayout(now, context.base, context.image, context.dpr), context.image, at)
             ? at
             : centre();
         setView(key, zoomTo(now, context, anchor, levelScale(zoomStore.get().level, context.dpr)));
