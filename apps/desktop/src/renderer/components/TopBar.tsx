@@ -178,10 +178,11 @@ export function TopBar({ className, loadError }: { className?: string; loadError
         type="button"
         className={styles.iconButton}
         title="Settings"
+        aria-label="Settings"
         onClick={() => store.openDialog('sources')}
         data-testid="open-settings"
       >
-        <GearIcon size={12} />
+        <GearIcon size={14} />
       </button>
     </div>
   );
