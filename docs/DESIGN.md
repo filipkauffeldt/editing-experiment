@@ -180,9 +180,11 @@ two side panels default to 280 px. There is no bottom bar.
   so the lens goes before anything else and nothing is cut in half. The tools and zoom never shrink or
   drop: only the details give way. The tooltip of the details lists all of them. Exposure data (ISO, focal length,
   aperture, shutter) stays under the histogram.
-- **Metadata panel**: one row first, a template select (or a link to Settings → Metadata when there is
-  no template), `Apply` (it only fills empty fields, so it never overwrites a caption written by hand) with a
-  small menu beside it that offers the other way, *Replace all, overwriting*; then `Copy metadata…` and `Paste`. Then Caption with real height, Keywords,
+- **Metadata panel**: two rows first. The template select (or a link to Settings → Metadata when there is
+  no template) takes the free width and `Apply` (it only fills empty fields, so it never overwrites a
+  caption written by hand) with its small menu sits on the right; a long template name truncates with an
+  ellipsis and its full path in the tooltip. `Copy metadata…` and `Paste` sit compact on the left of the
+  second row. Then Caption with real height, Keywords,
   Headline and Object name, always shown. **Credits**, **Location** and **Event / job** are folded; a
   folded header shows the values that are set as one line and `≠ template` (tooltip: Differs from
   template) when one of them differs from the template, so a difference never hides. Which groups are open is remembered while the app runs.

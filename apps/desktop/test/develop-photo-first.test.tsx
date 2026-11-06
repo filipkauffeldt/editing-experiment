@@ -165,16 +165,27 @@ describe('the photo footer is one info line', () => {
 });
 
 describe('the Metadata panel', () => {
-  it('has one row: template, Apply with its options, Copy and Paste; Browse is only in Settings', async () => {
+  it('has two rows: template and Apply above, Copy and Paste below; Browse is only in Settings', async () => {
     await renderApp();
-    const row = screen.getByTestId('metadata-toolbar');
-    expect(within(row).getByTestId('metadata-template-select')).toBeTruthy();
-    expect(within(row).getByTestId('metadata-template-apply').textContent).toBe('Apply');
-    expect(within(row).getByRole('button', { name: 'Apply options' })).toBeTruthy();
-    expect(within(row).getByTestId('metadata-copy').textContent).toBe('Copy metadata…');
-    expect(within(row).getByTestId('metadata-paste').textContent).toBe('Paste');
+    const templateRow = screen.getByTestId('metadata-template-row');
+    const copyRow = screen.getByTestId('metadata-copy-row');
+    expect(within(templateRow).getByTestId('metadata-template-select')).toBeTruthy();
+    expect(within(templateRow).getByTestId('metadata-template-apply').textContent).toBe('Apply');
+    expect(within(templateRow).getByRole('button', { name: 'Apply options' })).toBeTruthy();
+    expect(within(copyRow).getByTestId('metadata-copy').textContent).toBe('Copy metadata…');
+    expect(within(copyRow).getByTestId('metadata-paste').textContent).toBe('Paste');
+    expect(within(templateRow).queryByTestId('metadata-copy')).toBeNull();
+    expect(within(copyRow).queryByTestId('metadata-template-select')).toBeNull();
+    expect(screen.getByTestId('metadata-toolbar').children).toHaveLength(2);
     expect(screen.queryByTestId('metadata-template-browse')).toBeNull();
     expect(screen.queryByLabelText('Template apply mode')).toBeNull();
+  });
+
+  it('shows the full template path in the select tooltip', async () => {
+    await renderApp();
+    const select = screen.getByTestId('metadata-template-select') as HTMLSelectElement;
+    expect(select.title).toBe(select.value);
+    expect(select.value).toMatch(/\.XMP$/i);
   });
 
   it('fills empty fields on a plain Apply, whatever the ingest template mode is, and overwrites only from the menu', async () => {
