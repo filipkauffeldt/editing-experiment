@@ -449,6 +449,32 @@ describe.skipIf(nefs.length === 0)(
       await handlers['settings:set']({ codeReplacementPaths: [] });
     });
 
+    it('serves a Latin-1 or UTF-16 code replacement file decoded the way expansion reads it', async () => {
+      const { writeFile } = await import('node:fs/promises');
+      const latin1 = join(root, 'codes-latin1.txt');
+      const utf16 = join(root, 'codes-utf16.txt');
+      // Å is one byte (0xC5) in Latin-1, which is not valid UTF-8.
+      await writeFile(latin1, Buffer.from('\xc5MAL\t\xc5sa Svensson\n', 'latin1'));
+      await writeFile(
+        utf16,
+        Buffer.concat([Buffer.from([0xff, 0xfe]), Buffer.from('sm\t\xc4ngelholm\n', 'utf16le')]),
+      );
+      await handlers['settings:set']({ codeReplacementPaths: [latin1, utf16] });
+
+      const { files } = await handlers['metadata:codeReplacementFiles']();
+      expect(files[0]).toMatchObject({ text: 'ÅMAL\tÅsa Svensson\n' });
+      expect(files[1]).toMatchObject({ text: expect.stringContaining('sm\tÄngelholm') });
+
+      // The same files, expanded on the backend (blur and Ctrl+Space), give the same words.
+      const photo = bySource(cardB)[0]!;
+      const expanded = await handlers['metadata:expandCaption']({
+        photoId: photo.id,
+        text: '=ÅMAL= =sm=',
+      });
+      expect(expanded.text).toBe('Åsa Svensson Ängelholm');
+      await handlers['settings:set']({ codeReplacementPaths: [] });
+    });
+
     it('stores develop params in the sidecar (crs:) and imports presets', async () => {
       const photo = bySource(cardA)[1]!;
       await handlers['develop:setParams']({

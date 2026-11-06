@@ -65,6 +65,7 @@ describe.skipIf(nefs.length < 1 || !haveDisplay)(
     let root: string;
     const dir = (name: string): string => join(root, name);
     const codesFile = (): string => join(dir('codes'), 'sportfotografen.txt');
+    const latin1File = (): string => join(dir('codes'), 'latin1.tsv');
 
     const invoke = async <T>(channel: string, ...args: unknown[]): Promise<T> => {
       const result = await window.evaluate(
@@ -107,6 +108,8 @@ describe.skipIf(nefs.length < 1 || !haveDisplay)(
       for (const name of ['card', 'ingest', 'codes']) mkdirSync(dir(name));
       copyInto(nefs[0]!, join(dir('card'), 'game_1.NEF'));
       writeFileSync(codesFile(), 't1\tGAIS\nÅ1\tÅngelholm\nlast\t{filename}\n', 'utf8');
+      // A Latin-1 file: Å is the single byte 0xC5, which is not valid UTF-8.
+      writeFileSync(latin1File(), Buffer.from('\xc5MAL\t\xc5sa Svensson\n', 'latin1'));
       display = await ensureDisplay();
 
       const electronPath = createRequire(join(desktopDir, 'package.json'))('electron') as string;
@@ -128,7 +131,7 @@ describe.skipIf(nefs.length < 1 || !haveDisplay)(
       const { ingest } = await invoke<{ ingest: IngestConfig }>('settings:get');
       await invoke('settings:set', {
         ingest: { ...ingest, destination: { path: dir('ingest') } },
-        codeReplacementPaths: [codesFile()],
+        codeReplacementPaths: [codesFile(), latin1File()],
       });
       await invoke('ingest:start', {
         config: {
@@ -261,6 +264,14 @@ describe.skipIf(nefs.length < 1 || !haveDisplay)(
       expect((await state()).value).toBe('Goal =t1x=');
       await window.keyboard.press('Backspace');
       expect((await state()).value).toBe('Goal GAIS');
+    });
+
+    it('reads a Latin-1 file the way blur does, so Å is not garbled', async () => {
+      await startOver();
+      await window.keyboard.type('=');
+      await window.keyboard.insertText('ÅMAL');
+      await window.keyboard.press('=');
+      expect((await state()).value).toBe('Åsa Svensson');
     });
 
     it('does not replace inserted text: it waits for blur', async () => {

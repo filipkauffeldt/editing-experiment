@@ -14,6 +14,7 @@ import type {
 } from '@ee/contracts';
 import {
   diffFromTemplate,
+  decodeCodeReplacementFile,
   expandCaption,
   loadCodeReplacements,
   readIptc,
@@ -149,7 +150,8 @@ export class MetadataService {
         try {
           // The time is read first: a write in between is then seen as newer on the next check.
           const { mtimeMs } = await stat(path);
-          return { path, mtimeMs, text: await readFile(path, 'utf8') };
+          // The decoder blur and Ctrl+Space use, so both read a Latin-1 or UTF-16 file the same way.
+          return { path, mtimeMs, text: decodeCodeReplacementFile(await readFile(path)) };
         } catch (cause) {
           const reason = cause instanceof Error ? cause.message : String(cause);
           return { path, error: `Cannot read ${path}: ${reason}` };
