@@ -98,6 +98,150 @@ describe('instantReplacement', () => {
   });
 });
 
+/** A field being edited: the typed edits the caption makes, each followed by the instant check. */
+class Field {
+  constructor(
+    public text: string,
+    public caret: number,
+    private readonly table: CodeReplacementSet = set,
+  ) {}
+
+  /** What the check does after an edit that leaves the caret where it is now. */
+  private check(): this {
+    const hit = instantReplacement(this.text, this.caret, this.table);
+    if (hit) {
+      this.text = this.text.slice(0, hit.start) + hit.replacement + this.text.slice(hit.end);
+      this.caret = hit.start + hit.replacement.length;
+    }
+    return this;
+  }
+
+  type(chars: string): this {
+    for (const char of chars) {
+      this.text = this.text.slice(0, this.caret) + char + this.text.slice(this.caret);
+      this.caret += 1;
+      this.check();
+    }
+    return this;
+  }
+
+  backspace(count = 1): this {
+    for (let i = 0; i < count; i++) {
+      if (this.caret === 0) break;
+      this.text = this.text.slice(0, this.caret - 1) + this.text.slice(this.caret);
+      this.caret -= 1;
+      this.check();
+    }
+    return this;
+  }
+
+  delete(count = 1): this {
+    for (let i = 0; i < count; i++) {
+      this.text = this.text.slice(0, this.caret) + this.text.slice(this.caret + 1);
+      this.check();
+    }
+    return this;
+  }
+
+  /** Move the caret without editing: no check, as an arrow key or a click. */
+  at(caret: number): this {
+    this.caret = caret;
+    return this;
+  }
+}
+
+describe('instantReplacement after any typed edit', () => {
+  it('expands a token that had no match once an edit inside it makes a known code', () => {
+    // =foo= typed and left; the caret goes back inside and the code is retyped.
+    const typed = new Field('=foo=', 5).at(4).backspace(3).type('t1');
+    expect(typed.text).toBe('GAIS');
+    expect(typed.caret).toBe(4);
+    // Typing inside, without deleting first: =t1x= has no match, and removing x makes one.
+    expect(new Field('=t1x=', 4).backspace().text).toBe('GAIS');
+  });
+
+  it('expands from Backspace in =t1x= and from Delete in =xt1=, with the caret after the replacement', () => {
+    const backspaced = new Field('Goal =t1x= more', 9).backspace();
+    expect(backspaced.text).toBe('Goal GAIS more');
+    expect(backspaced.caret).toBe('Goal GAIS'.length);
+
+    const deleted = new Field('Goal =xt1= more', 6).delete();
+    expect(deleted.text).toBe('Goal GAIS more');
+    expect(deleted.caret).toBe('Goal GAIS'.length);
+  });
+
+  it('expands when a code is made known by typing in the middle of the token', () => {
+    const field = new Field('=t1=', 3).type('x');
+    expect(field.text).toBe('=t1x=');
+    expect(field.backspace().text).toBe('GAIS');
+    expect(new Field('=tt1=', 2).backspace().text).toBe('GAIS');
+  });
+
+  it('expands when an opening delimiter is typed in front of existing text', () => {
+    const field = new Field('t1= and more', 0).type('=');
+    expect(field.text).toBe('GAIS and more');
+    expect(field.caret).toBe(4);
+    expect(new Field('Goal t2=', 5).type('=').text).toBe('Goal AIK');
+  });
+
+  it('expands for a Backspace or Delete that leaves the caret right after a token', () => {
+    expect(new Field('=t1=x', 5).backspace().text).toBe('GAIS');
+    expect(new Field('=t1=x', 4).delete().text).toBe('GAIS');
+  });
+
+  it('leaves a token with no match alone however it is edited', () => {
+    const field = new Field('=foo=', 4).backspace().type('o');
+    expect(field.text).toBe('=foo=');
+    expect(new Field('=foo=', 5).type('x').text).toBe('=foo=x');
+    expect(new Field('=zz=', 3).delete().text).toBe('=zz');
+  });
+
+  it('never expands while editing ordinary text outside a token', () => {
+    expect(new Field('plain t1 text', 8).type('x').backspace().text).toBe('plain t1 text');
+    expect(new Field('=zz= and t1', 11).type(' t1').text).toBe('=zz= and t1 t1');
+    expect(new Field('t1', 2).backspace().type('1').text).toBe('t1');
+  });
+
+  it('does not expand a token with spaces in it unless the file has exactly that code', () => {
+    expect(new Field('a=b c=d', 5).type('x').backspace().text).toBe('a=b c=d');
+    expect(new Field('a=b c=d', 3).delete().type(' ').text).toBe('a=b c=d');
+    const withSpace = new CodeReplacementSet([parseCodeReplacementFile('b c\tBEE SEE')]);
+
+    expect(new Field('a=b c=d', 5, withSpace).type('x').backspace().text).toBe('aBEE SEEd');
+  });
+
+  it('needs an exact code: case sensitive, no partial match', () => {
+    expect(new Field('=T1x=', 4).backspace().text).toBe('=T1=');
+    expect(new Field('=t1 =', 4).backspace().text).toBe('GAIS');
+    expect(new Field('= t1=', 2).backspace().text).toBe('GAIS');
+    expect(new Field('=t1t=', 4).backspace().text).toBe('GAIS');
+    expect(new Field('=å1x=', 4).backspace().text).toBe('=å1=');
+    expect(new Field('=Å1x=', 4).backspace().text).toBe('Ångelholm');
+  });
+
+  it('keeps a token on one line', () => {
+    expect(new Field('=t1\nx=', 3).type('x').text).toBe('=t1x\nx=');
+    expect(new Field('x=\nt1=', 3).delete(0).type('').text).toBe('x=\nt1=');
+    expect(new Field('x=\n=t1', 6).type('=').text).toBe('x=\nGAIS');
+    expect(new Field('=\nt1=', 4).type('').backspace().type('1').text).toBe('=\nt1=');
+  });
+
+  it('does nothing after an undo restores the typed code until the next edit that makes a known code', () => {
+    // Undo is not a typed edit, so the check never runs for it: the caption keeps the =t1= it was given.
+    const restored = new Field('Goal =t1=', 9);
+    expect(restored.text).toBe('Goal =t1=');
+    // Typing after it, or elsewhere, does not touch the code.
+    expect(restored.type(' x').text).toBe('Goal =t1= x');
+    expect(new Field('Goal =t1=', 9).at(0).type('A').text).toBe('AGoal =t1=');
+    // An edit that leaves an exact known code does expand it.
+    expect(new Field('Goal =t1=', 8).type('x').backspace().text).toBe('Goal GAIS');
+  });
+
+  it('expands a typed code at the first delimiter that closes it when the earlier one found nothing', () => {
+    expect(new Field('=x=', 3).type('t1=').text).toBe('=xGAIS');
+  });
+});
+
 describe('mapCaret', () => {
   const edits = [{ from: 2, to: 6, newFrom: 2, newTo: 10 }];
 

@@ -197,6 +197,72 @@ describe.skipIf(nefs.length < 1 || !haveDisplay)(
       expect(now.start).toBe('GoalGAIS'.length);
     });
 
+    it('expands a token with no match once an edit inside it makes a known code', async () => {
+      await startOver();
+      await window.keyboard.type('Goal =foo= more');
+      expect((await state()).value).toBe('Goal =foo= more');
+      for (let i = 0; i < ' more'.length + 1; i++) await window.keyboard.press('ArrowLeft');
+      for (let i = 0; i < 3; i++) await window.keyboard.press('Backspace');
+      await window.keyboard.type('t1');
+
+      expect(await state()).toEqual({ value: 'Goal GAIS more', start: 9, end: 9 });
+    });
+
+    it('expands from Backspace in =t1x= and from Delete in =xt1=', async () => {
+      await startOver();
+      await window.keyboard.insertText('=t1x= later');
+      for (let i = 0; i < ' later'.length + 1; i++) await window.keyboard.press('ArrowLeft');
+      await window.keyboard.press('Backspace');
+      expect(await state()).toEqual({ value: 'GAIS later', start: 4, end: 4 });
+
+      await startOver();
+      await window.keyboard.insertText('=xt1= later');
+      await window.keyboard.press('Home');
+      await window.keyboard.press('ArrowRight');
+      await window.keyboard.press('Delete');
+      expect(await state()).toEqual({ value: 'GAIS later', start: 4, end: 4 });
+    });
+
+    it('expands when an opening delimiter is typed in front of t1=', async () => {
+      await startOver();
+      await window.keyboard.insertText('t1= and more');
+      await window.keyboard.press('Home');
+      await window.keyboard.press('=');
+      expect(await state()).toEqual({ value: 'GAIS and more', start: 4, end: 4 });
+    });
+
+    it('does not expand a=b c=d, and expands nothing after an undo until the next edit', async () => {
+      await startOver();
+      await window.keyboard.type('a=b c=d');
+      await window.keyboard.press('ArrowLeft');
+      await window.keyboard.type('x');
+      await window.keyboard.press('Backspace');
+      expect((await state()).value).toBe('a=b c=d');
+
+      await startOver();
+      await window.keyboard.type('Goal =t1=');
+      expect((await state()).value).toBe('Goal GAIS');
+      // Ctrl+Z gives back =t1=; the undo itself expands nothing, and neither does moving around.
+      await window.keyboard.press('Control+z');
+      expect((await state()).value).toBe('Goal =t1=');
+      await window.keyboard.press('ArrowLeft');
+      await window.keyboard.press('ArrowRight');
+      await sleep(300);
+      expect((await state()).value).toBe('Goal =t1=');
+      // Redo is not a typed edit either.
+      await window.keyboard.press('Control+Shift+z');
+      expect((await state()).value).toBe('Goal GAIS');
+      await window.keyboard.press('Control+z');
+      expect((await state()).value).toBe('Goal =t1=');
+      // The next typed edit that leaves an exact known code expands it.
+      await window.keyboard.press('End');
+      await window.keyboard.press('ArrowLeft');
+      await window.keyboard.type('x');
+      expect((await state()).value).toBe('Goal =t1x=');
+      await window.keyboard.press('Backspace');
+      expect((await state()).value).toBe('Goal GAIS');
+    });
+
     it('does not replace inserted text: it waits for blur', async () => {
       await startOver();
       // One insertion of several characters, as a paste is.

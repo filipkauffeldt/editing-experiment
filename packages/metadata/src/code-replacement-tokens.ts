@@ -212,7 +212,7 @@ export function expandCodeReplacements(
   return { text: output, unknownCodes, edits };
 }
 
-/** What typing the closing delimiter of a known code replaces: `[start, end)` becomes `replacement`. */
+/** What a typed edit makes of a known code: `[start, end)` becomes `replacement`. */
 export interface InstantReplacement {
   start: number;
   end: number;
@@ -220,15 +220,26 @@ export interface InstantReplacement {
 }
 
 /**
- * The code that the delimiter just before `caret` closes, when `set` has a replacement for it.
+ * The known code that `caret` sits in or right after, after a typed edit (a character typed, or
+ * Backspace / Delete), when `set` has a replacement for it. The caller puts the caret right after
+ * the replacement.
  *
- * The opening delimiter is the nearest one before the closing one, so a closing delimiter that
- * found no match may open the next token: `=x=t1=` still finds `=t1=`. (The blur and Ctrl+Space
- * expansion pairs delimiters from the left and takes the closing one of an unknown token for
- * its own, so it leaves `t1=` there; that stays as it is.) A token is what
- * {@link expandCodeReplacements} reads: the text between two delimiters, not empty, looked up
- * by {@link selectReplacement}. Nothing is expanded inside the replacement, and a text that does
- * not end a known token (`a=b`, `=x=`, `==`) gives `undefined`.
+ * A token is what {@link expandCodeReplacements} reads: the text between two delimiters, not
+ * empty, looked up by {@link selectReplacement}, so a code has to be known exactly (case
+ * sensitive; `b c` in `a=b c=d` is a code only if the file has `b c`). Tokens stay on one line.
+ * The token is found from the caret, not by pairing delimiters from the left, so the closing
+ * delimiter of an unknown token may open the next (`=x=t1=` finds `=t1=`; blur and Ctrl+Space
+ * pair from the left and leave `t1=`). Two candidates, the first known one wins:
+ *
+ * 1. the delimiter just before the caret as a closing one: the token between it and the nearest
+ *    delimiter before it (a closing delimiter just typed, or a Backspace that leaves the caret
+ *    right after a token);
+ * 2. the token that encloses the caret: from the nearest delimiter before it (which may be the
+ *    one just before the caret, so `=` typed in front of `t1=` is an opening one) to the nearest
+ *    delimiter at or after it.
+ *
+ * Nothing is expanded inside the replacement. Text that is in no known token (`a=b`, `=x=`, `==`,
+ * a plain word) gives `undefined`.
  */
 export function instantReplacement(
   text: string,
@@ -236,14 +247,31 @@ export function instantReplacement(
   set: CodeReplacementSet,
 ): InstantReplacement | undefined {
   const delimiter = set.delimiter;
-  if (caret < 3 || text.slice(caret - 1, caret) !== delimiter) return undefined;
-  const open = text.lastIndexOf(delimiter, caret - 2);
-  if (open === -1) return undefined;
-  const token = text.slice(open + 1, caret - 1);
-  if (token === '') return undefined;
-  const selected = selectReplacement(set, token);
-  if (selected === undefined) return undefined;
-  return { start: open, end: caret, replacement: selected.replacement };
+  const lineStart =
+    caret === 0
+      ? 0
+      : Math.max(text.lastIndexOf('\n', caret - 1), text.lastIndexOf('\r', caret - 1)) + 1;
+  const newline = /[\r\n]/.exec(text.slice(caret));
+  const lineEnd = newline === null ? text.length : caret + newline.index;
+
+  const known = (open: number, close: number): InstantReplacement | undefined => {
+    if (open < lineStart || close >= lineEnd || close - open < 2) return undefined;
+    const selected = selectReplacement(set, text.slice(open + 1, close));
+    if (selected === undefined) return undefined;
+    return { start: open, end: close + 1, replacement: selected.replacement };
+  };
+
+  // The delimiter just before the caret closes the token that starts at the one before it.
+  if (caret > lineStart && text.charAt(caret - 1) === delimiter) {
+    const open = text.lastIndexOf(delimiter, caret - 2);
+    const closed = open === -1 ? undefined : known(open, caret - 1);
+    if (closed !== undefined) return closed;
+  }
+
+  const open = caret === 0 ? -1 : text.lastIndexOf(delimiter, caret - 1);
+  const close = text.indexOf(delimiter, caret);
+  if (open === -1 || close === -1) return undefined;
+  return known(open, close);
 }
 
 /**

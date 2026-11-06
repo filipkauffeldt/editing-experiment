@@ -71,6 +71,24 @@ const captionField = (): HTMLTextAreaElement => {
   return field;
 };
 
+/**
+ * What the browser does for an edit that is not typing (undo, a word deletion, IME): the field
+ * changes behind React's back and an `input` event says how. Setting `.value` the plain way would
+ * make React's own tracker swallow the event.
+ */
+function browserEdit(
+  area: HTMLTextAreaElement,
+  inputType: string,
+  value: string,
+  caret: number,
+  init: InputEventInit = {},
+): void {
+  const setValue = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')?.set;
+  setValue?.call(area, value);
+  area.setSelectionRange(caret, caret);
+  fireEvent(area, new InputEvent('input', { inputType, bubbles: true, ...init }));
+}
+
 /** Focus the caption and empty it, as a fresh caption would be. */
 async function startEmpty(user: ReturnType<typeof userEvent.setup>): Promise<HTMLTextAreaElement> {
   const caption = captionField();
@@ -236,14 +254,107 @@ describe('instant code replacement in the caption', () => {
       ['historyUndo', false],
       ['insertFromDrop', false],
     ] as const) {
-      caption.value = '=t1=';
-      caption.setSelectionRange(4, 4);
-      fireEvent(
-        caption,
-        new InputEvent('input', { inputType, data: '=', isComposing, bubbles: true }),
-      );
+      browserEdit(caption, 'historyUndo', 'x', 1);
+      browserEdit(caption, inputType, '=t1=', 4, { data: '=', isComposing });
       expect(caption.value, inputType).toBe('=t1=');
     }
+  });
+
+  it('expands a token with no match once an edit inside it makes a known code', async () => {
+    const { user } = await renderApp(standardDisk(), [FIRST]);
+    const caption = await startEmpty(user);
+
+    await user.keyboard('Goal =foo= more');
+    expect(caption.value).toBe('Goal =foo= more');
+    caption.setSelectionRange('Goal =foo'.length, 'Goal =foo'.length);
+    await user.keyboard('{Backspace}{Backspace}{Backspace}t1');
+
+    expect(caption.value).toBe('Goal GAIS more');
+    expect(caption.selectionStart).toBe('Goal GAIS'.length);
+    expect(caption.selectionEnd).toBe('Goal GAIS'.length);
+  });
+
+  it('expands from Backspace in =t1x= and from Delete in =xt1=', async () => {
+    const { user } = await renderApp(standardDisk(), [FIRST]);
+    const caption = await startEmpty(user);
+
+    await user.paste('Goal =t1x= more');
+    caption.setSelectionRange('Goal =t1x'.length, 'Goal =t1x'.length);
+    await user.keyboard('{Backspace}');
+    expect(caption.value).toBe('Goal GAIS more');
+    expect(caption.selectionStart).toBe('Goal GAIS'.length);
+
+    await user.clear(caption);
+    await user.paste('Goal =xt1= more');
+    caption.setSelectionRange('Goal ='.length, 'Goal ='.length);
+    await user.keyboard('{Delete}');
+    expect(caption.value).toBe('Goal GAIS more');
+    expect(caption.selectionStart).toBe('Goal GAIS'.length);
+  });
+
+  it('expands when an opening delimiter is typed in front of existing text', async () => {
+    const { user } = await renderApp(standardDisk(), [FIRST]);
+    const caption = await startEmpty(user);
+
+    await user.paste('t1= and more');
+    caption.setSelectionRange(0, 0);
+    await user.keyboard('=');
+
+    expect(caption.value).toBe('GAIS and more');
+    expect(caption.selectionStart).toBe(4);
+  });
+
+  it('expands for a word deletion that leaves a known code, and for no other kind of change', async () => {
+    const { user } = await renderApp(standardDisk(), [FIRST]);
+    const caption = await startEmpty(user);
+    await user.paste('x');
+
+    // What the field holds and where the caret is after the browser made the change.
+    const changeTo = (inputType: string, value: string, caret: number): void => {
+      // React drops an input event that leaves the value it last saw, so start from another one.
+      browserEdit(caption, 'historyUndo', 'x', 1);
+      browserEdit(caption, inputType, value, caret);
+    };
+    for (const inputType of ['historyUndo', 'historyRedo', 'insertFromPaste', 'deleteByCut']) {
+      changeTo(inputType, '=t1=', 3);
+      expect(caption.value, inputType).toBe('=t1=');
+    }
+    changeTo('deleteWordBackward', '=t1=', 3);
+    expect(caption.value).toBe('GAIS');
+    changeTo('deleteWordForward', '=t1=', 1);
+    expect(caption.value).toBe('GAIS');
+  });
+
+  it('leaves a restored =t1= alone until the next typed edit that leaves a known code', async () => {
+    const { user } = await renderApp(standardDisk(), [FIRST]);
+    const caption = await startEmpty(user);
+    await user.keyboard('Goal =t1=');
+    expect(caption.value).toBe('Goal GAIS');
+
+    // What Ctrl+Z does: the typed text is back, and the undo event expands nothing.
+    browserEdit(caption, 'historyUndo', 'Goal =t1=', 9);
+    expect(caption.value).toBe('Goal =t1=');
+    await user.keyboard(' later');
+    expect(caption.value).toBe('Goal =t1= later');
+
+    caption.setSelectionRange(8, 8);
+    await user.keyboard('x');
+    expect(caption.value).toBe('Goal =t1x= later');
+    await user.keyboard('{Backspace}');
+    expect(caption.value).toBe('Goal GAIS later');
+  });
+
+  it('does not expand text like a=b c=d when "b c" is not a known code', async () => {
+    const { user } = await renderApp(standardDisk(), [FIRST]);
+    const caption = await startEmpty(user);
+
+    await user.keyboard('a=b c=d');
+    caption.setSelectionRange(5, 5);
+    await user.keyboard('x{Backspace}{Backspace}c');
+    caption.setSelectionRange(1, 1);
+    await user.keyboard('{Delete}=');
+
+    expect(caption.value).toBe('a=b c=d');
   });
 
   it('types = on a Swedish keyboard: it is Shift+0', async () => {

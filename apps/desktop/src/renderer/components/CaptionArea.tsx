@@ -4,6 +4,13 @@ import { useLayoutEffect, useRef, type ChangeEvent, type KeyboardEvent } from 'r
 import { useAppStore } from '../store-context';
 import { TextArea } from './ui/Field';
 
+const TYPED_DELETIONS: ReadonlySet<string> = new Set([
+  'deleteContentBackward',
+  'deleteContentForward',
+  'deleteWordBackward',
+  'deleteWordForward',
+]);
+
 /**
  * Put `replacement` where `[start, end)` is, as an edit the field's own undo stack knows
  * (Chromium: `insertText`, so Ctrl+Z gives back what was typed), and leave the caret right after
@@ -21,8 +28,9 @@ function replaceRange(area: HTMLTextAreaElement, start: number, end: number, tex
 }
 
 /**
- * The caption of the photo in the Metadata panel. A known `=code=` is replaced the moment its
- * closing delimiter is typed; `{variables}` and unknown codes wait for blur or Ctrl+Space, which
+ * The caption of the photo in the Metadata panel. A known `=code=` is replaced the moment a typed
+ * edit (a character, Backspace, Delete) leaves the caret in it or right after it, so also when an
+ * unknown token is edited into a known one; `{variables}` and unknown codes wait for blur or Ctrl+Space, which
  * expand everything.
  */
 export function CaptionArea({
@@ -57,8 +65,11 @@ export function CaptionArea({
   }, [value, photoId]);
 
   const replaceTypedCode = (area: HTMLTextAreaElement, event: InputEvent): void => {
-    // Only a typed character: not a paste, a drop, an undo, a deletion or composition (IME, dead keys).
-    if (event.inputType !== 'insertText' || event.isComposing || event.data?.length !== 1) return;
+    // Only a typed edit: a character, or Backspace / Delete (also by word). Not a paste, a drop, an
+    // undo or redo, a cut or composition (IME, dead keys): those wait for blur.
+    if (event.isComposing) return;
+    const typedCharacter = event.inputType === 'insertText' && event.data?.length === 1;
+    if (!typedCharacter && !TYPED_DELETIONS.has(event.inputType)) return;
     const caret = area.selectionStart;
     if (caret !== area.selectionEnd) return;
     const hit = store.instantCodeReplacement(area.value, caret);
