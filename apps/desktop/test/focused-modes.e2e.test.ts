@@ -606,6 +606,10 @@ describe.skipIf(!haveDisplay)(
       expect(await retouchVersions()).toBe(1);
       await resizeWindow(1440, 900);
       await expectFooterDeleteReachable();
+      // The icon is what lets every control fit the 960 px minimum window.
+      await resizeWindow(960, 900);
+      await expectFooterDeleteReachable();
+      await resizeWindow(1440, 900);
 
       // Declining keeps it.
       window.once('dialog', (dialog) => void dialog.dismiss());
