@@ -242,6 +242,41 @@ describe('instantReplacement after any typed edit', () => {
   });
 });
 
+describe('instantReplacement with a column selector', () => {
+  // Three columns, as a .tsv: the first is the default.
+  const columns = new CodeReplacementSet([
+    parseCodeReplacementFile('a10\tAlfa\tBravo\tCharlie\nÅ2\tÅre\tÄlvsbyn'),
+  ]);
+
+  it('replaces =code#N= with that column when the closing delimiter is typed', () => {
+    expect(new Field('', 0, columns).type('=a10#2=').text).toBe('Bravo');
+    expect(new Field('', 0, columns).type('=a10#3=').text).toBe('Charlie');
+    expect(new Field('', 0, columns).type('=a10#1=').text).toBe('Alfa');
+    expect(new Field('', 0, columns).type('=a10=').text).toBe('Alfa');
+    expect(new Field('', 0, columns).type('Goal =Å2#2= now').text).toBe('Goal Älvsbyn now');
+    expect(new Field('', 0, columns).type('=a10#2=').caret).toBe(5);
+  });
+
+  it('leaves a column that does not exist as typed, and a code that is not known', () => {
+    expect(new Field('', 0, columns).type('=a10#9=').text).toBe('=a10#9=');
+    expect(new Field('', 0, columns).type('=a10#0=').text).toBe('=a10#0=');
+    expect(new Field('', 0, columns).type('=zz#2=').text).toBe('=zz#2=');
+    expect(new Field('', 0, columns).type('=A10#2=').text).toBe('=A10#2=');
+  });
+
+  it('expands a closed =a10#9= once an edit inside it makes =a10#2=', () => {
+    const field = new Field('', 0, columns).type('Goal =a10#9= more');
+    expect(field.text).toBe('Goal =a10#9= more');
+    field.at('Goal =a10#9'.length).backspace().type('2');
+    expect(field.text).toBe('Goal Bravo more');
+    expect(field.caret).toBe('Goal Bravo'.length);
+    // And by Delete, and by editing the number into place.
+    expect(new Field('=a10#92=', 6, columns).backspace().text).toBe('Bravo');
+    expect(new Field('=a10#x2=', 5, columns).delete().text).toBe('Bravo');
+    expect(new Field('a10#2=', 0, columns).type('=').text).toBe('Bravo');
+  });
+});
+
 describe('mapCaret', () => {
   const edits = [{ from: 2, to: 6, newFrom: 2, newTo: 10 }];
 

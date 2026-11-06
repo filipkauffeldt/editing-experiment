@@ -54,9 +54,16 @@ const standardDisk = (): Disk =>
     [
       FIRST,
       codes(
-        ['t1\tGAIS', 't2\tAIK', 'Å1\tÅngelholm', 'eq\ta=b', 'loop\t=t1=', 'when\t{location}'].join(
-          '\n',
-        ),
+        [
+          't1\tGAIS',
+          't2\tAIK',
+          'Å1\tÅngelholm',
+          'eq\ta=b',
+          'loop\t=t1=',
+          'when\t{location}',
+          // A .tsv row with three columns.
+          'a10\tAlfa\tBravo\tCharlie',
+        ].join('\n'),
       ),
     ],
   ]);
@@ -355,6 +362,36 @@ describe('instant code replacement in the caption', () => {
     await user.keyboard('{Delete}=');
 
     expect(caption.value).toBe('a=b c=d');
+  });
+
+  it('replaces =a10#2= with the second column of a .tsv at the closing delimiter', async () => {
+    const { user } = await renderApp(standardDisk(), [FIRST]);
+    const caption = await startEmpty(user);
+
+    // # is Shift+3 on a Swedish keyboard: the key is "#" with Shift held, and it types like any character.
+    await user.keyboard('=a10{Shift>}#{/Shift}2');
+    expect(caption.value).toBe('=a10#2');
+    await user.keyboard('=');
+    expect(caption.value).toBe('Bravo');
+    expect(caption.selectionStart).toBe(5);
+
+    await user.keyboard(' =a10#1= =a10= =a10#3=');
+    expect(caption.value).toBe('Bravo Alfa Alfa Charlie');
+  });
+
+  it('leaves a column that does not exist as typed, and expands it once an edit makes a real one', async () => {
+    const { user, store } = await renderApp(standardDisk(), [FIRST]);
+    const caption = await startEmpty(user);
+
+    await user.keyboard('Goal =a10#9= more');
+    expect(caption.value).toBe('Goal =a10#9= more');
+    expect(store.getState().toasts).toEqual([]);
+
+    caption.setSelectionRange('Goal =a10#9'.length, 'Goal =a10#9'.length);
+    await user.keyboard('{Backspace}2');
+
+    expect(caption.value).toBe('Goal Bravo more');
+    expect(caption.selectionStart).toBe('Goal Bravo'.length);
   });
 
   it('types = on a Swedish keyboard: it is Shift+0', async () => {

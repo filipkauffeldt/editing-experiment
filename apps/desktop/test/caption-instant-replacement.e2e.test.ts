@@ -66,6 +66,7 @@ describe.skipIf(nefs.length < 1 || !haveDisplay)(
     const dir = (name: string): string => join(root, name);
     const codesFile = (): string => join(dir('codes'), 'sportfotografen.txt');
     const latin1File = (): string => join(dir('codes'), 'latin1.tsv');
+    const columnsFile = (): string => join(dir('codes'), 'columns.tsv');
 
     const invoke = async <T>(channel: string, ...args: unknown[]): Promise<T> => {
       const result = await window.evaluate(
@@ -110,6 +111,8 @@ describe.skipIf(nefs.length < 1 || !haveDisplay)(
       writeFileSync(codesFile(), 't1\tGAIS\nÅ1\tÅngelholm\nlast\t{filename}\n', 'utf8');
       // A Latin-1 file: Å is the single byte 0xC5, which is not valid UTF-8.
       writeFileSync(latin1File(), Buffer.from('\xc5MAL\t\xc5sa Svensson\n', 'latin1'));
+      // A .tsv with three columns, for =code#N=.
+      writeFileSync(columnsFile(), 'a10\tAlfa\tBravo\tCharlie\n', 'utf8');
       display = await ensureDisplay();
 
       const electronPath = createRequire(join(desktopDir, 'package.json'))('electron') as string;
@@ -131,7 +134,7 @@ describe.skipIf(nefs.length < 1 || !haveDisplay)(
       const { ingest } = await invoke<{ ingest: IngestConfig }>('settings:get');
       await invoke('settings:set', {
         ingest: { ...ingest, destination: { path: dir('ingest') } },
-        codeReplacementPaths: [codesFile(), latin1File()],
+        codeReplacementPaths: [codesFile(), latin1File(), columnsFile()],
       });
       await invoke('ingest:start', {
         config: {
@@ -264,6 +267,30 @@ describe.skipIf(nefs.length < 1 || !haveDisplay)(
       expect((await state()).value).toBe('Goal =t1x=');
       await window.keyboard.press('Backspace');
       expect((await state()).value).toBe('Goal GAIS');
+    });
+
+    it('replaces =a10#2= with the second column of a .tsv, and a missing column once it is edited', async () => {
+      await startOver();
+      // # is Shift+3 on a Swedish keyboard: the key is "#" with Shift held, as it is typed here.
+      await window.keyboard.type('=a10');
+      await window.keyboard.down('Shift');
+      await window.keyboard.press('#');
+      await window.keyboard.up('Shift');
+      await window.keyboard.type('2');
+      expect((await state()).value).toBe('=a10#2');
+      await window.keyboard.press('=');
+      expect(await state()).toEqual({ value: 'Bravo', start: 5, end: 5 });
+
+      await window.keyboard.type(' =a10#1= =a10=');
+      expect((await state()).value).toBe('Bravo Alfa Alfa');
+
+      await startOver();
+      await window.keyboard.type('=a10#9=');
+      expect((await state()).value).toBe('=a10#9=');
+      await window.keyboard.press('ArrowLeft');
+      await window.keyboard.press('Backspace');
+      await window.keyboard.type('2');
+      expect(await state()).toEqual({ value: 'Bravo', start: 5, end: 5 });
     });
 
     it('reads a Latin-1 file the way blur does, so Å is not garbled', async () => {
