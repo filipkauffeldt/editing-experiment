@@ -68,12 +68,12 @@ describe('thumbnail status icons', () => {
     expect(within(badges).queryByRole('img', { name: 'Exported' })).toBeNull();
   });
 
-  it('shows a static Exported icon and keeps Uploaded next to it', () => {
+  it('shows a static Exported icon and keeps Sent next to it', () => {
     const photo = basePhoto('done');
     photo.status.upload = 'done';
     const badges = showBadges({ photo });
     expect(within(badges).getByRole('img', { name: 'Exported' })).toBeTruthy();
-    expect(within(badges).getByRole('img', { name: 'Uploaded' })).toBeTruthy();
+    expect(within(badges).getByRole('img', { name: 'Sent' })).toBeTruthy();
     expect(within(badges).queryByRole('img', { name: 'Exporting' })).toBeNull();
   });
 
@@ -108,7 +108,7 @@ describe('thumbnail status icons', () => {
     const photo = basePhoto('done');
     photo.status.upload = 'uploading';
     const badges = showBadges({ photo, percent: 64 });
-    const uploading = within(badges).getByRole('img', { name: 'Uploading 64%' });
+    const uploading = within(badges).getByRole('img', { name: 'Sending 64%' });
     expect(uploading.getAttribute('title')).toBe('Sending 64%');
     expect(uploading.textContent).toBe('');
     expect(uploading.querySelector('svg')).toBeTruthy();
@@ -119,7 +119,7 @@ describe('thumbnail status icons', () => {
   it('shows a sending icon without a progress line while the percent is unknown', () => {
     const photo = basePhoto();
     photo.status.upload = 'uploading';
-    const sending = within(showBadges({ photo })).getByRole('img', { name: 'Uploading' });
+    const sending = within(showBadges({ photo })).getByRole('img', { name: 'Sending' });
     expect(sending.getAttribute('title')).toBe('Sending');
     expect(sending.querySelector('span')).toBeNull();
   });
@@ -128,7 +128,7 @@ describe('thumbnail status icons', () => {
     const photo = basePhoto('done');
     photo.status.upload = 'queued';
     const badges = showBadges({ photo });
-    expect(within(badges).getByRole('img', { name: 'Queued for upload' })).toBeTruthy();
+    expect(within(badges).getByRole('img', { name: 'Queued' })).toBeTruthy();
     expect(within(badges).getByRole('img', { name: 'Exported' })).toBeTruthy();
   });
 
@@ -150,10 +150,10 @@ describe('thumbnail status icons', () => {
       [retouched, 'Retouched', 'Retouched'],
       [basePhoto(), 'Exporting', 'Exporting', 'exporting'],
       [basePhoto('done'), 'Exported', 'Exported'],
-      [queued, 'Queued for upload', 'Queued for upload'],
-      [sent, 'Uploaded', 'Sent'],
-      [differs, 'Metadata differs from template', 'Metadata differs from template'],
-      [failed, 'Upload failed', 'Upload failed'],
+      [queued, 'Queued', 'Queued'],
+      [sent, 'Sent', 'Sent'],
+      [differs, 'Differs from template', 'Differs from template'],
+      [failed, 'Failed', 'Failed'],
     ];
     for (const [photo, label, title, exportState] of cases) {
       const badges = showBadges({ photo, exportState });
@@ -184,14 +184,14 @@ describe('thumbnail status icons', () => {
       within(badges)
         .getAllByRole('img')
         .map((icon) => icon.getAttribute('aria-label')),
-    ).toEqual(['Edited', 'Exported', 'Uploaded', 'Metadata differs from template']);
+    ).toEqual(['Edited', 'Exported', 'Sent', 'Differs from template']);
   });
 
   it('draws a failed upload in the error colour and no other icon', () => {
     const photo = basePhoto('done');
     photo.status.upload = 'failed';
     const badges = showBadges({ photo });
-    const failed = within(badges).getByRole('img', { name: 'Upload failed' });
+    const failed = within(badges).getByRole('img', { name: 'Failed' });
     expect(failed.dataset.status).toBe('failed');
     expect(failed.className).toMatch(/failed/);
     expect(within(badges).getByRole('img', { name: 'Exported' }).dataset.status).toBeUndefined();

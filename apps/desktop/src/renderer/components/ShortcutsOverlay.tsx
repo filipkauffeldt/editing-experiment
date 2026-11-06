@@ -32,7 +32,7 @@ const GROUPS: { title: string; rows: [string, string][] }[] = [
   {
     title: 'Crop and straighten',
     rows: [
-      ['C', 'Enter crop mode / apply the crop'],
+      ['C', 'Enter crop mode / Done'],
       ['Drag outside the frame', 'Rotate the photo (Shift snaps to 1°)'],
       ['Drag inside the frame', 'Move the photo under the frame'],
       ['Drag a handle', 'Resize (Shift toggles the aspect lock, Alt/⌥ from the centre)'],
@@ -40,7 +40,7 @@ const GROUPS: { title: string; rows: [string, string][] }[] = [
       ['A', 'Straighten tool: draw a line along the horizon'],
       ['O', 'Cycle the overlay (thirds, grid, golden ratio, none)'],
       ['X', 'Swap portrait / landscape'],
-      ['Enter / double-click', 'Apply the crop (Done)'],
+      ['Enter / double-click', 'Done: save the crop and leave'],
       ['Esc', 'Cancel the crop'],
       ['Ctrl/⌘ + Alt/⌥ + R', 'Reset the crop'],
     ],
@@ -82,7 +82,7 @@ const GROUPS: { title: string; rows: [string, string][] }[] = [
     rows: [
       ['T', 'Tag / untag photo'],
       ['1 – 5', 'Set the star rating (0 clears)'],
-      ['Ctrl/⌘ + 1 – 8', 'Set the colour class (Ctrl/⌘ + 0 clears)'],
+      ['Ctrl/⌘ + 1 – 8', 'Set the colour label (Ctrl/⌘ + 0 clears)'],
       ['Delete (⌫ on a Mac)', 'Move the selected photos to the trash, after asking'],
       ['Right-click a photo', 'Open its menu: Delete…, Remove from Library…'],
     ],

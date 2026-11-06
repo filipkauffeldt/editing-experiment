@@ -77,7 +77,7 @@ describe('the Profile select', () => {
       ['Camera Matching', ['Camera Flat']],
       ['Other', ['Punch']],
     ]);
-    expect(within(select).getAllByRole('option')[0]?.textContent).toBe('Camera matrix');
+    expect(within(select).getAllByRole('option')[0]?.textContent).toBe('None');
   });
 
   it('writes a camera profile, and a look with its base profile, to the settings', async () => {
@@ -132,7 +132,7 @@ describe('the Profile select', () => {
     const store = await renderApp();
     // The way to the profile folders is the last entry of the select, not a button of its own.
     const select = await screen.findByRole('combobox', { name: 'Camera profile' });
-    expect(select.lastElementChild?.textContent).toBe('Browse profile folders…');
+    expect(select.lastElementChild?.textContent).toBe('Browse profile folders');
     fireEvent.change(select, { target: { value: '__browse__' } });
     expect(store.getState().dialog).toBe('profiles');
     expect(await screen.findByTestId('profiles-settings')).toBeDefined();
@@ -344,7 +344,7 @@ describe('the default profile (Camera Standard)', () => {
     await waitFor(() => expect(writes(fake).length).toBeGreaterThan(0));
     expect(params(store).CameraProfileChoice).toBe('none');
     await waitFor(() => expect((select as HTMLSelectElement).value).toBe(''));
-    expect(select.querySelector('option:checked')?.textContent).toBe('Camera matrix');
+    expect(select.querySelector('option:checked')?.textContent).toBe('None');
   });
 
   it('says why an unreadable default is not used and still draws the photo', async () => {

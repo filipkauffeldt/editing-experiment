@@ -19,7 +19,7 @@ export const STATUS_FILTERS: readonly { id: StatusFilter; label: string }[] = [
   { id: 'not-sent', label: 'Not sent' },
   { id: 'failed', label: 'Failed' },
   { id: 'edited', label: 'Edited' },
-  { id: 'metadata-differs', label: 'Metadata differs' },
+  { id: 'metadata-differs', label: 'Differs from template' },
 ];
 
 export interface FilterState {

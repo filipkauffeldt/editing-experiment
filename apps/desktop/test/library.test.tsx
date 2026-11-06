@@ -248,7 +248,7 @@ describe('library batch actions', () => {
     const user = userEvent.setup();
 
     fireEvent.contextMenu(cell('_DSC8335.NEF'), { clientX: 40, clientY: 40 });
-    await user.click(await screen.findByRole('menuitemradio', { name: 'Set class 5' }));
+    await user.click(await screen.findByRole('menuitemradio', { name: 'Set colour label 5' }));
     expect(screen.queryByTestId('photo-menu')).toBeNull();
     expect(
       store

@@ -59,7 +59,7 @@ export function PresetPicker() {
         <Menu
           fill
           closeOnPick
-          label="Choose"
+          label="Apply preset"
           badge={state.presets.length > 0 ? state.presets.length : undefined}
           testId="preset-menu"
         >

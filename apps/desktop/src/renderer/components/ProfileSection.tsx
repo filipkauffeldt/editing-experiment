@@ -94,7 +94,7 @@ export function ProfileSection() {
           disabled={!photo}
           onChange={(event) => select(event.target.value)}
         >
-          <option value="">Camera matrix</option>
+          <option value="">None</option>
           {value === MISSING && <option value={MISSING}>{label} (not found)</option>}
           {GROUPS.map((group) => {
             const members = listings.filter((p) => p.group === group.id);
@@ -109,7 +109,7 @@ export function ProfileSection() {
               </optgroup>
             );
           })}
-          <option value={BROWSE}>Browse profile folders…</option>
+          <option value={BROWSE}>Browse profile folders</option>
         </Select>
       </label>
       {supportsAmount && (

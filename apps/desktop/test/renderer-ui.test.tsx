@@ -213,12 +213,12 @@ describe('film strip', () => {
     const icon = (file: string, name: string | RegExp): HTMLElement =>
       within(thumbnail(file)).getByRole('img', { name });
     expect(icon('_DSC8332.NEF', 'Retouched')).toBeTruthy();
-    expect(icon('_DSC8332.NEF', /^Uploading/)).toBeTruthy();
+    expect(icon('_DSC8332.NEF', /^Sending/)).toBeTruthy();
     expect(within(thumbnail('_DSC8332.NEF')).queryByRole('img', { name: 'Edited' })).toBeNull();
-    expect(icon('_DSC8331.NEF', 'Queued for upload')).toBeTruthy();
-    expect(icon('_DSC8333.NEF', 'Upload failed')).toBeTruthy();
-    expect(icon('_DSC8334.NEF', 'Metadata differs from template')).toBeTruthy();
-    expect(icon('_DSC8330.NEF', 'Uploaded')).toBeTruthy();
+    expect(icon('_DSC8331.NEF', 'Queued')).toBeTruthy();
+    expect(icon('_DSC8333.NEF', 'Failed')).toBeTruthy();
+    expect(icon('_DSC8334.NEF', 'Differs from template')).toBeTruthy();
+    expect(icon('_DSC8330.NEF', 'Sent')).toBeTruthy();
   });
 });
 

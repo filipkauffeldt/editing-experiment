@@ -157,7 +157,7 @@ export function TopBar({ className, loadError }: { className?: string; loadError
           type="button"
           className={`${styles.status} ${styles.statusButton} ${styles.statusOn}`}
           onClick={() => setUploadOpen(true)}
-          title="Show failed uploads"
+          title="Show failed"
           data-testid="failed-summary"
         >
           <Dot tone="error" />

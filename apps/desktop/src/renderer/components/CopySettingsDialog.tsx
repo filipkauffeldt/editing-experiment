@@ -60,7 +60,7 @@ export function CopySettingsDialog() {
             disabled={groups.length === 0}
             onClick={() => store.confirmCopySettings(groups)}
           >
-            {mode === 'copy' ? 'Copy' : 'Sync'}
+            {mode === 'copy' ? 'Copy settings' : 'Sync settings'}
           </Button>
         </>
       }

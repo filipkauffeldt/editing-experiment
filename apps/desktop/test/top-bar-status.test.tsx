@@ -181,7 +181,7 @@ describe('top bar activity', () => {
     expect(summary.textContent).not.toContain('of');
     fireEvent.click(summary);
     const popover = await screen.findByRole('dialog', { name: 'Upload queue' });
-    expect(within(popover).getAllByText('Done')).toHaveLength(3);
+    expect(within(popover).getAllByText('Sent')).toHaveLength(3);
   });
 
   it('keeps the open queue and its finished uploads after the last send finishes', async () => {
@@ -195,7 +195,7 @@ describe('top bar activity', () => {
 
     fireEvent.click(screen.getByTestId('upload-summary'));
     const popover = await screen.findByRole('dialog', { name: 'Upload queue' });
-    expect(within(popover).getAllByText('Done')).toHaveLength(3);
+    expect(within(popover).getAllByText('Sent')).toHaveLength(3);
 
     for (const item of store
       .getState()
@@ -220,7 +220,7 @@ describe('top bar activity', () => {
     expect(screen.queryByTestId('upload-summary')).toBeNull();
     expect(screen.queryByTestId('failed-summary')).toBeNull();
     expect(screen.getByRole('dialog', { name: 'Upload queue' })).toBeTruthy();
-    expect(within(popover).getAllByText('Done')).toHaveLength(5);
+    expect(within(popover).getAllByText('Sent')).toHaveLength(5);
   });
 
   it('keeps failures reachable when nothing is being sent', async () => {
@@ -237,6 +237,6 @@ describe('top bar activity', () => {
     fireEvent.click(failed);
     const popover = await screen.findByRole('dialog', { name: 'Upload queue' });
     expect(within(popover).getByText('Failed')).toBeTruthy();
-    expect(within(popover).getAllByText('Done')).toHaveLength(4);
+    expect(within(popover).getAllByText('Sent')).toHaveLength(4);
   });
 });

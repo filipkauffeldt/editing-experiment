@@ -215,7 +215,7 @@ export function IngestTo({
                   <button
                     type="button"
                     className={styles.action}
-                    aria-label="Browse for a metadata template"
+                    aria-label="Import a metadata template"
                     onClick={async () => {
                       const [path] = await ee.invoke('dialog:pick', {
                         kind: 'file',
@@ -228,7 +228,7 @@ export function IngestTo({
                       }
                     }}
                   >
-                    Browse
+                    Import
                   </button>
                 }
               >

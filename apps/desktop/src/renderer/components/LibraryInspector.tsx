@@ -81,7 +81,7 @@ function SinglePhoto({ photo }: { photo: Photo }) {
       </dl>
       {template && (
         <p className={styles.template} data-testid="library-template-state">
-          Metadata differs from the ingest template
+          Differs from the ingest template
         </p>
       )}
       <div className={styles.field}>

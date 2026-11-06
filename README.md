@@ -34,20 +34,20 @@ Export / Export & send.
   preset can be applied to every imported photo, including one that is a file
   in a Lightroom or Camera Raw preset folder.
 - IPTC metadata in XMP sidecars for raws and embedded IIM + XMP for JPEGs.
-  Tagged state and colour class use Photo Mechanic's `Tagged` and `ColorClass`
-  fields and the combined `Prefs` string; the class is mirrored to `xmp:Label`
+  Tagged state and the colour label use Photo Mechanic's `Tagged` and `ColorClass`
+  fields and the combined `Prefs` string; the label is mirrored to `xmp:Label`
   (with label syncing on, the default) and the rating is written to
   `xmp:Rating` and `Prefs`.
 - Library: virtualised grid and loupe, multi-select (click, Shift range,
   Ctrl/⌘ toggle, Ctrl/⌘+A). Folders are derived from the local ingest copies
   only; cards and servers are intentionally not shown there.
 - One filter bar in Library and Develop, kept when you switch between them: tag,
-  stars (N and up), colour classes, status (not sent, failed, edited, metadata
-  differs), camera and source, and a text search over file name, caption and
+  stars (N and up), colour labels, status (Not sent, Failed, Edited, Differs
+  from template), camera and source, and a text search over file name, caption and
   keywords (`Ctrl/⌘+F`), plus the sort order.
 - Batch caption for the selection: replace or append selected IPTC fields,
   with codes and `{variables}` expanded per photo.
-- Star ratings `1`-`5` (`0` clears), colour classes `Ctrl/⌘`+`1`-`8`
+- Star ratings `1`-`5` (`0` clears), colour labels `Ctrl/⌘`+`1`-`8`
   (`Ctrl/⌘`+`0` clears) and tag `T`, applied to the Library selection or the
   open photo.
 - Edited thumbnails and previews: develop settings, crop/straighten and the
@@ -326,9 +326,9 @@ modules.
 | `↑` `↓`                        | Previous / next grid row in the Library; Shift extends                                                 |
 | `T`                            | Tag / untag                                                                                            |
 | `1`-`5`, `0`                   | Star rating; `0` clears                                                                                |
-| `Ctrl/⌘`+`1`-`8`, `Ctrl/⌘`+`0` | Colour class; `Ctrl/⌘`+`0` clears                                                                      |
-| `C`                            | Enter crop mode / apply the crop                                                                       |
-| `Enter`                        | Apply the crop (crop mode)                                                                             |
+| `Ctrl/⌘`+`1`-`8`, `Ctrl/⌘`+`0` | Colour label; `Ctrl/⌘`+`0` clears                                                                      |
+| `C`                            | Enter crop mode / Done                                                                                 |
+| `Enter`                        | Done: save the crop and leave (crop mode)                                                              |
 | `R`                            | Retouch; in crop mode, the crop frame tool                                                             |
 | `A` / `O` / `X`                | Straighten tool / cycle overlay / swap orientation (crop mode)                                         |
 | `Ctrl/⌘`+`Alt`+`R`             | Reset the crop                                                                                         |
@@ -336,7 +336,7 @@ modules.
 | `Y` or the physical `\` key    | Before / after (Develop)                                                                               |
 | `J` / `W`                      | Clipping overlay / white balance picker (Develop)                                                      |
 | `Z`                            | Toggle Fit and the zoom level chosen in the footer (100% to start); in Develop, crop and retouch       |
-| `Ctrl/⌘`+`+` / `-`             | Zoom in / out in steps (`=` and the numpad keys work too); `Ctrl/⌘`+`0` stays the colour class clear   |
+| `Ctrl/⌘`+`+` / `-`             | Zoom in / out in steps (`=` and the numpad keys work too); `Ctrl/⌘`+`0` stays the colour label clear   |
 | `Ctrl/⌘`+wheel or pinch        | Zoom around the pointer                                                                                |
 | `Scroll`                       | Pan the zoomed photo in any mode (does nothing at Fit); `Shift`+scroll pans sideways                   |
 | `Space`+drag                   | Pan the zoomed photo in any mode; the active tool is paused while Space is held                        |

@@ -329,7 +329,7 @@ async function runMock(outDir: string): Promise<void> {
     await window.locator('[data-testid="camera-profile"]').scrollIntoViewIfNeeded();
     await shoot('23-camera-profile.png', '[data-testid="camera-profile"]');
     // The way to the profile folders is the last entry of the Profile select.
-    await profile.selectOption({ label: 'Browse profile folders…' });
+    await profile.selectOption({ label: 'Browse profile folders' });
     await window.getByTestId('profiles-settings').waitFor();
     await shoot('23b-profile-folders.png');
     await window.keyboard.press('Escape');

@@ -121,7 +121,7 @@ export function CropToolbar({ session }: { session: CropSession }) {
           type="button"
           className={styles.commit}
           onClick={() => store.applyCrop()}
-          title="Apply the crop and leave crop mode (Enter)"
+          title="Done: save the crop and leave crop mode (Enter)"
           data-testid="apply-crop"
         >
           <CheckIcon size={11} /> Done
