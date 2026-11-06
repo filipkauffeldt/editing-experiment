@@ -66,6 +66,11 @@ export interface Backend {
   reconciled: Promise<void>;
   /** Index image files in the ingest destination that have no index entry; returns how many. */
   reconcile(): Promise<number>;
+  /**
+   * Settles when the background search index has read every queued photo. Tests use it before
+   * moving or deleting a file the reader may still have open (Windows reports that as EPERM).
+   */
+  searchIdle(): Promise<void>;
   resolveAppRequest(url: string): Promise<AppBackendResponse>;
   /** Stop ingest and uploads, close ExifTool and the databases. Idempotent. */
   dispose(): Promise<void>;
@@ -288,6 +293,7 @@ export async function createBackend(options: BackendOptions): Promise<Backend> {
     layout,
     reconciled,
     reconcile,
+    searchIdle: () => search.idle(),
     resolveAppRequest: (url) => apps.resolve(url),
     dispose: () => {
       disposed ??= runTeardown([

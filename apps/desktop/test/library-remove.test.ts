@@ -124,7 +124,12 @@ async function ingestCard(
     const photos = await harness.handlers['photos:list']();
     const runs = await harness.handlers['ingest:status']();
     const settled = runs.every((run) => run.state === 'finished' || run.state === 'failed');
-    if (photos.length >= expected && settled) return photos;
+    if (photos.length >= expected && settled) {
+      // The search index reads captions in the background. On Windows a file it still has open
+      // cannot be renamed or removed (EPERM), so settle it before a test touches the folder.
+      await harness.backend.searchIdle();
+      return photos;
+    }
     if (Date.now() > deadline) throw new Error(`timed out; ${photos.length}/${expected}`);
     await sleep(50);
   }

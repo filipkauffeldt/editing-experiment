@@ -1,6 +1,7 @@
 // @vitest-environment node
 import { _electron as electron, type ElectronApplication, type Page } from '@playwright/test';
 import type { DetectedCard, IpcResult } from '@ee/contracts';
+import { spawnSync } from 'node:child_process';
 import { existsSync, mkdtempSync, rmSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
@@ -12,7 +13,7 @@ import { repoRoot } from './helpers/fixtures';
  * Launches the built app in real (non-mock) mode against a throwaway userData folder and asks the
  * jobs process two things that need no fixtures: which native core it loaded, and which cards it
  * can see. It is the check that the app starts on a platform at all (the Windows CI job runs it);
- * the photo pipeline is covered by `real-mode.smoke.test.ts`. Run `pnpm build` first.
+ * the photo pipeline is covered by `real-mode.smoke.test.ts`. It builds the app when it is missing.
  */
 const desktopDir = join(repoRoot, 'apps', 'desktop');
 const haveDisplay =
@@ -40,7 +41,12 @@ describe.skipIf(!haveDisplay)('app launch (Electron)', () => {
 
   beforeAll(async () => {
     if (!existsSync(join(desktopDir, 'out', 'main', 'index.js'))) {
-      throw new Error('the app is not built: run `pnpm --filter @ee/desktop run build` first');
+      const build = spawnSync('pnpm', ['--filter', '@ee/desktop', 'build'], {
+        cwd: repoRoot,
+        encoding: 'utf8',
+        shell: process.platform === 'win32',
+      });
+      if (build.status !== 0) throw new Error(`build failed:\n${build.stdout}\n${build.stderr}`);
     }
     userData = mkdtempSync(join(tmpdir(), 'ee-launch-'));
     app = await electron.launch({
