@@ -60,6 +60,21 @@ describe('copy and paste metadata', () => {
     expect(section.textContent).toContain('code-replacements.txt');
   });
 
+  it('offers both .txt and .tsv files when adding code replacements', async () => {
+    const { fake } = await renderApp();
+    fireEvent.click(screen.getByTestId('open-settings'));
+    await screen.findByTestId('settings-dialog');
+    fireEvent.click(screen.getByRole('tab', { name: 'Metadata' }));
+    await screen.findByTestId('metadata-settings');
+
+    fireEvent.click(screen.getByRole('button', { name: /Add code replacement file/ }));
+    await waitFor(() =>
+      expect(fake.calls.some((call) => call.channel === 'dialog:pick')).toBe(true),
+    );
+    const pick = fake.calls.find((call) => call.channel === 'dialog:pick');
+    expect((pick?.args[0] as { extensions?: string[] }).extensions).toEqual(['txt', 'tsv']);
+  });
+
   it('does not fire global rating or colour class shortcuts behind the dialog', async () => {
     const { store } = await renderApp();
     const photo = activePhoto(store.getState());
