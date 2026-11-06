@@ -104,11 +104,28 @@ export function ExportIcon(props: IconProps) {
   );
 }
 
+const GEAR_TEETH = [0, 45, 90, 135, 180, 225, 270, 315] as const;
+
+/** Settings: a solid cog with eight chunky teeth and a clear hole, legible at 14 px. */
 export function GearIcon(props: IconProps) {
   return (
     <Icon {...props}>
-      <circle cx="8" cy="8" r="2.2" />
-      <path d="M8 1.6v1.6M8 12.8v1.6M1.6 8h1.6M12.8 8h1.6M3.5 3.5l1.1 1.1M11.4 11.4l1.1 1.1M12.5 3.5l-1.1 1.1M4.6 11.4l-1.1 1.1" />
+      <g fill="currentColor" stroke="none">
+        <path
+          fillRule="evenodd"
+          d="M8 2.6a5.4 5.4 0 1 0 0 10.8A5.4 5.4 0 0 0 8 2.6Zm0 3.2a2.2 2.2 0 1 1 0 4.4 2.2 2.2 0 0 1 0-4.4Z"
+        />
+        {GEAR_TEETH.map((angle) => (
+          <rect
+            key={angle}
+            x="6.4"
+            y="0.5"
+            width="3.2"
+            height="2.4"
+            transform={`rotate(${angle} 8 8)`}
+          />
+        ))}
+      </g>
     </Icon>
   );
 }

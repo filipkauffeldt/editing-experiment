@@ -74,7 +74,9 @@ describe('top bar activity', () => {
     // The things that are always there stay.
     expect(screen.getByRole('tab', { name: 'Ingest' })).toBeTruthy();
     expect(screen.getByTitle('Shortcuts (?)')).toBeTruthy();
-    expect(screen.getByTestId('open-settings')).toBeTruthy();
+    const settings = screen.getByRole('button', { name: 'Settings' });
+    expect(settings.getAttribute('title')).toBe('Settings');
+    expect(settings.querySelector('svg')).not.toBeNull();
   });
 
   it('shows ingest progress and a watched FTP server while they are true', async () => {
