@@ -30,6 +30,12 @@ const IMAGE = { width: 3200, height: 2000 };
 const STRIPES = { x: 1000, y: 500, w: 64, h: 64 };
 /** The patch's black columns run from its first column to the last even one. */
 const BLACK_WIDTH = STRIPES.w - 1;
+/**
+ * Luma cutoffs for the patch. The WebGL-rendered gradient is darker than the bytes written into
+ * the JPEG (its darkest corner is about 33), so a black stripe is not the only pixel below 40.
+ */
+const BLACK_MAX = 16;
+const WHITE_MIN = 240;
 
 /** Content sizes of the window, in CSS pixels; none of them is a round number for the canvas. */
 const SIZES = [
@@ -108,7 +114,7 @@ function stripeProblems(shot: Shot, ratio: number): string[] {
   let maxY = -1;
   for (let y = 0; y < shot.height; y++) {
     for (let x = 0; x < shot.width; x++) {
-      if (luma(shot, x, y) >= 40) continue;
+      if (luma(shot, x, y) > BLACK_MAX) continue;
       minX = Math.min(minX, x);
       maxX = Math.max(maxX, x);
       minY = Math.min(minY, y);
@@ -128,7 +134,7 @@ function stripeProblems(shot: Shot, ratio: number): string[] {
   let grey = 0;
   for (let x = minX; x <= maxX; x++) {
     const v = luma(shot, x, row);
-    if (v >= 40 && v <= 215) grey += 1;
+    if (v > BLACK_MAX && v < WHITE_MIN) grey += 1;
   }
   if (grey > 0) problems.push(`${grey} columns on the middle row are neither black nor white`);
   // One device pixel outside the patch is the background, not a blend of it with a stripe.
