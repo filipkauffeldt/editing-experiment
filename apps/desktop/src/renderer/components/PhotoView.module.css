@@ -32,6 +32,7 @@
   flex: none;
   height: 28px;
   padding: 0 12px;
+  overflow: hidden;
   border-top: 1px solid var(--line);
   background: var(--panel);
   color: var(--muted);
@@ -65,7 +66,7 @@
   align-content: flex-start;
   align-items: center;
   gap: 0 10px;
-  flex: 0 1 auto;
+  flex: 1 1 auto;
   min-width: 0;
   height: var(--footer-line);
   overflow: hidden;
@@ -79,7 +80,7 @@
 }
 
 .infoFill {
-  flex: 1 1 0;
+  flex: 1 1 auto;
 }
 
 /* The picture size is never cut: it is the second item, and only the others give way. */
@@ -95,6 +96,20 @@
   color: var(--dim);
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+/*
+ * The photo's details take the room the tools and zoom leave. Nothing in this group shrinks,
+ * so the controls never make way for the details; the delete action is an icon because the
+ * whole group must fit the narrowest supported window.
+ */
+.controls {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 10px;
+  height: 100%;
+  margin-left: auto;
 }
 
 .zoomLevels {
@@ -159,4 +174,11 @@ button.zoomLevel:hover {
 
 .tool:disabled {
   color: var(--dim);
+}
+
+/* Delete retouch is an icon so the controls fit the narrowest window; title and aria label name it. */
+.toolIcon {
+  width: 19px;
+  padding: 0;
+  justify-content: center;
 }

@@ -181,8 +181,14 @@ export function createFakeBridge(
       const photo = findPhoto(photoId);
       const version = photo.versions.find((candidate) => candidate.id === versionId);
       if (!version) throw new Error(`no version ${versionId}`);
-      photo.versions = photo.versions.filter((candidate) => candidate.id !== versionId);
-      return photo;
+      // A new object, as the backend returns: React sees the version list change.
+      const next: Photo = {
+        ...photo,
+        versions: photo.versions.filter((candidate) => candidate.id !== versionId),
+      };
+      photos[photos.findIndex((candidate) => candidate.id === photoId)] = next;
+      emit('photos:updated', next);
+      return next;
     },
     'sources:list': async () => sources,
     'sources:save': async (...args) => {

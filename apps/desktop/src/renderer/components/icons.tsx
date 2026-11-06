@@ -57,6 +57,17 @@ export function CheckIcon(props: IconProps) {
   );
 }
 
+/** Delete: a bin with its lid, for removing a saved version. */
+export function TrashIcon(props: IconProps) {
+  return (
+    <Icon {...props}>
+      <path d="M2.8 3.6h10.4M6.2 3.6V2.4h3.6v1.2" />
+      <path d="M4 3.6 4.7 13a.8.8 0 0 0 .8.7h5a.8.8 0 0 0 .8-.7l.7-9.4" />
+      <path d="M6.8 6.6v4.4M9.2 6.6v4.4" />
+    </Icon>
+  );
+}
+
 export function CrossIcon(props: IconProps) {
   return (
     <Icon {...props}>

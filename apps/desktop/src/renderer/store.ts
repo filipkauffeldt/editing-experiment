@@ -1740,15 +1740,35 @@ export class AppStore {
     const photo = activePhoto(this.state);
     const version = topRetouchVersion(photo);
     if (!photo || !version || this.state.retouch || this.state.crop) return;
-    if (
-      !this.confirm(
-        `Delete the retouch version of ${photo.fileName}? The mosaic is removed from the photo and its exports.`,
-      )
-    ) {
-      return;
-    }
+    if (!this.confirmDeleteRetouch(photo)) return;
     await this.deleteVersion(photo.id, version.id);
   };
+
+  /**
+   * Delete the saved version a retouch session edits, then leave the session. Used by the
+   * Retouch toolbar: the footer is hidden there, and its own action refuses during a session.
+   */
+  readonly deleteSessionRetouch = async (): Promise<void> => {
+    const session = this.state.retouch;
+    if (!session || session.versionId === undefined) return;
+    const photo = this.photoById.get(session.photoId);
+    if (!photo || !this.confirmDeleteRetouch(photo)) return;
+    this.setRetouchBusy(true);
+    const deleted = await this.deleteVersion(photo.id, session.versionId);
+    if (!deleted) {
+      this.setRetouchBusy(false);
+      return;
+    }
+    // The version is gone: the session would edit nothing, and the canvas falls back to the
+    // unretouched photo.
+    this.exitRetouch();
+  };
+
+  private confirmDeleteRetouch(photo: Photo): boolean {
+    return this.confirm(
+      `Delete the retouch version of ${photo.fileName}? The mosaic is removed from the photo and its exports.`,
+    );
+  }
 
   private async deleteVersion(photoId: PhotoId, versionId: VersionId): Promise<Photo | undefined> {
     try {

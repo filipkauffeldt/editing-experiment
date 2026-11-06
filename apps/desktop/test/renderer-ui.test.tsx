@@ -554,7 +554,12 @@ describe('retouch version', () => {
     const { store, fake } = await renderApp();
     store.select(asPhotoId('mock-03'));
     await waitFor(() => expect(screen.getByTestId('retouch-version-indicator')).toBeTruthy());
-    fireEvent.click(screen.getByTestId('delete-retouch'));
+    // The footer action is an icon so the tools and zoom fit the narrowest window; both its
+    // tooltip and its accessible name say what it does.
+    const button = screen.getByTestId('delete-retouch');
+    expect(button.getAttribute('aria-label')).toBe('Delete retouch…');
+    expect(button.getAttribute('title')).toMatch(/Remove the retouch version/);
+    fireEvent.click(button);
     await waitFor(() =>
       expect(fake.calls.some((call) => call.channel === 'photos:deleteVersion')).toBe(true),
     );
@@ -564,6 +569,30 @@ describe('retouch version', () => {
     expect(screen.queryByRole('button', { name: /^Mosaic/ })).toBeNull();
     expect(screen.queryByRole('button', { name: /Delete version/ })).toBeNull();
     expect(screen.queryByTestId('delete-retouch')).toBeNull();
+  });
+
+  it('deletes the saved version from the Retouch toolbar and leaves a clean session', async () => {
+    const { store, fake } = await renderApp();
+    store.select(asPhotoId('mock-03'));
+    await waitFor(() => expect(screen.getByTestId('retouch-version-indicator')).toBeTruthy());
+    fireEvent.click(screen.getByTestId('toggle-retouch'));
+    await screen.findByTestId('retouch-toolbar');
+
+    fireEvent.click(screen.getByTestId('delete-retouch-toolbar'));
+    await waitFor(() => expect(store.getState().retouch).toBeUndefined());
+    expect(fake.calls.some((call) => call.channel === 'photos:deleteVersion')).toBe(true);
+    await waitFor(() => expect(screen.queryByTestId('retouch-toolbar')).toBeNull());
+    await waitFor(() => expect(screen.queryByTestId('retouch-version-indicator')).toBeNull());
+    expect(screen.queryByTestId('delete-retouch')).toBeNull();
+  });
+
+  it('does not offer Delete retouch in the toolbar for a new, unsaved session', async () => {
+    const { store } = await renderApp();
+    store.select(asPhotoId('mock-01'));
+    fireEvent.click(screen.getByTestId('toggle-retouch'));
+    await screen.findByTestId('retouch-toolbar');
+    expect(store.getState().retouch?.versionId).toBeUndefined();
+    expect(screen.queryByTestId('delete-retouch-toolbar')).toBeNull();
   });
 });
 
