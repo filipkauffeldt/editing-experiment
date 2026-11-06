@@ -1,8 +1,9 @@
+import type { ReplacedRange } from '@ee/contracts';
 import {
   CodeReplacementSet,
   expandCodeReplacements,
   type CodeReplacementTable,
-} from './code-replacements';
+} from './code-replacement-tokens';
 import { expandVariables, type CaptionContext } from './variables';
 
 export interface ExpandCaptionOptions extends CaptionContext {
@@ -25,6 +26,8 @@ export interface ExpandCaptionResult {
    * `unresolved` field). Tokens are returned as written, including delimiters.
    */
   unresolved: string[];
+  /** What the code pass and then the variable pass replaced; see {@link mapCaretThrough}. */
+  edits: [codes: ReplacedRange[], variables: ReplacedRange[]];
 }
 
 /**
@@ -49,7 +52,7 @@ export function expandCaption(
 
   const codeResult =
     set === undefined
-      ? { text, unknownCodes: [] as string[] }
+      ? { text, unknownCodes: [] as string[], edits: [] as ReplacedRange[] }
       : expandCodeReplacements(text, set, {
           // PM evaluates variables in the code itself (`={monthname}=`).
           resolveToken: (token) => expandVariables(token, context).text,
@@ -67,5 +70,6 @@ export function expandCaption(
     unknownCodes: codeResult.unknownCodes,
     unknownVariables: variableResult.unknownVariables,
     unresolved,
+    edits: [codeResult.edits, variableResult.edits],
   };
 }

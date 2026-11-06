@@ -413,6 +413,42 @@ describe.skipIf(nefs.length === 0)(
       await handlers['settings:set']({ codeReplacementPaths: [] });
     });
 
+    it('reports where an expansion replaced text, so the caret can follow it', async () => {
+      const codes = join(root, 'codes-edits.txt');
+      await import('node:fs/promises').then((fs) => fs.writeFile(codes, 'gk\tgoalkeeper\n'));
+      const photo = bySource(cardB)[0]!;
+      const result = await handlers['metadata:expandCaption']({
+        photoId: photo.id,
+        text: 'Save =gk= in {city}!',
+        codeReplacementPaths: [codes],
+      });
+      expect(result.text).toBe('Save goalkeeper in Stockholm!');
+      expect(result.edits).toEqual([
+        [{ from: 5, to: 9, newFrom: 5, newTo: 15 }],
+        [{ from: 19, to: 25, newFrom: 19, newTo: 28 }],
+      ]);
+    });
+
+    it('serves the configured code replacement files as text, and names a file it cannot read', async () => {
+      const first = join(root, 'codes-first.txt');
+      const second = join(root, 'codes-second.txt');
+      await import('node:fs/promises').then(async (fs) => {
+        await fs.writeFile(first, 't1\tGAIS\n');
+        await fs.writeFile(second, 'Å1\tÅngelholm\n');
+      });
+      const missing = join(root, 'codes-missing.txt');
+      await handlers['settings:set']({ codeReplacementPaths: [first, missing, second] });
+
+      const { files } = await handlers['metadata:codeReplacementFiles']();
+
+      expect(files.map((file) => file.path)).toEqual([first, missing, second]);
+      expect(files[0]).toMatchObject({ text: 't1\tGAIS\n' });
+      expect(files[0]).toHaveProperty('mtimeMs');
+      expect(files[1]).toMatchObject({ error: expect.stringContaining('codes-missing.txt') });
+      expect(files[2]).toMatchObject({ text: 'Å1\tÅngelholm\n' });
+      await handlers['settings:set']({ codeReplacementPaths: [] });
+    });
+
     it('stores develop params in the sidecar (crs:) and imports presets', async () => {
       const photo = bySource(cardA)[1]!;
       await handlers['develop:setParams']({

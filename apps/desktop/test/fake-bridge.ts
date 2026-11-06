@@ -21,6 +21,7 @@ import {
 import { matchesSearch, searchTerms, searchTextOf } from '@ee/metadata';
 import {
   expandMockCaption,
+  mockCodeReplacementFiles,
   mockDestinations,
   mockMetadata,
   mockPhotos,
@@ -284,6 +285,9 @@ export function createFakeBridge(
       const { photoId, text } = args[0] as { photoId: PhotoId; text: string };
       return expandMockCaption(findPhoto(photoId), metadata.get(photoId) ?? {}, text);
     },
+    'metadata:codeReplacementFiles': async () => ({
+      files: mockCodeReplacementFiles(settings.codeReplacementPaths ?? []),
+    }),
     'develop:getParams': async (...args) => {
       const { photoId, versionId } = args[0] as { photoId: PhotoId; versionId?: VersionId };
       return params.get(versionKey(photoId, versionId)) ?? {};
