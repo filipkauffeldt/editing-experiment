@@ -1099,6 +1099,15 @@ describe.skipIf(nefs.length === 0 || !haveDisplay)(
       ).caption;
       expect(caption).toBe('Manchester City lift the cup at Wembley Stadium');
 
+      // Next & send moves to the next photo in the strip's order, whatever that order is.
+      const order = await window
+        .locator('[data-testid="film-strip"] button img')
+        .evaluateAll((images) => images.map((image) => (image as HTMLImageElement).alt));
+      const here = order.indexOf('cardB_001.jpg');
+      // The generated JPEG has no capture time, so it is last: Next & send exports it and has
+      // nowhere to move. With a photo after it, the photo view moves to that one.
+      const afterSend = order[here + 1] ?? 'cardB_001.jpg';
+
       await window.getByTestId('next-send').click();
 
       const upload = await waitFor('the anonymous FTP upload', async () => {
@@ -1139,11 +1148,10 @@ describe.skipIf(nefs.length === 0 || !haveDisplay)(
       expectMosaicBlockConstant(decoded, crop, source, mosaic, mainPreset);
 
       await window.waitForFunction(
-        () =>
-          document
-            .querySelector('[data-testid="photo-view"]')
-            ?.textContent?.includes('cardB_002.NEF') ?? false,
-        undefined,
+        (name) =>
+          document.querySelector('[data-testid="photo-view"]')?.textContent?.includes(name) ??
+          false,
+        afterSend,
         { timeout: 20_000 },
       );
     }, 180_000);
