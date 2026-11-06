@@ -9,6 +9,7 @@ import {
 import { useMetadataGroupOpen } from '../metadata-view';
 import { activePhoto } from '../store';
 import { useAppState, useAppStore } from '../store-context';
+import { CaptionArea } from './CaptionArea';
 import { CloseIcon } from './icons';
 import { Panel } from './Panel';
 import { Button } from './ui/Button';
@@ -137,22 +138,18 @@ function FieldRow({
   return (
     <label className={styles.field}>
       {label}
-      {field.multiline ? (
+      {field.name === 'caption' ? (
+        <CaptionArea
+          photoId={photo.id}
+          value={value}
+          placeholder={field.placeholder}
+          className={styles.caption}
+        />
+      ) : field.multiline ? (
         <TextArea
-          className={field.name === 'caption' ? styles.caption : undefined}
-          data-caption-input={field.name === 'caption' ? true : undefined}
           placeholder={field.placeholder}
           value={value}
           onChange={(event) => store.updateMetadataField(photo.id, field.name, event.target.value)}
-          onBlur={() => {
-            if (field.name === 'caption') void store.expandCaption(photo.id);
-          }}
-          onKeyDown={(event) => {
-            if (field.name === 'caption' && (event.ctrlKey || event.metaKey) && event.key === ' ') {
-              event.preventDefault();
-              void store.expandCaption(photo.id);
-            }
-          }}
         />
       ) : (
         <TextInput
