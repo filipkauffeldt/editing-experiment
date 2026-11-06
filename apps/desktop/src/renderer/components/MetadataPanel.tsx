@@ -262,100 +262,105 @@ export function MetadataPanel({ className }: { className?: string }) {
       ) : (
         <div data-testid="metadata-fields">
           <div className={styles.toolbar} data-testid="metadata-toolbar">
-            {templateOptions.length === 0 ? (
-              <button
-                type="button"
-                className={styles.templateLink}
-                data-testid="metadata-template-settings"
-                title="No metadata template yet: add one in Settings → Metadata"
-                onClick={() => store.openDialog('metadata')}
-              >
-                Set up templates
-              </button>
-            ) : (
-              <Select
-                className={styles.templateSelect}
-                aria-label="Metadata template"
-                data-testid="metadata-template-select"
-                value={templatePath ?? ''}
-                onChange={(event) => void store.selectMetadataTemplate(event.target.value)}
-              >
-                {templateOptions.map((path) => (
-                  <option key={path} value={path} title={path}>
-                    {baseName(path)}
-                  </option>
-                ))}
-              </Select>
-            )}
-            {photo.status.metadataDiffersFromTemplate && (
-              <span
-                className={styles.diffPill}
-                title="Differs from template"
-                data-testid="metadata-differs"
-              >
-                ≠
+            <div className={styles.row} data-testid="metadata-template-row">
+              {templateOptions.length === 0 ? (
+                <button
+                  type="button"
+                  className={styles.templateLink}
+                  data-testid="metadata-template-settings"
+                  title="No metadata template yet: add one in Settings → Metadata"
+                  onClick={() => store.openDialog('metadata')}
+                >
+                  Set up templates
+                </button>
+              ) : (
+                <Select
+                  className={styles.templateSelect}
+                  aria-label="Metadata template"
+                  data-testid="metadata-template-select"
+                  title={templatePath ?? ''}
+                  value={templatePath ?? ''}
+                  onChange={(event) => void store.selectMetadataTemplate(event.target.value)}
+                >
+                  {templateOptions.map((path) => (
+                    <option key={path} value={path} title={path}>
+                      {baseName(path)}
+                    </option>
+                  ))}
+                </Select>
+              )}
+              {photo.status.metadataDiffersFromTemplate && (
+                <span
+                  className={styles.diffPill}
+                  title="Differs from template"
+                  data-testid="metadata-differs"
+                >
+                  ≠
+                </span>
+              )}
+              <span className={styles.split}>
+                <Button
+                  size="small"
+                  data-testid="metadata-template-apply"
+                  disabled={!templatePath}
+                  onClick={() => void store.applyTemplate({ mode: 'fillEmpty' })}
+                  title={`${
+                    state.selection.length > 1
+                      ? `Apply to ${state.selection.length} selected photos`
+                      : 'Apply to the current photo'
+                  } · fills empty fields, keeps what is written`}
+                >
+                  Apply
+                </Button>
+                <Menu
+                  label=""
+                  compact
+                  closeOnPick
+                  align="right"
+                  ariaLabel="Apply options"
+                  testId="metadata-apply-mode"
+                >
+                  {/*
+                    A plain Apply never overwrites a caption written by hand. Overwriting is a
+                    deliberate second step, and it is named as such. Ingest has its own mode.
+                  */}
+                  <MenuItem
+                    kind="action"
+                    onSelect={() => void store.applyTemplate({ mode: 'fillEmpty' })}
+                  >
+                    Fill empty fields
+                  </MenuItem>
+                  <MenuItem
+                    kind="action"
+                    onSelect={() => void store.applyTemplate({ mode: 'replace' })}
+                  >
+                    Replace all, overwriting
+                  </MenuItem>
+                </Menu>
               </span>
-            )}
-            <span className={styles.split}>
+            </div>
+            <div className={styles.row} data-testid="metadata-copy-row">
               <Button
                 size="small"
-                data-testid="metadata-template-apply"
-                disabled={!templatePath}
-                onClick={() => void store.applyTemplate({ mode: 'fillEmpty' })}
-                title={`${
-                  state.selection.length > 1
-                    ? `Apply to ${state.selection.length} selected photos`
-                    : 'Apply to the current photo'
-                } · fills empty fields, keeps what is written`}
+                data-testid="metadata-copy"
+                onClick={() => store.openMetadataCopy()}
               >
-                Apply
+                Copy metadata…
               </Button>
-              <Menu
-                label=""
-                compact
-                closeOnPick
-                align="right"
-                ariaLabel="Apply options"
-                testId="metadata-apply-mode"
+              <Button
+                size="small"
+                data-testid="metadata-paste"
+                disabled={!copied}
+                title={
+                  copied
+                    ? `Paste ${copiedCount} field${copiedCount === 1 ? '' : 's'} from ${copied.sourceName}`
+                    : 'Copy metadata first'
+                }
+                onClick={() => void store.pasteMetadata()}
               >
-                {/*
-                  A plain Apply never overwrites a caption written by hand. Overwriting is a
-                  deliberate second step, and it is named as such. Ingest has its own mode.
-                */}
-                <MenuItem
-                  kind="action"
-                  onSelect={() => void store.applyTemplate({ mode: 'fillEmpty' })}
-                >
-                  Fill empty fields
-                </MenuItem>
-                <MenuItem
-                  kind="action"
-                  onSelect={() => void store.applyTemplate({ mode: 'replace' })}
-                >
-                  Replace all, overwriting
-                </MenuItem>
-              </Menu>
-            </span>
-            <Button
-              size="small"
-              data-testid="metadata-copy"
-              onClick={() => store.openMetadataCopy()}
-            >
-              Copy metadata…
-            </Button>
-            <Button
-              size="small"
-              data-testid="metadata-paste"
-              disabled={!copied}
-              title={
-                copied
-                  ? `Paste ${copiedCount} field${copiedCount === 1 ? '' : 's'} from ${copied.sourceName}`
-                  : 'Copy metadata first'
-              }
-              onClick={() => void store.pasteMetadata()}
-            >
-              Paste
-            </Button>
+                Paste
+              </Button>
+            </div>
           </div>
 
           <div className={styles.primary}>

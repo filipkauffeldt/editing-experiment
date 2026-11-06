@@ -57,6 +57,20 @@ describe.skipIf(!haveDisplay)(
       if (!found) throw new Error(`${selector} is not on screen`);
       return found;
     };
+    const invoke = async <T>(channel: string, ...args: unknown[]): Promise<T> => {
+      const result = await window.evaluate(
+        ([name, params]) =>
+          (
+            window as unknown as {
+              eeTransport: { invoke(c: string, a: unknown[]): Promise<unknown> };
+            }
+          ).eeTransport.invoke(name as string, params as unknown[]),
+        [channel, args] as const,
+      );
+      const typed = result as { ok: boolean; value?: T; error?: { message: string } };
+      if (!typed.ok) throw new Error(`${channel}: ${typed.error?.message ?? 'failed'}`);
+      return typed.value as T;
+    };
     const stageBox = (): Promise<Box> => box('[data-testid="photo-canvas"] [data-photo-id]');
     const resizeWindow = async (width: number, height: number): Promise<void> => {
       await app.evaluate(
@@ -68,6 +82,26 @@ describe.skipIf(!haveDisplay)(
       await window.waitForFunction(
         (size) => innerWidth === size.width && innerHeight === size.height,
         { width, height },
+      );
+    };
+    /** Drag a side panel's handle until its own width reports the requested pixels. */
+    const resizePanel = async (panel: string, width: number): Promise<void> => {
+      const handle = window.getByTestId(`panel-resize-${panel}`);
+      const at = await handle.boundingBox();
+      if (!at) throw new Error(`no handle for ${panel}`);
+      const current = Number(await handle.getAttribute('aria-valuenow'));
+      const x = at.x + at.width / 2;
+      const y = at.y + at.height / 2;
+      await window.mouse.move(x, y);
+      await window.mouse.down();
+      await window.mouse.move(x + width - current, y, { steps: 8 });
+      await window.mouse.up();
+      await window.waitForFunction(
+        ([testId, expected]) =>
+          Number(
+            document.querySelector(`[data-testid="${testId}"]`)?.getAttribute('aria-valuenow'),
+          ) === expected,
+        [`panel-resize-${panel}`, width] as const,
       );
     };
     const activeName = (): Promise<string | null> =>
@@ -123,6 +157,20 @@ describe.skipIf(!haveDisplay)(
         if (message.type() === 'error') problems.push(message.text());
       });
       window.on('pageerror', (error) => problems.push(error.message));
+      // A template whose name is too long for the panel: it must truncate, not push Apply.
+      const settings = await invoke<{
+        ingest: Record<string, unknown>;
+        metadataTemplates: string[];
+      }>('settings:get');
+      const longTemplate =
+        '/mock/templates/2026-10-24 IFK–AIK — Premier League — Sportfotografen.XMP';
+      await invoke('settings:set', {
+        ...settings,
+        ingest: { ...settings.ingest, metadataTemplatePath: longTemplate },
+        metadataTemplates: [longTemplate, ...settings.metadataTemplates],
+      });
+      await window.reload();
+      await window.waitForFunction(() => 'eeTransport' in window);
       await resizeWindow(1440, 873);
       await window.waitForFunction(() => {
         const images = [...document.querySelectorAll('[data-testid="film-strip"] img')];
@@ -370,7 +418,7 @@ describe.skipIf(!haveDisplay)(
       await window.keyboard.press('Escape');
     });
 
-    it('has Copy settings in the Develop panel and the metadata row in one line', async () => {
+    it('has Copy settings in the Develop panel first', async () => {
       const copy = await box('[data-testid="open-copy-settings"]');
       const panel = await box('[data-testid="develop-panel"]');
       expect(copy.y - panel.y).toBeLessThan(40);
@@ -378,13 +426,76 @@ describe.skipIf(!haveDisplay)(
       await window.getByTestId('copy-settings-dialog').waitFor();
       await window.keyboard.press('Escape');
       await window.getByTestId('copy-settings-dialog').waitFor({ state: 'detached' });
+    });
 
-      const row = await box('[data-testid="metadata-toolbar"]');
-      expect(row.height).toBeLessThan(40);
-      const tops = await window
-        .locator('[data-testid="metadata-toolbar"] button, [data-testid="metadata-toolbar"] select')
-        .evaluateAll((items) => items.map((item) => Math.round(item.getBoundingClientRect().top)));
-      expect(new Set(tops.map((top) => Math.round(top / 4))).size).toBe(1);
+    it('puts the template and Apply on one row and Copy/Paste below at 260, 280 and wide', async () => {
+      const longTemplate =
+        '/mock/templates/2026-10-24 IFK–AIK — Premier League — Sportfotografen.XMP';
+      for (const width of [260, 280, 500]) {
+        await resizePanel('develop-metadata', width);
+        await settle();
+        const panel = await box('[data-testid="metadata-panel"]');
+        const toolbar = await box('[data-testid="metadata-toolbar"]');
+        const templateRow = await box('[data-testid="metadata-template-row"]');
+        const copyRow = await box('[data-testid="metadata-copy-row"]');
+        const select = await box('[data-testid="metadata-template-select"]');
+        const apply = await box('[data-testid="metadata-template-apply"]');
+        const copy = await box('[data-testid="metadata-copy"]');
+        const paste = await box('[data-testid="metadata-paste"]');
+
+        // Two rows, and the clipboard actions are on the second one, on the left.
+        expect(templateRow.y + templateRow.height).toBeLessThanOrEqual(copyRow.y);
+        expect(copyRow.y).toBeGreaterThan(templateRow.y);
+        expect(copy.x).toBeCloseTo(select.x, 0);
+        expect(paste.x).toBeGreaterThan(copy.x + copy.width);
+        expect(paste.x + paste.width).toBeLessThanOrEqual(panel.x + panel.width);
+        // The select takes the free width and Apply with its menu sits at the right edge.
+        expect(select.x + select.width).toBeLessThanOrEqual(apply.x);
+        expect(apply.y).toBeGreaterThanOrEqual(templateRow.y);
+        expect(apply.y + apply.height).toBeLessThanOrEqual(templateRow.y + templateRow.height);
+        expect(apply.x + apply.width).toBeLessThanOrEqual(panel.x + panel.width - 11);
+        expect(toolbar.height).toBeGreaterThan(40);
+        expect(toolbar.height).toBeLessThan(70);
+
+        // Nothing wraps or clips inside a button.
+        const wrapped = await window
+          .locator('[data-testid="metadata-toolbar"] button')
+          .evaluateAll((buttons) =>
+            buttons
+              .filter(
+                (button) =>
+                  button.scrollWidth > button.clientWidth + 1 ||
+                  button.scrollHeight > button.clientHeight + 1,
+              )
+              .map((button) => button.textContent),
+          );
+        expect(wrapped).toEqual([]);
+
+        // The long name is what is selected, truncates with an ellipsis, and has the full path
+        // in its tooltip.
+        const template = await window
+          .getByTestId('metadata-template-select')
+          .evaluate((element) => {
+            const select = element as HTMLSelectElement;
+            const text = select.options[select.selectedIndex]?.text ?? '';
+            const canvas = document.createElement('canvas');
+            const context = canvas.getContext('2d');
+            if (context) context.font = getComputedStyle(select).font;
+            return {
+              text,
+              title: select.getAttribute('title'),
+              ellipsis: getComputedStyle(select).textOverflow,
+              needsTruncation: context
+                ? context.measureText(text).width > select.clientWidth
+                : true,
+            };
+          });
+        expect(template.text).toContain('2026-10-24 IFK–AIK');
+        expect(template.title).toBe(longTemplate);
+        expect(template.ellipsis).toBe('ellipsis');
+        if (width <= 280) expect(template.needsTruncation).toBe(true);
+      }
+      await resizePanel('develop-metadata', 280);
     });
 
     it('keeps the footer on one line at 1440 and at 1024, dropping the lens first', async () => {
