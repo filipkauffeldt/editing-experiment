@@ -206,7 +206,7 @@ describe.skipIf(nefs.length < 3 || !haveDisplay)(
       const items = await window
         .locator('[data-testid=photo-menu] [role=menuitem]')
         .allTextContents();
-      expect(items).toEqual(['Delete…', 'Remove from Library…']);
+      expect(items).toEqual(['TagT', 'Delete…', 'Remove from Library…']);
       await shot('remove-from-library-menu.png');
       await window.locator('[data-testid=photo-menu-remove-from-library]').click();
       const dialog = window.locator('[data-testid=delete-photos-dialog]');

@@ -26,6 +26,9 @@ jobs:
         run: pnpm lint
       - name: Typecheck
         run: pnpm typecheck
+      # Every e2e file must be named by a script a workflow runs, or it silently rots.
+      - name: E2E coverage
+        run: pnpm check:e2e-coverage
 
   rust:
     # Linux only. Windows has its own workflow (windows.yml) so it cannot slow or block these.
@@ -248,6 +251,85 @@ jobs:
         run: node scripts/ensure-electron.mjs
       - name: Electron e2e (crop overlay + smoke, under Xvfb)
         run: xvfb-run -a --server-args='-screen 0 1920x1080x24' pnpm test:e2e:crop
+
+  # The zoom and Library e2e files each launch their own app and were previously only in the
+  # local `test:e2e` script, so CI never ran them. They are split by the time one runner needs:
+  # zoom/focused modes/delete/remove in one job, launch/filter/sidebars/Develop/cards in another.
+  e2e-zoom:
+    needs: native
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+      # Version comes from "packageManager" in package.json.
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - uses: actions/download-artifact@v8
+        with:
+          name: native-addon
+          path: crates/core
+      - uses: actions/cache@v6
+        with:
+          path: fixtures/raw
+          key: fixtures-raw-${{ hashFiles('scripts/fetch-fixtures.ts') }}
+      - run: pnpm fetch-fixtures
+      - uses: actions/cache@v6
+        with:
+          path: |
+            fixtures/models
+            fixtures/retouch
+          key: fixtures-retouch-${{ hashFiles('scripts/fetch-retouch.ts') }}
+      - run: pnpm fetch-retouch
+      - name: Install Xvfb
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends xvfb xauth
+      - name: Install Electron binary
+        run: node scripts/ensure-electron.mjs
+      - name: Electron e2e (zoom, focused modes, delete and remove from Library, under Xvfb)
+        run: xvfb-run -a --server-args='-screen 0 1920x1080x24' pnpm test:e2e:zoom
+
+  e2e-ui:
+    needs: native
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+      # Version comes from "packageManager" in package.json.
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - uses: actions/download-artifact@v8
+        with:
+          name: native-addon
+          path: crates/core
+      - uses: actions/cache@v6
+        with:
+          path: fixtures/raw
+          key: fixtures-raw-${{ hashFiles('scripts/fetch-fixtures.ts') }}
+      - run: pnpm fetch-fixtures
+      - uses: actions/cache@v6
+        with:
+          path: |
+            fixtures/models
+            fixtures/retouch
+          key: fixtures-retouch-${{ hashFiles('scripts/fetch-retouch.ts') }}
+      - run: pnpm fetch-retouch
+      - name: Install Xvfb
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends xvfb xauth
+      - name: Install Electron binary
+        run: node scripts/ensure-electron.mjs
+      - name: Electron e2e (launch, filters, sidebars, Develop and cards, under Xvfb)
+        run: xvfb-run -a --server-args='-screen 0 1920x1080x24' pnpm test:e2e:ui
 
   build-screenshots:
     needs: native

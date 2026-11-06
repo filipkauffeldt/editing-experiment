@@ -119,7 +119,7 @@ describe.skipIf(!haveDisplay)('card discovery (Electron)', { timeout: 60_000 }, 
   it('lists the card that is in when the view opens, with its image count, and picks nothing', async () => {
     const row = cardRows().first();
     await row.waitFor({ timeout: 15_000 });
-    await expect.poll(() => row.textContent(), { timeout: 15_000 }).toContain('2 images');
+    await expect.poll(() => row.textContent(), { timeout: 15_000 }).toContain('2 photos');
     expect(await row.textContent()).toContain('NIKON Z 6');
     expect(await row.textContent()).toContain(join(mountRoot, 'NIKON Z 6'));
     expect(await row.getByRole('checkbox', { name: 'NIKON Z 6' }).isChecked()).toBe(false);
@@ -150,17 +150,19 @@ describe.skipIf(!haveDisplay)('card discovery (Electron)', { timeout: 60_000 }, 
     await rescan();
     await expect
       .poll(() => cardRows().first().textContent(), { timeout: 15_000 })
-      .toContain('3 images');
+      .toContain('3 photos');
     rmSync(join(folder, '_DSC0099.NEF'));
     await rescan();
     await expect
       .poll(() => cardRows().first().textContent(), { timeout: 15_000 })
-      .toContain('2 images');
+      .toContain('2 photos');
   });
 
   it('picks a card, keeps its filters, and a card put back keeps them', async () => {
     const row = cardRows().first();
     await row.getByRole('checkbox', { name: 'NIKON Z 6' }).check();
+    // The detail line opens the filters; ticking a card only picks it.
+    await row.getByRole('button', { name: 'Filters for NIKON Z 6' }).click();
     const filters = row.getByTestId('source-filters');
     await filters.waitFor();
     await filters.getByRole('button', { name: 'RAW' }).click();
@@ -179,6 +181,8 @@ describe.skipIf(!haveDisplay)('card discovery (Electron)', { timeout: 60_000 }, 
     const back = cardRows().first();
     expect(await back.getByRole('checkbox', { name: 'NIKON Z 6' }).isChecked()).toBe(false);
     await back.getByRole('checkbox', { name: 'NIKON Z 6' }).check();
+    const backLine = back.getByRole('button', { name: 'Filters for NIKON Z 6' });
+    if ((await back.getByTestId('source-filters').count()) === 0) await backLine.click();
     await back.getByTestId('source-filters').waitFor();
     expect(
       await back
@@ -201,13 +205,13 @@ describe.skipIf(!haveDisplay)('card discovery (Electron)', { timeout: 60_000 }, 
       // NIKON Z 6 is still ticked from the test above; tick the real one too.
       const real = cardRows().filter({ hasText: 'REAL CARD' });
       await real.getByRole('checkbox', { name: 'REAL CARD' }).check();
-      await window.getByLabel('Destination folder').fill(join(root, 'ingest'));
+      await window.getByLabel('Folder', { exact: true }).fill(join(root, 'ingest'));
 
       // Pull NIKON Z 6 without rescanning, then press Ingest.
       rmSync(join(mountRoot, 'NIKON Z 6'), { recursive: true, force: true });
       await window
         .getByTestId('ingest-view')
-        .getByRole('button', { name: 'Ingest', exact: true })
+        .getByRole('button', { name: /^Ingest/ })
         .click();
 
       await expect

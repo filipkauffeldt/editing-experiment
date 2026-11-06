@@ -190,7 +190,8 @@ run in headless Chromium with the same fallback.
 
 CI (`.github/workflows/ci.yml`) runs lint/typecheck, Rust fmt/clippy/tests,
 unit tests, the WebGL parity tests, the Electron e2e suites and the screenshot
-build on Ubuntu. `.github/workflows/windows.yml` is a separate workflow on
+build on Ubuntu. It also runs `pnpm check:e2e-coverage`, which fails when an
+`*.e2e.test.ts` file is not named by any script a workflow runs. `.github/workflows/windows.yml` is a separate workflow on
 `windows-latest`; see "Windows" below for the steps it runs.
 
 If you touch `crates/`:
@@ -258,7 +259,7 @@ also run when the workflow is started by hand, and pull requests skip them.
 Not run on Windows: `pnpm lint` and `pnpm typecheck` (Linux CI covers the same files), the rest of
 `pnpm test:unit` (React and renderer tests, which do not touch the operating system), the WebGL
 parity tests (`pnpm test:browser`), and the other Electron e2e suites (`pnpm test:e2e:demo`,
-`:export`, `:zoom`) and `pnpm screenshot`.
+`:export`, `:zoom`, `:ui`) and `pnpm screenshot`.
 
 The repository is checked out with LF line endings (`.gitattributes`), whatever `core.autocrlf` is.
 
