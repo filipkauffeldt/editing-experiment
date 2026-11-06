@@ -72,7 +72,7 @@ describe('the filter bar in Develop and in the Library', () => {
     expect(develop.filter((label) => label?.startsWith('Colour label '))).toHaveLength(8);
     expect(develop).toContain('Status');
     expect(develop).toContain('Camera');
-    expect(develop).toContain('Sort: Name');
+    expect(develop).toContain('Sort: Time');
     // The Library keeps its thumbnail size in the bar's slot.
     expect(within(screen.getByTestId('filter-slot')).getByText('Size')).toBeTruthy();
   });
@@ -176,13 +176,14 @@ describe('the filter bar in Develop and in the Library', () => {
     await waitFor(() => expect(stripNames()).toHaveLength(40));
   });
 
-  it('sorts from a compact menu', async () => {
+  it('sorts from a compact menu, with Time as the default', async () => {
     const { store } = await renderApp();
     const user = userEvent.setup();
-    await user.click(bar().getByRole('button', { name: 'Sort: Name' }));
-    await user.click(screen.getByRole('menuitemradio', { name: 'Time' }));
     expect(store.getState().sort).toBe('capture-time');
-    expect(bar().getByRole('button', { name: 'Sort: Time' })).toBeTruthy();
+    await user.click(bar().getByRole('button', { name: 'Sort: Time' }));
+    await user.click(screen.getByRole('menuitemradio', { name: 'Name' }));
+    expect(store.getState().sort).toBe('filename');
+    expect(bar().getByRole('button', { name: 'Sort: Name' })).toBeTruthy();
     expect(screen.queryByRole('menu')).toBeNull();
   });
 

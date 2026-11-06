@@ -46,6 +46,21 @@ const errorToasts = (store: AppStore) =>
   store.getState().toasts.filter((toast) => toast.kind === 'error');
 
 describe('Next & send in the background', () => {
+  it('follows capture time, not file name', async () => {
+    const base = mockPhotos().slice(0, 3);
+    const photos = base.map((photo, index) => ({
+      ...photo,
+      fileName: ['_DSC300.NEF', '_DSC100.NEF', '_DSC200.NEF'][index] ?? photo.fileName,
+      captureTime: ['2026-10-24T14:10:03', '2026-10-24T14:10:01', '2026-10-24T14:10:02'][index],
+    }));
+    const { store } = await setup({ photos });
+    expect(names(store)).toEqual(['_DSC100.NEF', '_DSC200.NEF', '_DSC300.NEF']);
+    expect(active(store)).toBe('_DSC100.NEF');
+
+    void store.nextAndSend();
+    expect(active(store)).toBe('_DSC200.NEF');
+  });
+
   it('moves to the next photo before the export has finished', async () => {
     const gate = deferred<Rendered>();
     const { store, fake } = await setup({}, () => gate.promise);

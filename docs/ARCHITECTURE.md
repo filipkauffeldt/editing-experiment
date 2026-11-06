@@ -941,7 +941,9 @@ Design tokens and component rules are in `docs/DESIGN.md`.
   `filterPhotos` is pure; `filterCounts` gives the numbers beside the options as "what this option
   would show with the rest of the filter kept". The Library list is its folder (library state), then
   the filter; Develop's list (`getVisiblePhotos`, the film strip, arrow keys, Next & send) is every
-  photo, then the filter. Sort (`AppState.sort`) is global too, not part of the filter or Clear.
+  photo, then the filter. Sort (`AppState.sort`) is global too, not part of the filter or Clear; it
+  defaults to capture time, keeps a same-second burst in natural file-name order and puts photos with
+  no capture time last, again by file name.
   **A hidden active photo** (a filter change, or a rating, class or tag change in Develop) follows one
   rule, `ensureSelectionVisible`, on the list of the module on screen: the selection keeps only the
   photos still shown; if the active photo is hidden the first shown photo becomes active and the

@@ -151,7 +151,7 @@ Failed, Edited, Differs from template, ticked boxes, counts), a **Camera** menu 
 of sources), the **search** field (underline field, "Search…"; Ctrl/Cmd+`F` focuses it in both
 views, Enter applies it and leaves, Esc clears it and leaves, and nothing typed in it is a shortcut), then a **×** that
 appears only while something is filtered, the count (`N of M` while filtered), and on the right the
-**Sort** menu (Name, Time) and a slot for the view's own controls (the Library's thumbnail size).
+**Sort** menu (Time by default, Name) and a slot for the view's own controls (the Library's thumbnail size).
 Menus are text with a small caret and a hairline popover; checks are 9 px squares, radios 9 px
 circles, filled white when on. When a filter shows nothing the grid or film strip gives way to a
 line saying photos are hidden, not lost, and a *Clear filters* button.
