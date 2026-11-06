@@ -85,6 +85,9 @@ export class SearchIndex {
 
   /** Resolves when every photo queued so far has been read (tests, shutdown). */
   async idle(): Promise<void> {
+    // A queue populated without a running drain (the previous one finished between two
+    // `track` calls) must start here, or `idle` would return with work still waiting.
+    this.drain();
     while (this.running) await this.running;
   }
 
