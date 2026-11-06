@@ -444,13 +444,18 @@ describe('export next to the photo', () => {
       // The app quits while the first photo is being exported.
       const one = queueFor(file);
       const original = service.exportOne.bind(service);
+      let firstExported: () => void = () => undefined;
+      const exported = new Promise<void>((resolve) => {
+        firstExported = resolve;
+      });
       service.exportOne = async (args) => {
         const result = await original(args);
         one.close();
+        firstExported();
         return result;
       };
       const jobId = one.start({ photoIds: [first.id, second.id], presetId: active.id });
-      await new Promise((resolve) => setTimeout(resolve, 100));
+      await exported;
       service.exportOne = original;
       const gameFolder = join(root, 'Photos', 'game');
       expect(await exists(join(gameFolder, 'export', 'a_001.jpg'))).toBe(true);
