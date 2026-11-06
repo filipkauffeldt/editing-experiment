@@ -1,5 +1,7 @@
 import type {
   ApplyTemplateArgs,
+  CodeReplacementFile,
+  CodeReplacementFilesResult,
   ApplyTemplateResult,
   ExpandCaptionArgs,
   ExpandCaptionResult,
@@ -12,6 +14,7 @@ import type {
 } from '@ee/contracts';
 import {
   diffFromTemplate,
+  decodeCodeReplacementFile,
   expandCaption,
   loadCodeReplacements,
   readIptc,
@@ -20,7 +23,7 @@ import {
   applyTemplate,
   type ExifToolService,
 } from '@ee/metadata';
-import { stat } from 'node:fs/promises';
+import { readFile, stat } from 'node:fs/promises';
 import type { TemplateApplyMode } from '@ee/contracts';
 import type { PhotoLibrary } from './photo-library';
 import type { SettingsStore } from './settings-store';
@@ -125,7 +128,7 @@ export class MetadataService {
       readIptc(photo.path, this.exiftool),
       loadCodeReplacements(paths),
     ]);
-    const { text, unresolved } = expandCaption(args.text, {
+    const { text, unresolved, edits } = expandCaption(args.text, {
       filePath: photo.path,
       fileName: photo.fileName,
       ...(photo.captureTime === undefined ? {} : { captureTime: photo.captureTime }),
@@ -133,7 +136,29 @@ export class MetadataService {
       fields,
       codeReplacementSet,
     });
-    return { text, unresolved };
+    return { text, unresolved, edits };
+  }
+
+  /**
+   * The configured code replacement files as text with their modified times, for the caption
+   * field to parse and keep. A file that cannot be read is reported and the others still load.
+   */
+  async codeReplacementFiles(): Promise<CodeReplacementFilesResult> {
+    const paths = this.settings.get().codeReplacementPaths ?? [];
+    const files = await Promise.all(
+      paths.map(async (path): Promise<CodeReplacementFile> => {
+        try {
+          // The time is read first: a write in between is then seen as newer on the next check.
+          const { mtimeMs } = await stat(path);
+          // The decoder blur and Ctrl+Space use, so both read a Latin-1 or UTF-16 file the same way.
+          return { path, mtimeMs, text: decodeCodeReplacementFile(await readFile(path)) };
+        } catch (cause) {
+          const reason = cause instanceof Error ? cause.message : String(cause);
+          return { path, error: `Cannot read ${path}: ${reason}` };
+        }
+      }),
+    );
+    return { files };
   }
 
   /** True when the file's metadata no longer matches the template. */

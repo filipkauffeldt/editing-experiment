@@ -29,7 +29,9 @@ Export / Export & send.
   Locked / Unlocked / All, and Skip already ingested (on by default).
 - Photo Mechanic `.XMP` metadata templates with Replace (the default) or Fill
   empty, `=code=` replacement tables, and `{variables}` in captions and path
-  templates. Templates and code replacement files live in Settings → Metadata
+  templates. In the Metadata panel's caption a known `=code=` is replaced as soon as
+  a typed edit completes it (its closing `=`, or editing a token inside it); `{variables}` and unknown codes are expanded
+  on blur or Ctrl+Space, which also lists the codes it could not resolve. Templates and code replacement files live in Settings → Metadata
   and are shared by ingest, the Metadata panel and batch caption. A develop
   preset can be applied to every imported photo, including one that is a file
   in a Lightroom or Camera Raw preset folder.

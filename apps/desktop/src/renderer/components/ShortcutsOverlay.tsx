@@ -92,7 +92,10 @@ const GROUPS: { title: string; rows: [string, string][] }[] = [
     rows: [
       ['Ctrl/⌘ + I', 'Focus the caption field'],
       ['Ctrl/⌘ + K', 'Focus the keywords field'],
-      ['Ctrl + Space', 'Expand codes and {variables}'],
+      [
+        'Ctrl + Space',
+        'Expand all codes and {variables} now (a known code is replaced as you type it)',
+      ],
     ],
   },
 ];

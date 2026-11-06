@@ -11,6 +11,7 @@ export * from './lens';
 export * from './retouch';
 export * from './template';
 export * from './variables';
+export * from './code-replacement-tokens';
 export * from './code-replacements';
 export * from './caption';
 export * from './search';

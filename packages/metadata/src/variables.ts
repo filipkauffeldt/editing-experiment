@@ -1,4 +1,4 @@
-import type { CameraInfo, IptcFields } from '@ee/contracts';
+import type { CameraInfo, IptcFields, ReplacedRange } from '@ee/contracts';
 
 /** Values available to `{variable}` expansion for one photo. */
 export interface CaptionContext {
@@ -786,6 +786,8 @@ export const VARIABLE_NAMES: readonly string[] = [...VARIABLE_LOOKUP.keys()].sor
 export interface ExpandVariablesResult {
   text: string;
   unknownVariables: string[];
+  /** Every `{variable}` that was replaced, in the coordinates of the input and of `text`. */
+  edits: ReplacedRange[];
 }
 
 /**
@@ -795,7 +797,19 @@ export interface ExpandVariablesResult {
  */
 export function expandVariables(text: string, context: CaptionContext): ExpandVariablesResult {
   const unknown = new Set<string>();
-  const expanded = text.replace(/\{([^{}\r\n]+)\}/g, (match, rawName: string) => {
+  const edits: ReplacedRange[] = [];
+  let shift = 0;
+  const expanded = text.replace(/\{([^{}\r\n]+)\}/g, (match, rawName: string, offset: number) => {
+    const recorded = (value: string): string => {
+      edits.push({
+        from: offset,
+        to: offset + match.length,
+        newFrom: offset + shift,
+        newTo: offset + shift + value.length,
+      });
+      shift += value.length - match.length;
+      return value;
+    };
     const name = rawName.trim();
     const sequenceMatch = /^seq:(\d+)$/i.exec(name);
     if (sequenceMatch !== null) {
@@ -808,7 +822,7 @@ export function expandVariables(text: string, context: CaptionContext): ExpandVa
         unknown.add(rawName);
         return match;
       }
-      return String(context.sequence).padStart(width, '0');
+      return recorded(String(context.sequence).padStart(width, '0'));
     }
     const spec = VARIABLE_LOOKUP.get(name.toLowerCase());
     if (spec === undefined) {
@@ -820,9 +834,9 @@ export function expandVariables(text: string, context: CaptionContext): ExpandVa
       unknown.add(rawName);
       return match;
     }
-    return value;
+    return recorded(value);
   });
-  return { text: expanded, unknownVariables: [...unknown] };
+  return { text: expanded, unknownVariables: [...unknown], edits };
 }
 
 function fileNameOf(context: CaptionContext): string | undefined {

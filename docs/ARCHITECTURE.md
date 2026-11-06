@@ -434,6 +434,27 @@ LibRaw) only; TIFF, PNG, HEIF and WebP are ingested but have no decoded preview.
   their per-context availability come from `TEMPLATE_VARIABLES` in
   `packages/metadata/src/variables.ts`; picking inserts at the caret, and the
   field reports placeholders its path cannot expand.
+- Caption expansion. On blur and Ctrl+Space the whole caption goes to `metadata:expandCaption`
+  (codes first, then `{variables}`, unknown ones reported and left as typed). The result lists what
+  each pass replaced (`ReplacedRange`), and after Ctrl+Space the caret goes to the end of the
+  replacement it was in or right after, or keeps its place in the untouched text (`mapCaret`). While
+  typing, a known code is replaced after any typed edit that leaves the caret in a delimited token or
+  right after one, without a round trip:
+  `metadata:codeReplacementFiles` serves the configured files as text with their modified time, the
+  renderer parses them with the same browser-safe module the backend uses
+  (`@ee/metadata/code-replacement-tokens`) and keeps the merged set (later files override earlier
+  ones). It asks again when `codeReplacementPaths` changes and when the caption gets focus; nothing
+  is parsed when no modified time changed, and a file that cannot be read is reported once.
+  `instantReplacement` finds the token from the caret: the delimiter just before it as a closing one
+  (the token back to the delimiter before that), else the token between the nearest delimiter before
+  the caret and the nearest at or after it, on one line. The code has to be known exactly (case
+  sensitive), so `a=b c=d` expands only if the file has `b c`, and editing `=foo=` into `=t1=`, a
+  Backspace in `=t1x=`, a Delete in `=xt1=`, or typing `=` in front of `t1=` expands it. The closing
+  delimiter of an unknown token may open the next (`=x=t1=`); blur and Ctrl+Space pair delimiters
+  from the left, across lines, and do not. Only a typed edit does it (`insertText` of one character,
+  Backspace / Delete, also by word; never during composition): paste, drop, cut, undo and redo do
+  not, so after Ctrl+Z restores what was typed nothing expands until the next typed edit. The edit is
+  made with `execCommand('insertText')` so Ctrl+Z gives back what was typed.
 
 ## Linear image format
 

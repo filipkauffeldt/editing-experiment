@@ -1,4 +1,4 @@
-import type { InputHTMLAttributes, SelectHTMLAttributes, TextareaHTMLAttributes } from 'react';
+import type { ComponentPropsWithRef, InputHTMLAttributes, SelectHTMLAttributes } from 'react';
 import styles from './Field.module.css';
 
 type Variant = 'underline' | 'boxed';
@@ -16,7 +16,7 @@ export function TextInput({ variant = 'underline', className, ...rest }: InputPr
   return <input className={inputClass(variant, className)} {...rest} />;
 }
 
-type TextAreaProps = Omit<TextareaHTMLAttributes<HTMLTextAreaElement>, 'className'> & {
+type TextAreaProps = Omit<ComponentPropsWithRef<'textarea'>, 'className'> & {
   variant?: Variant;
   className?: string;
 };

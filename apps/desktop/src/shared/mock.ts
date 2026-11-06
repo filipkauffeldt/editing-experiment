@@ -7,6 +7,7 @@ import {
   asUploadId,
   asVersionId,
   type AppSettings,
+  type CodeReplacementFile,
   type Destination,
   type EditParams,
   type EditPreset,
@@ -14,6 +15,7 @@ import {
   type IptcFields,
   type Photo,
   type PhotoId,
+  type ReplacedRange,
   type SourceConfig,
   type UploadItem,
   type UploadItemState,
@@ -411,7 +413,7 @@ export function expandMockCaption(
   photo: Photo,
   fields: IptcFields,
   text: string,
-): { text: string; unresolved: string[] } {
+): { text: string; unresolved: string[]; edits: ReplacedRange[][] } {
   const date = photo.captureTime?.slice(0, 10) ?? '';
   const variables: Record<string, string> = {
     event: fields.event ?? '',
@@ -429,30 +431,60 @@ export function expandMockCaption(
     seq: photo.id.replace(/\D/g, ''),
     byline: fields.byline ?? '',
   };
-  const codes: Record<string, string> = {
-    t1: 'Manchester City',
-    t2: 'Liverpool',
-    uk: 'United Kingdom',
-  };
   const unresolved: string[] = [];
-  const expanded = text
-    .replace(/=([A-Za-z0-9_]+)=/g, (match, name: string) => {
-      const value = codes[name];
-      if (value === undefined) {
-        unresolved.push(match);
-        return match;
-      }
-      return value;
-    })
-    .replace(/\{([A-Za-z0-9_]+)\}/g, (match, name: string) => {
-      const value = variables[name];
+  // Like the real expansion: one pass for codes, then one for variables, each reporting what it
+  // replaced so the caption field can keep the caret with the text.
+  const pass = (
+    input: string,
+    pattern: RegExp,
+    lookup: (name: string) => string | undefined,
+  ): { text: string; edits: ReplacedRange[] } => {
+    const edits: ReplacedRange[] = [];
+    let shift = 0;
+    const output = input.replace(pattern, (match, name: string, offset: number) => {
+      const value = lookup(name);
       if (value === undefined || value === '') {
         unresolved.push(match);
         return match;
       }
+      edits.push({
+        from: offset,
+        to: offset + match.length,
+        newFrom: offset + shift,
+        newTo: offset + shift + value.length,
+      });
+      shift += value.length - match.length;
       return value;
     });
-  return { text: expanded, unresolved };
+    return { text: output, edits };
+  };
+  const codeNames = mockCodes();
+  const codePass = pass(text, /=([A-Za-z0-9_]+)=/g, (name) => codeNames[name]);
+  const variablePass = pass(codePass.text, /\{([A-Za-z0-9_]+)\}/g, (name) => variables[name]);
+  return {
+    text: variablePass.text,
+    unresolved,
+    edits: [codePass.edits, variablePass.edits],
+  };
+}
+
+/** The codes of the mock code replacement file. */
+function mockCodes(): Record<string, string> {
+  return { t1: 'Manchester City', t2: 'Liverpool', uk: 'United Kingdom' };
+}
+
+/**
+ * The mock's code replacement files as the Metadata panel reads them: the one configured file
+ * holds the codes {@link expandMockCaption} knows, and any other path cannot be read.
+ */
+export function mockCodeReplacementFiles(paths: readonly string[]): CodeReplacementFile[] {
+  return paths.map((path): CodeReplacementFile => {
+    if (path !== MOCK_CODE_REPLACEMENT_PATH) return { path, error: `Cannot read ${path}` };
+    const text = Object.entries(mockCodes())
+      .map(([code, replacement]) => `${code}\t${replacement}`)
+      .join('\n');
+    return { path, mtimeMs: 0, text };
+  });
 }
 
 /**

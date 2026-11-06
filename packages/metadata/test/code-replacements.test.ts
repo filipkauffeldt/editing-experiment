@@ -5,9 +5,9 @@ import { expandCaption } from '../src/caption';
 import {
   CodeReplacementSet,
   expandCodeReplacements,
-  loadCodeReplacements,
   parseCodeReplacementFile,
-} from '../src/code-replacements';
+} from '../src/code-replacement-tokens';
+import { loadCodeReplacements } from '../src/code-replacements';
 import { cleanupTempDirs, makeTempDir } from './helpers';
 
 const sample = [
@@ -33,7 +33,7 @@ describe('code replacements', () => {
   it('defaults to = and expands the default column, #1 and other columns', () => {
     const set = new CodeReplacementSet([parseCodeReplacementFile(sample)]);
     expect(set.delimiter).toBe('=');
-    expect(expandCodeReplacements('=wc8=', set)).toEqual({
+    expect(expandCodeReplacements('=wc8=', set)).toMatchObject({
       text: 'Alex Ovechkin',
       unknownCodes: [],
     });
@@ -44,7 +44,7 @@ describe('code replacements', () => {
 
   it('leaves unknown codes verbatim and reports them', () => {
     const set = new CodeReplacementSet([parseCodeReplacementFile(sample)]);
-    expect(expandCodeReplacements('Hi =nope= and =wc8#9=', set)).toEqual({
+    expect(expandCodeReplacements('Hi =nope= and =wc8#9=', set)).toMatchObject({
       text: 'Hi =nope= and =wc8#9=',
       unknownCodes: ['nope', 'wc8#9'],
     });
@@ -54,7 +54,7 @@ describe('code replacements', () => {
     const set = new CodeReplacementSet([parseCodeReplacementFile(sample)], {
       defaultReplacement: 'UNKNOWN',
     });
-    expect(expandCodeReplacements('Hi =nope=', set)).toEqual({
+    expect(expandCodeReplacements('Hi =nope=', set)).toMatchObject({
       text: 'Hi UNKNOWN',
       unknownCodes: ['nope'],
     });
@@ -62,8 +62,8 @@ describe('code replacements', () => {
 
   it('does not treat an empty pair or an unpaired delimiter as a code', () => {
     const set = new CodeReplacementSet([parseCodeReplacementFile(sample)]);
-    expect(expandCodeReplacements('==', set)).toEqual({ text: '==', unknownCodes: [] });
-    expect(expandCodeReplacements('one = two', set)).toEqual({
+    expect(expandCodeReplacements('==', set)).toMatchObject({ text: '==', unknownCodes: [] });
+    expect(expandCodeReplacements('one = two', set)).toMatchObject({
       text: 'one = two',
       unknownCodes: [],
     });
@@ -71,7 +71,7 @@ describe('code replacements', () => {
 
   it('leaves backslashes in ordinary text untouched with the default delimiter', () => {
     const set = new CodeReplacementSet([parseCodeReplacementFile(sample)]);
-    expect(expandCodeReplacements('C:\\a\\b', set)).toEqual({
+    expect(expandCodeReplacements('C:\\a\\b', set)).toMatchObject({
       text: 'C:\\a\\b',
       unknownCodes: [],
     });
@@ -141,7 +141,7 @@ describe('code replacements', () => {
 
     const afterRemoval = await loadCodeReplacements([first]);
     expect(expandCodeReplacements('=code= =other=', afterRemoval).text).toBe('from first kept');
-    expect(expandCodeReplacements('=onlysecond=', afterRemoval)).toEqual({
+    expect(expandCodeReplacements('=onlysecond=', afterRemoval)).toMatchObject({
       text: '=onlysecond=',
       unknownCodes: ['onlysecond'],
     });
@@ -149,7 +149,7 @@ describe('code replacements', () => {
 
   it('supports a custom delimiter', () => {
     const set = new CodeReplacementSet([parseCodeReplacementFile(sample)], { delimiter: '\\' });
-    expect(expandCodeReplacements('\\wc8\\ and \\\\', set)).toEqual({
+    expect(expandCodeReplacements('\\wc8\\ and \\\\', set)).toMatchObject({
       text: 'Alex Ovechkin and \\\\',
       unknownCodes: [],
     });

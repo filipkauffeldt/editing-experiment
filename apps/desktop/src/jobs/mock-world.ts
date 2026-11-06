@@ -30,6 +30,7 @@ import {
 import { matchesSearch, searchTerms, searchTextOf } from '@ee/metadata';
 import {
   expandMockCaption,
+  mockCodeReplacementFiles,
   mockDestinations,
   mockEditParams,
   mockMetadata,
@@ -429,6 +430,9 @@ export function createMockHandlers(world: MockWorld, emit: Emit): Partial<IpcHan
       const photo = findPhoto(photoId);
       return expandMockCaption(photo, world.metadata.get(photoId) ?? {}, text);
     },
+    'metadata:codeReplacementFiles': async () => ({
+      files: mockCodeReplacementFiles(mockSettings().codeReplacementPaths ?? []),
+    }),
 
     // --- develop ---
     'develop:getParams': async ({ photoId, versionId }) => {

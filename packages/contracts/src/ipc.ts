@@ -141,12 +141,45 @@ export interface ExpandCaptionArgs {
   codeReplacementPaths?: string[];
 }
 
+/**
+ * One stretch of text that an expansion replaced: `[from, to)` in the text it was given and
+ * `[newFrom, newTo)` in the text it produced.
+ */
+export interface ReplacedRange {
+  from: number;
+  to: number;
+  newFrom: number;
+  newTo: number;
+}
+
 /** Outcome of `metadata:expandCaption`. */
 export interface ExpandCaptionResult {
   /** Fully expanded text. */
   text: string;
   /** Code replacement names and `{variables}` that could not be resolved (left verbatim). */
   unresolved: string[];
+  /**
+   * What each expansion pass replaced, in the order the passes ran (code replacements, then
+   * `{variables}`), so the caret can follow the text. Each list is in the coordinates of the text
+   * that pass was given. Absent from a backend that does not report it.
+   */
+  edits?: ReplacedRange[][];
+}
+
+/** One code replacement file as the Metadata panel reads it. */
+export type CodeReplacementFile =
+  | {
+      path: string;
+      /** Modified time of the file when it was read; a change is a reason to read it again. */
+      mtimeMs: number;
+      /** The file as it is (tab-delimited); the renderer parses it with `@ee/metadata`. */
+      text: string;
+    }
+  | { path: string; error: string };
+
+/** Outcome of `metadata:codeReplacementFiles`: the configured files in order, later ones override. */
+export interface CodeReplacementFilesResult {
+  files: CodeReplacementFile[];
 }
 
 /** Addresses one version of a photo; omit `versionId` for the active develop/retouch version. */
@@ -411,6 +444,12 @@ export interface IpcApi {
    */
   'metadata:writeFields': (args: WriteMetadataFieldsArgs) => Promise<WriteMetadataFieldsResult>;
   'metadata:expandCaption': (args: ExpandCaptionArgs) => Promise<ExpandCaptionResult>;
+  /**
+   * The configured code replacement files with their text and modified time, so the caption field
+   * can replace a code the moment it is typed without a round trip per keystroke. A file that
+   * cannot be read is listed with an error and does not fail the call.
+   */
+  'metadata:codeReplacementFiles': () => Promise<CodeReplacementFilesResult>;
 
   // --- develop ---
   'develop:getParams': (args: VersionRef) => Promise<EditParams>;
@@ -532,6 +571,7 @@ export const INVOKE_CHANNELS = [
   'metadata:applyTemplate',
   'metadata:writeFields',
   'metadata:expandCaption',
+  'metadata:codeReplacementFiles',
   'develop:getParams',
   'develop:getDefaults',
   'develop:setParams',

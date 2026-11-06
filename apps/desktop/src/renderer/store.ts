@@ -1,3 +1,5 @@
+import { CodeReplacementTables } from './code-replacements';
+import type { InstantReplacement } from '@ee/metadata/code-replacement-tokens';
 import {
   applyPreset as mergePreset,
   constrainCrop,
@@ -28,6 +30,7 @@ import {
   type CropParams,
   type DeletePhotosResult,
   type DetectedCard,
+  type ExpandCaptionResult,
   type Destination,
   type DevelopSettingGroupId,
   type EditParams,
@@ -824,8 +827,39 @@ export class AppStore {
 
   private set(patch: Partial<AppState>): void {
     this.state = { ...this.state, ...patch };
+    if (patch.settings !== undefined) {
+      this.followCodeReplacementPaths(patch.settings.codeReplacementPaths ?? []);
+    }
     for (const listener of this.listeners) listener();
   }
+
+  /** The code replacement files the tables were last asked for. */
+  private codeReplacementPaths: readonly string[] = [];
+
+  private readonly codeReplacements = new CodeReplacementTables(
+    () => this.bridge.invoke('metadata:codeReplacementFiles'),
+    (message) => this.toast('error', message),
+  );
+
+  /** Reads the code replacement files again when the list changed (a file added or removed). */
+  private followCodeReplacementPaths(paths: readonly string[]): void {
+    const same =
+      paths.length === this.codeReplacementPaths.length &&
+      paths.every((path, index) => path === this.codeReplacementPaths[index]);
+    if (same) return;
+    this.codeReplacementPaths = [...paths];
+    void this.codeReplacements.refresh();
+  }
+
+  /**
+   * Reads the code replacement files again if one changed on disk; the caption field asks when it
+   * gets focus, so typing never waits for it.
+   */
+  readonly refreshCodeReplacements = (): Promise<void> => this.codeReplacements.refresh();
+
+  /** The known code the delimiter just before `caret` closes, from the tables in memory. */
+  readonly instantCodeReplacement = (text: string, caret: number): InstantReplacement | undefined =>
+    this.codeReplacements.replacementFor(text, caret);
 
   private toast(kind: Toast['kind'], message: string): void {
     const id = ++this.toastId;
@@ -2360,9 +2394,7 @@ export class AppStore {
     ]);
   }
 
-  readonly expandCaption = async (
-    photoId?: PhotoId,
-  ): Promise<{ text: string; unresolved: string[] } | undefined> => {
+  readonly expandCaption = async (photoId?: PhotoId): Promise<ExpandCaptionResult | undefined> => {
     const id = photoId ?? this.state.selectedId;
     if (!id) return undefined;
     const text = this.state.metadata[id]?.caption ?? '';

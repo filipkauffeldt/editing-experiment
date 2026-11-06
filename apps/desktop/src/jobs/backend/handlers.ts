@@ -109,6 +109,7 @@ export function createBackendHandlers(deps: HandlerDeps): IpcHandlers {
     'metadata:applyTemplate': (args) => metadata.applyTemplate(args),
     'metadata:writeFields': (args) => metadata.writeFields(args),
     'metadata:expandCaption': (args) => metadata.expandCaption(args),
+    'metadata:codeReplacementFiles': () => metadata.codeReplacementFiles(),
 
     'develop:getParams': (ref) => edits.getParams(ref),
     'develop:getDefaults': async ({ photoId }) => edits.getDefaults(photoId),
