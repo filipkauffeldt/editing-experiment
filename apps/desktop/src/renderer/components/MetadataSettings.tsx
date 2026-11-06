@@ -57,7 +57,7 @@ export function MetadataSettings() {
       <div className={styles.field}>
         <span className={styles.label}>Code replacement files</span>
         <p className={styles.hint}>
-          Tab-delimited files, later files override earlier ones. Active in ingest, the
+          Tab-delimited .txt or .tsv files, later files override earlier ones. Active in ingest, the
           caption/metadata fields and batch caption.
         </p>
         <div className={styles.fileList} data-testid="code-replacement-list">
@@ -85,7 +85,7 @@ export function MetadataSettings() {
               const paths = await ee.invoke('dialog:pick', {
                 kind: 'file',
                 title: 'Code replacement file',
-                extensions: ['txt'],
+                extensions: ['txt', 'tsv'],
                 multiple: true,
               });
               await store.addCodeReplacementFiles(paths);

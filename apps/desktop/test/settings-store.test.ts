@@ -108,13 +108,13 @@ describe('SettingsStore metadata templates', () => {
 
     store.set({
       metadataTemplates: ['/templates/a.XMP', '/templates/b.XMP', '/templates/a.XMP'],
-      codeReplacementPaths: ['/codes/a.txt', '/codes/b.txt', '/codes/a.txt'],
+      codeReplacementPaths: ['/codes/a.txt', '/codes/b.tsv', '/codes/a.txt'],
     });
     expect(store.get().metadataTemplates).toEqual(['/templates/a.XMP', '/templates/b.XMP']);
-    expect(store.get().codeReplacementPaths).toEqual(['/codes/a.txt', '/codes/b.txt']);
+    expect(store.get().codeReplacementPaths).toEqual(['/codes/a.txt', '/codes/b.tsv']);
     expect(new SettingsStore(file, defaults).get()).toMatchObject({
       metadataTemplates: ['/templates/a.XMP', '/templates/b.XMP'],
-      codeReplacementPaths: ['/codes/a.txt', '/codes/b.txt'],
+      codeReplacementPaths: ['/codes/a.txt', '/codes/b.tsv'],
     });
     expect(() => store.set({ metadataTemplates: [''] })).toThrow(/metadataTemplates/);
     expect(() => store.set({ codeReplacementPaths: [''] })).toThrow(/codeReplacementPaths/);
