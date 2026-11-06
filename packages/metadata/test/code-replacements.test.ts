@@ -77,6 +77,42 @@ describe('code replacements', () => {
     });
   });
 
+  it('loads a UTF-8 .tsv whose code and replacement contain Swedish letters', async () => {
+    const dir = await makeTempDir();
+    const file = join(dir, 'sportfotografen.tsv');
+    await writeFile(file, 'ÅMÅL\tÅsa Svensson\tÅmål IF\nsm85\tMålvakten räddar\n', 'utf8');
+
+    const set = await loadCodeReplacements([file]);
+    expect(expandCodeReplacements('=ÅMÅL= skriver om =sm85=', set).text).toBe(
+      'Åsa Svensson skriver om Målvakten räddar',
+    );
+  });
+
+  it('decodes Latin-1 and UTF-16 .tsv files instead of garbling Swedish letters', async () => {
+    const dir = await makeTempDir();
+    const latin1 = join(dir, 'latin1.tsv');
+    const utf16le = join(dir, 'utf16le.tsv');
+    const utf16be = join(dir, 'utf16be.tsv');
+    await writeFile(latin1, Buffer.from('ÅMÅL\tÅsa Svensson\n', 'latin1'));
+
+    const text = 'ÅMÅL\tÅsa Svensson\n';
+    await writeFile(utf16le, Buffer.from(`\uFEFF${text}`, 'utf16le'));
+    const le = Buffer.from(text, 'utf16le');
+    const be = Buffer.alloc(2 + le.length);
+    be[0] = 0xfe;
+    be[1] = 0xff;
+    for (let index = 0; index < le.length; index += 2) {
+      be[2 + index] = le[index + 1] as number;
+      be[3 + index] = le[index] as number;
+    }
+    await writeFile(utf16be, be);
+
+    for (const file of [latin1, utf16le, utf16be]) {
+      const set = await loadCodeReplacements([file]);
+      expect(expandCodeReplacements('=ÅMÅL=', set).text, file).toBe('Åsa Svensson');
+    }
+  });
+
   it('lets later files override earlier ones', async () => {
     const dir = await makeTempDir();
     const first = join(dir, 'first.txt');

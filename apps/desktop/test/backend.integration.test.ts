@@ -395,6 +395,24 @@ describe.skipIf(nefs.length === 0)(
       expect(result.unresolved).toEqual(['=nope=']);
     });
 
+    it('loads a .tsv code replacement file from settings, with Swedish letters and Å in a code', async () => {
+      const codes = join(root, 'sportfotografen.tsv');
+      await import('node:fs/promises').then((fs) =>
+        fs.writeFile(codes, 'ÅMÅL\tÅsa Svensson\tÅmål IF\nsm85\tMålvakten räddar\n', 'utf8'),
+      );
+      const used = await handlers['settings:set']({ codeReplacementPaths: [codes] });
+      expect(used.codeReplacementPaths).toEqual([codes]);
+      const photo = bySource(cardB)[0]!;
+      // No per-call paths: the configured settings list is what is loaded.
+      const result = await handlers['metadata:expandCaption']({
+        photoId: photo.id,
+        text: '=ÅMÅL= skriver om =sm85#1=',
+      });
+      expect(result.text).toBe('Åsa Svensson skriver om Målvakten räddar');
+      expect(result.unresolved).toEqual([]);
+      await handlers['settings:set']({ codeReplacementPaths: [] });
+    });
+
     it('stores develop params in the sidecar (crs:) and imports presets', async () => {
       const photo = bySource(cardA)[1]!;
       await handlers['develop:setParams']({
