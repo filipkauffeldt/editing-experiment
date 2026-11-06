@@ -527,25 +527,131 @@ describe.skipIf(!haveDisplay)(
       await waitForCaption('Header at the near post');
     });
 
-    it('deletes the retouch version from the footer after confirming', async () => {
+    /** A real rectangle drawn on the picture, saved as the photo's retouch version. */
+    const saveRectangle = async (): Promise<void> => {
+      await window.mouse.move(2, 2);
+      await window.getByTestId('toggle-retouch').click();
+      await toolbar().waitFor();
+      await settle();
+      await window.getByRole('button', { name: 'Rectangle' }).click();
+      await drag(await pagePoint(0.3, 0.35), await pagePoint(0.5, 0.6));
+      await window.getByTestId('done-retouch').click();
+      await toolbar().waitFor({ state: 'detached' });
+      await window.getByTestId('retouch-version-indicator').waitFor();
+    };
+
+    /**
+     * The footer delete icon is inside the footer, is not cut off, and is what the pointer hits;
+     * the tooltip and accessible label both name it.
+     */
+    const expectFooterDeleteReachable = async (): Promise<void> => {
+      const measured = await window
+        .locator('[data-testid="photo-view"] footer')
+        .evaluate((footer) => {
+          const button = footer.querySelector<HTMLElement>('[data-testid="delete-retouch"]');
+          if (!button) throw new Error('no delete retouch button');
+          const box = footer.getBoundingClientRect();
+          const rect = button.getBoundingClientRect();
+          const hit = document.elementFromPoint(
+            rect.left + rect.width / 2,
+            rect.top + rect.height / 2,
+          );
+          return {
+            inside:
+              rect.left >= box.left &&
+              rect.right <= box.right &&
+              rect.top >= box.top &&
+              rect.bottom <= box.bottom,
+            clipped: button.scrollWidth > button.clientWidth + 1,
+            hit: hit === button || button.contains(hit),
+            label: button.getAttribute('aria-label'),
+            title: button.getAttribute('title'),
+            toolsInside: [...footer.querySelectorAll<HTMLElement>('button')].every((item) => {
+              const itemRect = item.getBoundingClientRect();
+              return (
+                itemRect.left >= box.left &&
+                itemRect.right <= box.right &&
+                itemRect.top >= box.top &&
+                itemRect.bottom <= box.bottom
+              );
+            }),
+          };
+        });
+      expect(measured.inside).toBe(true);
+      expect(measured.clipped).toBe(false);
+      expect(measured.hit).toBe(true);
+      expect(measured.label).toBe('Delete retouch…');
+      expect(measured.title).toMatch(/Remove the retouch version/);
+      // Crop, Retouch, Before, Split, Delete retouch and every zoom level fit beside it.
+      expect(measured.toolsInside).toBe(true);
+    };
+
+    const expectGone = async (): Promise<void> => {
+      await window.waitForFunction(
+        () => document.querySelector('[data-testid="delete-retouch"]') === null,
+      );
+      await window.waitForFunction(
+        () => document.querySelector('[data-testid="retouch-version-indicator"]') === null,
+      );
+      expect(await retouchVersions()).toBe(0);
+      const updated = await invoke<Photo>('photos:get', { photoId: photo.id });
+      expect(updated.status.edited).toBe(false);
+    };
+
+    it('deletes the retouch version from the footer at 1440 and at 1024', async () => {
       await window.mouse.move(2, 2);
       expect(await window.getByTestId('toggle-retouch').count()).toBe(1);
-      const button = window.getByTestId('delete-retouch');
-      expect(await button.textContent()).toContain('Delete retouch…');
+
+      // The version comes from the rectangle saved above, with a real photo behind it.
       expect(await retouchVersions()).toBe(1);
+      await resizeWindow(1440, 900);
+      await expectFooterDeleteReachable();
 
       // Declining keeps it.
       window.once('dialog', (dialog) => void dialog.dismiss());
-      await button.click();
+      await window.getByTestId('delete-retouch').click();
       await window.waitForTimeout(300);
       expect(await retouchVersions()).toBe(1);
 
       window.once('dialog', (dialog) => void dialog.accept());
+      await window.getByTestId('delete-retouch').click();
+      await expectGone();
+
+      // Again, saved with the real mouse, then deleted at the smaller width.
+      await saveRectangle();
+      await resizeWindow(1024, 900);
+      await expectFooterDeleteReachable();
+      window.once('dialog', (dialog) => void dialog.accept());
+      await window.getByTestId('delete-retouch').click();
+      await expectGone();
+    });
+
+    it('deletes the saved version from the Retouch toolbar and leaves a clean session', async () => {
+      await saveRectangle();
+      await resizeWindow(1024, 900);
+      await window.mouse.move(2, 2);
+      await window.getByTestId('toggle-retouch').click();
+      await toolbar().waitFor();
+      await settle();
+
+      const bar = await toolbar().boundingBox();
+      const button = window.getByTestId('delete-retouch-toolbar');
+      expect(await button.textContent()).toContain('Delete retouch…');
+      expect(await button.getAttribute('title')).toMatch(/saved retouch version/);
+      // The quiet action is the same height as Undo, so the row keeps its height.
+      const undo = await window.getByRole('button', { name: 'Undo' }).boundingBox();
+      const box = await button.boundingBox();
+      expect(box?.height ?? 0).toBeCloseTo(undo?.height ?? -1, 0);
+      expect(bar?.height ?? 999).toBeLessThan(70);
+
+      window.once('dialog', (dialog) => void dialog.accept());
       await button.click();
-      await window.waitForFunction(
-        () => document.querySelector('[data-testid="delete-retouch"]') === null,
-      );
-      expect(await retouchVersions()).toBe(0);
+      await toolbar().waitFor({ state: 'detached' });
+      await expectGone();
+      // No stale overlay or second button is left behind.
+      expect(await window.locator('[data-testid="retouch-overlay"]').count()).toBe(0);
+      expect(await window.getByTestId('delete-retouch-toolbar').count()).toBe(0);
+      expect(await window.getByTestId('toggle-retouch').count()).toBe(1);
     });
 
     it('opens Crop with the panels hidden, one row, Enter as Done, and a footer without Apply crop', async () => {

@@ -213,6 +213,25 @@
   border-color: var(--line);
 }
 
+/* A destructive action that stays quiet next to Undo, Discard and Done. */
+.quietAction {
+  height: 22px;
+  padding: 0 2px;
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  font: inherit;
+  white-space: nowrap;
+}
+
+.quietAction:hover:not(:disabled) {
+  color: var(--text);
+}
+
+.quietAction:disabled {
+  color: var(--dim);
+}
+
 /* The one filled control in a toolbar. */
 .commit {
   display: inline-flex;

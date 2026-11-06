@@ -107,12 +107,13 @@ Built in `components/ui/`:
   send is in the filter row and goes with it; Ctrl/Cmd+Enter still sends, and during Retouch and Crop
   the way out is `Done`, not a send button left on screen.
 - **Retouch and Crop toolbars**: one row in a fixed order, separated by space, not boxes: tools, mode,
-  sliders with typed values, count, then the actions right-aligned (Retouch: `Undo`, `Discard`, primary
-  `Done`; Crop: `Reset`, `Cancel`, primary `Done`). A narrower window wraps the row, never resizes it with
-  the tool. `Done` is the one way to save and leave (`Enter`, or `Esc` in Retouch); Crop's `Esc` cancels.
-  The photo footer carries one short hint line instead, and has no second way out. Outside those modes the
-  footer has `Crop`, `Retouch`, `Before`, `Split` and, when the photo has a retouch version, a small
-  `Delete retouch…`.
+  sliders with typed values, count, then the actions right-aligned (Retouch: `Undo`, `Discard`, a quiet
+  `Delete retouch…` while the session edits a saved version, primary `Done`; Crop: `Reset`, `Cancel`,
+  primary `Done`). A narrower window wraps the row, never resizes it with the tool. `Done` is the one way
+  to save and leave (`Enter`, or `Esc` in Retouch); Crop's `Esc` cancels. The photo footer carries one
+  short hint line instead, and has no second way out. Outside those modes the footer has `Crop`,
+  `Retouch`, `Before`, `Split` and, when the photo has a retouch version, a small delete icon whose
+  tooltip and accessible label read `Delete retouch…`.
 - **Side panels**: the Library sidebar and inspector, the Develop metadata and develop panels,
   and the Ingest sources panel have a 1 px hairline on their inner edge that is a drag handle.
   It sits on the centre side of the edge, so a panel's scrollbar stays clear, and its invisible
@@ -173,10 +174,11 @@ two side panels default to 280 px. There is no bottom bar.
   Ctrl/Cmd+Enter hint). The tooltip of Next & send is the active export preset: size, quality, folder
   and where it is sent.
 - **Photo footer** (28 px, one line, never wrapping): file name, size, camera, capture time and lens on
-  the left; then `Crop`, `Retouch`, `Before`, `Split` (and a small `Delete retouch…` when the photo has a
-  retouch version), then Fit and the zoom levels on the right. The details are one row that is clipped:
-  an item that does not fit drops out whole, last first, so the lens goes before anything else and
-  nothing is cut in half. The tooltip of the details lists all of them. Exposure data (ISO, focal length,
+  the left; then `Crop`, `Retouch`, `Before`, `Split` (and a small delete icon whose tooltip and accessible
+  label read `Delete retouch…` when the photo has a retouch version), then Fit and the zoom levels on the
+  right. The details are one row that is clipped: an item that does not fit drops out whole, last first,
+  so the lens goes before anything else and nothing is cut in half. The tools and zoom never shrink or
+  drop: only the details give way. The tooltip of the details lists all of them. Exposure data (ISO, focal length,
   aperture, shutter) stays under the histogram.
 - **Metadata panel**: one row first, a template select (or a link to Settings → Metadata when there is
   no template), `Apply` (it only fills empty fields, so it never overwrites a caption written by hand) with a

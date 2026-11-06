@@ -266,6 +266,18 @@ function Toolbar({ photo }: { photo: Photo }) {
         >
           Discard
         </button>
+        {session.versionId !== undefined && (
+          <button
+            type="button"
+            className={styles.quietAction}
+            onClick={() => void store.deleteSessionRetouch()}
+            disabled={session.busy}
+            title="Remove the saved retouch version of this photo"
+            data-testid="delete-retouch-toolbar"
+          >
+            Delete retouch…
+          </button>
+        )}
         <button
           type="button"
           className={styles.commit}

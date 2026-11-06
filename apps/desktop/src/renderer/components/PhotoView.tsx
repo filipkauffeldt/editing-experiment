@@ -6,7 +6,7 @@ import { FIT_VIEW, ZOOM_LEVELS, zoomPercent } from '../view-transform';
 import { setBeforeAfter, toggleBefore, useDevelopViewMode } from '../develop-view';
 import { useZoomState, zoomCommands, zoomKey } from '../zoom-view';
 import { PhotoCanvas } from './PhotoCanvas';
-import { CropIcon, PenIcon, StackIcon } from './icons';
+import { CropIcon, PenIcon, StackIcon, TrashIcon } from './icons';
 import styles from './PhotoView.module.css';
 
 interface PhotoViewProps {
@@ -133,72 +133,75 @@ export function PhotoView({ className, photo }: PhotoViewProps) {
                 {hint}
               </span>
             )}
-            {!editing && (
-              <span className={styles.tools}>
-                <button
-                  type="button"
-                  className={styles.tool}
-                  onClick={() => store.toggleCrop()}
-                  title="Crop and straighten (C)"
-                  data-testid="toggle-crop"
-                  disabled={!photo.width || !photo.height}
-                >
-                  <CropIcon size={11} /> Crop
-                </button>
-                <button
-                  type="button"
-                  className={styles.tool}
-                  onClick={() => store.toggleRetouch()}
-                  title="Retouch mode (R)"
-                  data-testid="toggle-retouch"
-                >
-                  {hasRetouch ? <StackIcon size={11} /> : <PenIcon size={11} />}
-                  Retouch
-                </button>
-                <button
-                  type="button"
-                  className={`${styles.tool} ${mode.beforeAfter === 'before' ? styles.toolActive : ''}`}
-                  aria-pressed={mode.beforeAfter === 'before'}
-                  onClick={(event) => {
-                    toggleBefore();
-                    // A focused button would take the Space that pans.
-                    event.currentTarget.blur();
-                  }}
-                  title="Show the unedited photo (Y)"
-                  data-testid="before-after"
-                >
-                  Before
-                </button>
-                <button
-                  type="button"
-                  className={`${styles.tool} ${mode.beforeAfter === 'split' ? styles.toolActive : ''}`}
-                  aria-pressed={mode.beforeAfter === 'split'}
-                  onClick={(event) => {
-                    setBeforeAfter(mode.beforeAfter === 'split' ? 'off' : 'split');
-                    event.currentTarget.blur();
-                  }}
-                  title="Split view: drag the divider"
-                  data-testid="split-view"
-                >
-                  Split
-                </button>
-                {hasRetouch && (
+            <span className={styles.controls}>
+              {!editing && (
+                <span className={styles.tools}>
                   <button
                     type="button"
                     className={styles.tool}
-                    onClick={() => void store.deleteRetouch()}
-                    title="Remove the retouch version of this photo"
-                    data-testid="delete-retouch"
+                    onClick={() => store.toggleCrop()}
+                    title="Crop and straighten (C)"
+                    data-testid="toggle-crop"
+                    disabled={!photo.width || !photo.height}
                   >
-                    Delete retouch…
+                    <CropIcon size={11} /> Crop
                   </button>
-                )}
-              </span>
-            )}
-            <ZoomLevels
-              photo={photo}
-              mode={cropping ? 'crop' : retouching ? 'retouch' : 'develop'}
-            />
+                  <button
+                    type="button"
+                    className={styles.tool}
+                    onClick={() => store.toggleRetouch()}
+                    title="Retouch mode (R)"
+                    data-testid="toggle-retouch"
+                  >
+                    {hasRetouch ? <StackIcon size={11} /> : <PenIcon size={11} />}
+                    Retouch
+                  </button>
+                  <button
+                    type="button"
+                    className={`${styles.tool} ${mode.beforeAfter === 'before' ? styles.toolActive : ''}`}
+                    aria-pressed={mode.beforeAfter === 'before'}
+                    onClick={(event) => {
+                      toggleBefore();
+                      // A focused button would take the Space that pans.
+                      event.currentTarget.blur();
+                    }}
+                    title="Show the unedited photo (Y)"
+                    data-testid="before-after"
+                  >
+                    Before
+                  </button>
+                  <button
+                    type="button"
+                    className={`${styles.tool} ${mode.beforeAfter === 'split' ? styles.toolActive : ''}`}
+                    aria-pressed={mode.beforeAfter === 'split'}
+                    onClick={(event) => {
+                      setBeforeAfter(mode.beforeAfter === 'split' ? 'off' : 'split');
+                      event.currentTarget.blur();
+                    }}
+                    title="Split view: drag the divider"
+                    data-testid="split-view"
+                  >
+                    Split
+                  </button>
+                  {hasRetouch && (
+                    <button
+                      type="button"
+                      className={`${styles.tool} ${styles.toolIcon}`}
+                      onClick={() => void store.deleteRetouch()}
+                      title="Remove the retouch version of this photo"
+                      aria-label="Delete retouch…"
+                      data-testid="delete-retouch"
+                    >
+                      <TrashIcon size={11} />
+                    </button>
+                  )}
+                </span>
+              )}
+              <ZoomLevels
+                photo={photo}
+                mode={cropping ? 'crop' : retouching ? 'retouch' : 'develop'}
+              />
+            </span>
           </>
         ) : (
           <span className={styles.detail}>No photo selected</span>
