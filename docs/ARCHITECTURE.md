@@ -434,6 +434,21 @@ LibRaw) only; TIFF, PNG, HEIF and WebP are ingested but have no decoded preview.
   their per-context availability come from `TEMPLATE_VARIABLES` in
   `packages/metadata/src/variables.ts`; picking inserts at the caret, and the
   field reports placeholders its path cannot expand.
+- Caption expansion. On blur and Ctrl+Space the whole caption goes to `metadata:expandCaption`
+  (codes first, then `{variables}`, unknown ones reported and left as typed). The result lists what
+  each pass replaced (`ReplacedRange`), and after Ctrl+Space the caret goes to the end of the
+  replacement it was in or right after, or keeps its place in the untouched text (`mapCaret`). While
+  typing, a known code is replaced the moment its closing delimiter is typed, without a round trip:
+  `metadata:codeReplacementFiles` serves the configured files as text with their modified time, the
+  renderer parses them with the same browser-safe module the backend uses
+  (`@ee/metadata/code-replacement-tokens`) and keeps the merged set (later files override earlier
+  ones). It asks again when `codeReplacementPaths` changes and when the caption gets focus; nothing
+  is parsed when no modified time changed, and a file that cannot be read is reported once. The
+  token is the text between the typed delimiter and the nearest one before it, so the closing
+  delimiter of an unknown token may open the next (`=x=t1=`); blur and Ctrl+Space pair delimiters
+  from the left and do not. Only a typed character does it (`insertText` of one character, not
+  during composition): paste, drop, undo and deletion do not. The edit is made with
+  `execCommand('insertText')` so Ctrl+Z gives back what was typed.
 
 ## Linear image format
 
