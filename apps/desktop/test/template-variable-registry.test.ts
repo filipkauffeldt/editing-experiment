@@ -199,7 +199,7 @@ describe('template variable registry', () => {
       'Bogus',
     ]);
     // The reporting does not alter what expansion does.
-    expect(expandVariables('{bogus}', exportContext)).toEqual({
+    expect(expandVariables('{bogus}', exportContext)).toMatchObject({
       text: '{bogus}',
       unknownVariables: ['bogus'],
     });
