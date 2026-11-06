@@ -37,6 +37,14 @@
   background: var(--bg);
 }
 
+/* Zoomed and in crop mode the stage is the whole canvas area, pinned to its corner so no flex
+   centring can put it on a fraction of a device pixel. */
+.stageFill {
+  position: absolute;
+  top: 0;
+  left: 0;
+}
+
 /* Crop mode draws the rotated image on the whole workspace. */
 .stage[data-mode='crop'] {
   background: var(--panel);

@@ -44,7 +44,7 @@ import {
   pictureSize,
   pictureViewTransform,
 } from '../zoom-render';
-import { screenToUnit, zoomPercent, type ViewLayout } from '../view-transform';
+import { screenToUnit, wholeDevicePixels, zoomPercent, type ViewLayout } from '../view-transform';
 import { useZoomControls, zoomKey } from '../zoom-view';
 import {
   BLOCK_SIZE_REL_RANGE,
@@ -512,25 +512,29 @@ function CanvasForPhoto({ photo }: { photo: Photo }) {
   const zoomed = zoom.view.scale !== null;
   // Crop mode draws on the whole workspace: the rotated image is bigger than
   // the unrotated fit, and the frame is dragged around it. A zoomed view needs the whole canvas too.
-  const stage = cropping || zoomed ? { width: container.width, height: container.height } : display;
+  const fillsCanvas = cropping || zoomed;
+  // Whole device pixels, pinned to the canvas area's corner: a stage that is centred in a gap of
+  // an odd number of pixels, or whose size is not a whole number of device pixels, lands the
+  // picture half a pixel off however exactly the layout is snapped (see `snapToDevicePixels`).
+  const stage = fillsCanvas
+    ? {
+        width: wholeDevicePixels(container.width, dpr),
+        height: wholeDevicePixels(container.height, dpr),
+      }
+    : display;
+  const stageOrigin = fillsCanvas
+    ? { x: 0, y: 0 }
+    : { x: (container.width - stage.width) / 2, y: (container.height - stage.height) / 2 };
   // Where the picture sits in the stage (at Fit, the stage is the picture), and how far in the view is.
   const stageLayout = useMemo(
     (): ViewLayout => ({
       scale: zoom.layout.scale,
       offset: {
-        x: zoom.layout.offset.x - (container.width - stage.width) / 2,
-        y: zoom.layout.offset.y - (container.height - stage.height) / 2,
+        x: zoom.layout.offset.x - stageOrigin.x,
+        y: zoom.layout.offset.y - stageOrigin.y,
       },
     }),
-    [
-      zoom.layout.scale,
-      zoom.layout.offset.x,
-      zoom.layout.offset.y,
-      container.width,
-      container.height,
-      stage.width,
-      stage.height,
-    ],
+    [zoom.layout.scale, zoom.layout.offset.x, zoom.layout.offset.y, stageOrigin.x, stageOrigin.y],
   );
   const zoomRatio = stageLayout.scale / Math.max(1e-9, fitLayout.scale);
 
@@ -1202,8 +1206,8 @@ function CanvasForPhoto({ photo }: { photo: Photo }) {
   // The retouch overlay's coordinates are the picture's 0..1. It covers the picture plus the hit
   // margin, as much of it as the canvas area has room for (the stage is centred in that area).
   const overlay = overlayFrame(pictureBox, {
-    x: -(container.width - stage.width) / 2,
-    y: -(container.height - stage.height) / 2,
+    x: -stageOrigin.x,
+    y: -stageOrigin.y,
     w: container.width,
     h: container.height,
   });
@@ -1216,10 +1220,11 @@ function CanvasForPhoto({ photo }: { photo: Photo }) {
       {cropSession && <CropToolbar session={cropSession} />}
       <div className={styles.canvasArea} ref={containerRef}>
         <div
-          className={styles.stage}
+          className={fillsCanvas ? `${styles.stage} ${styles.stageFill}` : styles.stage}
           style={{
-            width: `${Math.round(stage.width)}px`,
-            height: `${Math.round(stage.height)}px`,
+            // Fit rounds to CSS pixels; a stage that fills the canvas is already whole device pixels.
+            width: `${fillsCanvas ? stage.width : Math.round(stage.width)}px`,
+            height: `${fillsCanvas ? stage.height : Math.round(stage.height)}px`,
           }}
           data-photo-id={photo.id}
           data-mode={cropSession ? 'crop' : session ? 'retouch' : 'develop'}
