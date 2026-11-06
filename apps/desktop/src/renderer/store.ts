@@ -564,16 +564,23 @@ const NAME_COLLATOR = new Intl.Collator(undefined, { numeric: true, sensitivity:
 const naturalName = (left: Photo, right: Photo): number =>
   NAME_COLLATOR.compare(left.fileName, right.fileName);
 
-const captureTime = (photo: Photo): number => {
+const captureTime = (photo: Photo): number | undefined => {
   const value = photo.captureTime ? Date.parse(photo.captureTime) : Number.NaN;
-  return Number.isNaN(value) ? Number.POSITIVE_INFINITY : value;
+  return Number.isNaN(value) ? undefined : value;
 };
 
 function sortPhotos(photos: Photo[], sort: SortMode): Photo[] {
   return photos.sort((left, right) => {
     if (sort === 'capture-time') {
-      const byTime = captureTime(left) - captureTime(right);
-      if (byTime !== 0) return byTime;
+      const leftTime = captureTime(left);
+      const rightTime = captureTime(right);
+      // A photo with no capture time is never compared as a number: it sorts after the timed
+      // photos, and a burst of photos in the same second keeps the camera's file-name order.
+      if (leftTime === undefined && rightTime !== undefined) return 1;
+      if (leftTime !== undefined && rightTime === undefined) return -1;
+      if (leftTime !== undefined && rightTime !== undefined && leftTime !== rightTime) {
+        return leftTime - rightTime;
+      }
     }
     return naturalName(left, right);
   });
@@ -697,7 +704,7 @@ const emptyState = (): AppState => ({
   profileChoices: {},
   sectionStash: {},
   filter: initialFilter(),
-  sort: 'filename',
+  sort: 'capture-time',
   toasts: [],
   shortcutsOpen: false,
   panelsHidden: false,

@@ -76,7 +76,7 @@ function deferred<T>(): {
 }
 
 describe('photo list', () => {
-  it('sorts filenames naturally by default and by capture time on request', async () => {
+  it('sorts by capture time by default and by file name on request', async () => {
     const base = mockPhotos().slice(0, 3);
     const photos: Photo[] = base.map((photo, index) => ({
       ...photo,
@@ -86,20 +86,38 @@ describe('photo list', () => {
     const { store } = await setup({ photos });
 
     expect(visible(store).map((photo) => photo.fileName)).toEqual([
-      '_DSC999.NEF',
-      '_DSC2000.NEF',
-      '_DSC10000.NEF',
-    ]);
-
-    store.setSort('capture-time');
-    expect(visible(store).map((photo) => photo.fileName)).toEqual([
       '_DSC10000.NEF',
       '_DSC2000.NEF',
       '_DSC999.NEF',
     ]);
+    // Arrow keys walk the same list, so the earliest capture is active first.
+    expect(activePhoto(store.getState())?.fileName).toBe('_DSC10000.NEF');
+    store.selectRelative(1);
+    expect(activePhoto(store.getState())?.fileName).toBe('_DSC2000.NEF');
 
     store.setSort('filename');
-    expect(visible(store)).toHaveLength(3);
+    expect(visible(store).map((photo) => photo.fileName)).toEqual([
+      '_DSC999.NEF',
+      '_DSC2000.NEF',
+      '_DSC10000.NEF',
+    ]);
+  });
+
+  it('keeps a same-second burst in camera file-name order and sorts photos without a time last', async () => {
+    const base = mockPhotos().slice(0, 4);
+    const photos: Photo[] = base.map((photo, index) => ({
+      ...photo,
+      fileName: ['_DSC10.NEF', '_DSC2.NEF', '_DSC1.NEF', 'no-time.NEF'][index] ?? photo.fileName,
+      ...(index === 3 ? { captureTime: undefined } : { captureTime: '2026-10-24T14:10:05' }),
+    }));
+    const { store } = await setup({ photos });
+
+    expect(visible(store).map((photo) => photo.fileName)).toEqual([
+      '_DSC1.NEF',
+      '_DSC2.NEF',
+      '_DSC10.NEF',
+      'no-time.NEF',
+    ]);
   });
 
   it('selects the first visible photo and moves with selectRelative', async () => {
