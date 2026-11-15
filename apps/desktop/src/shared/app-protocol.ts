@@ -34,6 +34,9 @@ export function resolveAppRequest(rawUrl: string, options: { mock: boolean }): A
   }
   if (options.mock) {
     if (kind === 'linear') {
+      if (url.searchParams.get('warm') === '1') {
+        return { status: 204, headers: { 'x-ee-warm': 'ready' }, body: '' };
+      }
       const requested = Number(url.searchParams.get('maxEdge') ?? 960);
       const maxEdge = Number.isFinite(requested) ? Math.min(2560, Math.max(64, requested)) : 960;
       const image = mockLinearImage(photoId, maxEdge);

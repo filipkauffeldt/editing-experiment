@@ -30,6 +30,21 @@ const text = (status: number, body: string): AppBackendResponse => ({
   body,
 });
 
+/** Most decodes waiting ahead of time: the next photo and the previous one. */
+const WARM_PENDING = 2;
+
+interface WarmRequest {
+  key: string;
+  path: string;
+  maxEdge: number | undefined;
+  answer: (response: AppBackendResponse) => void;
+}
+
+const warmAnswer = (state: 'ready' | 'dropped' | 'failed'): AppBackendResponse => ({
+  status: 204,
+  headers: { 'x-ee-warm': state },
+});
+
 interface LinearEntry {
   file: string;
   bytes: number;
@@ -43,7 +58,7 @@ export interface AppResourcesOptions {
   linearDir: string;
   /** Directory for the camera's full-size JPEGs; defaults to `full` next to `linearDir`. */
   fullDir?: string;
-  /** Most decoded images kept. Default 4. */
+  /** Most decoded images kept. Default 6: the open photo's two sizes and its neighbours'. */
   maxEntries?: number;
   /** Most bytes of decoded images kept. Default 1.5 GiB. */
   maxBytes?: number;
@@ -80,13 +95,18 @@ export class AppResources {
   private readonly maxBytes: number;
   private readonly decode: NonNullable<AppResourcesOptions['decode']>;
   private readonly fullImages: FullImageCache;
+  /** Decodes asked for by the photo on screen that are still running. */
+  private liveDecodes = 0;
+  /** Decodes asked for ahead of time, waiting for the photo on screen to be served first. */
+  private readonly warmQueue: WarmRequest[] = [];
+  private warming = false;
 
   constructor(private readonly options: AppResourcesOptions) {
     this.fullImages = new FullImageCache({
       dir: options.fullDir ?? join(dirname(options.linearDir), 'full'),
       ...(options.extract === undefined ? {} : { extract: options.extract }),
     });
-    this.maxEntries = options.maxEntries ?? 4;
+    this.maxEntries = options.maxEntries ?? 6;
     this.maxBytes = options.maxBytes ?? 1.5 * 1024 ** 3;
     this.decode = options.decode ?? decodeLinear;
   }
@@ -134,7 +154,13 @@ export class AppResources {
 
     if (kind === 'thumb' || kind === 'preview') return this.cachedJpeg(kind, photoId);
     if (kind === 'full') return this.full(photoId);
-    if (kind === 'linear') return this.linear(photoId, url.searchParams.get('maxEdge'));
+    if (kind === 'linear') {
+      return this.linear(
+        photoId,
+        url.searchParams.get('maxEdge'),
+        url.searchParams.get('warm') === '1',
+      );
+    }
     return text(404, `unknown app:// resource "${kind}"`);
   }
 
@@ -217,6 +243,7 @@ export class AppResources {
   private async linear(
     photoId: ReturnType<typeof asPhotoId>,
     maxEdgeParam: string | null,
+    warm: boolean,
   ): Promise<AppBackendResponse> {
     let maxEdge: number | undefined;
     if (maxEdgeParam !== null) {
@@ -234,8 +261,11 @@ export class AppResources {
       }
       throw error;
     }
+    const key = `${photoId}|${maxEdge ?? 'full'}`;
+    if (warm) return this.warmLinear(key, path, maxEdge);
+    this.liveDecodes += 1;
     try {
-      const entry = await this.linearEntry(`${photoId}|${maxEdge ?? 'full'}`, path, maxEdge);
+      const entry = await this.linearEntry(key, path, maxEdge);
       return {
         status: 200,
         headers: {
@@ -251,7 +281,46 @@ export class AppResources {
         500,
         `could not decode ${photoId}: ${error instanceof Error ? error.message : String(error)}`,
       );
+    } finally {
+      this.liveDecodes -= 1;
+      this.pumpWarm();
     }
+  }
+
+  /**
+   * `?warm=1`: decode ahead of time so the next request for the same image is a cache hit, and
+   * answer 204 without a body. Never at the expense of the photo on screen: a warm decode starts
+   * only while no other decode is running, one at a time, and at most {@link WARM_PENDING} wait.
+   * A newer request pushes the oldest waiting one out (answered `x-ee-warm: dropped`), so what
+   * belonged to a selection the user has moved on from is dropped, not decoded. A decode that has
+   * started finishes into the bounded cache.
+   */
+  private warmLinear(
+    key: string,
+    path: string,
+    maxEdge: number | undefined,
+  ): Promise<AppBackendResponse> {
+    if (this.entries.has(key)) return Promise.resolve(warmAnswer('ready'));
+    return new Promise((answer) => {
+      this.warmQueue.push({ key, path, maxEdge, answer });
+      while (this.warmQueue.length > WARM_PENDING)
+        this.warmQueue.shift()?.answer(warmAnswer('dropped'));
+      this.pumpWarm();
+    });
+  }
+
+  private pumpWarm(): void {
+    if (this.warming || this.liveDecodes > 0) return;
+    const next = this.warmQueue.shift();
+    if (!next) return;
+    this.warming = true;
+    this.linearEntry(next.key, next.path, next.maxEdge)
+      .then(() => next.answer(warmAnswer('ready')))
+      .catch(() => next.answer(warmAnswer('failed')))
+      .finally(() => {
+        this.warming = false;
+        this.pumpWarm();
+      });
   }
 
   private linearEntry(

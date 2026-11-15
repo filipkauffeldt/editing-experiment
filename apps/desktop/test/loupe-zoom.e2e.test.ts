@@ -423,6 +423,27 @@ describe.skipIf(!haveDisplay).each(RATIOS)(
       await toFit();
     });
 
+    it('Develop decodes the neighbours ahead, so an arrow key finds them done', async () => {
+      await window.keyboard.press('g');
+      await window.keyboard.press('d');
+      await window.waitForSelector('[data-testid="develop-canvas"][data-ready="true"]', {
+        timeout: 60_000,
+      });
+      const current = (await window
+        .locator('[data-testid="photo-canvas"] [data-photo-id]')
+        .getAttribute('data-photo-id'))!;
+      const index = photos.findIndex((photo) => photo.id === current);
+      const asked = (id: string) =>
+        responses.some((url) => url.startsWith(`app://linear/${id}?`) && url.includes('warm=1'));
+      for (const next of [photos[index + 1], photos[index - 1]]) {
+        if (!next) continue;
+        for (let i = 0; i < 200 && !asked(next.id); i++) {
+          await new Promise((resolve) => setTimeout(resolve, 100));
+        }
+        expect(asked(next.id), `${next.fileName} was warmed`).toBe(true);
+      }
+    });
+
     it('had no errors in the console', () => {
       expect(problems).toEqual([]);
     });

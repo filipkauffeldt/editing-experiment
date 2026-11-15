@@ -129,4 +129,13 @@ export const appUrl = {
     `${APP_PROTOCOL}://linear/${encodeURIComponent(photoId)}${
       maxEdge === undefined ? '' : `?maxEdge=${Math.round(maxEdge)}`
     }`,
+  /**
+   * Asks for the same decode ahead of time: it answers 204 with no body once the image is in the
+   * cache (or `x-ee-warm: dropped` when a newer request pushed it out of the waiting line), so the
+   * next {@link appUrl.linear} request for it is quick.
+   */
+  warmLinear: (photoId: PhotoId, maxEdge?: number): string =>
+    `${APP_PROTOCOL}://linear/${encodeURIComponent(photoId)}?${
+      maxEdge === undefined ? '' : `maxEdge=${Math.round(maxEdge)}&`
+    }warm=1`,
 } as const;

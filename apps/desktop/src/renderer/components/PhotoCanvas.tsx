@@ -45,6 +45,7 @@ import {
   pictureViewTransform,
 } from '../zoom-render';
 import { screenToUnit, wholeDevicePixels, zoomPercent, type ViewLayout } from '../view-transform';
+import { neighbours } from '../loupe-view';
 import { useZoomControls, zoomKey } from '../zoom-view';
 import {
   BLOCK_SIZE_REL_RANGE,
@@ -775,6 +776,21 @@ function CanvasForPhoto({ photo }: { photo: Photo }) {
       controller.abort();
     };
   }, [photo.id, requestedEdge, container.width, store]);
+
+  // With the photo on screen drawn, decode the next and the previous photo's linear image ahead,
+  // at the size a new photo starts at (Fit), so an arrow key does not wait for the decode. The
+  // jobs process keeps at most two such decodes waiting and never starts one while it is decoding
+  // for the photo on screen. Leaving the photo drops the requests that have not started.
+  useEffect(() => {
+    if (!loaded) return;
+    const controller = new AbortController();
+    for (const next of neighbours(store.getVisiblePhotos(), photo.id)) {
+      fetch(appUrl.warmLinear(next.id, fitEdge), { signal: controller.signal }).catch(
+        () => undefined,
+      );
+    }
+    return () => controller.abort();
+  }, [loaded, photo.id, fitEdge, store]);
 
   // Upload the image after it arrives, after a context restore, and when the
   // photo changes. Rendering is separate so slider changes only draw.
