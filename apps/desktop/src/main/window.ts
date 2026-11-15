@@ -5,14 +5,14 @@ import { placeWindow, readWindowState, writeWindowState, type WindowState } from
 const DEFAULTS = { width: 1440, height: 900, minWidth: 960, minHeight: 600 };
 
 export interface MainWindowOptions {
-  /** Where the size, position and maximised state are kept between runs. */
-  stateFile: string;
+  /** Where the size, position and maximised state are kept between runs. Absent: not remembered. */
+  stateFile: string | undefined;
 }
 
 /** Open the main window with a sandboxed, context-isolated renderer. */
 export function createMainWindow(options: MainWindowOptions): BrowserWindow {
   const placement = placeWindow(
-    readWindowState(options.stateFile),
+    options.stateFile ? readWindowState(options.stateFile) : undefined,
     screen.getAllDisplays().map((display) => display.workArea),
     DEFAULTS,
   );
@@ -36,7 +36,7 @@ export function createMainWindow(options: MainWindowOptions): BrowserWindow {
     },
   });
   if (placement.maximized) window.maximize();
-  rememberWindowState(window, options.stateFile);
+  if (options.stateFile) rememberWindowState(window, options.stateFile);
 
   // Pinch and Ctrl+wheel zoom the photo (renderer), never the page: a zoomed page would also move
   // every pointer position the photo view reads.

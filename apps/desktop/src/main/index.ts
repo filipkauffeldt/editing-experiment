@@ -44,9 +44,10 @@ if (process.env.EE_SOFTWARE_GL === '1') {
 const log = startLogging(app.getPath('userData'));
 
 // Two processes on one userData folder would open the same databases, so a second launch hands
-// over to the running one and exits. The lock is per userData folder, so tests and screenshots
-// that use their own folder never meet each other.
-const firstInstance = app.requestSingleInstanceLock();
+// over to the running one and exits. The lock is per userData folder, so tests that use their own
+// folder never meet each other. Mock mode opens no databases and is not limited, so the generated
+// demo and the screenshot tour can run beside a real session.
+const firstInstance = mock ? true : app.requestSingleInstanceLock();
 if (!firstInstance) app.quit();
 
 registerAppScheme();
@@ -57,6 +58,10 @@ function broadcast(channel: EventChannel, payload: unknown): void {
     window.webContents.send(channel, payload);
   }
 }
+
+/** The window of a real session is remembered. The mock demo always opens the same way. */
+const stateFileFor = (userDataDir: string): string | undefined =>
+  mock ? undefined : windowStateFile(userDataDir);
 
 /** Bring the running window to the front, as a second launch asks. */
 function focusMainWindow(): void {
@@ -142,7 +147,7 @@ void (firstInstance ? app.whenReady() : Promise.resolve()).then(() => {
   });
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) {
-      const window = createMainWindow({ stateFile: windowStateFile(app.getPath('userData')) });
+      const window = createMainWindow({ stateFile: stateFileFor(app.getPath('userData')) });
       logRenderer(window.webContents, log);
     }
   });
@@ -161,7 +166,7 @@ void (firstInstance ? app.whenReady() : Promise.resolve()).then(() => {
       });
     },
   });
-  const window = createMainWindow({ stateFile: windowStateFile(userDataDir) });
+  const window = createMainWindow({ stateFile: stateFileFor(userDataDir) });
   logRenderer(window.webContents, log);
   // Problems found before the renderer existed are shown once it has loaded.
   window.webContents.once('did-finish-load', () => {
