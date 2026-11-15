@@ -62,6 +62,14 @@ interface LocalScan {
  */
 const DEFAULT_WATCH_INTERVAL_MS = 1_000;
 
+/**
+ * How long a file's size and modified time must stay unchanged before it is
+ * copied. A transfer can stall for a while, and FAT/exFAT keep modified times
+ * in two-second steps, so a three-second quiet window sees a real tick even on
+ * those filesystems.
+ */
+const DEFAULT_WATCH_QUIET_PERIOD_MS = 3_000;
+
 function isRemoteSource(
   source: SourceConfig,
 ): source is FtpSource | Extract<SourceConfig, { kind: 'sftp' }> {
@@ -202,9 +210,18 @@ export function startIngest(config: IngestConfig, hooks: IngestHooks = {}): Inge
       },
       legacyKey: { sourceId: source.id, path: file.path, size: file.size, mtimeMs: file.mtimeMs },
     });
+    /** A source file as one copy: same path, size and modified time is the same file. */
+    const signatureOf = (file: SourceFile): string =>
+      `${file.path}\u0000${file.size}\u0000${file.mtimeMs}`;
+    const isSeen = (entry: LocalEntry): boolean =>
+      seenStore.has(entry.key) || (source.kind === 'card' && seenStore.has(entry.legacyKey));
 
-    /** One look at the source: filter, then drop what the seen store already has. */
-    const scan = async (): Promise<LocalScan> => {
+    /**
+     * One look at the source: filter, then drop what the seen store already has.
+     * `handled` names files this run has copied, so they no longer count as
+     * already ingested before it started.
+     */
+    const scan = async (handled: ReadonlySet<string>): Promise<LocalScan> => {
       const files = await listSourceFiles(source, { signal });
       const filtered = await filterSourceFiles(files, {
         ...(source.fileTypes === undefined ? {} : { fileTypes: source.fileTypes }),
@@ -217,14 +234,14 @@ export function startIngest(config: IngestConfig, hooks: IngestHooks = {}): Inge
         return { pending: [], skipped: 0, warning: filtered.warning };
       }
       const entries = filtered.files.map((file, index) => entryFor(file, index + 1));
-      const pending = incremental
-        ? entries.filter(
-            (entry) =>
-              !seenStore.has(entry.key) &&
-              !(source.kind === 'card' && seenStore.has(entry.legacyKey)),
-          )
-        : entries;
-      return { pending, skipped: entries.length - pending.length };
+      if (!incremental) {
+        return { pending: entries, skipped: 0 };
+      }
+      return {
+        pending: entries.filter((entry) => !isSeen(entry)),
+        skipped: entries.filter((entry) => isSeen(entry) && !handled.has(signatureOf(entry.file)))
+          .length,
+      };
     };
 
     const copyOne = async (entry: LocalEntry): Promise<void> => {
@@ -287,7 +304,7 @@ export function startIngest(config: IngestConfig, hooks: IngestHooks = {}): Inge
     if (!watch) {
       let result: LocalScan;
       try {
-        result = await scan();
+        result = await scan(new Set<string>());
       } catch (error) {
         recordError(job, error);
         setState(job, 'failed');
@@ -325,17 +342,20 @@ export function startIngest(config: IngestConfig, hooks: IngestHooks = {}): Inge
     }
 
     /**
-     * A file is copied only after two looks a moment apart saw the same size and
-     * modified time, so a file another program is still writing is left for the
-     * next look instead of copied half done. A file that changes keeps missing
-     * that test and is never attempted, so it cannot fail the run. When nothing
-     * changed, a look is a listing and a stat per image: no copy, hash or hook runs.
+     * A file is copied only after its size and modified time stayed the same for
+     * the quiet period, so a transfer that stalls mid-file is left for a later
+     * look instead of copied half done. The file's own modified time counts as
+     * quiet time when it is in the past, so files already in the folder are not
+     * held for the whole period. A file that keeps changing is never attempted,
+     * so it cannot fail the run. When nothing changed, a look is a listing and a
+     * stat per image: no copy, hash or hook runs.
      */
-    const observed = new Map<string, { size: number; mtimeMs: number }>();
+    const quietPeriodMs = hooks.watchQuietPeriodMs ?? DEFAULT_WATCH_QUIET_PERIOD_MS;
+    const observed = new Map<string, { size: number; mtimeMs: number; quietSince: number }>();
+    /** Path + size + modified time already copied in this run; a run copies one version once. */
+    const copiedInRun = new Set<string>();
     /** A file whose copy failed is not tried again until it changes; its error stays on the row. */
     const failedFiles = new Set<string>();
-    const signature = (file: SourceFile): string =>
-      `${file.path}\u0000${file.size}\u0000${file.mtimeMs}`;
     const unchangedOnDisk = async (file: SourceFile): Promise<boolean> => {
       try {
         const info = await stat(file.path);
@@ -348,7 +368,7 @@ export function startIngest(config: IngestConfig, hooks: IngestHooks = {}): Inge
       }
     };
     const watchIntervalMs = hooks.watchIntervalMs ?? DEFAULT_WATCH_INTERVAL_MS;
-    /** Paths already added to `filesTotal` in this run, so a slow file is counted once. */
+    /** Signatures already added to `filesTotal` in this run, so a slow file is counted once. */
     const counted = new Set<string>();
     let firstLook = true;
     let scanFailureReported = false;
@@ -357,7 +377,7 @@ export function startIngest(config: IngestConfig, hooks: IngestHooks = {}): Inge
       while (!signal.aborted) {
         let result: LocalScan;
         try {
-          result = await scan();
+          result = await scan(copiedInRun);
         } catch (error) {
           if (isAbortError(error) || signal.aborted) {
             return;
@@ -388,15 +408,8 @@ export function startIngest(config: IngestConfig, hooks: IngestHooks = {}): Inge
         }
 
         job.filesSkipped = result.skipped;
+        const at = Date.now();
         const current = new Map(result.pending.map((entry) => [entry.file.path, entry.file]));
-        const stable = result.pending.filter((entry) => {
-          const previous = observed.get(entry.file.path);
-          return (
-            entry.file.size > 0 &&
-            previous?.size === entry.file.size &&
-            previous.mtimeMs === entry.file.mtimeMs
-          );
-        });
         // Forget files that left the folder, so one that comes back is observed afresh.
         for (const path of observed.keys()) {
           if (!current.has(path)) {
@@ -404,16 +417,30 @@ export function startIngest(config: IngestConfig, hooks: IngestHooks = {}): Inge
           }
         }
         for (const entry of result.pending) {
+          const { size, mtimeMs } = entry.file;
+          const previous = observed.get(entry.file.path);
+          const same = previous?.size === size && previous.mtimeMs === mtimeMs;
+          // A timestamp from the future or another clock says nothing about quiet time.
+          const fromMtime = Number.isFinite(mtimeMs) && mtimeMs > 0 && mtimeMs <= at ? mtimeMs : at;
           observed.set(entry.file.path, {
-            size: entry.file.size,
-            mtimeMs: entry.file.mtimeMs,
+            size,
+            mtimeMs,
+            // A change starts the quiet period now, whatever the file's own time says.
+            quietSince: same ? previous.quietSince : previous === undefined ? fromMtime : at,
           });
         }
 
-        const candidates = stable.filter((entry) => !failedFiles.has(signature(entry.file)));
-        const newcomers = result.pending.filter((entry) => !counted.has(entry.file.path));
+        const quiet = result.pending.filter((entry) => {
+          const seen = observed.get(entry.file.path);
+          return entry.file.size > 0 && seen !== undefined && at - seen.quietSince >= quietPeriodMs;
+        });
+        const candidates = quiet.filter(
+          (entry) =>
+            !copiedInRun.has(signatureOf(entry.file)) && !failedFiles.has(signatureOf(entry.file)),
+        );
+        const newcomers = result.pending.filter((entry) => !counted.has(signatureOf(entry.file)));
         for (const entry of newcomers) {
-          counted.add(entry.file.path);
+          counted.add(signatureOf(entry.file));
         }
         job.filesTotal += newcomers.length;
         if (candidates.length > 0) {
@@ -426,19 +453,18 @@ export function startIngest(config: IngestConfig, hooks: IngestHooks = {}): Inge
             return;
           }
           try {
-            // The two looks are a moment old now; the file must still be that file.
+            // The quiet period is a moment old now; the file must still be that file.
             if (!(await unchangedOnDisk(candidate.file))) {
               continue;
             }
             job.seq += 1;
             await copyOne({ ...candidate, seq: job.seq });
-            // A file that changes later is a new copy and gets counted again.
-            counted.delete(candidate.file.path);
+            copiedInRun.add(signatureOf(candidate.file));
           } catch (error) {
             if (isAbortError(error) || signal.aborted) {
               return;
             }
-            failedFiles.add(signature(candidate.file));
+            failedFiles.add(signatureOf(candidate.file));
             if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
               // The photo was removed between the look and the copy: skip it, not the run.
               continue;

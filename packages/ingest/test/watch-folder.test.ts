@@ -1,8 +1,9 @@
-import { appendFile, mkdir, readdir, readFile, rm, writeFile } from 'node:fs/promises';
+import { appendFile, mkdir, readdir, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { asSourceId, type FolderSource, type IngestConfig, type JobEvent } from '@ee/contracts';
 import { afterEach, describe, expect, it } from 'vitest';
 import { startIngest } from '../src/engine';
+import { MemorySeenStore } from '../src/seen-store';
 import type { IngestHandle, IngestedFileInfo } from '../src/types';
 import { delay, waitFor } from './helpers/engine';
 import { cleanupTempDirs, makeTempDir } from './helpers/temp';
@@ -37,12 +38,16 @@ function watch(
   destination: string,
   options: {
     watchIntervalMs: number;
+    watchQuietPeriodMs: number;
     ingested: IngestedFileInfo[];
     events: JobEvent[];
+    seenStore?: MemorySeenStore;
   },
 ): IngestHandle {
   const handle = startIngest(config(source, destination), {
     watchIntervalMs: options.watchIntervalMs,
+    watchQuietPeriodMs: options.watchQuietPeriodMs,
+    ...(options.seenStore ? { seenStore: options.seenStore } : {}),
     onFileIngested: async (info) => {
       options.ingested.push(info);
     },
@@ -62,6 +67,7 @@ describe('a folder source that watches for new files', () => {
     const events: JobEvent[] = [];
     const handle = watch(folderSource('watch', source, true), destination, {
       watchIntervalMs: 300,
+      watchQuietPeriodMs: 60,
       ingested,
       events,
     });
@@ -89,7 +95,36 @@ describe('a folder source that watches for new files', () => {
     ]);
   });
 
-  it('copies a file written in slow chunks once, and only when it has stopped changing', async () => {
+  it('copies one file once with incremental off', async () => {
+    const root = await makeTempDir();
+    const source = join(root, 'source');
+    const destination = join(root, 'destination');
+    await createFile(join(source, '_DSC1.NEF'), 'one');
+    const ingested: IngestedFileInfo[] = [];
+    const handle = watch(
+      { ...folderSource('watch', source, true), incremental: false },
+      destination,
+      {
+        watchIntervalMs: 50,
+        watchQuietPeriodMs: 100,
+        ingested,
+        events: [],
+      },
+    );
+
+    await waitFor(() => ingested.length === 1, 'the only copy');
+    await delay(400);
+
+    expect(ingested).toHaveLength(1);
+    expect(await readdir(destination)).toEqual(['_DSC1_01.NEF']);
+    expect(handle.status()[0]).toMatchObject({
+      state: 'watching',
+      filesDone: 1,
+      filesTotal: 1,
+    });
+  });
+
+  it('leaves a stalled transfer alone and copies it once when it finishes', async () => {
     const root = await makeTempDir();
     const source = join(root, 'source');
     const destination = join(root, 'destination');
@@ -97,16 +132,19 @@ describe('a folder source that watches for new files', () => {
     const file = join(source, '_DSC1.NEF');
     const ingested: IngestedFileInfo[] = [];
     const handle = watch(folderSource('watch', source, true), destination, {
-      watchIntervalMs: 500,
+      watchIntervalMs: 50,
+      watchQuietPeriodMs: 400,
       ingested,
       events: [],
     });
     await waitFor(() => handle.status()[0]?.state === 'watching', 'the first look');
 
     await writeFile(file, 'chunk-one-');
-    await delay(50);
-    await appendFile(file, 'chunk-two');
+    // Longer than a scan interval, shorter than the quiet period: a stall mid-file.
+    await delay(150);
+    expect(ingested).toEqual([]);
 
+    await appendFile(file, 'chunk-two');
     await waitFor(() => ingested.length === 1, 'the complete file');
     await delay(600);
 
@@ -124,7 +162,8 @@ describe('a folder source that watches for new files', () => {
     const ingested: IngestedFileInfo[] = [];
     const events: JobEvent[] = [];
     const handle = watch(folderSource('watch', source, true), destination, {
-      watchIntervalMs: 500,
+      watchIntervalMs: 100,
+      watchQuietPeriodMs: 1_000,
       ingested,
       events,
     });
@@ -134,11 +173,83 @@ describe('a folder source that watches for new files', () => {
     await waitFor(() => handle.status()[0]?.filesScanned === 1, 'the file to be seen once');
     await rm(removed);
 
-    await delay(700);
+    await delay(400);
 
     expect(ingested).toEqual([]);
     expect(events.some((event) => event.type === 'job.error')).toBe(false);
     expect(handle.status()[0]).toMatchObject({ state: 'watching', filesDone: 0 });
+  });
+
+  it('counts only files ingested before the run as already ingested', async () => {
+    const root = await makeTempDir();
+    const source = join(root, 'source');
+    const destination = join(root, 'destination');
+    const already = join(source, '_DSC0.NEF');
+    await createFile(already, 'old');
+    await createFile(join(source, '_DSC1.NEF'), 'one');
+    const info = await stat(already);
+    const seenStore = new MemorySeenStore();
+    seenStore.add({ sourceId: 'watch', path: already, size: info.size, mtimeMs: info.mtimeMs });
+    const ingested: IngestedFileInfo[] = [];
+    const handle = watch(folderSource('watch', source, true), destination, {
+      watchIntervalMs: 30,
+      watchQuietPeriodMs: 60,
+      ingested,
+      events: [],
+      seenStore,
+    });
+
+    await waitFor(() => ingested.length === 1, 'the new file');
+    await waitFor(() => handle.status()[0]?.filesSkipped === 1, 'the skipped count');
+    await delay(100);
+    expect(handle.status()[0]).toMatchObject({
+      state: 'watching',
+      filesDone: 1,
+      filesTotal: 1,
+      filesSkipped: 1,
+    });
+
+    await createFile(join(source, '_DSC2.NEF'), 'two');
+    await waitFor(() => ingested.length === 2, 'the second arrival');
+    await delay(100);
+
+    expect(handle.status()[0]).toMatchObject({
+      state: 'watching',
+      filesDone: 2,
+      filesTotal: 2,
+      filesSkipped: 1,
+    });
+    expect(await readdir(destination)).toHaveLength(2);
+  });
+
+  it('keeps watching when the folder goes away, and copies it when it comes back', async () => {
+    const root = await makeTempDir();
+    const source = join(root, 'source');
+    const destination = join(root, 'destination');
+    await mkdir(source);
+    const ingested: IngestedFileInfo[] = [];
+    const handle = watch(folderSource('watch', source, true), destination, {
+      watchIntervalMs: 50,
+      watchQuietPeriodMs: 60,
+      ingested,
+      events: [],
+    });
+    await waitFor(() => handle.status()[0]?.state === 'watching', 'the first look');
+
+    await rm(source, { recursive: true, force: true });
+    await waitFor(
+      () => handle.status()[0]?.error?.includes('does not exist') === true,
+      'the scan error',
+    );
+    expect(handle.status()[0]?.state).toBe('watching');
+
+    await mkdir(source);
+    await createFile(join(source, '_DSC1.NEF'), 'one');
+    await waitFor(() => ingested.length === 1, 'the photo after the folder came back');
+
+    expect(handle.status()[0]).toMatchObject({ state: 'watching', filesDone: 1 });
+    // The run keeps its first error on the row, as every ingest run does.
+    expect(handle.status()[0]?.error).toContain('does not exist');
   });
 
   it('finds a photo dropped into a new subfolder when the source is recursive', async () => {
@@ -149,6 +260,7 @@ describe('a folder source that watches for new files', () => {
     const ingested: IngestedFileInfo[] = [];
     const handle = watch(folderSource('watch', source, true), destination, {
       watchIntervalMs: 20,
+      watchQuietPeriodMs: 50,
       ingested,
       events: [],
     });
@@ -168,6 +280,7 @@ describe('a folder source that watches for new files', () => {
     await mkdir(source);
     const handle = watch(folderSource('watch', source, true), destination, {
       watchIntervalMs: 10_000,
+      watchQuietPeriodMs: 50,
       ingested: [],
       events: [],
     });
@@ -190,6 +303,7 @@ describe('a folder source that watches for new files', () => {
     const ingested: IngestedFileInfo[] = [];
     const watchRun = watch(folderSource('watch', source, true), destination, {
       watchIntervalMs: 20,
+      watchQuietPeriodMs: 50,
       ingested,
       events: [],
     });
