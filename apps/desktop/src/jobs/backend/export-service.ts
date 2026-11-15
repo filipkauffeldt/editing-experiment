@@ -416,7 +416,8 @@ export class ExportService {
     let upload: UploadState = 'none';
     if (items.length > 0) {
       if (items.some((item) => item.state === 'uploading')) upload = 'uploading';
-      else if (items.some((item) => item.state === 'queued')) upload = 'queued';
+      else if (items.some((item) => item.state === 'queued' || item.state === 'waiting'))
+        upload = 'queued';
       else if (items.some((item) => item.state === 'failed')) upload = 'failed';
       else upload = 'done';
     }

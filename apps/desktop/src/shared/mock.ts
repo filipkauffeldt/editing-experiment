@@ -250,7 +250,12 @@ export function mockPhotos(): Photo[] {
         edited: EDITED.has(n),
         metadataDiffersFromTemplate: n === 5,
         export: n === EXPORTING ? 'encoding' : EXPORTED.has(n) ? 'done' : 'none',
-        upload: upload === 'failed' ? 'failed' : (upload ?? 'none'),
+        upload:
+          upload === 'failed'
+            ? 'failed'
+            : upload === 'waiting'
+              ? 'queued'
+              : (upload ?? 'none'),
       },
       versions,
     };

@@ -610,16 +610,25 @@ export function selectLibraryPhotos(state: AppState): Photo[] {
 export interface UploadSummary {
   queued: number;
   uploading: number;
+  waiting: number;
   done: number;
   failed: number;
   active: number;
 }
 
 export function uploadSummary(uploads: UploadItem[]): UploadSummary {
-  const summary: UploadSummary = { queued: 0, uploading: 0, done: 0, failed: 0, active: 0 };
+  const summary: UploadSummary = {
+    queued: 0,
+    uploading: 0,
+    waiting: 0,
+    done: 0,
+    failed: 0,
+    active: 0,
+  };
   for (const item of uploads) {
     if (item.state === 'queued') summary.queued += 1;
     else if (item.state === 'uploading') summary.uploading += 1;
+    else if (item.state === 'waiting') summary.waiting += 1;
     else if (item.state === 'done') summary.done += 1;
     else if (item.state === 'failed') summary.failed += 1;
   }
@@ -4071,8 +4080,13 @@ export class AppStore {
         }
         const photo = this.state.photos.find((candidate) => candidate.id === event.photoId);
         if (photo) {
+          // The photo badge has no waiting state: it is still queued behind the outage.
           const upload: Photo['status']['upload'] =
-            event.state === 'cancelled' ? 'none' : event.state;
+            event.state === 'cancelled'
+              ? 'none'
+              : event.state === 'waiting'
+                ? 'queued'
+                : event.state;
           this.upsertPhoto({
             ...photo,
             status: {

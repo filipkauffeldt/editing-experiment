@@ -1,6 +1,7 @@
 import { access, mkdtemp, readdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
+import { DatabaseSync } from 'node:sqlite';
 import {
   asDestinationId,
   asPhotoId,
@@ -419,6 +420,56 @@ describe('UploadQueue', () => {
 
     const second = queue();
     expect(requireItem(second.list(), item!.id).state).toBe('queued');
+  });
+
+  it('opens a database written before the waiting state and before claim tokens', async () => {
+    const legacyPath = path.join(dir, 'legacy.sqlite');
+    const destination = folderDestination('dest-legacy', path.join(dir, 'legacy'));
+    const localPath = await localFile('legacy.jpg');
+    const legacy = new DatabaseSync(legacyPath);
+    legacy.exec(`
+      CREATE TABLE upload_items (
+        id TEXT PRIMARY KEY,
+        photo_id TEXT NOT NULL,
+        destination_id TEXT NOT NULL,
+        destination_json TEXT NOT NULL,
+        local_path TEXT NOT NULL,
+        remote_path TEXT NOT NULL,
+        state TEXT NOT NULL,
+        bytes_sent INTEGER NOT NULL DEFAULT 0,
+        bytes_total INTEGER NOT NULL DEFAULT 0,
+        attempts INTEGER NOT NULL DEFAULT 0,
+        error TEXT,
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL,
+        next_attempt_at INTEGER NOT NULL DEFAULT 0
+      );
+    `);
+    legacy
+      .prepare(
+        `INSERT INTO upload_items (
+           id, photo_id, destination_id, destination_json, local_path, remote_path,
+           state, bytes_sent, bytes_total, attempts, created_at, updated_at, next_attempt_at
+         ) VALUES (?, ?, ?, ?, ?, ?, 'queued', 0, 32, 0, 1, 1, 0)`,
+      )
+      .run(
+        'legacy-upload',
+        photoId,
+        destination.id,
+        JSON.stringify(destination),
+        localPath,
+        'legacy.jpg',
+      );
+    legacy.close();
+
+    const opened = new UploadQueue({ dbPath: legacyPath });
+    queues.push(opened);
+    const [restored] = opened.list();
+    expect(restored).toMatchObject({ id: 'legacy-upload', state: 'queued', attempts: 0 });
+    opened.start();
+    await opened.waitForIdle();
+    expect(requireItem(opened.list(), 'legacy-upload').state).toBe('done');
+    await expect(access(path.join(dir, 'legacy', 'legacy.jpg'))).resolves.toBeUndefined();
   });
 
   it('closes the database and refuses new work', async () => {
