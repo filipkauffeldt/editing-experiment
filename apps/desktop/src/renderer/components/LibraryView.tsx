@@ -9,6 +9,7 @@ import { useAppState, useAppStore } from '../store-context';
 import { ActionBar, barStyles } from './ActionBar';
 import { LibraryGrid } from './LibraryGrid';
 import { LibraryInspector } from './LibraryInspector';
+import { AutoAdvanceToggle } from './AutoAdvanceToggle';
 import { LibraryLoupe } from './LibraryLoupe';
 import { ZoomLevels } from './ZoomLevels';
 import { LibrarySidebar } from './LibrarySidebar';
@@ -74,7 +75,10 @@ export function LibraryView() {
       <div className={styles.centre}>
         <FilterBar scope={scope} shown={photos.length}>
           {library.view === 'loupe' ? (
-            <ZoomLevels viewKey={LOUPE_ZOOM_KEY} />
+            <>
+              <AutoAdvanceToggle />
+              <ZoomLevels viewKey={LOUPE_ZOOM_KEY} />
+            </>
           ) : (
             <div className={styles.size}>
               <Slider

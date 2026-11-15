@@ -802,3 +802,53 @@ describe('SettingsStore export folder migration', () => {
     expect(await readFile(file, 'utf8')).toBe(text);
   });
 });
+
+describe('SettingsStore auto-advance', () => {
+  it('is off until it is turned on, and survives a restart', async () => {
+    const file = join(await tempDir(), 'settings.json');
+    const store = new SettingsStore(file, defaults);
+    expect(store.get().autoAdvance).toBeUndefined();
+
+    store.set({ autoAdvance: true });
+    expect(store.get().autoAdvance).toBe(true);
+    expect(new SettingsStore(file, defaults).get().autoAdvance).toBe(true);
+
+    store.set({ autoAdvance: false });
+    expect(store.get().autoAdvance).toBeUndefined();
+    expect(new SettingsStore(file, defaults).get().autoAdvance).toBeUndefined();
+  });
+
+  it('is saved in the shared settings file, not in this computer’s', async () => {
+    const dir = await tempDir();
+    const file = join(dir, 'settings.json');
+    new SettingsStore(file, defaults).set({ autoAdvance: true, exportRoot: '/exports' });
+    const shared = JSON.parse(await readFile(file, 'utf8')) as Record<string, unknown>;
+    const machine = JSON.parse(await readFile(join(dir, 'machine.json'), 'utf8')) as Record<
+      string,
+      unknown
+    >;
+    expect(shared['autoAdvance']).toBe(true);
+    expect(machine['autoAdvance']).toBeUndefined();
+
+    // Another computer reading the same shared file, with its own machine file, has it on.
+    const otherMachine = await tempDir();
+    await writeFile(join(otherMachine, 'settings.json'), JSON.stringify(shared));
+    expect(new SettingsStore(join(otherMachine, 'settings.json'), defaults).get().autoAdvance).toBe(
+      true,
+    );
+  });
+
+  it('keeps it through other settings being saved', async () => {
+    const file = join(await tempDir(), 'settings.json');
+    const store = new SettingsStore(file, defaults);
+    store.set({ autoAdvance: true });
+    store.set({ panelWidths: { 'library-sidebar': 300 } });
+    store.set({ exportRoot: '/exports' });
+    expect(new SettingsStore(file, defaults).get().autoAdvance).toBe(true);
+  });
+
+  it('rejects a value that is not a boolean', () => {
+    const store = new SettingsStore(undefined, defaults);
+    expect(() => store.set({ autoAdvance: 'yes' as never })).toThrow(/autoAdvance/);
+  });
+});

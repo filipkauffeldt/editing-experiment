@@ -57,6 +57,8 @@ export interface SharedSettings {
   codeReplacementPaths: SettingsPathRef[];
   copyMetadataFields?: (keyof IptcFields)[];
   copySettingGroups?: DevelopSettingGroupId[];
+  /** Tag, rating and colour on one photo move to the next (the loupe and Develop). */
+  autoAdvance?: boolean;
   /** FTP and SFTP sources, without secrets (only their opaque `credentialRef`). */
   sources: SourceConfig[];
   /** FTP and SFTP destinations, without secrets. */
@@ -230,6 +232,7 @@ export function splitSettings(
     ...(state.settings.copySettingGroups === undefined
       ? {}
       : { copySettingGroups: state.settings.copySettingGroups }),
+    ...(state.settings.autoAdvance === true ? { autoAdvance: true } : {}),
     sources: state.sources.filter((source) => !isLocalSource(source)),
     destinations: state.destinations.filter((destination) => !isLocalDestination(destination)),
   };
@@ -291,6 +294,7 @@ export function mergeSettings(
     ...(shared.copySettingGroups === undefined
       ? {}
       : { copySettingGroups: shared.copySettingGroups }),
+    ...(shared.autoAdvance === true ? { autoAdvance: true } : {}),
     ...(machine.panelWidths === undefined ? {} : { panelWidths: machine.panelWidths }),
   };
   return {
@@ -345,6 +349,7 @@ export function normalizeSharedFile(parsed: unknown, defaults: AppSettings): Sha
     'codeReplacementPaths',
     'copyMetadataFields',
     'copySettingGroups',
+    'autoAdvance',
     'sources',
     'destinations',
   ]);
@@ -388,6 +393,7 @@ export function normalizeSharedFile(parsed: unknown, defaults: AppSettings): Sha
     codeReplacementPaths: pathRefs(parsed.codeReplacementPaths),
     ...(copyMetadataFields === undefined ? {} : { copyMetadataFields }),
     ...(copySettingGroups === undefined ? {} : { copySettingGroups }),
+    ...(parsed.autoAdvance === true ? { autoAdvance: true } : {}),
     sources: (Array.isArray(parsed.sources) ? parsed.sources : [])
       .map(migrateSource)
       .filter((source) => !isLocalSource(source)),

@@ -1423,27 +1423,62 @@ export class AppStore {
     const ids = this.labelTargets(photoId).filter((id) => this.photoById.has(id));
     if (ids.length === 0) return;
     const tagged = !ids.every((id) => this.photoById.get(id)?.tagged);
+    const next = this.nextToAdvanceTo(ids);
     this.applyLabelPatch(ids, { tagged });
     this.persistLabels(ids, { tagged });
-    if (this.state.module !== 'library') this.ensureSelectionVisible();
+    this.afterLabel(next);
   };
 
   readonly setColorClass = (colorClass: number, photoId?: PhotoId): void => {
     if (!Number.isInteger(colorClass) || colorClass < 0 || colorClass > 8) return;
     const ids = this.labelTargets(photoId).filter((id) => this.photoById.has(id));
     if (ids.length === 0) return;
+    const next = this.nextToAdvanceTo(ids);
     this.applyLabelPatch(ids, { colorClass });
     this.persistLabels(ids, { colorClass });
-    if (this.state.module !== 'library') this.ensureSelectionVisible();
+    this.afterLabel(next);
   };
 
   readonly setRating = (rating: number, photoId?: PhotoId): void => {
     if (!Number.isInteger(rating) || rating < 0 || rating > 5) return;
     const ids = this.labelTargets(photoId).filter((id) => this.photoById.has(id));
     if (ids.length === 0) return;
+    const next = this.nextToAdvanceTo(ids);
     this.applyLabelPatch(ids, { rating });
     this.persistLabels(ids, { rating });
-    if (this.state.module !== 'library') this.ensureSelectionVisible();
+    this.afterLabel(next);
+  };
+
+  /**
+   * The photo auto-advance moves to after a label change, worked out before the change (which can
+   * filter the photo out of the list). Only for a single photo in the loupe or in Develop, never
+   * for a multi-selection or in the grid, and not while a crop or retouch session is open.
+   */
+  private nextToAdvanceTo(changed: PhotoId[]): PhotoId | undefined {
+    const { settings, module, library, selection, selectedId, crop, retouch } = this.state;
+    if (settings?.autoAdvance !== true || crop || retouch) return undefined;
+    const loupe = module === 'library' && library.view === 'loupe';
+    if (!loupe && module !== 'develop') return undefined;
+    if (changed.length !== 1 || changed[0] !== selectedId || selection.length > 1) return undefined;
+    const photos = loupe ? this.getLibraryPhotos() : this.getVisiblePhotos();
+    const index = photos.findIndex((photo) => photo.id === selectedId);
+    return index < 0 ? undefined : photos[index + 1]?.id;
+  }
+
+  private afterLabel(next: PhotoId | undefined): void {
+    if (next) this.select(next);
+    else if (this.state.module !== 'library') this.ensureSelectionVisible();
+  }
+
+  /** Auto-advance on or off, saved in the settings. */
+  readonly setAutoAdvance = (on: boolean): void => {
+    const { settings } = this.state;
+    if (!settings) return;
+    this.set({ settings: { ...settings, autoAdvance: on } });
+    this.saveSettings({ autoAdvance: on }).catch((cause: unknown) => {
+      this.set({ settings });
+      this.toast('error', `Could not save the setting: ${messageOf(cause)}`);
+    });
   };
 
   // ------------------------------------------------------------------ modules

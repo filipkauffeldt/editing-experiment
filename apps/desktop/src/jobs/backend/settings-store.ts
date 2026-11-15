@@ -652,6 +652,7 @@ export class SettingsStore {
           copySettingGroups: sanitizeCopySettingGroups(patch.copySettingGroups) ?? [],
         };
       }
+      if (patch.autoAdvance !== undefined) next = { ...next, autoAdvance: patch.autoAdvance };
       return next;
     };
 

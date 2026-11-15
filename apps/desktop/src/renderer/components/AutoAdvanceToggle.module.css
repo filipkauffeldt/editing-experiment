@@ -1,0 +1,32 @@
+.toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  font-size: var(--fs-small);
+  white-space: nowrap;
+}
+
+.toggle:hover,
+.on {
+  color: var(--text);
+}
+
+/* The small square switch of the panel sections: outlined, with a filled square when on. */
+.box {
+  display: grid;
+  place-items: center;
+  width: 11px;
+  height: 11px;
+  border: 1px solid currentcolor;
+}
+
+.on .box::after {
+  width: 5px;
+  height: 5px;
+  background: currentcolor;
+  content: '';
+}

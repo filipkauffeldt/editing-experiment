@@ -331,6 +331,11 @@ export interface AppSettings {
   copySettingGroups?: DevelopSettingGroupId[];
   /** Side panel widths the user dragged; absent means every panel keeps its default. */
   panelWidths?: PanelWidths;
+  /**
+   * Tagging, rating or setting a colour class on a single photo in the Library loupe or in Develop
+   * moves on to the next photo. Absent means off.
+   */
+  autoAdvance?: boolean;
 }
 
 /** Arguments of `dialog:pick`. */

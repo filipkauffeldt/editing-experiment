@@ -200,6 +200,9 @@ export function assertSettingsPatch(patch: Partial<AppSettings>): void {
   if (patch.copySettingGroups !== undefined) {
     assertStringList(patch.copySettingGroups, 'copySettingGroups');
   }
+  if (patch.autoAdvance !== undefined && typeof patch.autoAdvance !== 'boolean') {
+    throw new IpcError('invalid_argument', 'autoAdvance must be true or false');
+  }
   if (patch.panelWidths !== undefined && !isObject(patch.panelWidths)) {
     throw new IpcError('invalid_argument', 'panelWidths must be an object of panel widths');
   }
