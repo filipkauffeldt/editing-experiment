@@ -64,10 +64,14 @@ describe('SettingsStore preset folders', () => {
   });
 
   it('opens a settings file from before the setting existed', async () => {
-    const file = join(await tempDir(), 'settings.json');
+    const dir = await tempDir();
+    const file = join(dir, 'settings.json');
     const old = new SettingsStore(file, defaults);
     old.set({ profileFolders: ['/profiles'] });
-    const written = JSON.parse(await readFile(file, 'utf8')) as Record<string, unknown>;
+    const written = JSON.parse(await readFile(join(dir, 'machine.json'), 'utf8')) as Record<
+      string,
+      unknown
+    >;
     expect(written['presetFolders']).toBeUndefined();
     const reopened = new SettingsStore(file, defaults).get();
     expect(reopened.presetFolders).toBeUndefined();
@@ -77,14 +81,15 @@ describe('SettingsStore preset folders', () => {
   it('ignores a value that is not a list and drops entries that are not paths', async () => {
     const dir = await tempDir();
     const file = join(dir, 'settings.json');
+    const machineFile = join(dir, 'machine.json');
     new SettingsStore(file, defaults).set({ profileFolders: ['/p'] });
-    const written = JSON.parse(await readFile(file, 'utf8')) as Record<string, unknown>;
+    const written = JSON.parse(await readFile(machineFile, 'utf8')) as Record<string, unknown>;
 
-    await writeFile(file, JSON.stringify({ ...written, presetFolders: '/not/a/list' }));
+    await writeFile(machineFile, JSON.stringify({ ...written, presetFolders: '/not/a/list' }));
     expect(new SettingsStore(file, defaults).get().presetFolders).toBeUndefined();
 
     await writeFile(
-      file,
+      machineFile,
       JSON.stringify({ ...written, presetFolders: ['/ok', '', 5, null, '/fine'] }),
     );
     expect(new SettingsStore(file, defaults).get().presetFolders).toEqual(['/ok', '/fine']);
@@ -147,13 +152,19 @@ describe('SettingsStore metadata templates', () => {
 
     const saved = JSON.parse(await readFile(file, 'utf8')) as {
       ingest: Record<string, unknown>;
-      metadataTemplates: string[];
-      codeReplacementPaths: string[];
+      metadataTemplates: unknown[];
+      codeReplacementPaths: unknown[];
     };
-    expect(saved.metadataTemplates).toEqual(['/templates/ingest.XMP']);
-    expect(saved.codeReplacementPaths).toEqual(['/codes/old.txt']);
+    expect(saved.metadataTemplates).toEqual([{ machine: expect.any(String) }]);
+    expect(saved.codeReplacementPaths).toEqual([{ machine: expect.any(String) }]);
     expect(saved.ingest.codeReplacementPaths).toBeUndefined();
-    expect(saved.ingest.metadataTemplatePath).toBe('/templates/ingest.XMP');
+    expect(saved.ingest.metadataTemplatePath).toBeUndefined();
+    const machine = JSON.parse(await readFile(join(dir, 'machine.json'), 'utf8')) as {
+      paths: Record<string, string>;
+    };
+    expect(Object.values(machine.paths)).toEqual(
+      expect.arrayContaining(['/templates/ingest.XMP', '/codes/old.txt']),
+    );
   });
 });
 
@@ -292,9 +303,9 @@ describe('SettingsStore panel widths', () => {
   });
 
   it('loads old files with no widths and drops unknown or non-numeric panels', async () => {
-    const file = join(await tempDir(), 'settings.json');
+    const first = await tempDir();
     await writeFile(
-      file,
+      join(first, 'settings.json'),
       JSON.stringify({
         ...defaults,
         panelWidths: undefined,
@@ -302,8 +313,12 @@ describe('SettingsStore panel widths', () => {
         destinations: [],
       }),
     );
-    expect(new SettingsStore(file, defaults).get().panelWidths).toBeUndefined();
+    expect(
+      new SettingsStore(join(first, 'settings.json'), defaults).get().panelWidths,
+    ).toBeUndefined();
 
+    const dir = await tempDir();
+    const file = join(dir, 'settings.json');
     await writeFile(
       file,
       JSON.stringify({
@@ -320,7 +335,10 @@ describe('SettingsStore panel widths', () => {
     const store = new SettingsStore(file, defaults);
     expect(store.get().panelWidths).toEqual({ 'library-inspector': 280 });
 
-    const saved = JSON.parse(await readFile(file, 'utf8')) as Record<string, unknown>;
+    const saved = JSON.parse(await readFile(join(dir, 'machine.json'), 'utf8')) as Record<
+      string,
+      unknown
+    >;
     expect(saved.panelWidths).toEqual({ 'library-inspector': 280 });
   });
 
@@ -570,7 +588,7 @@ describe('SettingsStore', () => {
     ]);
     expect(store.listSources().some((source) => 'lockedOnly' in source)).toBe(false);
 
-    const saved = JSON.parse(await readFile(file, 'utf8')) as {
+    const saved = JSON.parse(await readFile(join(dir, 'machine.json'), 'utf8')) as {
       sources: Array<Record<string, unknown>>;
     };
     expect(saved.sources[0]?.lockFilter).toBe('locked');
@@ -707,7 +725,7 @@ describe('SettingsStore', () => {
     const files = await readdir(dir);
     expect(files.some((name) => name.startsWith('settings.json.corrupt-'))).toBe(true);
     store.saveSource({ id: asSourceId('s'), name: 'S', kind: 'folder', path: '/x' });
-    expect(JSON.parse(await readFile(file, 'utf8')).sources).toHaveLength(1);
+    expect(JSON.parse(await readFile(join(dir, 'machine.json'), 'utf8')).sources).toHaveLength(1);
   });
 });
 
@@ -774,16 +792,12 @@ describe('SettingsStore export folder migration', () => {
     );
   });
 
-  it('does not rewrite a file that has nothing to migrate', async () => {
-    const file = join(await tempDir(), 'settings.json');
-    const text = JSON.stringify({
-      version: 2,
-      ingest: defaults.ingest,
-      exportPresets: [storedPreset('mine', 'Mine/{preset}')],
-      sources: [],
-      destinations: [],
-    });
-    await writeFile(file, text);
+  it('does not rewrite a settings file that has nothing to migrate', async () => {
+    const dir = await tempDir();
+    const file = join(dir, 'settings.json');
+    const store = new SettingsStore(file, defaults);
+    store.saveExportPreset({ ...defaults.exportPresets[0]!, id: asPresetId('mine'), name: 'Mine' });
+    const text = await readFile(file, 'utf8');
     new SettingsStore(file, defaults);
     expect(await readFile(file, 'utf8')).toBe(text);
   });

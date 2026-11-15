@@ -8,9 +8,16 @@ import { writeJsonAtomic } from './atomic-json';
 /** An imported preset plus what the file set that this app does not implement. */
 export type StoredPreset = EditPreset & { unsupported?: string[] };
 
-/** Imported Lightroom/Camera Raw presets, one JSON file each under userData. */
+/** The names {@link PresetStore.import} writes; anything else is a sync tool's file. */
+const PRESET_FILE = /^[0-9a-f]{24}\.json$/;
+
+/** Imported Lightroom/Camera Raw presets, one JSON file each under the settings folder. */
 export class PresetStore {
-  constructor(private readonly dir: string) {}
+  constructor(private readonly dir: string | (() => string)) {}
+
+  private directory(): string {
+    return typeof this.dir === 'function' ? this.dir() : this.dir;
+  }
 
   async list(): Promise<StoredPreset[]> {
     return (await this.read()).presets;
@@ -18,9 +25,10 @@ export class PresetStore {
 
   /** The imported presets; a stored file that cannot be read is a problem, not a failure of the list. */
   async read(): Promise<{ presets: StoredPreset[]; problems: PresetProblem[] }> {
+    const dir = this.directory();
     let names: string[];
     try {
-      names = await readdir(this.dir);
+      names = await readdir(dir);
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code === 'ENOENT') return { presets: [], problems: [] };
       throw error;
@@ -29,9 +37,10 @@ export class PresetStore {
     const problems: PresetProblem[] = [];
     await Promise.all(
       names
-        .filter((name) => name.endsWith('.json'))
+        // Only this app's files: sync tools leave their own copies and temp files here.
+        .filter((name) => PRESET_FILE.test(name))
         .map(async (name) => {
-          const file = join(this.dir, name);
+          const file = join(dir, name);
           try {
             presets.push(JSON.parse(await readFile(file, 'utf8')) as StoredPreset);
           } catch (error) {
@@ -53,9 +62,10 @@ export class PresetStore {
       throw new IpcError('invalid_argument', `preset ${path} has no id`);
     }
     const stored: StoredPreset = { ...preset, unsupported };
-    await mkdir(this.dir, { recursive: true });
+    const dir = this.directory();
+    await mkdir(dir, { recursive: true });
     const name = createHash('sha256').update(preset.id).digest('hex').slice(0, 24);
-    writeJsonAtomic(join(this.dir, `${name}.json`), stored);
+    writeJsonAtomic(join(dir, `${name}.json`), stored);
     return stored;
   }
 }

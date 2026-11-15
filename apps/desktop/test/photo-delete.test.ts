@@ -391,10 +391,10 @@ describe('deleting photos (real backend, real folders)', { timeout: 120_000 }, (
     } finally {
       await first.backend.dispose();
     }
-    // A settings file that names no destination (edited by hand; the API refuses to save one).
-    const file = join(root, 'userdata', 'settings.json');
+    // A machine file that names no destination (edited by hand; the API refuses to save one).
+    const file = join(root, 'userdata', 'machine.json');
     const saved = JSON.parse(await readFile(file, 'utf8'));
-    saved.ingest.destination = { path: '' };
+    saved.ingest.destinationPath = '';
     await writeFile(file, JSON.stringify(saved));
 
     const backend = await createBackend({
