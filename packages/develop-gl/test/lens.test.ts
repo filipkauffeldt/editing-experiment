@@ -262,6 +262,68 @@ describe('Lensfun profiles', () => {
     expect(nameScore('NIKKOR Z 24-70mm f/2.8 S', 'Nikkor Z 24-70mm f/4 S')).toBe(0);
   });
 
+  it('ignores Lensfun’s duplicate suffix and Sigma’s line labels', () => {
+    expect(
+      nameScore(
+        'AF-S Nikkor 70-200mm f/2.8G ED VR II',
+        'Nikon AF-S Nikkor 70-200mm f/2.8G ED VR II 162',
+      ),
+    ).toBe(1);
+    expect(
+      nameScore('Sigma 24-70mm F2.8 DG OS HSM | A', 'Sigma Sigma 24-70mm F2.8 DG OS HSM | Art 017'),
+    ).toBe(1);
+    // The suffix does not hide a different optical version.
+    expect(
+      nameScore('AF-S Nikkor 400mm f/2.8E FL ED VR', 'Nikon AF-S VR Nikkor 400mm f/2.8G ED'),
+    ).toBe(0);
+  });
+
+  // ExifTool's Nikon LensID names (Image::ExifTool::Nikon, %nikonLensIDs) as a D5, D750 or Z 6
+  // reports them. A third-party lens has no LensModel, so its name is this table lookup.
+  const BODIES = ['NIKON D5', 'NIKON D750', 'NIKON Z 6'] as const;
+  const F_MOUNT_LENSES: { name: string; expected: string | undefined }[] = [
+    {
+      name: 'Sigma 35mm F1.4 DG HSM',
+      expected: 'Sigma 35mm f/1.4 DG HSM | A',
+    },
+    { name: 'AF-S VR Nikkor 400mm f/2.8G ED', expected: 'Nikon AF-S VR Nikkor 400mm f/2.8G ED' },
+    // Lensfun has no 400mm f/2.8E FL entry.
+    { name: 'AF-S Nikkor 400mm f/2.8E FL ED VR', expected: undefined },
+    {
+      name: 'AF-S VR Zoom-Nikkor 70-200mm f/2.8G IF-ED',
+      expected: 'Nikon AF-S VR Zoom-Nikkor 70-200mm f/2.8G IF-ED',
+    },
+    {
+      name: 'AF-S Nikkor 70-200mm f/2.8G ED VR II',
+      expected: 'Nikon AF-S Nikkor 70-200mm f/2.8G ED VR II 162',
+    },
+    {
+      name: 'AF-S Nikkor 70-200mm f/2.8E FL ED VR',
+      expected: 'Nikon AF-S Nikkor 70-200mm f/2.8E FL ED VR 164',
+    },
+    {
+      name: 'AF-S Zoom-Nikkor 24-70mm f/2.8G ED',
+      expected: 'Nikon AF-S Zoom-Nikkor 24-70mm f/2.8G ED',
+    },
+    {
+      name: 'AF-S Nikkor 24-70mm f/2.8E ED VR',
+      expected: 'Nikon AF-S Nikkor 24-70mm f/2.8E ED VR 170',
+    },
+    { name: 'AF-S Nikkor 85mm f/1.4G', expected: 'Nikon AF-S Nikkor 85mm f/1.4G' },
+  ];
+  const F_MOUNT_CASES = BODIES.flatMap((body) =>
+    F_MOUNT_LENSES.map((lens) => ({ body, name: lens.name, expected: lens.expected })),
+  );
+  it.each(F_MOUNT_CASES)('matches $name on $body', ({ body, name, expected }) => {
+    const shot: LensShotInfo = {
+      cameraModel: body,
+      lensModel: name,
+      focalLength: 50,
+      fNumber: 2.8,
+    };
+    expect(matchLensfun(shot)?.model).toBe(expected);
+  });
+
   it('prefers the DX calibration for a DX body', () => {
     const z50: LensShotInfo = {
       cameraModel: 'NIKON Z 50',

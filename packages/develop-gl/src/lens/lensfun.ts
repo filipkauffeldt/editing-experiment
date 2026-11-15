@@ -2,7 +2,7 @@ import type { LensShotInfo } from '@ee/contracts';
 import database from '../../data/lensfun.json';
 
 /**
- * The Lensfun lens database (pruned to Nikon lenses, see `scripts/update-lensfun.ts`) and the
+ * The Lensfun lens database (pruned to the Nikon mounts, see `scripts/update-lensfun.ts`) and the
  * calibration models, written from Lensfun's documentation. No Lensfun code is used.
  *
  * Distortion maps a corrected radius to the recorded one (`r_d = r_u * (...)` in the docs);
@@ -47,22 +47,40 @@ export const lensfunKey = (lens: LensfunLens): string =>
 const byKey = new Map(LENSFUN.lenses.map((lens) => [lensfunKey(lens), lens]));
 export const lensfunByKey = (key: string): LensfunLens | undefined => byKey.get(key);
 
+/** Sigma's line labels: ExifTool writes `| A`, Lensfun writes `| Art`. */
+const LINE_LABELS: Record<string, string> = { art: 'a', sports: 's', contemporary: 'c' };
+
 const normalizeName = (name: string): string =>
   name
     .toLowerCase()
     .replace(/nikon corporation|nikkor|nikon/g, ' ')
     .replace(/[ƒ×]/g, 'f')
     .replace(/f\s*\//g, 'f')
-    .replace(/[()[\],:;]/g, ' ')
+    .replace(/[()[\],:;|]/g, ' ')
     .replace(/\s+/g, ' ')
     .trim();
 
-const nameTokens = (name: string): string[] => normalizeName(name).split(' ').filter(Boolean);
+const nameTokens = (name: string): string[] =>
+  normalizeName(name)
+    .split(' ')
+    .filter(Boolean)
+    .map((token) => LINE_LABELS[token] ?? token);
+
+/**
+ * Lensfun appends a bare number to some model names to tell duplicate entries apart (a lens ID or
+ * Sigma's product generation, e.g. `... VR II 162` or `... | Art 018`). ExifTool never writes it.
+ */
+function withoutTrailingId(tokens: string[], exifTokens: Set<string>): string[] {
+  const last = tokens[tokens.length - 1];
+  return tokens.length > 1 && last !== undefined && /^\d+$/.test(last) && !exifTokens.has(last)
+    ? tokens.slice(0, -1)
+    : tokens;
+}
 
 /** How well the EXIF lens name fits a database lens: 0 when numbers (focal lengths, apertures) disagree. */
 export function nameScore(exifName: string, lensName: string): number {
   const a = new Set(nameTokens(exifName));
-  const b = new Set(nameTokens(lensName));
+  const b = new Set(withoutTrailingId(nameTokens(lensName), a));
   const digits = (set: Set<string>): string =>
     [...set]
       .filter((token) => /\d/.test(token))
