@@ -36,6 +36,7 @@ interface SourceFormState {
   name: string;
   path: string;
   recursive: boolean;
+  watchForNewFiles: boolean;
   fileTypes: FileTypeFilter;
   lockFilter: LockFilter;
   incremental: boolean;
@@ -65,6 +66,7 @@ const sourceForm = (
     name: source?.name ?? '',
     path: '',
     recursive: true,
+    watchForNewFiles: false,
     fileTypes: DEFAULT_FILE_TYPES,
     lockFilter: DEFAULT_LOCK_FILTER,
     incremental: DEFAULT_INCREMENTAL,
@@ -89,6 +91,7 @@ const sourceForm = (
       kind: source.kind,
       path: source.path,
       recursive: source.recursive ?? false,
+      watchForNewFiles: source.watchForNewFiles ?? false,
       ...sourceFilterValues(source),
     };
   }
@@ -130,6 +133,7 @@ function buildSource(form: SourceFormState): { source: SourceConfig; error?: str
         name,
         path: form.path.trim(),
         recursive: form.recursive,
+        watchForNewFiles: form.watchForNewFiles,
         fileTypes: form.fileTypes,
         lockFilter: form.lockFilter,
         incremental: form.incremental,
@@ -515,6 +519,14 @@ function SourcesSection() {
             }}
             name={form.name.trim() || undefined}
             onChange={(value) => patch(value)}
+            watch={
+              form.kind === 'folder'
+                ? {
+                    value: form.watchForNewFiles,
+                    onChange: (watchForNewFiles) => patch({ watchForNewFiles }),
+                  }
+                : undefined
+            }
           />
         )}
 

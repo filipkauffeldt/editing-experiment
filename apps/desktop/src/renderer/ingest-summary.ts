@@ -64,12 +64,14 @@ export function filterSummary(filters: {
   fileTypes: FileTypeFilter;
   lockFilter: LockFilter;
   incremental: boolean;
+  watchForNewFiles?: boolean;
 }): string {
   return (
     [
       TYPES[filters.fileTypes],
       LOCKS[filters.lockFilter],
       filters.incremental ? undefined : 'including already ingested',
+      filters.watchForNewFiles ? 'watching for new files' : undefined,
     ]
       .filter(Boolean)
       .join(' · ') || 'all files'

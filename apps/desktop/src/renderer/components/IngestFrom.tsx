@@ -5,7 +5,7 @@ import { filterSummary, photoCount } from '../ingest-summary';
 import type { IngestRun } from '../store';
 import { useAppState, useAppStore } from '../store-context';
 import { PlusIcon, RefreshIcon } from './icons';
-import { SourceFilters, sourceFilterValues } from './SourceFilters';
+import { SourceFilters, sourceFilterValues, type SourceFilterValues } from './SourceFilters';
 import { Button } from './ui/Button';
 import { Dot } from './ui/Dot';
 import styles from './IngestFrom.module.css';
@@ -116,11 +116,37 @@ function IngestSourceFilters({
 }) {
   const store = useAppStore();
   const [value, setValue] = useState(() => sourceFilterValues(source));
+  const [watchForNewFiles, setWatchForNewFiles] = useState(
+    () => source.kind === 'folder' && source.watchForNewFiles === true,
+  );
   useEffect(() => {
     // A save from another view (e.g. settings) is the new truth.
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setValue(sourceFilterValues(source));
+    setWatchForNewFiles(source.kind === 'folder' && source.watchForNewFiles === true);
   }, [source]);
+
+  const save = (next: SourceConfig): void => {
+    void store
+      .saveSource(next)
+      .catch((cause: unknown) =>
+        store.notify(
+          'error',
+          `Could not save the source filters: ${
+            cause instanceof Error ? cause.message : String(cause)
+          }`,
+        ),
+      );
+  };
+
+  /** Both edits save the whole local state, so a fast second click cannot drop the first. */
+  const saveState = (filters: SourceFilterValues, watchValue: boolean): void => {
+    save(
+      source.kind === 'folder'
+        ? { ...source, ...filters, watchForNewFiles: watchValue }
+        : { ...source, ...filters },
+    );
+  };
 
   return (
     <SourceFilters
@@ -128,17 +154,19 @@ function IngestSourceFilters({
       name={source.name}
       onChange={(next) => {
         setValue(next);
-        void store
-          .saveSource({ ...source, ...next })
-          .catch((cause: unknown) =>
-            store.notify(
-              'error',
-              `Could not save the source filters: ${
-                cause instanceof Error ? cause.message : String(cause)
-              }`,
-            ),
-          );
+        saveState(next, watchForNewFiles);
       }}
+      watch={
+        source.kind === 'folder'
+          ? {
+              value: watchForNewFiles,
+              onChange: (next) => {
+                setWatchForNewFiles(next);
+                saveState(value, next);
+              },
+            }
+          : undefined
+      }
     />
   );
 }
@@ -206,7 +234,12 @@ function FilterLine({
       onClick={onToggle}
     >
       <span className="mono">{location}</span>
-      <span className={styles.summary}>{filterSummary(sourceFilterValues(source))}</span>
+      <span className={styles.summary}>
+        {filterSummary({
+          ...sourceFilterValues(source),
+          watchForNewFiles: source.kind === 'folder' && source.watchForNewFiles === true,
+        })}
+      </span>
     </button>
   );
 }
