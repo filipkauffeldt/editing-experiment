@@ -53,6 +53,27 @@ const uploadsWithStates = (states: UploadItem['state'][]): UploadItem[] =>
     .slice(0, states.length)
     .map((upload, index) => ({ ...upload, state: states[index]! }));
 
+describe('top bar system info', () => {
+  it('names the app version on the status mark', async () => {
+    await renderApp({
+      handlers: {
+        'system:info': async () => ({
+          appVersion: '0.1.0',
+          coreVersion: '0.4.2',
+          platform: 'linux',
+          mock: false,
+        }),
+      },
+    });
+    const mark = await waitFor(() => {
+      const element = screen.getByTestId('status-bar').querySelector('[data-health="ok"]');
+      expect(element).not.toBeNull();
+      return element as HTMLElement;
+    });
+    expect(mark.title).toMatch(/^version 0\.1\.0 · .*core 0\.4\.2/);
+  });
+});
+
 describe('top bar activity', () => {
   it('shows no status while nothing is running', async () => {
     await renderApp({

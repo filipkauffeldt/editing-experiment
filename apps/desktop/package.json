@@ -1,6 +1,6 @@
 {
   "name": "@ee/desktop",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "private": true,
   "description": "Electron app: main, preload, jobs utility process and React renderer.",
   "license": "GPL-3.0-or-later",
