@@ -142,6 +142,26 @@ describe('a folder source that watches for new files', () => {
     expect(handle.status()[0]).toMatchObject({ state: 'watching', filesDone: 0 });
   });
 
+  it('finds a photo dropped into a new subfolder when the source is recursive', async () => {
+    const root = await makeTempDir();
+    const source = join(root, 'source');
+    const destination = join(root, 'destination');
+    await mkdir(source);
+    const ingested: IngestedFileInfo[] = [];
+    const handle = watch(folderSource('watch', source, true), destination, {
+      watchIntervalMs: 20,
+      ingested,
+      events: [],
+    });
+    await waitFor(() => handle.status()[0]?.state === 'watching', 'the first look');
+
+    await createFile(join(source, '100NCZ', '_DSC1.NEF'), 'one');
+    await waitFor(() => ingested.length === 1, 'the photo in the new subfolder');
+
+    expect(ingested[0]?.sourceFileName).toBe('_DSC1.NEF');
+    expect(await readdir(destination)).toEqual([ingested[0]!.fileName]);
+  });
+
   it('ends the watch when stopped, without waiting for the interval', async () => {
     const root = await makeTempDir();
     const source = join(root, 'source');
