@@ -350,6 +350,7 @@ export function startIngest(config: IngestConfig, hooks: IngestHooks = {}): Inge
     /** Paths already added to `filesTotal` in this run, so a slow file is counted once. */
     const counted = new Set<string>();
     let firstLook = true;
+    let scanFailureReported = false;
 
     try {
       while (!signal.aborted) {
@@ -366,12 +367,16 @@ export function startIngest(config: IngestConfig, hooks: IngestHooks = {}): Inge
             return;
           }
           // A folder on a network share can go away for a while; keep watching.
-          recordError(job, error);
+          if (!scanFailureReported) {
+            recordError(job, error);
+            scanFailureReported = true;
+          }
           setState(job, 'watching');
           await sleep(watchIntervalMs, signal);
           continue;
         }
         firstLook = false;
+        scanFailureReported = false;
 
         if (result.warning !== undefined) {
           job.warning = result.warning;
