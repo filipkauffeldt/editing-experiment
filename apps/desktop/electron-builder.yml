@@ -18,9 +18,11 @@ files:
   # Workspace packages are source that the bundle already contains.
   - '!node_modules/@ee/**'
 
-# Gives the packaged app its own userData folder (~/.config/Editing Experiment, %APPDATA%\Editing
-# Experiment), apart from the one a development run uses.
+# The packaged app gets its own userData folder (~/.config/Editing Experiment, %APPDATA%\Editing
+# Experiment), apart from the one a development run uses, and a plain install folder: the installer
+# names it after the package name, which is the workspace's "@ee/desktop" otherwise.
 extraMetadata:
+  name: editing-experiment
   productName: Editing Experiment
 
 asar: true

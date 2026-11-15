@@ -437,7 +437,7 @@ signing, no auto-update and no icon of its own (Electron's is used).
   `process.resourcesPath` first, and `findYuNetModel` looks in `resources/models` after
   `EE_YUNET_MODEL_PATH`. Under `electron .` the property exists but the folders do not, so a
   development run still resolves the workspace package and `fixtures/models`.
-- **Name and data folder.** `extraMetadata.productName` makes the packaged app's `userData`
+- **Name and data folder.** `extraMetadata.name` (`editing-experiment`, the installer's folder) and `extraMetadata.productName` make the packaged app's `userData`
   `~/.config/Editing Experiment` or `%APPDATA%\Editing Experiment`. A development run reads the
   workspace package name, so its data is elsewhere and the two never share databases or an instance lock.
 - **Sandbox.** The app never disables it. electron-builder writes `--no-sandbox` into the

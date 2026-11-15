@@ -212,7 +212,7 @@ chmod +x editing-experiment-0.1.0-linux-x64.AppImage
 ### Windows (installer)
 
 Run `editing-experiment-0.1.0-win-x64-setup.exe`. It installs for the current user, without
-administrator rights, below `%LOCALAPPDATA%\Programs\Editing Experiment` and starts the app.
+administrator rights, below `%LOCALAPPDATA%\Programs\editing-experiment` and starts the app.
 SmartScreen warns about an unknown publisher because the installer is not signed: choose More info,
 then Run anyway. Data lives in `%APPDATA%\Editing Experiment`. Uninstalling removes the program and
 leaves that folder.

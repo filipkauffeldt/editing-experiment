@@ -121,12 +121,14 @@ jobs:
           if (-not $setup) { throw 'no installer was built' }
           Start-Process -FilePath $setup.FullName -ArgumentList '/S' -Wait
           # The installer hands over to a copy of itself, so Wait can return before the files are there.
-          $exe = Join-Path $env:LOCALAPPDATA 'Programs\Editing Experiment\Editing Experiment.exe'
-          for ($i = 0; $i -lt 60 -and -not (Test-Path $exe); $i++) { Start-Sleep -Seconds 2 }
-          if (-not (Test-Path $exe)) {
-            Get-ChildItem (Join-Path $env:LOCALAPPDATA 'Programs') -Recurse -Depth 2 -ErrorAction SilentlyContinue | Select-Object -First 40 FullName | Out-String
-            throw "the installer did not put the app at $exe"
+          $programs = Join-Path $env:LOCALAPPDATA 'Programs'
+          $exe = $null
+          for ($i = 0; $i -lt 60 -and -not $exe; $i++) {
+            $exe = Get-ChildItem $programs -Recurse -Depth 2 -Filter 'Editing Experiment.exe' -ErrorAction SilentlyContinue | Select-Object -First 1 -ExpandProperty FullName
+            if (-not $exe) { Start-Sleep -Seconds 2 }
           }
+          if (-not $exe) { throw "the installer did not put the app below $programs" }
+          "installed at $exe"
           "EE_PACKAGED_APP=$exe" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
       - name: Launch the installed app (pnpm test:e2e:packaged)
         if: ${{ !cancelled() && github.event_name != 'pull_request' }}
