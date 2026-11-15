@@ -90,6 +90,17 @@ export interface JobsTrashRequestMessage {
   path: string;
 }
 
+/** A warning or error the jobs process wants in the log file, which only main writes. */
+export interface JobsLogMessage {
+  kind: 'log';
+  level: 'warn' | 'error';
+  message: string;
+}
+
 /** Messages jobs → main. */
 export type JobsOutgoingMessage =
-  JobsResultMessage | JobsAppResultMessage | JobsEventMessage | JobsTrashRequestMessage;
+  | JobsResultMessage
+  | JobsAppResultMessage
+  | JobsEventMessage
+  | JobsTrashRequestMessage
+  | JobsLogMessage;

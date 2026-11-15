@@ -6,7 +6,15 @@ import {
   type InvokeChannel,
   type IpcHandlers,
 } from '@ee/contracts';
-import { BrowserWindow, MessageChannelMain, app, ipcMain, safeStorage, shell } from 'electron';
+import {
+  BrowserWindow,
+  MessageChannelMain,
+  app,
+  dialog,
+  ipcMain,
+  safeStorage,
+  shell,
+} from 'electron';
 import { join } from 'node:path';
 import { credentialsHandlers, dialogHandlers, settingsHandlers } from './handlers';
 import { CredentialStore, credentialHandlers } from './credentials';
@@ -14,6 +22,7 @@ import { JobsClient } from './jobs-client';
 import { handleAppProtocol, registerAppScheme } from './protocol';
 import { hostFor } from '../shared/routing';
 import { electronSecretPort, serveSecrets } from '../shared/secret-port';
+import { logJobEvent, logRenderer, startLogging } from './logging';
 import { installApplicationMenu } from './menu';
 import { createTrashItem } from './trash';
 import { createMainWindow } from './window';
@@ -30,9 +39,13 @@ if (process.env.EE_SOFTWARE_GL === '1') {
   app.commandLine.appendSwitch('enable-unsafe-swiftshader');
 }
 
+// Warnings, errors and crashes of all three processes go to userData/logs, from here on.
+const log = startLogging(app.getPath('userData'));
+
 registerAppScheme();
 
 function broadcast(channel: EventChannel, payload: unknown): void {
+  logJobEvent(log, channel, payload);
   for (const window of BrowserWindow.getAllWindows()) {
     window.webContents.send(channel, payload);
   }
@@ -50,10 +63,15 @@ void app.whenReady().then(() => {
   } else {
     // Secrets live encrypted in main and reach the jobs process only through a
     // private port, on request; the renderer can set and remove but never read.
-    credentials = new CredentialStore(join(userDataDir, 'credentials.json'), safeStorage, (m) => {
-      console.warn(m);
-      startupWarnings.push(m);
-    });
+    credentials = new CredentialStore(
+      join(userDataDir, 'credentials.json'),
+      safeStorage,
+      (m) => {
+        console.warn(m);
+        startupWarnings.push(m);
+      },
+      (secret) => log.addSecrets([secret.password, secret.privateKey, secret.passphrase]),
+    );
     Object.assign(mainHandlers, credentialHandlers(credentials));
   }
 
@@ -63,6 +81,7 @@ void app.whenReady().then(() => {
     userDataDir,
     // Utility processes have no `shell`; the deleter in the jobs process asks for each file.
     trashItem: createTrashItem((path) => shell.trashItem(path)),
+    onLog: (level, message) => log.write('jobs', level, message),
     // A restarted jobs process needs a fresh port: the old one died with it.
     onStart: (client) => {
       if (!credentials) return;
@@ -103,10 +122,28 @@ void app.whenReady().then(() => {
     void jobs.shutdown(8_000).finally(() => app.quit());
   });
   app.on('activate', () => {
-    if (BrowserWindow.getAllWindows().length === 0) createMainWindow();
+    if (BrowserWindow.getAllWindows().length === 0) {
+      const window = createMainWindow();
+      logRenderer(window.webContents, log);
+    }
   });
-  installApplicationMenu();
+  installApplicationMenu({
+    openLogFolder: () => {
+      void shell.openPath(log.file.dir).then((problem) => {
+        if (problem) console.warn(`Could not open the log folder: ${problem}`);
+      });
+    },
+    about: () => {
+      void dialog.showMessageBox({
+        type: 'info',
+        title: 'About Editing Experiment',
+        message: `Editing Experiment ${app.getVersion()}`,
+        detail: `Electron ${process.versions.electron}, Chromium ${process.versions.chrome}\nData: ${userDataDir}`,
+      });
+    },
+  });
   const window = createMainWindow();
+  logRenderer(window.webContents, log);
   // Problems found before the renderer existed are shown once it has loaded.
   window.webContents.once('did-finish-load', () => {
     for (const message of startupWarnings.splice(0)) {

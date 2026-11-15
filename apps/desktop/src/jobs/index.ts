@@ -6,6 +6,7 @@ import {
   type IpcHandlers,
 } from '@ee/contracts';
 import type { JobsIncomingMessage, JobsOutgoingMessage } from '../shared/jobs-protocol';
+import { bridgeConsole, logProcessErrors } from '../shared/log-bridge';
 import { TrashBridge } from '../shared/trash-bridge';
 import { createSecretClient, electronSecretPort, type SecretPort } from '../shared/secret-port';
 import { createBackend, type Backend } from './backend/backend';
@@ -23,6 +24,13 @@ const parentPort = process.parentPort;
 const send = (message: JobsOutgoingMessage): void => parentPort.postMessage(message);
 const emit = (channel: EventChannel, payload: unknown): void =>
   send({ kind: 'event', channel, payload });
+
+// Main owns the log file. Anything this process warns or fails on is also sent there.
+const sendLog = (level: 'warn' | 'error', message: string): void =>
+  send({ kind: 'log', level, message });
+bridgeConsole(console, sendLog);
+// An uncaught exception leaves the process in an unknown state: log it, then let main restart it.
+logProcessErrors(process, sendLog, () => setTimeout(() => process.exit(1), 100).unref());
 
 const mock = process.env.EE_MOCK === '1';
 const appVersion = process.env.EE_APP_VERSION ?? '0.0.0';
