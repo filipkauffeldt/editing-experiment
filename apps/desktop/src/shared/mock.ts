@@ -171,6 +171,7 @@ function uploadStateFor(n: number): Exclude<UploadItemState, 'cancelled'> | unde
   if (n === 2 || n === 9) return 'queued';
   if (n === 3) return 'uploading';
   if (n === 4) return 'failed';
+  if (n === 5) return 'waiting';
   return undefined;
 }
 
@@ -251,11 +252,7 @@ export function mockPhotos(): Photo[] {
         metadataDiffersFromTemplate: n === 5,
         export: n === EXPORTING ? 'encoding' : EXPORTED.has(n) ? 'done' : 'none',
         upload:
-          upload === 'failed'
-            ? 'failed'
-            : upload === 'waiting'
-              ? 'queued'
-              : (upload ?? 'none'),
+          upload === 'failed' ? 'failed' : upload === 'waiting' ? 'queued' : (upload ?? 'none'),
       },
       versions,
     };
@@ -403,8 +400,13 @@ export function mockUploads(): UploadItem[] {
         state,
         bytesSent: Math.round(bytesTotal * fraction),
         bytesTotal,
-        attempts: state === 'failed' ? 3 : 1,
-        error: state === 'failed' ? 'Connection timed out after 30 s' : undefined,
+        attempts: state === 'failed' ? 3 : state === 'waiting' ? 0 : 1,
+        error:
+          state === 'failed'
+            ? 'Permission denied'
+            : state === 'waiting'
+              ? 'Cannot reach the server'
+              : undefined,
       } satisfies UploadItem;
     });
 }

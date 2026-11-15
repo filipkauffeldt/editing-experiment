@@ -206,13 +206,7 @@ export interface RenderedImage {
 }
 
 /** Lifecycle of an upload queue entry. */
-export type UploadItemState =
-  | 'queued'
-  | 'uploading'
-  | 'waiting'
-  | 'done'
-  | 'failed'
-  | 'cancelled';
+export type UploadItemState = 'queued' | 'uploading' | 'waiting' | 'done' | 'failed' | 'cancelled';
 
 /** One file waiting for, or being sent to, one destination. */
 export interface UploadItem {

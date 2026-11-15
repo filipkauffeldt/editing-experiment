@@ -149,6 +149,19 @@ export function TopBar({ className, loadError }: { className?: string; loadError
             Sending <span className="mono">{summary.active}</span>
           </button>
         )}
+        {summary.waiting > 0 && (
+          <button
+            type="button"
+            className={`${styles.status} ${styles.statusButton} ${styles.statusOn}`}
+            onClick={() => setUploadOpen((open) => !open)}
+            aria-expanded={uploadOpen}
+            title="Waiting for the connection, not failed"
+            data-testid="upload-waiting-summary"
+          >
+            <Dot tone="idle" />
+            Waiting for connection <span className="mono">{summary.waiting}</span>
+          </button>
+        )}
         {uploadOpen && <UploadPopover onClose={() => setUploadOpen(false)} />}
       </div>
 

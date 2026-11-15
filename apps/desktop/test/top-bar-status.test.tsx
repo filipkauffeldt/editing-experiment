@@ -1,4 +1,4 @@
-import { asJobId, type IngestJobInfo, type UploadItem } from '@ee/contracts';
+import { asJobId, asUploadId, type IngestJobInfo, type UploadItem } from '@ee/contracts';
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, describe, expect, it } from 'vitest';
 import { App } from '../src/renderer/App';
@@ -240,5 +240,91 @@ describe('top bar activity', () => {
     const popover = await screen.findByRole('dialog', { name: 'Upload queue' });
     expect(within(popover).getByText('Failed')).toBeTruthy();
     expect(within(popover).getAllByText('Sent')).toHaveLength(4);
+  });
+
+  it('shows waiting for connection apart from failed and offers Cancel', async () => {
+    const { fake } = await renderApp({
+      handlers: {
+        'ingest:status': async () => [],
+        'upload:list': async () => [
+          {
+            ...mockUploads()[0]!,
+            id: asUploadId('waiting-upload'),
+            state: 'waiting',
+            attempts: 0,
+            error: 'Cannot reach the server',
+          },
+          {
+            ...mockUploads()[1]!,
+            id: asUploadId('failed-upload'),
+            state: 'failed',
+            attempts: 3,
+            error: 'Permission denied',
+          },
+        ],
+      },
+    });
+
+    expect(screen.queryByTestId('upload-summary')).toBeNull();
+    const waiting = screen.getByTestId('upload-waiting-summary');
+    expect(waiting.textContent?.replace(/\s+/g, ' ')).toContain('Waiting for connection 1');
+    expect(screen.getByTestId('failed-summary').textContent?.replace(/\s+/g, ' ')).toContain(
+      '1 failed',
+    );
+
+    fireEvent.click(waiting);
+    const popover = await screen.findByRole('dialog', { name: 'Upload queue' });
+    const row = within(popover).getByTestId('upload-item-waiting-upload');
+    expect(row.textContent).toContain('Waiting for connection');
+    expect(row.textContent).toContain('Cannot reach the server');
+    expect(within(row).queryByRole('button', { name: 'Retry' })).toBeNull();
+    fireEvent.click(within(row).getByRole('button', { name: 'Cancel' }));
+    await waitFor(() =>
+      expect(
+        fake.calls.some(
+          (call) =>
+            call.channel === 'upload:cancel' &&
+            (call.args[0] as { uploadId: string }).uploadId === 'waiting-upload',
+        ),
+      ).toBe(true),
+    );
+    expect(within(popover).getByTestId('upload-item-failed-upload').textContent).toContain(
+      'Permission denied',
+    );
+  });
+
+  it('moves an upload to waiting from a queue event without calling it failed', async () => {
+    const { store, fake } = await renderApp({
+      handlers: {
+        'ingest:status': async () => [],
+        'upload:list': async () => uploadsWithStates(['failed', 'done', 'done', 'done']),
+      },
+    });
+    const item = store.getState().uploads.find((upload) => upload.state === 'failed');
+    if (!item) throw new Error('no failed upload to move');
+
+    act(() => {
+      fake.emit('jobs:event', {
+        type: 'upload.state',
+        at: Date.now(),
+        uploadId: item.id,
+        photoId: item.photoId,
+        destinationId: item.destinationId,
+        state: 'waiting',
+        error: 'Cannot reach the server',
+      });
+    });
+
+    await waitFor(() =>
+      expect(screen.getByTestId('upload-waiting-summary').textContent).toContain(
+        'Waiting for connection',
+      ),
+    );
+    expect(screen.queryByTestId('failed-summary')).toBeNull();
+    expect(screen.queryByTestId('upload-summary')).toBeNull();
+    // The photo badge has no waiting state, so it stays queued rather than failed.
+    expect(store.getState().photos.find((photo) => photo.id === item.photoId)?.status.upload).toBe(
+      'queued',
+    );
   });
 });

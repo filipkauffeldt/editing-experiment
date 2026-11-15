@@ -68,13 +68,6 @@ async function failureOf(run: () => Promise<unknown>): Promise<unknown> {
   throw new Error('expected the transfer to fail');
 }
 
-/** A port nothing listens on: opened, noted and closed again. */
-async function closedPort(start: () => Promise<{ port: number; close(): Promise<void> }>) {
-  const probe = await start();
-  await probe.close();
-  return probe.port;
-}
-
 describe('connection outage classification', () => {
   let dir: string;
   let ftp: FtpTestServer | undefined;

@@ -70,7 +70,12 @@ export function UploadPopover({ onClose }: { onClose(): void }) {
           const percent =
             item.bytesTotal > 0 ? Math.round((item.bytesSent / item.bytesTotal) * 100) : 0;
           return (
-            <div key={item.id} className={styles.item}>
+            <div
+              key={item.id}
+              className={styles.item}
+              data-testid={`upload-item-${item.id}`}
+              data-state={item.state}
+            >
               <span className={`${styles.stateIcon} ${styles[item.state]}`}>
                 {stateIcon(item.state)}
               </span>
@@ -89,10 +94,7 @@ export function UploadPopover({ onClose }: { onClose(): void }) {
                     <span style={{ width: `${percent}%` }} />
                   </div>
                 )}
-                {item.state === 'failed' && item.error && (
-                  <div className={styles.error}>{item.error}</div>
-                )}
-                {item.state === 'waiting' && item.error && (
+                {(item.state === 'failed' || item.state === 'waiting') && item.error && (
                   <div className={styles.error}>{item.error}</div>
                 )}
                 {item.state === 'uploading' && (

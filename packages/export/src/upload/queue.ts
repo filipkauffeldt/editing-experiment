@@ -29,10 +29,11 @@ export interface UploadQueueOptions {
   hooks?: ExportHooks;
   /** Parallel transfers per destination. Default 2. */
   concurrencyPerDestination?: number;
-  /** Attempts per item before it is marked failed. Default 5. */
+  /** Attempts per item before it is marked failed. A connection outage does not count. Default 5. */
   maxAttempts?: number;
-  /** First retry delay; doubles per attempt. Default 1000 ms. */
+  /** First retry or outage-probe delay; doubles per failure. Default 1000 ms. */
   retryBaseDelayMs?: number;
+  /** Longest wait between outage probes. Default 30 000 ms. */
   retryMaxDelayMs?: number;
   /** Injectable connector registry (tests, future destination kinds). */
   connectorFactory?: ConnectorFactory;
@@ -418,6 +419,10 @@ export class UploadQueue {
         this.enterOutage(item, claimToken, outage);
         return;
       }
+
+      // The destination answered this time, whatever it said: the outage is over
+      // for the other rows, which may now take their turn.
+      this.recoverDestination(item.destinationId);
 
       const message = safeErrorMessage(error, secret, [
         item.destination.kind === 'folder' ? undefined : item.destination.username,
