@@ -14,7 +14,8 @@ The proof of concept covers one end-to-end workflow:
    verification, an optional backup destination, a Photo Mechanic metadata template
    (Replace by default, or Fill empty) and an optional develop preset. Local sources
    filter by file type (RAW / JPEG / All), lock state (Locked / Unlocked / All) and
-   skipping what was already ingested (on by default). XMP sidecars are written and thumbnails appear
+   skipping what was already ingested (on by default). A folder source can also keep
+   watching for new files while its run goes. XMP sidecars are written and thumbnails appear
    live in the film strip.
 2. **Library.** A virtualised grid and loupe, multi-selection, the shared filter bar,
    ratings, colour classes, tagging and batch captioning.
