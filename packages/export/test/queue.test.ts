@@ -11,7 +11,7 @@ import {
   type UploadItem,
 } from '@ee/contracts';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { UploadQueue } from '../src/index';
+import { UploadQueue, type StoredUploadItem } from '../src/index';
 import type { ConnectorFactory, UploadRequest } from '../src/upload/types';
 
 const photoId = asPhotoId('photo-queue');
@@ -55,6 +55,14 @@ function requireItem(items: UploadItem[], id: string): UploadItem {
   const item = items.find((entry) => entry.id === id);
   if (item === undefined) throw new Error(`missing upload ${id}`);
   return item;
+}
+
+async function waitForQueue(predicate: () => boolean, timeoutMs = 3_000): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  while (!predicate()) {
+    if (Date.now() > deadline) throw new Error('timed out waiting for the upload queue');
+    await new Promise((resolve) => setTimeout(resolve, 5));
+  }
 }
 
 describe('UploadQueue', () => {
@@ -326,6 +334,44 @@ describe('UploadQueue', () => {
     release();
     await queueInstance.waitForIdle();
     expect(requireItem(queueInstance.list(), first!.id).state).toBe('done');
+  });
+
+  it('counts concurrent failures in one outage as one failed probe', async () => {
+    const destination = folderDestination('dest-wave', path.join(dir, 'wave'));
+    const start = 2_000_000;
+    let attempts = 0;
+    const queueInstance = queue({
+      now: () => start,
+      concurrencyPerDestination: 2,
+      retryBaseDelayMs: 200,
+      retryMaxDelayMs: 10_000,
+      connectorFactory: factoryFor(async () => {
+        attempts++;
+        throw Object.assign(new Error('connect ECONNREFUSED'), { code: 'ECONNREFUSED' });
+      }),
+    });
+
+    const [first] = await queueInstance.enqueue(photoId, await localFile('wave-1.jpg'), [
+      destination,
+    ]);
+    const [second] = await queueInstance.enqueue(photoId, await localFile('wave-2.jpg'), [
+      destination,
+    ]);
+    queueInstance.start();
+    await waitForQueue(
+      () => queueInstance.list().filter((item) => item.state === 'waiting').length === 2,
+    );
+
+    expect(attempts).toBe(2);
+    const store = (
+      queueInstance as unknown as {
+        store: { get(id: string): StoredUploadItem | undefined };
+      }
+    ).store;
+    // The second in-flight failure belongs to the same probe, so the wait is the base delay.
+    for (const item of [first!, second!]) {
+      expect(store.get(item.id)?.nextAttemptAt).toBe(start + 200);
+    }
   });
 
   it('marks the item failed after maxAttempts and allows a manual retry', async () => {

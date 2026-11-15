@@ -56,6 +56,8 @@ interface DestinationOutage {
   nextProbeAt: number;
   /** Consecutive failed probes, which grow the wait between them. */
   probes: number;
+  /** Claim token of the probe that is currently testing the connection, if any. */
+  probeClaim?: string;
 }
 
 /**
@@ -292,13 +294,16 @@ export class UploadQueue {
           const active = this.activePerDestination.get(item.destinationId) ?? 0;
           if (active >= this.concurrency) continue;
           const outage = this.outages.get(item.destinationId);
+          let probing = false;
           if (outage !== undefined) {
             if (active > 0 || probed.has(item.destinationId)) continue;
             if (now < outage.nextProbeAt) continue;
             probed.add(item.destinationId);
+            probing = true;
           }
           const claimToken = randomUUID();
           if (!this.store.claim(item.id, claimToken, now)) continue;
+          if (probing && outage !== undefined) outage.probeClaim = claimToken;
 
           const controller = new AbortController();
           this.activePerDestination.set(
@@ -448,15 +453,28 @@ export class UploadQueue {
 
   /**
    * Parks the failed row and the rest of its destination until the next probe.
-   * The wait doubles per consecutive failed probe and stops at `retryMaxDelayMs`.
+   * The wait doubles per failed probe and stops at `retryMaxDelayMs`. A
+   * transfer that was already running when the outage started is not a probe,
+   * so two concurrent failures still count as one failed probe.
    */
   private enterOutage(item: StoredUploadItem, claimToken: string, kind: ConnectionOutage): void {
     const now = this.now();
-    const probes = (this.outages.get(item.destinationId)?.probes ?? 0) + 1;
-    const delay = Math.min(this.retryBaseDelayMs * 2 ** (probes - 1), this.retryMaxDelayMs);
-    const nextProbeAt = now + delay;
+    const previous = this.outages.get(item.destinationId);
+    const isProbe = previous === undefined || previous.probeClaim === claimToken;
+    const probes = isProbe ? (previous?.probes ?? 0) + 1 : (previous?.probes ?? 0);
+    const delay = Math.min(
+      this.retryBaseDelayMs * 2 ** Math.max(0, probes - 1),
+      this.retryMaxDelayMs,
+    );
+    const nextProbeAt = isProbe ? now + delay : (previous?.nextProbeAt ?? now + delay);
     const reason = outageReason(kind);
-    this.outages.set(item.destinationId, { kind, reason, nextProbeAt, probes });
+    this.outages.set(item.destinationId, {
+      kind,
+      reason,
+      nextProbeAt,
+      probes,
+      ...(isProbe ? {} : { probeClaim: previous?.probeClaim }),
+    });
     // The other rows are still `queued` or `waiting`, so they are parked first;
     // the row that just failed is still `uploading` and becomes `waiting` after.
     const parked = this.store.markDestinationWaiting(item.destinationId, reason, nextProbeAt, now);
