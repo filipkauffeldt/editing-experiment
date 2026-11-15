@@ -96,7 +96,8 @@ Export / Export & send.
   belong to one computer (ingest destination, export root, local folder and
   card sources, profile and preset folders) stay in its own profile. A template
   inside the settings folder is stored relative to it, so it resolves on both
-  computers. Settings → Settings folder shows the folder, copies the current
+  computers. A file outside the settings folder is listed only on the computer
+  that added it. Settings → Settings folder shows the folder, copies the current
   settings into an empty one, or adopts a folder that already has settings.
 - Anonymous FTP for sources and destinations when no credentials are set.
 

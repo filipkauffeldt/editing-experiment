@@ -337,8 +337,9 @@ step. Each computer still keeps its own paths.
   stored in `machine.json` under an id and is not shown on the other computer. A `C:\…` path is
   never resolved on Linux and a POSIX path is never resolved on Windows. `settings-paths.ts` takes
   the path API, so both rules are tested on every host. `ingest.metadataTemplatePath` uses the same
-  rule. When a computer edits a list, references it cannot resolve (another computer's files) stay
-  in the shared file.
+  rule. A file outside the settings folder is listed only on the computer that added it. When a
+  computer edits a list, references it cannot resolve (another computer's files) stay in the shared
+  file.
 - **Choosing the folder.** Settings → Settings folder shows the folder in use. The default is
   `userData`, so an existing install does not change. Picking an empty folder offers to copy the
   current settings and imported presets there, or to use it empty. Picking a folder that already
@@ -348,7 +349,9 @@ step. Each computer still keeps its own paths.
   reads `settings.json` when it differs from what it last read and applies only the one change being
   made, then writes, so a change from the other computer is not overwritten. The app reads the
   folder at start. There is no watcher. Only `settings.json`, `machine.json` and the imported
-  presets named `<24 hex>.json` are read, so sync conflict copies and temp files are ignored.
+  presets named `<24 hex>.json` are read, so sync conflict copies and temp files are ignored. A file
+  whose `version` is newer than this app is read but never written. An unreadable file in a synced
+  folder is reported and left alone rather than replaced with defaults.
 - **Migration.** First run after an older version splits the old `userData/settings.json`: the
   machine file is written first, then the shared file through `settings.json.migrating` and a
   rename, and the old file is kept as `settings.json.pre-settings-folder`. A crash between the
