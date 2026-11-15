@@ -130,6 +130,11 @@ describe('connection outage classification', () => {
 
   it('keeps a login failure, a missing file and a bad path as real failures', () => {
     expect(connectionOutage(withCode('530 Invalid username or password', 530))).toBeUndefined();
+    expect(connectionOutage(withCode('530 Login incorrect', 530))).toBeUndefined();
+    expect(connectionOutage(withCode('553 File name not allowed', 553))).toBeUndefined();
+    // A reply code decides, whatever the server's wording says.
+    expect(connectionOutage(withCode('550 Permission denied: timeout', 550))).toBeUndefined();
+    expect(connectionOutage(withCode('550 Connection closed by server', 550))).toBeUndefined();
     expect(
       connectionOutage(new Error('getConnection: All configured authentication methods failed')),
     ).toBeUndefined();

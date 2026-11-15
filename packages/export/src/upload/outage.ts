@@ -72,8 +72,10 @@ export function connectionOutage(error: unknown): ConnectionOutage | undefined {
     if (current instanceof Error) {
       const code = (current as { code?: unknown }).code;
       if (typeof code === 'number') {
-        const outage = FTP_OUTAGE_CODES.get(code);
-        if (outage !== undefined) return outage;
+        // A numeric code is a reply from the server (an FTP reply or an SFTP
+        // status), not a transport error. Wording in its message must not turn
+        // a refusal such as 550 into an outage, so only the table decides.
+        return FTP_OUTAGE_CODES.get(code);
       } else if (typeof code === 'string') {
         const outage = NETWORK_CODES.get(code.toUpperCase());
         if (outage !== undefined) return outage;
