@@ -328,7 +328,8 @@ export function startIngest(config: IngestConfig, hooks: IngestHooks = {}): Inge
      * A file is copied only after two looks a moment apart saw the same size and
      * modified time, so a file another program is still writing is left for the
      * next look instead of copied half done. A file that changes keeps missing
-     * that test and is never attempted, so it cannot fail the run.
+     * that test and is never attempted, so it cannot fail the run. When nothing
+     * changed, a look is a listing and a stat per image: no copy, hash or hook runs.
      */
     const observed = new Map<string, { size: number; mtimeMs: number }>();
     /** A file whose copy failed is not tried again until it changes; its error stays on the row. */
