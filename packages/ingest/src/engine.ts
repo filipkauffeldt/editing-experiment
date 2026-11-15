@@ -19,8 +19,9 @@ import { ingestFile } from './ingest-file';
 import { filterSourceFiles, sourceRoot } from './filters';
 import { connectRemote } from './remote';
 import { pollRemoteSource } from './remote/poller';
-import { MemorySeenStore, SqliteSeenStore, type SeenStore } from './seen-store';
+import { MemorySeenStore, SqliteSeenStore, type SeenFile, type SeenStore } from './seen-store';
 import { findSidecar, listSourceFiles } from './sources';
+import { sleep } from './sleep';
 import { defaultExpandTemplate, type ExpandTemplate } from './template';
 import type { FileCopier, IngestHooks, IngestHandle, SourceFile } from './types';
 
@@ -39,6 +40,27 @@ interface JobRuntime {
   secretValues: string[];
   readonly controller: AbortController;
 }
+
+/** One source file that is still to be copied, with its seen-store keys. */
+interface LocalEntry {
+  file: SourceFile;
+  seq: number;
+  key: SeenFile;
+  legacyKey: SeenFile;
+}
+
+/** A look at a local source after the type and lock filters and the seen store. */
+interface LocalScan {
+  pending: LocalEntry[];
+  skipped: number;
+  warning?: string;
+}
+
+/**
+ * How long the folder watcher waits between scans. Short enough that a photo
+ * arrives while the game is still on, long enough that a scan costs little.
+ */
+const DEFAULT_WATCH_INTERVAL_MS = 1_000;
 
 function isRemoteSource(
   source: SourceConfig,
@@ -164,38 +186,14 @@ export function startIngest(config: IngestConfig, hooks: IngestHooks = {}): Inge
     const signal = job.controller.signal;
     let failed = false;
 
-    let files: SourceFile[];
-    try {
-      files = await listSourceFiles(source);
-      const filtered = await filterSourceFiles(files, {
-        ...(source.fileTypes === undefined ? {} : { fileTypes: source.fileTypes }),
-        ...(source.lockFilter === undefined ? {} : { lockFilter: source.lockFilter }),
-        probeDirectory: sourceRoot(source),
-        ...(hooks.isDirectoryWritable ? { isDirectoryWritable: hooks.isDirectoryWritable } : {}),
-      });
-      files = filtered.files;
-      job.filesScanned = filtered.scanned;
-      if (filtered.warning !== undefined) {
-        job.warning = filtered.warning;
-        job.filesTotal = 0;
-        emitProgress(job);
-        setState(job, 'failed');
-        return;
-      }
-    } catch (error) {
-      recordError(job, error);
-      setState(job, 'failed');
-      return;
-    }
-
     const incremental = source.incremental ?? true;
     // A card is remembered by its path below the mount point: the same card comes back as
     // `E:\` or `NIKON Z 61`. The absolute path is still honoured for what older runs recorded.
     const seenPath = (path: string): string =>
       source.kind === 'card' ? relative(source.mountPath, path).split(sep).join('/') : path;
-    const entries = files.map((file, index) => ({
+    const entryFor = (file: SourceFile, seq: number): LocalEntry => ({
       file,
-      seq: index + 1,
+      seq,
       key: {
         sourceId: source.id,
         path: seenPath(file.path),
@@ -203,87 +201,258 @@ export function startIngest(config: IngestConfig, hooks: IngestHooks = {}): Inge
         mtimeMs: file.mtimeMs,
       },
       legacyKey: { sourceId: source.id, path: file.path, size: file.size, mtimeMs: file.mtimeMs },
-    }));
-    const pending = incremental
-      ? entries.filter(
-          (entry) =>
-            !seenStore.has(entry.key) &&
-            !(source.kind === 'card' && seenStore.has(entry.legacyKey)),
-        )
-      : entries;
-    job.filesTotal = pending.length;
-    job.filesSkipped = entries.length - pending.length;
-    emitProgress(job);
-    setState(job, 'running');
+    });
 
-    for (const entry of pending) {
-      const { file, key, seq } = entry;
-      if (signal.aborted) {
+    /** One look at the source: filter, then drop what the seen store already has. */
+    const scan = async (): Promise<LocalScan> => {
+      const files = await listSourceFiles(source);
+      const filtered = await filterSourceFiles(files, {
+        ...(source.fileTypes === undefined ? {} : { fileTypes: source.fileTypes }),
+        ...(source.lockFilter === undefined ? {} : { lockFilter: source.lockFilter }),
+        probeDirectory: sourceRoot(source),
+        ...(hooks.isDirectoryWritable ? { isDirectoryWritable: hooks.isDirectoryWritable } : {}),
+      });
+      job.filesScanned = filtered.scanned;
+      if (filtered.warning !== undefined) {
+        return { pending: [], skipped: 0, warning: filtered.warning };
+      }
+      const entries = filtered.files.map((file, index) => entryFor(file, index + 1));
+      const pending = incremental
+        ? entries.filter(
+            (entry) =>
+              !seenStore.has(entry.key) &&
+              !(source.kind === 'card' && seenStore.has(entry.legacyKey)),
+          )
+        : entries;
+      return { pending, skipped: entries.length - pending.length };
+    };
+
+    const copyOne = async (entry: LocalEntry): Promise<void> => {
+      const { file, key } = entry;
+      job.seq = entry.seq;
+
+      emitProgress(job, file.name);
+      const sidecar = await findSidecar(file);
+      const sidecarInfo = sidecar ? await stat(sidecar) : undefined;
+      const info = await ingestFile(
+        {
+          jobId: job.jobId,
+          source,
+          sourcePath: file.path,
+          sourceFileName: file.name,
+          sourceDisplayPath: file.path,
+          ...(sidecar ? { sidecarSourcePath: sidecar } : {}),
+          ...(sidecarInfo ? { sidecarSize: sidecarInfo.size } : {}),
+          seq: job.seq,
+          size: file.size,
+          mtimeMs: file.mtimeMs,
+          ...(sidecarInfo ? { sidecarMtimeMs: sidecarInfo.mtimeMs } : {}),
+        },
+        {
+          ...(hooks.onWarning ? { onWarning: hooks.onWarning } : {}),
+          config,
+          expandTemplate,
+          copier,
+          signal,
+          now: now(),
+          baseNames,
+        },
+      );
+
+      seenStore.add(key);
+      if (sidecar && sidecarInfo) {
+        seenStore.add({
+          sourceId: source.id,
+          path: seenPath(sidecar),
+          size: sidecarInfo.size,
+          mtimeMs: sidecarInfo.mtimeMs,
+        });
+      }
+
+      job.filesDone += 1;
+      job.bytesDone += info.size + (info.sidecarSize ?? 0);
+      emitProgress(job);
+
+      if (hooks.onFileIngested) {
+        try {
+          await hooks.onFileIngested(info);
+        } catch (error) {
+          failed = true;
+          recordError(job, error);
+        }
+      }
+    };
+
+    const watch = source.kind === 'folder' && source.watchForNewFiles === true;
+    if (!watch) {
+      let result: LocalScan;
+      try {
+        result = await scan();
+      } catch (error) {
+        recordError(job, error);
+        setState(job, 'failed');
         return;
       }
-      job.seq = seq;
+      if (result.warning !== undefined) {
+        job.warning = result.warning;
+        job.filesTotal = 0;
+        emitProgress(job);
+        setState(job, 'failed');
+        return;
+      }
+      job.filesTotal = result.pending.length;
+      job.filesSkipped = result.skipped;
+      emitProgress(job);
+      setState(job, 'running');
 
+      for (const entry of result.pending) {
+        if (signal.aborted) {
+          return;
+        }
+        try {
+          await copyOne(entry);
+        } catch (error) {
+          if (isAbortError(error) || signal.aborted) {
+            return;
+          }
+          failed = true;
+          recordError(job, error);
+        }
+      }
+
+      setState(job, failed ? 'failed' : 'finished');
+      return;
+    }
+
+    /**
+     * A file is copied only after two looks a moment apart saw the same size and
+     * modified time, so a file another program is still writing is left for the
+     * next look instead of copied half done. A file that changes keeps missing
+     * that test and is never attempted, so it cannot fail the run.
+     */
+    const observed = new Map<string, { size: number; mtimeMs: number }>();
+    /** A file whose copy failed is not tried again until it changes; its error stays on the row. */
+    const failedFiles = new Set<string>();
+    const signature = (file: SourceFile): string =>
+      `${file.path}\u0000${file.size}\u0000${file.mtimeMs}`;
+    const unchangedOnDisk = async (file: SourceFile): Promise<boolean> => {
       try {
-        emitProgress(job, file.name);
-        const sidecar = await findSidecar(file);
-        const sidecarInfo = sidecar ? await stat(sidecar) : undefined;
-        const info = await ingestFile(
-          {
-            jobId: job.jobId,
-            source,
-            sourcePath: file.path,
-            sourceFileName: file.name,
-            sourceDisplayPath: file.path,
-            ...(sidecar ? { sidecarSourcePath: sidecar } : {}),
-            ...(sidecarInfo ? { sidecarSize: sidecarInfo.size } : {}),
-            seq: job.seq,
-            size: file.size,
-            mtimeMs: file.mtimeMs,
-            ...(sidecarInfo ? { sidecarMtimeMs: sidecarInfo.mtimeMs } : {}),
-          },
-          {
-            ...(hooks.onWarning ? { onWarning: hooks.onWarning } : {}),
-            config,
-            expandTemplate,
-            copier,
-            signal,
-            now: now(),
-            baseNames,
-          },
-        );
+        const info = await stat(file.path);
+        return info.isFile() && info.size === file.size && info.mtimeMs === file.mtimeMs;
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+          return false;
+        }
+        throw error;
+      }
+    };
+    const watchIntervalMs = hooks.watchIntervalMs ?? DEFAULT_WATCH_INTERVAL_MS;
+    /** Paths already added to `filesTotal` in this run, so a slow file is counted once. */
+    const counted = new Set<string>();
+    let firstLook = true;
 
-        seenStore.add(key);
-        if (sidecar && sidecarInfo) {
-          seenStore.add({
-            sourceId: source.id,
-            path: seenPath(sidecar),
-            size: sidecarInfo.size,
-            mtimeMs: sidecarInfo.mtimeMs,
+    try {
+      while (!signal.aborted) {
+        let result: LocalScan;
+        try {
+          result = await scan();
+        } catch (error) {
+          if (isAbortError(error) || signal.aborted) {
+            return;
+          }
+          if (firstLook) {
+            recordError(job, error);
+            setState(job, 'failed');
+            return;
+          }
+          // A folder on a network share can go away for a while; keep watching.
+          recordError(job, error);
+          setState(job, 'watching');
+          await sleep(watchIntervalMs, signal);
+          continue;
+        }
+        firstLook = false;
+
+        if (result.warning !== undefined) {
+          job.warning = result.warning;
+          job.filesTotal = 0;
+          emitProgress(job);
+          setState(job, 'failed');
+          return;
+        }
+
+        job.filesSkipped = result.skipped;
+        const current = new Map(result.pending.map((entry) => [entry.file.path, entry.file]));
+        const stable = result.pending.filter((entry) => {
+          const previous = observed.get(entry.file.path);
+          return (
+            entry.file.size > 0 &&
+            previous?.size === entry.file.size &&
+            previous.mtimeMs === entry.file.mtimeMs
+          );
+        });
+        // Forget files that left the folder, so one that comes back is observed afresh.
+        for (const path of observed.keys()) {
+          if (!current.has(path)) {
+            observed.delete(path);
+          }
+        }
+        for (const entry of result.pending) {
+          observed.set(entry.file.path, {
+            size: entry.file.size,
+            mtimeMs: entry.file.mtimeMs,
           });
         }
 
-        job.filesDone += 1;
-        job.bytesDone += info.size + (info.sidecarSize ?? 0);
+        const candidates = stable.filter((entry) => !failedFiles.has(signature(entry.file)));
+        const newcomers = result.pending.filter((entry) => !counted.has(entry.file.path));
+        for (const entry of newcomers) {
+          counted.add(entry.file.path);
+        }
+        job.filesTotal += newcomers.length;
+        if (candidates.length > 0) {
+          setState(job, 'running');
+        }
         emitProgress(job);
 
-        if (hooks.onFileIngested) {
+        for (const candidate of candidates) {
+          if (signal.aborted) {
+            return;
+          }
           try {
-            await hooks.onFileIngested(info);
+            // The two looks are a moment old now; the file must still be that file.
+            if (!(await unchangedOnDisk(candidate.file))) {
+              continue;
+            }
+            job.seq += 1;
+            await copyOne({ ...candidate, seq: job.seq });
+            // A file that changes later is a new copy and gets counted again.
+            counted.delete(candidate.file.path);
           } catch (error) {
-            failed = true;
+            if (isAbortError(error) || signal.aborted) {
+              return;
+            }
+            failedFiles.add(signature(candidate.file));
+            if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+              // The photo was removed between the look and the copy: skip it, not the run.
+              continue;
+            }
             recordError(job, error);
           }
         }
-      } catch (error) {
-        if (isAbortError(error) || signal.aborted) {
+
+        if (signal.aborted) {
           return;
         }
-        failed = true;
-        recordError(job, error);
+        setState(job, 'watching');
+        await sleep(watchIntervalMs, signal);
       }
+    } catch (error) {
+      if (isAbortError(error) || signal.aborted) {
+        return;
+      }
+      throw error;
     }
-
-    setState(job, failed ? 'failed' : 'finished');
   };
 
   const runRemoteJob = async (
