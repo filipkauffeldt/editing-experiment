@@ -182,7 +182,7 @@ describe.skipIf(!packaged || !nef || !haveDisplay)('packaged app', () => {
   });
 
   it('hands a second launch over to the running instance and exits', async () => {
-    const second = spawn(packaged!, ['--no-sandbox'], {
+    const second = spawn(packaged!, process.platform === 'linux' ? ['--no-sandbox'] : [], {
       env: appEnv({ EE_USER_DATA_DIR: userData }),
       stdio: 'ignore',
     });
