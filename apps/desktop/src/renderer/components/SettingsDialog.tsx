@@ -12,11 +12,13 @@ import { useEffect, useRef, useState } from 'react';
 import { ee } from '../ee';
 import type { DialogTab } from '../store';
 import { useAppState, useAppStore } from '../store-context';
+import { useCredentialPresence } from '../use-credential-presence';
 import { FolderIcon, PlusIcon, ServerIcon } from './icons';
 import { MetadataSettings } from './MetadataSettings';
 import { Modal } from './Modal';
 import { PresetsSettings } from './PresetsSettings';
 import { ProfilesSettings } from './ProfilesSettings';
+import { SettingsFolderSettings } from './SettingsFolderSettings';
 import {
   DEFAULT_FILE_TYPES,
   DEFAULT_INCREMENTAL,
@@ -209,13 +211,20 @@ function SecretField({
             ? 'Stored — leave blank to keep'
             : anonymous
               ? 'Anonymous (leave empty)'
-              : 'Not set'
+              : 'Not stored on this computer'
         }
         onChange={(event) => onChange(event.target.value)}
       />
     </label>
   );
 }
+
+const remoteRefs = (sources: SourceConfig[]): string[] =>
+  sources.flatMap((source) =>
+    (source.kind === 'ftp' || source.kind === 'sftp') && source.credentialRef
+      ? [source.credentialRef]
+      : [],
+  );
 
 const SOURCE_KINDS: { kind: SourceConfig['kind']; label: string }[] = [
   { kind: 'folder', label: 'Folder' },
@@ -289,11 +298,13 @@ function SourceList({
   selectedId,
   onSelect,
   onCreate,
+  passwordNeeded,
 }: {
   sources: SourceConfig[];
   selectedId: string;
   onSelect(id: string): void;
   onCreate(kind: SourceConfig['kind']): void;
+  passwordNeeded: ReadonlySet<string>;
 }) {
   return (
     <aside className={styles.listPane}>
@@ -314,7 +325,12 @@ function SourceList({
             </span>
             <span className={styles.listText}>
               <span className={styles.listName}>{source.name}</span>
-              <span className={styles.listKind}>{source.kind.toUpperCase()}</span>
+              <span className={styles.listKind}>
+                {source.kind.toUpperCase()}
+                {passwordNeeded.has(source.id) && (
+                  <span className={styles.passwordNeeded}> · Password needed</span>
+                )}
+              </span>
             </span>
           </button>
         ))}
@@ -329,6 +345,20 @@ function SourceList({
 function SourcesSection() {
   const store = useAppStore();
   const state = useAppState();
+  const [credentialsVersion, setCredentialsVersion] = useState(0);
+  const credentials = useCredentialPresence(remoteRefs(state.sources), credentialsVersion);
+  const passwordNeeded = new Set(
+    state.sources
+      .filter(
+        (source) =>
+          (source.kind === 'ftp' || source.kind === 'sftp') &&
+          source.credentialRef !== undefined &&
+          source.credentialRef !== '' &&
+          credentials.loaded &&
+          !credentials.present.has(source.credentialRef),
+      )
+      .map((source) => source.id),
+  );
   const [creating, setCreating] = useState<SourceConfig['kind']>();
   const [selectedId, setSelectedId] = useState(state.sources[0]?.id ?? '');
   const selected = state.sources.find((source) => source.id === selectedId);
@@ -387,6 +417,7 @@ function SourcesSection() {
         password: '',
       });
       setStatus('Source saved. Credentials are stored by the main process.');
+      setCredentialsVersion((value) => value + 1);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : String(cause));
     } finally {
@@ -431,6 +462,7 @@ function SourcesSection() {
         selectedId={selectedId}
         onSelect={select}
         onCreate={create}
+        passwordNeeded={passwordNeeded}
       />
       <form
         className={styles.form}
@@ -564,11 +596,19 @@ function SourcesSection() {
               </label>
               <SecretField
                 value={form.password}
-                hasStored={Boolean(form.credentialRef)}
-                anonymous={form.kind === 'ftp'}
+                hasStored={form.credentialRef !== '' && credentials.present.has(form.credentialRef)}
+                anonymous={form.kind === 'ftp' && form.credentialRef === ''}
                 onChange={(password) => patch({ password })}
               />
             </div>
+            {form.credentialRef !== '' &&
+              credentials.loaded &&
+              !credentials.present.has(form.credentialRef) && (
+                <p className={styles.warning}>
+                  Password needed: this source came from another computer. Enter its password here
+                  and save.
+                </p>
+              )}
             <label className={styles.field}>
               <span className={styles.label}>Remote path</span>
               <input
@@ -756,6 +796,25 @@ function buildDestination(form: DestinationFormState): {
 function DestinationsSection() {
   const store = useAppStore();
   const state = useAppState();
+  const [credentialsVersion, setCredentialsVersion] = useState(0);
+  const credentials = useCredentialPresence(
+    state.destinations.flatMap((destination) =>
+      destination.kind !== 'folder' && destination.credentialRef ? [destination.credentialRef] : [],
+    ),
+    credentialsVersion,
+  );
+  const passwordNeeded = new Set(
+    state.destinations
+      .filter(
+        (destination) =>
+          destination.kind !== 'folder' &&
+          destination.credentialRef !== undefined &&
+          destination.credentialRef !== '' &&
+          credentials.loaded &&
+          !credentials.present.has(destination.credentialRef),
+      )
+      .map((destination) => destination.id),
+  );
   const [selectedId, setSelectedId] = useState(state.destinations[0]?.id ?? '');
   const [creating, setCreating] = useState<Destination['kind']>();
   const selected = state.destinations.find((destination) => destination.id === selectedId);
@@ -804,6 +863,7 @@ function DestinationsSection() {
       setSelectedId(saved.id);
       setForm({ ...destinationForm(saved, saved.kind), password: '' });
       setStatus('Destination saved.');
+      setCredentialsVersion((value) => value + 1);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : String(cause));
     } finally {
@@ -856,7 +916,12 @@ function DestinationsSection() {
               </span>
               <span className={styles.listText}>
                 <span className={styles.listName}>{destination.name}</span>
-                <span className={styles.listKind}>{destination.kind.toUpperCase()}</span>
+                <span className={styles.listKind}>
+                  {destination.kind.toUpperCase()}
+                  {passwordNeeded.has(destination.id) && (
+                    <span className={styles.passwordNeeded}> · Password needed</span>
+                  )}
+                </span>
               </span>
             </button>
           ))}
@@ -936,11 +1001,19 @@ function DestinationsSection() {
               </label>
               <SecretField
                 value={form.password}
-                hasStored={Boolean(form.credentialRef)}
-                anonymous={form.kind === 'ftp'}
+                hasStored={form.credentialRef !== '' && credentials.present.has(form.credentialRef)}
+                anonymous={form.kind === 'ftp' && form.credentialRef === ''}
                 onChange={(password) => patch({ password })}
               />
             </div>
+            {form.credentialRef !== '' &&
+              credentials.loaded &&
+              !credentials.present.has(form.credentialRef) && (
+                <p className={styles.warning}>
+                  Password needed: this destination came from another computer. Enter its password
+                  here and save.
+                </p>
+              )}
             {form.kind === 'ftp' && (
               <label className={styles.field}>
                 <span className={styles.label}>Security</span>
@@ -1008,6 +1081,7 @@ export function SettingsDialog() {
     { id: 'metadata', label: 'Metadata' },
     { id: 'profiles', label: 'Profiles' },
     { id: 'presets', label: 'Presets' },
+    { id: 'settingsFolder', label: 'Settings folder' },
   ];
 
   return (
@@ -1042,6 +1116,7 @@ export function SettingsDialog() {
         {tab === 'metadata' && <MetadataSettings />}
         {tab === 'profiles' && <ProfilesSettings />}
         {tab === 'presets' && <PresetsSettings />}
+        {tab === 'settingsFolder' && <SettingsFolderSettings />}
       </div>
     </Modal>
   );

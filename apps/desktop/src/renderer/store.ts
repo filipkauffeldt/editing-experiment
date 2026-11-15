@@ -56,6 +56,8 @@ import {
   type ProfileResolution,
   type ResolvedProfile,
   type MosaicOp,
+  type SettingsFolderChoice,
+  type SettingsFolderInfo,
   type Shape,
   type SliderParam,
   type SourceConfig,
@@ -108,7 +110,8 @@ export type SortMode = 'filename' | 'capture-time';
 export type SelectionMode = 'replace' | 'toggle' | 'range';
 /** The four modules of the top bar; Retouch is `AppState.retouch` on the Develop view. */
 export type AppModule = 'ingest' | 'library' | 'develop';
-export type DialogTab = 'sources' | 'destinations' | 'metadata' | 'profiles' | 'presets';
+export type DialogTab =
+  'sources' | 'destinations' | 'metadata' | 'profiles' | 'presets' | 'settingsFolder';
 
 /** A photo's camera profile as the renderer uses it. */
 export interface PhotoProfile {
@@ -3744,6 +3747,53 @@ export class AppStore {
     const settings = await this.bridge.invoke('settings:set', patch);
     this.set({ settings });
   };
+
+  // ------------------------------------------------------------ settings folder
+
+  readonly loadSettingsFolder = async (): Promise<SettingsFolderInfo> =>
+    this.bridge.invoke('settings:folder');
+
+  readonly inspectSettingsFolder = async (path: string): Promise<SettingsFolderChoice> =>
+    this.bridge.invoke('settings:inspectFolder', { path });
+
+  readonly useSettingsFolder = async (path: string): Promise<SettingsFolderInfo> => {
+    const info = await this.bridge.invoke('settings:useFolder', { path });
+    await this.reloadSettingsData();
+    return info;
+  };
+
+  readonly copySettingsToFolder = async (path: string): Promise<SettingsFolderInfo> => {
+    const info = await this.bridge.invoke('settings:copyToFolder', { path });
+    await this.reloadSettingsData();
+    return info;
+  };
+
+  /** Read sources, destinations, settings and presets again after the folder changed. */
+  private async reloadSettingsData(): Promise<void> {
+    const [settings, sources, destinations, exportPresets, presets] = await Promise.allSettled([
+      this.bridge.invoke('settings:get'),
+      this.bridge.invoke('sources:list'),
+      this.bridge.invoke('destinations:list'),
+      this.bridge.invoke('exportPresets:list'),
+      this.bridge.invoke('develop:presetIndex'),
+    ]);
+    const value = <T>(result: PromiseSettledResult<T>): T | undefined =>
+      result.status === 'fulfilled' ? result.value : undefined;
+    const loadedSettings = value(settings);
+    const loadedSources = value(sources);
+    const loadedDestinations = value(destinations);
+    const loadedExportPresets = value(exportPresets);
+    const loadedPresets = value(presets);
+    this.set({
+      ...(loadedSettings === undefined ? {} : { settings: loadedSettings }),
+      ...(loadedSources === undefined ? {} : { sources: loadedSources }),
+      ...(loadedDestinations === undefined ? {} : { destinations: loadedDestinations }),
+      ...(loadedExportPresets === undefined ? {} : { exportPresets: loadedExportPresets }),
+      ...(loadedPresets === undefined
+        ? {}
+        : { presets: loadedPresets.presets, presetIndex: loadedPresets }),
+    });
+  }
 
   // -------------------------------------------------------------------- cards
 

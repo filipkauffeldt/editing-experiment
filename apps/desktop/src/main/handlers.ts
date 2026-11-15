@@ -1,13 +1,28 @@
-import { notImplemented, type NamespaceHandlers } from '@ee/contracts';
+import {
+  notImplemented,
+  type AppSettings,
+  type NamespaceHandlers,
+  type SettingsFolderInfo,
+} from '@ee/contracts';
 import { BrowserWindow, dialog } from 'electron';
 import { homedir } from 'node:os';
+import { join } from 'node:path';
 import { mockSettings } from '../shared/mock';
 import { defaultSettings } from '../shared/settings';
-import type { AppSettings } from '@ee/contracts';
 
 const mock = process.env.EE_MOCK === '1';
 
 let settings: AppSettings = mock ? mockSettings() : defaultSettings(homedir());
+
+const mockDefaultFolder = '/home/alex/.config/editing-experiment';
+let mockFolder = { path: mockDefaultFolder, hasSettings: true };
+
+const mockFolderInfo = (): SettingsFolderInfo => ({
+  path: mockFolder.path,
+  defaultPath: mockDefaultFolder,
+  isDefault: mockFolder.path === mockDefaultFolder,
+  hasSettings: mockFolder.hasSettings,
+});
 
 /**
  * Mock mode keeps settings in memory here; the real backend persists them in the
@@ -19,6 +34,19 @@ export const settingsHandlers: NamespaceHandlers<'settings'> = {
   'settings:set': async (patch) => {
     settings = { ...settings, ...patch };
     return settings;
+  },
+  'settings:folder': async () => mockFolderInfo(),
+  'settings:inspectFolder': async ({ path }) => ({
+    path,
+    hasSettings: mockFolder.path === path && mockFolder.hasSettings,
+  }),
+  'settings:useFolder': async ({ path }) => {
+    mockFolder = { path, hasSettings: true };
+    return mockFolderInfo();
+  },
+  'settings:copyToFolder': async ({ path }) => {
+    mockFolder = { path, hasSettings: true };
+    return mockFolderInfo();
   },
 };
 
@@ -33,9 +61,11 @@ export const dialogHandlers: NamespaceHandlers<'dialog'> = {
           : '/mock/presets/Press Punchy.xmp'
         : extensions?.includes('txt')
           ? '/mock/code-replacements.txt'
-          : kind === 'folder'
-            ? '/mock/cards/NIKON_Z9'
-            : '/mock/picked/file.jpg';
+          : kind === 'folder' && title?.toLowerCase().includes('settings folder')
+            ? join(homedir(), 'Documents', 'editing-experiment-settings')
+            : kind === 'folder'
+              ? '/mock/cards/NIKON_Z9'
+              : '/mock/picked/file.jpg';
       return multiple ? [picked, '/mock/presets/Daylight Neutral.xmp'] : [picked];
     }
     const options: Electron.OpenDialogOptions = {
@@ -69,8 +99,10 @@ export const credentialsHandlers: NamespaceHandlers<'credentials'> = mock
         ref: ref || `mock-credential-${++mockCredentialCounter}`,
       }),
       'credentials:remove': async () => {},
+      'credentials:present': async ({ refs }) => refs,
     }
   : {
       'credentials:set': notImplemented('credentials:set'),
       'credentials:remove': notImplemented('credentials:remove'),
+      'credentials:present': notImplemented('credentials:present'),
     };

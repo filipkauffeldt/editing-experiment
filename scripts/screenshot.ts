@@ -201,6 +201,12 @@ async function runMock(outDir: string): Promise<void> {
     await window.getByTestId('settings-dialog').getByRole('tab', { name: 'Presets' }).click();
     await window.getByTestId('presets-summary').waitFor();
     await shoot('05e-preset-settings.png');
+    await window
+      .getByTestId('settings-dialog')
+      .getByRole('tab', { name: 'Settings folder' })
+      .click();
+    await window.getByTestId('settings-folder-settings').waitFor();
+    await shoot('05f-settings-folder.png');
 
     await window.getByRole('button', { name: 'Close', exact: true }).last().click();
     await window.getByTestId('open-export').click();

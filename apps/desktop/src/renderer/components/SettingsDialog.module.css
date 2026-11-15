@@ -98,6 +98,10 @@
   text-transform: uppercase;
 }
 
+.passwordNeeded {
+  color: var(--error);
+}
+
 .addRow {
   display: flex;
   flex-wrap: wrap;

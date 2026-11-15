@@ -105,6 +105,11 @@ export class CredentialStore {
     }
   }
 
+  /** Whether this computer has a secret for the reference. Never decrypts it. */
+  has(ref: string): boolean {
+    return typeof ref === 'string' && ref !== '' && ref in this.entries;
+  }
+
   remove(ref: string): void {
     if (!(ref in this.entries)) return;
     const rest = { ...this.entries };
@@ -123,5 +128,6 @@ export function credentialHandlers(store: CredentialStore): NamespaceHandlers<'c
   return {
     'credentials:set': async ({ secret, ref }) => ({ ref: store.set(secret, ref) }),
     'credentials:remove': async ({ ref }) => store.remove(ref),
+    'credentials:present': async ({ refs }) => [...new Set(refs)].filter((ref) => store.has(ref)),
   };
 }

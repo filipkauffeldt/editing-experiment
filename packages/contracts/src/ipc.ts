@@ -342,6 +342,28 @@ export interface PickPathArgs {
   multiple?: boolean;
 }
 
+/** The folder the synced settings live in, as Settings → Settings folder shows it. */
+export interface SettingsFolderInfo {
+  /** The folder in use. */
+  path: string;
+  /** The default folder below Electron's `userData`. */
+  defaultPath: string;
+  isDefault: boolean;
+  /** Whether that folder holds a `settings.json` now. */
+  hasSettings: boolean;
+  /** Set when the folder is missing or not writable. Nothing is written then. */
+  problem?: string;
+}
+
+/** What inspecting a folder before using it says. */
+export interface SettingsFolderChoice {
+  path: string;
+  /** True when the folder already holds settings, which are then used. */
+  hasSettings: boolean;
+  /** A reason the folder cannot be used now. */
+  problem?: string;
+}
+
 // ---------------------------------------------------------------------------
 // The IPC map
 // ---------------------------------------------------------------------------
@@ -430,6 +452,12 @@ export interface IpcApi {
   /** Store a secret via `safeStorage`; returns the `credentialRef` to put in a source/destination. */
   'credentials:set': (args: { secret: CredentialSecret; ref?: string }) => Promise<{ ref: string }>;
   'credentials:remove': (args: { ref: string }) => Promise<void>;
+  /**
+   * Which of these references have a secret on this computer. A source or destination
+   * synced from another computer keeps its reference but not its secret, so the UI can
+   * say "Password needed" without ever reading a secret.
+   */
+  'credentials:present': (args: { refs: string[] }) => Promise<string[]>;
 
   // --- metadata ---
   'metadata:read': (args: { photoId: PhotoId }) => Promise<IptcFields>;
@@ -518,6 +546,14 @@ export interface IpcApi {
   'settings:get': () => Promise<AppSettings>;
   /** Shallow-merges the given top-level keys; returns the result. */
   'settings:set': (args: Partial<AppSettings>) => Promise<AppSettings>;
+  /** The settings folder in use, its default and whether it can be read and written. */
+  'settings:folder': () => Promise<SettingsFolderInfo>;
+  /** Whether a folder exists, is writable and already holds settings. Changes nothing. */
+  'settings:inspectFolder': (args: { path: string }) => Promise<SettingsFolderChoice>;
+  /** Use the settings in this folder from now on; an empty folder starts from defaults. */
+  'settings:useFolder': (args: { path: string }) => Promise<SettingsFolderInfo>;
+  /** Copy the shared settings and imported presets into an empty folder, then use it. */
+  'settings:copyToFolder': (args: { path: string }) => Promise<SettingsFolderInfo>;
   /** Native open dialog. Resolves with an empty array when cancelled. */
   'dialog:pick': (args: PickPathArgs) => Promise<string[]>;
 }
@@ -565,6 +601,7 @@ export const INVOKE_CHANNELS = [
   'destinations:test',
   'credentials:set',
   'credentials:remove',
+  'credentials:present',
   'metadata:read',
   'metadata:write',
   'metadata:readTemplate',
@@ -598,6 +635,10 @@ export const INVOKE_CHANNELS = [
   'upload:cancel',
   'settings:get',
   'settings:set',
+  'settings:folder',
+  'settings:inspectFolder',
+  'settings:useFolder',
+  'settings:copyToFolder',
   'dialog:pick',
 ] as const satisfies readonly (keyof IpcApi)[];
 

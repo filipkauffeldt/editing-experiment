@@ -4,6 +4,7 @@ import { isDiscoveredCardSource, matchCardSources, unconfiguredCards } from '../
 import { filterSummary, photoCount } from '../ingest-summary';
 import type { IngestRun } from '../store';
 import { useAppState, useAppStore } from '../store-context';
+import { useCredentialPresence } from '../use-credential-presence';
 import { PlusIcon, RefreshIcon } from './icons';
 import { SourceFilters, sourceFilterValues, type SourceFilterValues } from './SourceFilters';
 import { Button } from './ui/Button';
@@ -254,6 +255,19 @@ export function IngestFrom({ className }: { className?: string }) {
   const store = useAppStore();
   const state = useAppState();
   const [open, setOpen] = useState<ReadonlySet<string>>(new Set());
+  const credentials = useCredentialPresence(
+    state.sources.flatMap((source) =>
+      (source.kind === 'ftp' || source.kind === 'sftp') && source.credentialRef
+        ? [source.credentialRef]
+        : [],
+    ),
+  );
+  const needsPassword = (source: SourceConfig): boolean =>
+    (source.kind === 'ftp' || source.kind === 'sftp') &&
+    source.credentialRef !== undefined &&
+    source.credentialRef !== '' &&
+    credentials.loaded &&
+    !credentials.present.has(source.credentialRef);
   // Cards are looked for when the view opens and when the user asks; nothing polls.
   useEffect(() => {
     void store.refreshCards();
@@ -395,6 +409,9 @@ export function IngestFrom({ className }: { className?: string }) {
                 ) : (
                   <span className={`${styles.detailText} mono`} title={location}>
                     {location}
+                    {needsPassword(source) && (
+                      <span className={styles.passwordNeeded}> · Password needed</span>
+                    )}
                   </span>
                 )
               }
