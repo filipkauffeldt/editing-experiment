@@ -58,7 +58,7 @@ export class RotatingLogFile {
   }
 
   private rotateFor(incoming: number): void {
-    let size = 0;
+    let size: number;
     try {
       size = statSync(this.file).size;
     } catch {
