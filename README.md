@@ -81,6 +81,11 @@ Export / Export & send.
   is absolute or relative to the export root. Export rendering targets the
   preset's output size and rejects an embedded preview of the unretouched
   image.
+- Uploads survive a network outage. A destination that cannot be reached keeps
+  its photos waiting, one probe at a time and oldest first, and sends them by
+  itself when the connection returns. The upload queue shows "Waiting for
+  connection" apart from "Failed". A failure that will not fix itself still
+  stops after a few attempts and needs Retry.
 - Anonymous FTP for sources and destinations when no credentials are set.
 
 ## Known gaps
