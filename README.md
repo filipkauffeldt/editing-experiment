@@ -90,6 +90,14 @@ Export / Export & send.
   itself when the connection returns. The upload queue shows "Waiting for
   connection" apart from "Failed". A failure that will not fix itself still
   stops after a few attempts and needs Retry.
+- One settings folder that a sync tool can keep the same on several computers.
+  It holds the servers, destinations, export presets, ingest options, template
+  references, copy selections and imported develop presets. The paths that
+  belong to one computer (ingest destination, export root, local folder and
+  card sources, profile and preset folders) stay in its own profile. A template
+  inside the settings folder is stored relative to it, so it resolves on both
+  computers. Settings → Settings folder shows the folder, copies the current
+  settings into an empty one, or adopts a folder that already has settings.
 - Anonymous FTP for sources and destinations when no credentials are set.
 
 ## Known gaps
@@ -121,6 +129,13 @@ Export / Export & send.
   reference files: sidecar labels and ratings, develop settings and profile
   renders are tested internally (and the profile maths against the DNG SDK),
   not against files produced by those apps.
+- The settings folder is read at start and when this app writes. A change that
+  the sync tool delivers while the app runs appears after a restart, or when a
+  screen reads the settings again. There is no file watcher.
+- An export preset's folder template is shared exactly as written, so an
+  absolute template may not exist on the other computer. Presets found in
+  preset folders and camera profiles are per computer. Only imported develop
+  presets live in the settings folder.
 - There is no installer or packaging; run the app from source.
 
 ## Getting started
@@ -278,10 +293,18 @@ The repository is checked out with LF line endings (`.gitattributes`), whatever 
 
 Set things up in this order:
 
-1. **Settings → Metadata.** Add the Photo Mechanic metadata template `.XMP` files
+1. **Settings folder (several computers).** If this app runs on more than one
+   computer, open **Settings → Settings folder** on the first one, choose an
+   empty folder that the sync tool keeps in step, and **Copy settings**. On the
+   second computer, choose the same folder: its settings are used. The choice
+   is stored in the app profile of each computer. The old files are never
+   moved or deleted. A metadata template or code replacement file kept in that
+   folder works on both computers. Passwords do not travel: a synced server
+   says **Password needed** until the password is entered on that computer.
+2. **Settings → Metadata.** Add the Photo Mechanic metadata template `.XMP` files
    and tab-delimited code replacement files. This global list feeds the
    Metadata panel and ingest.
-2. **Ingest → To.** Choose the **Folder** and whether to **Keep original
+3. **Ingest → To.** Choose the **Folder** and whether to **Keep original
    names** or **Rename** with a template (and optionally a **Subfolder**
    template and a **Backup** folder). The line under the fields shows where the
    first file will land, with an example file name and today's date. Under
@@ -292,7 +315,7 @@ Set things up in this order:
    if Lightroom stores presets with the catalog) and the ones imported with
    **Develop → Presets → Import**. There is no Save button: the settings are
    saved as you change them, and a failed save is shown under the fields.
-3. **Insert a card.** Open the **Ingest** view: the inserted cards (volumes with a
+4. **Insert a card.** Open the **Ingest** view: the inserted cards (volumes with a
    `DCIM` folder) are listed under **From** with the volume label, mount path
    and photo count. No path to type. The cards are looked for when the
    view opens; insert or remove one afterwards and press **Rescan cards**
@@ -305,13 +328,13 @@ Set things up in this order:
    Linux (`/media`, `/run/media`), macOS (`/Volumes`) and Windows (drives D: to Z:)
    are scanned; only Linux has been run on a real machine so far. On Windows a card
    is named after its volume label (`NIKON Z 6`), or `Drive E` when it has none.
-4. **Settings → Sources** is the fallback for what is not found on its own:
+5. **Settings → Sources** is the fallback for what is not found on its own:
    a folder, a card with an unusual mount point, an FTP or SFTP server (**Folder or
    server** on the Ingest view opens it). **Test** and **Save source**; local
    sources have the same filters, and a folder can **Watch for new files** during
    an ingest run. They are listed under **From**, ticked, and
    ingested unless you untick them. Anonymous FTP needs no password.
-5. **Settings → Destinations** for upload targets, and **Export… → New
+6. **Settings → Destinations** for upload targets, and **Export… → New
    preset** for export presets (Location, File, Content, Then send), then
    **Save preset** and **Set as active**. The default preset exports into an
    `export` folder next to each photo; the app leaves that folder alone when it
@@ -319,10 +342,10 @@ Set things up in this order:
    that photo with a message naming the folder. A preset keeps the photo's current
    base name or renames with a file name template; keep mode only adds `-1`,
    `-2` when a file of that name already exists.
-6. Optional: **Settings → Profiles → Add folder…** for `.dcp`/`.xmp` camera
+7. Optional: **Settings → Profiles → Add folder…** for `.dcp`/`.xmp` camera
    profiles. Adobe's own folders are found automatically on macOS and Windows.
    See [Camera profiles](docs/camera-profiles.md) for the platform details.
-7. Press **Ingest** in the bar at the bottom of the Ingest view, then **Library** → **Develop** →
+8. Press **Ingest** in the bar at the bottom of the Ingest view, then **Library** → **Develop** →
    **Export…** or **Export & send** (or **Next & send**, Ctrl/⌘+Enter).
 
 ## Keyboard shortcuts
@@ -373,7 +396,10 @@ Passwords and SFTP key material are stored only through Electron `safeStorage`,
 encrypted, in `userData/credentials.json`. Without an OS keyring (Secret
 Service, e.g. `gnome-keyring`, or KWallet) the app refuses to store them and
 says so; there is no plaintext fallback. Anonymous FTP needs no keyring, and
-folder sources and destinations do not need one.
+folder sources and destinations do not need one. The settings folder never
+holds a secret: it keeps only each server's opaque `credentialRef`. On a second
+computer a synced server shows **Password needed** until its password is
+entered there.
 
 ## Repository layout
 
