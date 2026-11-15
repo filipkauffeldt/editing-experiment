@@ -2,9 +2,9 @@
 // Usage: pnpm update-lensfun [--from <dir with the unpacked *.xml>]
 //
 // The database (https://lensfun.github.io/, CC BY-SA 3.0) is data, not code: we do not use the
-// Lensfun library. The output keeps the Nikon Z mount (every maker) and Nikon's own F-mount
-// lenses (the ones used through the FTZ adapter) with their cameras, as a compact JSON so the
-// renderer can ship it. See docs/ARCHITECTURE.md "Lens corrections" for the licence handling.
+// Lensfun library. The output keeps the Nikon Z mount and the Nikon F mounts (every maker, native
+// or through the FTZ adapter) with their cameras, as a compact JSON so the renderer can ship it.
+// See docs/ARCHITECTURE.md "Lens corrections" for the licence handling.
 import { execFileSync } from 'node:child_process';
 import { mkdirSync, mkdtempSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -97,8 +97,8 @@ async function main(): Promise<void> {
       const lensMounts = list(lens['mount']).map((m) => String(text(m)));
       const maker = text(lens['maker']);
       const isZ = lensMounts.includes(Z_MOUNT);
-      const isNikonF = maker === 'Nikon' && lensMounts.some((m) => F_MOUNTS.has(m));
-      if (!isZ && !isNikonF) continue;
+      const isF = lensMounts.some((m) => F_MOUNTS.has(m));
+      if (!isZ && !isF) continue;
       const type = text(lens['type']) ?? 'rectilinear';
       const calibration = (lens['calibration'] ?? {}) as Node;
       const focal = lens['focal'] as Node | undefined;
