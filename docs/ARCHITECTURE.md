@@ -896,7 +896,9 @@ cannot be created, a missing local file, an existing remote file) keeps the rule
 `maxAttempts` (5) and then `failed`. `waiting` is stored in the queue database, so a restart
 keeps it. A database written before the state existed opens as it is. The upload popover and
 the top bar show "Waiting for connection" apart from "Failed", and a waiting item can be
-cancelled. A photo's thumbnail badge stays Queued while its upload waits.
+cancelled. A photo's thumbnail badge stays Queued while its upload waits. A queued row keeps
+its own copy of the destination, so removing that destination from settings does not fail
+rows that are already waiting.
 
 The renderer draws at the final output size so a 1600 px export never renders a
 45 MP raw. `outputSizeForResize` is the one definition of that size: the renderer
