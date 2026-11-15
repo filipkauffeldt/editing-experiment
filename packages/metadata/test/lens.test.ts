@@ -1,7 +1,8 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { ExifToolService } from '../src/exiftool';
 import { parseNefInfo, readLensShot, readNefInfo } from '../src/lens';
-import { fixtureAvailable } from './helpers';
+import { asString } from '../src/values';
+import { fixtureAvailable, sampleNefPath } from './helpers';
 import { join } from 'node:path';
 
 const FIXTURES = join(import.meta.dirname, '..', '..', '..', 'fixtures', 'raw');
@@ -86,5 +87,25 @@ describe.skipIf(!fixtureAvailable('z6ii_CZP_0299.NEF'))('Nikon Z built-in correc
       await readLensShot(join(FIXTURES, 'missing.jpg'), { width: 10, height: 10 }, service),
     ).toBeUndefined();
     await expect(readNefInfo(z6ii.replace('.NEF', '.nope'))).rejects.toThrow();
+  });
+});
+
+describe('lens name fallback', () => {
+  it('uses the maker-note Lens ID when a file has no LensModel', async ({ skip }) => {
+    const sample = await sampleNefPath();
+    if (sample === undefined) {
+      skip();
+      return;
+    }
+    const tags = await service.read(sample);
+    const lensModel = asString(tags['ExifIFD:LensModel'])?.trim();
+    const lensId = asString(tags['Composite:LensID']);
+    if (lensModel || lensId === undefined) {
+      // A native Z lens carries LensModel; this test is about the F-mount fallback.
+      skip();
+      return;
+    }
+    const shot = await readLensShot(sample, { width: 6048, height: 4024 }, service);
+    expect(shot?.lensModel).toBe(lensId);
   });
 });
