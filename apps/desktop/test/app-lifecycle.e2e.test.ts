@@ -134,19 +134,19 @@ describe.skipIf(!haveDisplay)('app lifecycle (Electron)', () => {
       const userData = join(newFolder(), 'userdata');
       const first = await launch(userData);
       await first.app.evaluate(({ BrowserWindow }) =>
-        BrowserWindow.getAllWindows()[0]!.setBounds({ x: 130, y: 70, width: 1111, height: 777 }),
+        BrowserWindow.getAllWindows()[0]!.setBounds({ x: 20, y: 10, width: 980, height: 650 }),
       );
       await close(first.app);
 
       const saved = JSON.parse(readFileSync(join(userData, 'window-state.json'), 'utf8')) as object;
-      expect(saved).toMatchObject({ x: 130, y: 70, width: 1111, height: 777, maximized: false });
+      expect(saved).toMatchObject({ x: 20, y: 10, width: 980, height: 650, maximized: false });
       const settingsFile = join(userData, 'settings.json');
       if (existsSync(settingsFile)) {
-        expect(readFileSync(settingsFile, 'utf8')).not.toContain('1111');
+        expect(readFileSync(settingsFile, 'utf8')).not.toContain('maximized');
       }
 
       const second = await launch(userData);
-      expect(await bounds(second.app)).toEqual({ x: 130, y: 70, width: 1111, height: 777 });
+      expect(await bounds(second.app)).toEqual({ x: 20, y: 10, width: 980, height: 650 });
     }, 120_000);
 
     it('opens at the default place when the saved position is on no display', async () => {
