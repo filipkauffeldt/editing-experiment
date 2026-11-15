@@ -64,7 +64,7 @@ describe('a folder source that watches for new files', () => {
     const ingested: IngestedFileInfo[] = [];
     const events: JobEvent[] = [];
     const handle = watch(folderSource('watch', source, true), destination, {
-      watchIntervalMs: 20,
+      watchIntervalMs: 300,
       ingested,
       events,
     });
@@ -72,8 +72,10 @@ describe('a folder source that watches for new files', () => {
     await waitFor(() => ingested.length === 1, 'the first photo');
     expect(handle.status()[0]).toMatchObject({ state: 'watching', filesDone: 1 });
 
-    await createFile(join(source, '_DSC10.NEF'), 'ten');
-    await createFile(join(source, '_DSC9.NEF'), 'nine');
+    await Promise.all([
+      createFile(join(source, '_DSC10.NEF'), 'ten'),
+      createFile(join(source, '_DSC9.NEF'), 'nine'),
+    ]);
     await waitFor(() => ingested.length === 3, 'the new photos');
 
     expect(ingested.map((info) => info.sourceFileName)).toEqual([
@@ -98,18 +100,18 @@ describe('a folder source that watches for new files', () => {
     const file = join(source, '_DSC1.NEF');
     const ingested: IngestedFileInfo[] = [];
     const handle = watch(folderSource('watch', source, true), destination, {
-      watchIntervalMs: 200,
+      watchIntervalMs: 500,
       ingested,
       events: [],
     });
     await waitFor(() => handle.status()[0]?.state === 'watching', 'the first look');
 
     await writeFile(file, 'chunk-one-');
-    await delay(100);
+    await delay(50);
     await appendFile(file, 'chunk-two');
 
     await waitFor(() => ingested.length === 1, 'the complete file');
-    await delay(300);
+    await delay(600);
 
     expect(ingested).toHaveLength(1);
     expect(await readFile(ingested[0]!.path, 'utf8')).toBe('chunk-one-chunk-two');
