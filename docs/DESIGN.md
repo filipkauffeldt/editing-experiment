@@ -131,7 +131,7 @@ Built in `components/ui/`:
 | Module  | Key | What it is                                                                         |
 | ------- | --- | ---------------------------------------------------------------------------------- |
 | Ingest  |     | From (sources, progress) and To (folder, names, preview), one action bar           |
-| Library | `G` | folders, virtualised grid, inspector; `E` opens the loupe                          |
+| Library | `G` | folders, virtualised grid, inspector; `E` opens the loupe (zoom, Auto-advance)      |
 | Develop | `D` | metadata, photo with one info line, develop sliders, filter row and film strip     |
 | Retouch | `R` | the retouch session on the Develop layout (`R`, or the Retouch button); leaving it saves first |
 
@@ -163,6 +163,11 @@ selection count on the left and **Caption…**, **Sync settings…** (the same g
 whole selection), **Export…** and the primary **Export & send** on the right; Tag, rating and colour
 label are the keys above and the right-click menu, not buttons. In Develop Ctrl/Cmd+Enter is Next & send, and the button's tooltip names the active export
 preset ("Desk 2048 q90 → Export/Desk → destination").
+
+The loupe has no footer. Its filter row slot holds **Auto-advance** (a small square switch with its
+label, as for a panel section) and the same Fit and zoom levels as the Develop footer, where the grid
+has the thumbnail size. Develop has the same **Auto-advance** switch at the left of its slot, before
+Export…. It is one setting, saved with the other settings.
 
 ### Develop
 

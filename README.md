@@ -47,6 +47,15 @@ Export / Export & send.
 - Library: virtualised grid and loupe, multi-select (click, Shift range,
   Ctrl/⌘ toggle, Ctrl/⌘+A). Folders are derived from the local ingest copies
   only; cards and servers are intentionally not shown there.
+- Culling a burst: the loupe zooms with the keys of Develop, into the camera's
+  full-size JPEG (a raw's embedded preview, or the JPEG file), so a 100% focus
+  check needs no raw decode. It shows the whole frame, not developed and not
+  cropped. A photo with retouching only zooms into its edited preview. The zoom
+  and its position carry to the next photo, so the same spot of a burst is
+  shown. The next and previous photo are fetched ahead (Develop decodes them
+  ahead too). With Auto-advance on (off by default, in the filter row of the
+  loupe and Develop), tagging, rating or colouring a single photo moves to the
+  next one.
 - One filter bar in Library and Develop, kept when you switch between them: tag,
   stars (N and up), colour labels, status (Not sent, Failed, Edited, Differs
   from template), camera and source, and a text search over file name, caption and
@@ -358,38 +367,38 @@ are treated as text. `F1` opens the in-app list; `?` does too, as does
 Swedish keyboard: there `Ctrl/⌘` + `-` zooms out). In Ingest only `G` and `D` switch
 modules.
 
-| Key                            | Action                                                                                                 |
-| ------------------------------ | ------------------------------------------------------------------------------------------------------ |
-| `G` / `D` / `E`                | Library grid / Develop / Library loupe (with a photo selected)                                         |
-| `←` `→`                        | Previous / next photo; Shift extends the selection                                                     |
-| `↑` `↓`                        | Previous / next grid row in the Library; Shift extends                                                 |
-| `T`                            | Tag / untag                                                                                            |
-| `1`-`5`, `0`                   | Star rating; `0` clears                                                                                |
-| `Ctrl/⌘`+`1`-`8`, `Ctrl/⌘`+`0` | Colour label; `Ctrl/⌘`+`0` clears                                                                      |
-| `C`                            | Enter crop mode / Done                                                                                 |
-| `Enter`                        | Done: save the crop and leave (crop mode)                                                              |
-| `R`                            | Retouch; in crop mode, the crop frame tool                                                             |
-| `A` / `O` / `X`                | Straighten tool / cycle overlay / swap orientation (crop mode)                                         |
-| `Ctrl/⌘`+`Alt`+`R`             | Reset the crop                                                                                         |
-| `Esc`                          | Cancel crop, WB picker or retouch; close the shortcut list; leave a field; clear the Library selection |
-| `Y` or the physical `\` key    | Before / after (Develop)                                                                               |
-| `J` / `W`                      | Clipping overlay / white balance picker (Develop)                                                      |
-| `Z`                            | Toggle Fit and the zoom level chosen in the footer (100% to start); in Develop, crop and retouch       |
-| `Ctrl/⌘`+`+` / `-`             | Zoom in / out in steps (`=` and the numpad keys work too); `Ctrl/⌘`+`0` stays the colour label clear   |
-| `Ctrl/⌘`+wheel or pinch        | Zoom around the pointer                                                                                |
-| `Scroll`                       | Pan the zoomed photo in any mode (does nothing at Fit); `Shift`+scroll pans sideways                   |
-| `Space`+drag                   | Pan the zoomed photo in any mode; the active tool is paused while Space is held                        |
-| `Ctrl/⌘`+`Z`                   | Undo the last retouch shape                                                                            |
-| `Ctrl/⌘`+`I`                   | Batch caption (Library); focus the caption field (Develop)                                             |
-| `Ctrl/⌘`+`K`                   | Batch caption at Keywords (Library); focus the keywords field (Develop)                                |
-| `Ctrl/⌘`+`A`                   | Select all in the Library                                                                              |
-| `Shift`+`Ctrl/⌘`+`C`           | Copy settings…                                                                                         |
-| `Shift`+`Ctrl/⌘`+`V`           | Paste settings to the selection                                                                        |
-| `Ctrl/⌘`+`Alt`+`V`             | Paste the previous photo's settings                                                                    |
-| `Shift`+`Ctrl/⌘`+`E`           | Export…                                                                                                |
-| `Shift`+`Ctrl/⌘`+`Enter`       | Export & send                                                                                          |
-| `Ctrl/⌘`+`Enter`               | Next & send (Develop)                                                                                  |
-| `?` / `F1`                     | Show the in-app shortcut list (`Ctrl/⌘`+`/` where that key does not print `-`)                         |
+| Key                            | Action                                                                                                              |
+| ------------------------------ | ------------------------------------------------------------------------------------------------------------------- |
+| `G` / `D` / `E`                | Library grid / Develop / Library loupe (with a photo selected)                                                      |
+| `←` `→`                        | Previous / next photo; Shift extends the selection                                                                  |
+| `↑` `↓`                        | Previous / next grid row in the Library; Shift extends                                                              |
+| `T`                            | Tag / untag                                                                                                         |
+| `1`-`5`, `0`                   | Star rating; `0` clears                                                                                             |
+| `Ctrl/⌘`+`1`-`8`, `Ctrl/⌘`+`0` | Colour label; `Ctrl/⌘`+`0` clears                                                                                   |
+| `C`                            | Enter crop mode / Done                                                                                              |
+| `Enter`                        | Done: save the crop and leave (crop mode)                                                                           |
+| `R`                            | Retouch; in crop mode, the crop frame tool                                                                          |
+| `A` / `O` / `X`                | Straighten tool / cycle overlay / swap orientation (crop mode)                                                      |
+| `Ctrl/⌘`+`Alt`+`R`             | Reset the crop                                                                                                      |
+| `Esc`                          | Cancel crop, WB picker or retouch; close the shortcut list; leave a field; clear the Library selection              |
+| `Y` or the physical `\` key    | Before / after (Develop)                                                                                            |
+| `J` / `W`                      | Clipping overlay / white balance picker (Develop)                                                                   |
+| `Z`                            | Toggle Fit and the zoom level chosen in the footer (100% to start); in Develop, crop, retouch and the Library loupe |
+| `Ctrl/⌘`+`+` / `-`             | Zoom in / out in steps (`=` and the numpad keys work too); `Ctrl/⌘`+`0` stays the colour label clear                |
+| `Ctrl/⌘`+wheel or pinch        | Zoom around the pointer                                                                                             |
+| `Scroll`                       | Pan the zoomed photo in any mode (does nothing at Fit); `Shift`+scroll pans sideways                                |
+| `Space`+drag                   | Pan the zoomed photo in any mode and in the loupe; the active tool is paused while Space is held                    |
+| `Ctrl/⌘`+`Z`                   | Undo the last retouch shape                                                                                         |
+| `Ctrl/⌘`+`I`                   | Batch caption (Library); focus the caption field (Develop)                                                          |
+| `Ctrl/⌘`+`K`                   | Batch caption at Keywords (Library); focus the keywords field (Develop)                                             |
+| `Ctrl/⌘`+`A`                   | Select all in the Library                                                                                           |
+| `Shift`+`Ctrl/⌘`+`C`           | Copy settings…                                                                                                      |
+| `Shift`+`Ctrl/⌘`+`V`           | Paste settings to the selection                                                                                     |
+| `Ctrl/⌘`+`Alt`+`V`             | Paste the previous photo's settings                                                                                 |
+| `Shift`+`Ctrl/⌘`+`E`           | Export…                                                                                                             |
+| `Shift`+`Ctrl/⌘`+`Enter`       | Export & send                                                                                                       |
+| `Ctrl/⌘`+`Enter`               | Next & send (Develop)                                                                                               |
+| `?` / `F1`                     | Show the in-app shortcut list (`Ctrl/⌘`+`/` where that key does not print `-`)                                      |
 
 ## Credentials
 

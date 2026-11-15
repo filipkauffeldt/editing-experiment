@@ -1,3 +1,4 @@
+import type { PhotoId } from '@ee/contracts';
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -25,7 +26,7 @@ afterEach(async () => {
 });
 
 const selected = (store: AppStore): string | undefined => store.getState().selectedId;
-const order = (store: AppStore): string[] => store.getVisiblePhotos().map((photo) => photo.id);
+const order = (store: AppStore): PhotoId[] => store.getVisiblePhotos().map((photo) => photo.id);
 
 describe('auto-advance', () => {
   it('stays on the photo when it is off', async () => {

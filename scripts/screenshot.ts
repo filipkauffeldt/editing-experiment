@@ -8,7 +8,8 @@
 // preview and the upload popover after export, plus (17, 18) crop mode
 // mid-rotation with the fine grid and the committed crop, and (23) the Library
 // over the ingested files, (31) retouch with a face switched off and a subtracted area, and (32-34)
-// the photo at Fit, at 100% from the full-resolution decode, and retouch zoomed in on a face.
+// the photo at Fit, at 100% from the full-resolution decode, and retouch zoomed in on a face, and (35)
+// the Library loupe zoomed in with Auto-advance on.
 import { _electron as electron, type ElectronApplication, type Page } from '@playwright/test';
 import { spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, copyFileSync } from 'node:fs';
@@ -269,6 +270,13 @@ async function runMock(outDir: string): Promise<void> {
     await window.keyboard.press('e');
     await window.locator('[data-testid="library-loupe"] img').first().waitFor();
     await shoot('20-library-loupe.png');
+    // Zoomed in the loupe, with Auto-advance on.
+    await window.getByTestId('auto-advance').click();
+    await window.keyboard.press('z');
+    await window.locator('[data-testid="loupe-stage"][data-full-ready="true"]').waitFor();
+    await shoot('35-library-loupe-zoom.png');
+    await window.getByTestId('auto-advance').click();
+    await window.keyboard.press('z');
     await window.keyboard.press('g');
 
     // Retouch session: the retouch on the Develop layout.
