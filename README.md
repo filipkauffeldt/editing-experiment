@@ -26,7 +26,10 @@ Export / Export & send.
   default. Keeping names adds a numeric suffix when two sources hold the same
   name, so nothing is overwritten.
 - Per-source local ingest filters: file types RAW / JPEG / All, lock state
-  Locked / Unlocked / All, and Skip already ingested (on by default).
+  Locked / Unlocked / All, and Skip already ingested (on by default). A folder
+  source can also Watch for new files: its ingest run keeps scanning the folder
+  and copies photos that appear until Stop. A file is copied only after it
+  stopped changing, and a restart never resumes a watch.
 - Photo Mechanic `.XMP` metadata templates with Replace (the default) or Fill
   empty, `=code=` replacement tables, and `{variables}` in captions and path
   templates. In the Metadata panel's caption a known `=code=` is replaced as soon as
@@ -295,6 +298,8 @@ Set things up in this order:
    (the circular arrow). Tick the sources to ingest; the line under each name
    shows its filters, and clicking it opens them: file types RAW / JPEG / All,
    lock state Locked / Unlocked / All, and Skip already ingested (on by default).
+   A folder source also offers **Watch for new files**: its run keeps copying
+   what is dropped in until **Stop**.
    A card is never ingested just because it appeared.
    Linux (`/media`, `/run/media`), macOS (`/Volumes`) and Windows (drives D: to Z:)
    are scanned; only Linux has been run on a real machine so far. On Windows a card
@@ -302,7 +307,8 @@ Set things up in this order:
 4. **Settings → Sources** is the fallback for what is not found on its own:
    a folder, a card with an unusual mount point, an FTP or SFTP server (**Folder or
    server** on the Ingest view opens it). **Test** and **Save source**; local
-   sources have the same filters. They are listed under **From**, ticked, and
+   sources have the same filters, and a folder can **Watch for new files** during
+   an ingest run. They are listed under **From**, ticked, and
    ingested unless you untick them. Anonymous FTP needs no password.
 5. **Settings → Destinations** for upload targets, and **Export… → New
    preset** for export presets (Location, File, Content, Then send), then
