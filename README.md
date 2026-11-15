@@ -391,10 +391,10 @@ GPL-3.0-or-later; see `LICENSE`.
   (https://github.com/pch/rawmakase, MIT, © 2026 RAWmakase contributors) — see
   `packages/develop-gl/third_party/rawmakase/LICENSE`.
 - `packages/develop-gl/data/lensfun.json` is a pruned JSON conversion of the Lensfun lens
-  database (https://lensfun.github.io/, CC BY-SA 3.0, © Lensfun contributors; the Nikon Z
-  and Nikon F lenses only, regenerated with `pnpm update-lensfun`). It is data kept in its
+  database (https://lensfun.github.io/, CC BY-SA 3.0, © Lensfun contributors; every maker's
+  Nikon Z and Nikon F lenses, regenerated with `pnpm update-lensfun`). It is data kept in its
   own file under its own licence — see `packages/develop-gl/data/LICENSE-lensfun-CC-BY-SA-3.0.txt`.
-  The Lensfun library is not used; the lens model maths is written from its documentation.
+  The Lensfun library is not used. The lens model maths is written from its documentation.
 - The camera profile pipeline (`packages/develop-gl/src/profile`) follows the Adobe DNG SDK
   (`dng_color_spec`, `dng_hue_sat_map`, `dng_render`, `dng_temperature`; © Adobe Inc., DNG SDK
   License Agreement, kept in `packages/develop-gl/third_party/adobe-dng-sdk/LICENSE`) and

@@ -23,9 +23,10 @@ GPL-3.0-compatible licensing and the best result?
   are marked *Required*: Camera Raw always applies the correction to those.
 - **Lensfun** (database CC BY-SA 3.0, library LGPL-3): the XML calibrations are community
   measurements of lens models in focal length steps: poly3/poly5/ptlens distortion, TCA and
-  `pa` vignetting at focal length, aperture and distance. 36 Nikon Z lenses and about 230 Nikon
-  F lenses are in it, so it covers lenses and adapters (FTZ) with no embedded data and gives the
-  user a choice. It cannot be better than the camera's own per-shot data where that exists.
+  `pa` vignetting at focal length, aperture and distance. The pruned copy has 492 lens entries
+  for the Nikon Z and F mounts, so it covers lenses and adapters (FTZ) with no embedded data and
+  gives the user a choice. It cannot be better than the camera's own per-shot data where that
+  exists.
 
 ## Decision
 
@@ -35,11 +36,11 @@ Two sources share one radial model, evaluated in the shader:
    shot, and it follows the camera's Required/Optional flag (Required is on without the user
    asking; Optional waits for *Enable Profile Corrections*).
 2. *Lensfun* is the profile for everything else and the manual override in the profile select.
-   A pruned copy (Nikon Z mount with every maker, and Nikon's own F-mount lenses; 0.3 MB, 74 kB
-   gzipped) is vendored as `packages/develop-gl/data/lensfun.json` with the licence text and
-   regenerated with `pnpm update-lensfun`. Only the *model maths* is ported (written from the
-   documented formulas; no Lensfun code and no library). It is shipped as separate data under its
-   own licence, not linked or merged into GPL code; the README attributes it.
+   A pruned copy (every maker's Nikon Z and Nikon F lenses, 0.56 MB, 137 kB gzipped) is vendored
+   as `packages/develop-gl/data/lensfun.json` with the licence text and regenerated with
+   `pnpm update-lensfun`. Only the *model maths* is ported, written from the documented formulas.
+   No Lensfun code or library is used. It is shipped as separate data under its own licence, not
+   linked or merged into GPL code. The README attributes it.
 
 Adobe `.lcp` profiles are not read. `crs:LensProfileName` / `LensProfileFilename` are parsed and
 preserved but never applied or written for our own choice (our choice is `ee:LensProfile`), so
@@ -77,9 +78,17 @@ Code is in `packages/develop-gl/src/lens` (maths, matching, measurement), `src/g
 - **Profile choice.** `LensProfileEnable` absent means on only for a lens whose NEF says the
   correction is required (Camera Raw applies those whatever the user chose); `false` turns it off.
   `LensProfileChoice` (`ee:LensProfile`) is empty for automatic (built-in data, else the best
-  Lensfun match for `LensModel` on the camera's mount and format), `builtin`, or
+  Lensfun match for the lens name on the camera's mount and format), `builtin`, or
   `lensfun:<maker>|<model>|<crop>`. `crs:LensProfileName`/`Filename` are read and kept but never
   applied.
+- **Lens name.** `LensModel` is used when the file has one. A Nikon DSLR writes none for a
+  third-party lens, and an F-mount lens on a Z body through the FTZ leaves it empty too. The name
+  then comes from ExifTool's `LensID`, which is built from the maker-note lens data. Lensfun model
+  names can carry a duplicate suffix (`... VR II 162`) or Sigma's line words (`| Art`, `| Sports`,
+  `| Contemporary`) that ExifTool does not write. Matching ignores a bare trailing number and
+  treats those line words as A, S and C. An ambiguous Lens ID lists candidates joined with `or`.
+  Each candidate is matched. The entry is used when one candidate resolves or all resolving
+  candidates agree. Different entries give no automatic match.
 - **Lens facts travel in the linear image header** (`LinearImageHeader.lens`, filled by
   `AppResources` with `readLensShot`), so the canvas, the edited previews and the export workers
   resolve the same lens with no further lookups. `resolveUniforms` resolves it with the settings.
@@ -132,3 +141,4 @@ Known limitations: fisheye and other non-rectilinear Lensfun lenses are not offe
 or 1000 m; manual positive distortion repeats the picture's edge where it pulls in canvas
 instead of showing white; the Nikon records were checked on three CC0 NEFs (a lens the camera
 requires, one it makes optional, a DX zoom) for plausibility, not against Adobe's output.
+Lensfun has no Nikon 400mm f/2.8E FL entry, so that lens gets no Lensfun profile.

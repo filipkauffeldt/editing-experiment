@@ -2,7 +2,7 @@ import type { LensShotInfo } from '@ee/contracts';
 import database from '../../data/lensfun.json';
 
 /**
- * The Lensfun lens database (pruned to Nikon lenses, see `scripts/update-lensfun.ts`) and the
+ * The Lensfun lens database (pruned to the Nikon mounts, see `scripts/update-lensfun.ts`) and the
  * calibration models, written from Lensfun's documentation. No Lensfun code is used.
  *
  * Distortion maps a corrected radius to the recorded one (`r_d = r_u * (...)` in the docs);
@@ -47,22 +47,40 @@ export const lensfunKey = (lens: LensfunLens): string =>
 const byKey = new Map(LENSFUN.lenses.map((lens) => [lensfunKey(lens), lens]));
 export const lensfunByKey = (key: string): LensfunLens | undefined => byKey.get(key);
 
+/** Sigma's line labels: ExifTool writes `| A`, Lensfun writes `| Art`. */
+const LINE_LABELS: Record<string, string> = { art: 'a', sports: 's', contemporary: 'c' };
+
 const normalizeName = (name: string): string =>
   name
     .toLowerCase()
     .replace(/nikon corporation|nikkor|nikon/g, ' ')
     .replace(/[ƒ×]/g, 'f')
     .replace(/f\s*\//g, 'f')
-    .replace(/[()[\],:;]/g, ' ')
+    .replace(/[()[\],:;|]/g, ' ')
     .replace(/\s+/g, ' ')
     .trim();
 
-const nameTokens = (name: string): string[] => normalizeName(name).split(' ').filter(Boolean);
+const nameTokens = (name: string): string[] =>
+  normalizeName(name)
+    .split(' ')
+    .filter(Boolean)
+    .map((token) => LINE_LABELS[token] ?? token);
+
+/**
+ * Lensfun appends a bare number to some model names to tell duplicate entries apart (a lens ID or
+ * Sigma's product generation, e.g. `... VR II 162` or `... | Art 018`). ExifTool never writes it.
+ */
+function withoutTrailingId(tokens: string[], exifTokens: Set<string>): string[] {
+  const last = tokens[tokens.length - 1];
+  return tokens.length > 1 && last !== undefined && /^\d+$/.test(last) && !exifTokens.has(last)
+    ? tokens.slice(0, -1)
+    : tokens;
+}
 
 /** How well the EXIF lens name fits a database lens: 0 when numbers (focal lengths, apertures) disagree. */
 export function nameScore(exifName: string, lensName: string): number {
   const a = new Set(nameTokens(exifName));
-  const b = new Set(nameTokens(lensName));
+  const b = new Set(withoutTrailingId(nameTokens(lensName), a));
   const digits = (set: Set<string>): string =>
     [...set]
       .filter((token) => /\d/.test(token))
@@ -103,14 +121,13 @@ export interface LensfunChoice {
   matched: boolean;
 }
 
-/** The best database lens for the EXIF lens name, or none. Ties go to the one covering the focal length. */
-export function matchLensfun(shot: LensShotInfo): LensfunLens | undefined {
-  if (!shot.lensModel) return undefined;
+/** The best database lens for one lens name, or none. Ties go to the one covering the focal length. */
+function bestLensfunMatch(lensModel: string, shot: LensShotInfo): LensfunLens | undefined {
   const mount = cameraMount(shot);
   let best: { lens: LensfunLens; score: number } | undefined;
   for (const lens of LENSFUN.lenses) {
     if (!rectilinear(lens) || !fitsCamera(lens, mount)) continue;
-    const score = nameScore(shot.lensModel, `${lens.maker} ${lens.model}`);
+    const score = nameScore(lensModel, `${lens.maker} ${lens.model}`);
     // Calibrated on a body of the same format when there is a choice (DX lenses on a DX body).
     const sameFormat = Math.abs((lens.crop ?? 1) - (photoCropFactor(shot) ?? 1)) < 0.2 ? 0.01 : 0;
     if (score >= 0.6 && (!best || score + sameFormat > best.score)) {
@@ -118,6 +135,28 @@ export function matchLensfun(shot: LensShotInfo): LensfunLens | undefined {
     }
   }
   return best?.lens;
+}
+
+/**
+ * The best database lens for the EXIF lens name, or none. An ambiguous Lens ID lists its
+ * candidates joined with " or ". The match is used when one candidate resolves or all resolving
+ * candidates give the same entry. Different entries are not guessed between.
+ */
+export function matchLensfun(shot: LensShotInfo): LensfunLens | undefined {
+  if (!shot.lensModel) return undefined;
+  let matched: LensfunLens | undefined;
+  for (const candidate of shot.lensModel.split(/\s+or\s+/)) {
+    const name = candidate.trim();
+    if (name === '') continue;
+    const lens = bestLensfunMatch(name, shot);
+    if (lens === undefined) continue;
+    if (matched === undefined) {
+      matched = lens;
+    } else if (lensfunKey(lens) !== lensfunKey(matched)) {
+      return undefined;
+    }
+  }
+  return matched;
 }
 
 /** Every lens that fits the body, the matched one first. */

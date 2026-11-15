@@ -302,7 +302,11 @@ export async function readLensShot(
   };
   set('cameraMake', make);
   set('cameraModel', asString(tags['IFD0:Model']));
-  set('lensModel', asString(tags['ExifIFD:LensModel']));
+  // Nikon DSLRs write no LensModel for third-party lenses. ExifTool builds the name from the
+  // maker-note lens data into the composite LensID, and a Z body through the FTZ leaves
+  // LensModel empty in the same way.
+  const lensModel = asString(tags['ExifIFD:LensModel'])?.trim();
+  set('lensModel', lensModel || asString(tags['Composite:LensID']));
   set('focalLength', leadingNumber(tags['ExifIFD:FocalLength']));
   set('focalLength35', leadingNumber(tags['ExifIFD:FocalLengthIn35mmFormat']));
   set('fNumber', leadingNumber(tags['ExifIFD:FNumber']));

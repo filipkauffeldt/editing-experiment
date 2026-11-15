@@ -623,8 +623,12 @@ and tests are in [ADR 0001](decisions/0001-camera-profiles.md).
 
 Distortion, lateral CA and vignetting come from the camera's own records in Nikon Z NEFs,
 with Lensfun as the fallback and manual override. They are applied in the source fetch,
-before everything else, in the corrected frame. The research, decision, radial model,
-profile choice, tiling, retouch mapping and verification steps are in
+before everything else, in the corrected frame. The bundled Lensfun data covers every
+maker's Nikon Z and Nikon F lenses. A file with no `LensModel` uses the `LensID` ExifTool
+derives from the maker notes, so third-party F-mount lenses and F-mount lenses on a Z body
+through the FTZ resolve too. An ambiguous Lens ID is matched candidate by candidate and only
+used when the candidates agree. The research, decision, radial model, profile choice, tiling,
+retouch mapping and verification steps are in
 [ADR 0002](decisions/0002-lens-corrections.md).
 
 ## Histogram, clipping and one-click tools
