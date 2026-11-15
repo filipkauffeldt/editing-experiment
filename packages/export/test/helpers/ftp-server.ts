@@ -101,6 +101,8 @@ export async function startFtpServer(options: {
   dropAfterBytes?: number;
   /** Accept any login (anonymous FTP). */
   anonymous?: boolean;
+  /** Bind this port; needed to restart a server an uploader is waiting for. */
+  port?: number;
 }): Promise<FtpTestServer> {
   const username = options.username ?? 'photo';
   const password = options.password ?? 's3cret-photo-pass';
@@ -110,7 +112,7 @@ export async function startFtpServer(options: {
       : { remaining: 1, afterBytes: options.dropAfterBytes, count: 0 };
 
   const server = new FtpSrv({
-    url: 'ftp://127.0.0.1:0',
+    url: `ftp://127.0.0.1:${options.port ?? 0}`,
     pasv_url: '127.0.0.1',
     anonymous: false,
     log: silentLog,

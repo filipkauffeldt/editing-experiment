@@ -109,14 +109,14 @@ export class UploadStore {
       );
   }
 
-  /** Atomically moves a queued row to `uploading` and counts the attempt. */
+  /** Atomically moves a due row to `uploading` and counts the attempt. */
   claim(id: string, token: string, now: number): boolean {
     const result = this.db
       .prepare(
         `UPDATE upload_items
            SET state = 'uploading', attempts = attempts + 1, error = NULL,
                claim_token = ?, updated_at = ?
-         WHERE id = ? AND state = 'queued'`,
+         WHERE id = ? AND state IN ('queued', 'waiting')`,
       )
       .run(token, now, id);
     return result.changes > 0;
@@ -151,6 +151,69 @@ export class UploadStore {
       .run(error, now, id, token);
   }
 
+  /**
+   * Parks a row until the destination can be reached again. The attempt it was
+   * just claimed for is given back, so an outage never uses up the retry budget.
+   */
+  markWaiting(id: string, token: string, error: string, nextAttemptAt: number, now: number): void {
+    this.db
+      .prepare(
+        `UPDATE upload_items
+           SET state = 'waiting', bytes_sent = 0, error = ?, claim_token = NULL,
+               attempts = MAX(attempts - 1, 0), next_attempt_at = ?, updated_at = ?
+         WHERE id = ? AND state = 'uploading' AND claim_token = ?`,
+      )
+      .run(error, nextAttemptAt, now, id, token);
+  }
+
+  /**
+   * Parks every other row of a destination that has just become unreachable.
+   * Returns the ids that changed so the queue can emit their new state.
+   */
+  markDestinationWaiting(
+    destinationId: string,
+    error: string,
+    nextAttemptAt: number,
+    now: number,
+  ): string[] {
+    const ids = this.db
+      .prepare(
+        `SELECT id FROM upload_items
+         WHERE destination_id = ? AND state IN ('queued', 'waiting')
+         ORDER BY created_at ASC`,
+      )
+      .all(destinationId)
+      .map((row) => String((row as { id: unknown }).id));
+    this.db
+      .prepare(
+        `UPDATE upload_items
+           SET state = 'waiting', error = ?, next_attempt_at = ?, updated_at = ?
+         WHERE destination_id = ? AND state IN ('queued', 'waiting')`,
+      )
+      .run(error, nextAttemptAt, now, destinationId);
+    return ids;
+  }
+
+  /** Puts a destination's waiting rows back in line, oldest first. */
+  releaseWaiting(destinationId: string, now: number): string[] {
+    const ids = this.db
+      .prepare(
+        `SELECT id FROM upload_items
+         WHERE destination_id = ? AND state = 'waiting'
+         ORDER BY created_at ASC`,
+      )
+      .all(destinationId)
+      .map((row) => String((row as { id: unknown }).id));
+    this.db
+      .prepare(
+        `UPDATE upload_items
+           SET state = 'queued', error = NULL, next_attempt_at = ?, updated_at = ?
+         WHERE destination_id = ? AND state = 'waiting'`,
+      )
+      .run(now, now, destinationId);
+    return ids;
+  }
+
   scheduleRetry(id: string, token: string, nextAttemptAt: number, now: number): void {
     this.db
       .prepare(
@@ -167,7 +230,7 @@ export class UploadStore {
       .prepare(
         `UPDATE upload_items
            SET state = 'cancelled', error = NULL, claim_token = NULL, updated_at = ?
-         WHERE id = ? AND state IN ('queued', 'uploading', 'failed')`,
+         WHERE id = ? AND state IN ('queued', 'waiting', 'uploading', 'failed')`,
       )
       .run(now, id);
     return result.changes > 0;
@@ -196,25 +259,38 @@ export class UploadStore {
     return result.changes > 0;
   }
 
-  queued(now: number): StoredUploadItem[] {
+  /** Rows the pump may start now: queued or waiting for a connection, oldest first. */
+  due(now: number): StoredUploadItem[] {
     return this.db
       .prepare(
         `SELECT * FROM upload_items
-         WHERE state = 'queued' AND next_attempt_at <= ?
+         WHERE state IN ('queued', 'waiting') AND next_attempt_at <= ?
          ORDER BY created_at ASC, id ASC`,
       )
       .all(now)
       .map((row) => toItem(row as unknown as UploadRow));
   }
 
-  /** Earliest future retry time; due rows are driven by slot releases, not timers. */
-  nextQueuedAt(after: number): number | undefined {
+  /** Earliest future retry or probe time; due rows are driven by slot releases, not timers. */
+  nextDueAt(after: number): number | undefined {
     const row = this.db
       .prepare(
-        "SELECT MIN(next_attempt_at) AS next FROM upload_items WHERE state = 'queued' AND next_attempt_at > ?",
+        `SELECT MIN(next_attempt_at) AS next FROM upload_items
+         WHERE state IN ('queued', 'waiting') AND next_attempt_at > ?`,
       )
       .get(after) as { next: number | null } | undefined;
     return row?.next === null || row?.next === undefined ? undefined : row.next;
+  }
+
+  /** Rows still waiting on one destination; zero means its outage is over. */
+  pendingForDestination(destinationId: string): number {
+    const row = this.db
+      .prepare(
+        `SELECT COUNT(*) AS count FROM upload_items
+         WHERE destination_id = ? AND state IN ('queued', 'uploading', 'waiting')`,
+      )
+      .get(destinationId) as { count: number };
+    return Number(row.count);
   }
 
   /** Requeues rows left in `uploading` by a crash or a hard shutdown. */
@@ -236,7 +312,9 @@ export class UploadStore {
 
   pendingCount(): number {
     const row = this.db
-      .prepare("SELECT COUNT(*) AS count FROM upload_items WHERE state IN ('queued', 'uploading')")
+      .prepare(
+        "SELECT COUNT(*) AS count FROM upload_items WHERE state IN ('queued', 'waiting', 'uploading')",
+      )
       .get() as { count: number };
     return Number(row.count);
   }

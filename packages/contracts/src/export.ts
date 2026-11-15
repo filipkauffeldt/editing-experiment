@@ -206,7 +206,7 @@ export interface RenderedImage {
 }
 
 /** Lifecycle of an upload queue entry. */
-export type UploadItemState = 'queued' | 'uploading' | 'done' | 'failed' | 'cancelled';
+export type UploadItemState = 'queued' | 'uploading' | 'waiting' | 'done' | 'failed' | 'cancelled';
 
 /** One file waiting for, or being sent to, one destination. */
 export interface UploadItem {
@@ -221,6 +221,9 @@ export interface UploadItem {
   bytesSent: number;
   bytesTotal: number;
   attempts: number;
-  /** Last error message, when `state` is `failed`. Never contains credentials. */
+  /**
+   * Why the item is `failed`, or why it is `waiting` for the connection. Never
+   * contains credentials.
+   */
   error?: string;
 }

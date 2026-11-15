@@ -141,7 +141,8 @@ const updateUpload = (
   if (state === 'done') item.bytesSent = item.bytesTotal;
   const photo = photoById(world, item.photoId);
   if (photo) {
-    photo.status.upload = state === 'cancelled' ? 'none' : state;
+    // A waiting upload is still queued behind the outage in the photo badges.
+    photo.status.upload = state === 'cancelled' ? 'none' : state === 'waiting' ? 'queued' : state;
     if (state === 'done') photo.status.export = 'done';
     emitPhoto(world, emit, photo);
   }

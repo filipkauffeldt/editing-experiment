@@ -171,7 +171,23 @@
   content: '';
 }
 
+.waiting .stateIcon,
+.waiting.stateLabel {
+  color: var(--text);
+}
+
+.waiting.stateLabel::before {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  margin-right: 5px;
+  border-radius: 50%;
+  background: var(--dim);
+  content: '';
+}
+
 .queued,
+.waiting,
 .uploading,
 .done,
 .cancelled {

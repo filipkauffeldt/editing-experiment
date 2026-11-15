@@ -36,13 +36,14 @@ function hooksWith(password: string): ExportHooks {
   return { getSecret: async () => ({ password }) };
 }
 
-function waitForRetryEvent(queue: UploadQueue): Promise<JobEvent> {
+function waitForWaitingEvent(queue: UploadQueue): Promise<JobEvent> {
   let sawUploading = false;
   return new Promise((resolve) => {
     const off = queue.events.on((event) => {
       if (event.type !== 'upload.state') return;
       if (event.state === 'uploading') sawUploading = true;
-      if (sawUploading && event.state === 'queued') {
+      // A dropped connection is an outage, so the row waits instead of using an attempt.
+      if (sawUploading && event.state === 'waiting') {
         off();
         resolve(event);
       }
@@ -173,7 +174,7 @@ describe('SFTP uploads', () => {
       maxAttempts: 3,
     });
 
-    const retrying = waitForRetryEvent(queue);
+    const retrying = waitForWaitingEvent(queue);
     await queue.enqueue(photoId, localPath, [
       sftpDestination(server.port, { hostKeyFingerprint: server.fingerprint }),
     ]);

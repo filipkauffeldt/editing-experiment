@@ -16,6 +16,7 @@ import {
   getDestinationSecret,
   testDestination as probeDestination,
 } from './connectors';
+import { connectionOutage, outageReason, type ConnectionOutage } from './outage';
 import { normalizeRemotePath, resolveFolderDestinationPath } from './paths';
 import { JobEventEmitter } from './events';
 import { safeErrorMessage } from './redact';
@@ -28,10 +29,11 @@ export interface UploadQueueOptions {
   hooks?: ExportHooks;
   /** Parallel transfers per destination. Default 2. */
   concurrencyPerDestination?: number;
-  /** Attempts per item before it is marked failed. Default 5. */
+  /** Attempts per item before it is marked failed. A connection outage does not count. Default 5. */
   maxAttempts?: number;
-  /** First retry delay; doubles per attempt. Default 1000 ms. */
+  /** First retry or outage-probe delay; doubles per failure. Default 1000 ms. */
   retryBaseDelayMs?: number;
+  /** Longest wait between outage probes. Default 30 000 ms. */
   retryMaxDelayMs?: number;
   /** Injectable connector registry (tests, future destination kinds). */
   connectorFactory?: ConnectorFactory;
@@ -46,11 +48,28 @@ interface ActiveUpload {
   promise: Promise<void>;
 }
 
+/** A destination that could not be reached, remembered for this session only. */
+interface DestinationOutage {
+  reason: string;
+  kind: ConnectionOutage;
+  /** One probe goes out at this time; every other row of the destination stays put. */
+  nextProbeAt: number;
+  /** Consecutive failed probes, which grow the wait between them. */
+  probes: number;
+  /** Claim token of the probe that is currently testing the connection, if any. */
+  probeClaim?: string;
+}
+
 /**
  * Durable, per-destination-limited upload queue.
  *
  * Rows are written before a transfer starts, progress is persisted, and rows
  * left `uploading` by a crash are requeued when a queue is reopened.
+ *
+ * A connection outage (the destination cannot be reached) parks the item and
+ * the rest of its destination as `waiting` instead of using up an attempt. One
+ * probe at a time tests whether the connection is back; other destinations
+ * keep sending.
  */
 export class UploadQueue {
   readonly events = new JobEventEmitter();
@@ -73,6 +92,7 @@ export class UploadQueue {
   private lastScanAt: number | undefined;
   private readonly active = new Map<string, ActiveUpload>();
   private readonly activePerDestination = new Map<string, number>();
+  private readonly outages = new Map<string, DestinationOutage>();
   private readonly idleWaiters = new Set<() => void>();
 
   constructor(options: UploadQueueOptions) {
@@ -138,19 +158,24 @@ export class UploadQueue {
     });
 
     const now = this.now();
-    const items: StoredUploadItem[] = prepared.map(({ destination, remotePath }) => ({
-      id: asUploadId(randomUUID()),
-      photoId,
-      destinationId: destination.id,
-      destination,
-      localPath,
-      remotePath,
-      state: 'queued',
-      bytesSent: 0,
-      bytesTotal: fileInfo.size,
-      attempts: 0,
-      nextAttemptAt: now,
-    }));
+    const items: StoredUploadItem[] = prepared.map(({ destination, remotePath }) => {
+      // A destination that is down keeps a new file waiting with the rest of its queue.
+      const outage = this.outages.get(destination.id);
+      return {
+        id: asUploadId(randomUUID()),
+        photoId,
+        destinationId: destination.id,
+        destination,
+        localPath,
+        remotePath,
+        state: outage === undefined ? 'queued' : 'waiting',
+        bytesSent: 0,
+        bytesTotal: fileInfo.size,
+        attempts: 0,
+        nextAttemptAt: outage === undefined ? now : Math.max(now, outage.nextProbeAt),
+        ...(outage === undefined ? {} : { error: outage.reason }),
+      };
+    });
 
     for (const item of items) this.store.insert(item, now);
     for (const item of items) this.emitState(item, now);
@@ -196,6 +221,11 @@ export class UploadQueue {
       const updated = this.store.get(id);
       if (updated !== undefined) this.emitState(updated, this.now());
     }
+    // Nothing left to probe for: the next export to that destination may try at once.
+    if (this.store.pendingForDestination(item.destinationId) === 0) {
+      this.outages.delete(item.destinationId);
+    }
+    this.pump();
     this.notifyIfIdle();
   }
 
@@ -257,13 +287,23 @@ export class UploadQueue {
         progressed = false;
         const now = this.now();
         this.lastScanAt = now;
-        for (const item of this.store.queued(now)) {
+        // Destinations already down: only their oldest row probes, once per wait.
+        const probed = new Set<string>();
+        for (const item of this.store.due(now)) {
           if (this.active.has(item.id)) continue;
-          if ((this.activePerDestination.get(item.destinationId) ?? 0) >= this.concurrency) {
-            continue;
+          const active = this.activePerDestination.get(item.destinationId) ?? 0;
+          if (active >= this.concurrency) continue;
+          const outage = this.outages.get(item.destinationId);
+          let probing = false;
+          if (outage !== undefined) {
+            if (active > 0 || probed.has(item.destinationId)) continue;
+            if (now < outage.nextProbeAt) continue;
+            probed.add(item.destinationId);
+            probing = true;
           }
           const claimToken = randomUUID();
           if (!this.store.claim(item.id, claimToken, now)) continue;
+          if (probing && outage !== undefined) outage.probeClaim = claimToken;
 
           const controller = new AbortController();
           this.activePerDestination.set(
@@ -365,6 +405,7 @@ export class UploadQueue {
       this.store.markDone(item.id, claimToken, item.bytesTotal, now);
       const updated = this.store.get(item.id);
       if (updated !== undefined) this.emitState(updated, now);
+      this.recoverDestination(item.destinationId);
     } catch (error) {
       if (this.closed) return;
 
@@ -377,6 +418,16 @@ export class UploadQueue {
         if (updated !== undefined) this.emitState(updated, this.now());
         return;
       }
+
+      const outage = connectionOutage(error);
+      if (outage !== undefined) {
+        this.enterOutage(item, claimToken, outage);
+        return;
+      }
+
+      // The destination answered this time, whatever it said: the outage is over
+      // for the other rows, which may now take their turn.
+      this.recoverDestination(item.destinationId);
 
       const message = safeErrorMessage(error, secret, [
         item.destination.kind === 'folder' ? undefined : item.destination.username,
@@ -400,13 +451,61 @@ export class UploadQueue {
     }
   }
 
+  /**
+   * Parks the failed row and the rest of its destination until the next probe.
+   * The wait doubles per failed probe and stops at `retryMaxDelayMs`. A
+   * transfer that was already running when the outage started is not a probe,
+   * so two concurrent failures still count as one failed probe.
+   */
+  private enterOutage(item: StoredUploadItem, claimToken: string, kind: ConnectionOutage): void {
+    const now = this.now();
+    const previous = this.outages.get(item.destinationId);
+    const isProbe = previous === undefined || previous.probeClaim === claimToken;
+    const probes = isProbe ? (previous?.probes ?? 0) + 1 : (previous?.probes ?? 0);
+    const delay = Math.min(
+      this.retryBaseDelayMs * 2 ** Math.max(0, probes - 1),
+      this.retryMaxDelayMs,
+    );
+    const nextProbeAt = isProbe ? now + delay : (previous?.nextProbeAt ?? now + delay);
+    const reason = outageReason(kind);
+    this.outages.set(item.destinationId, {
+      kind,
+      reason,
+      nextProbeAt,
+      probes,
+      ...(isProbe ? {} : { probeClaim: previous?.probeClaim }),
+    });
+    // The other rows are still `queued` or `waiting`, so they are parked first;
+    // the row that just failed is still `uploading` and becomes `waiting` after.
+    const parked = this.store.markDestinationWaiting(item.destinationId, reason, nextProbeAt, now);
+    this.store.markWaiting(item.id, claimToken, reason, nextProbeAt, now);
+    this.emitStates(parked, now);
+    const updated = this.store.get(item.id);
+    if (updated !== undefined) this.emitState(updated, now);
+    this.scheduleRetryTimer();
+  }
+
+  /** The destination answered again: put its waiting rows back in line, oldest first. */
+  private recoverDestination(destinationId: string): void {
+    if (!this.outages.delete(destinationId)) return;
+    const now = this.now();
+    this.emitStates(this.store.releaseWaiting(destinationId, now), now);
+  }
+
+  private emitStates(ids: readonly string[], at: number): void {
+    for (const id of ids) {
+      const item = this.store.get(id);
+      if (item !== undefined) this.emitState(item, at);
+    }
+  }
+
   private scheduleRetryTimer(): void {
     this.clearRetryTimer();
     if (!this.started || this.closed) return;
     // Rows that became due after the last scan but before this call must get a timer
     // (with a zero delay). Looking them up from the current time would skip them, and
     // nothing else would ever wake the queue for them.
-    const next = this.store.nextQueuedAt(this.lastScanAt ?? this.now());
+    const next = this.store.nextDueAt(this.lastScanAt ?? this.now());
     if (next === undefined) return;
     const delay = Math.max(0, next - this.now());
     this.retryTimer = setTimeout(() => {

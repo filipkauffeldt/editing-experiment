@@ -72,10 +72,11 @@ const shooter = (window: Page, outDir: string) => async (name: string, selector?
   console.log(`wrote ${path}`);
 };
 
-const UPLOAD_STATUS = '[data-testid="upload-summary"], [data-testid="failed-summary"]';
+const UPLOAD_STATUS =
+  '[data-testid="upload-summary"], [data-testid="upload-waiting-summary"], [data-testid="failed-summary"]';
 
 /**
- * The top bar only shows the upload queue while something is sending or has failed.
+ * The top bar only shows the upload queue while something is sending, waiting or has failed.
  * Click its status from inside the wait, so a quick local-folder upload cannot finish
  * between finding the button and clicking it. The popover stays open once it is shown.
  * Returns false when the queue went idle before any status appeared.

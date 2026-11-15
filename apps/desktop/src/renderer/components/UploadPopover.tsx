@@ -7,6 +7,7 @@ import styles from './UploadPopover.module.css';
 const STATE_LABEL: Record<UploadItem['state'], string> = {
   queued: 'Queued',
   uploading: 'Sending',
+  waiting: 'Waiting for connection',
   done: 'Sent',
   failed: 'Failed',
   cancelled: 'Cancelled',
@@ -14,10 +15,11 @@ const STATE_LABEL: Record<UploadItem['state'], string> = {
 
 const PRIORITY: Record<UploadItem['state'], number> = {
   failed: 0,
-  uploading: 1,
-  queued: 2,
-  cancelled: 3,
-  done: 4,
+  waiting: 1,
+  uploading: 2,
+  queued: 3,
+  cancelled: 4,
+  done: 5,
 };
 
 function stateIcon(state: UploadItem['state']) {
@@ -68,7 +70,12 @@ export function UploadPopover({ onClose }: { onClose(): void }) {
           const percent =
             item.bytesTotal > 0 ? Math.round((item.bytesSent / item.bytesTotal) * 100) : 0;
           return (
-            <div key={item.id} className={styles.item}>
+            <div
+              key={item.id}
+              className={styles.item}
+              data-testid={`upload-item-${item.id}`}
+              data-state={item.state}
+            >
               <span className={`${styles.stateIcon} ${styles[item.state]}`}>
                 {stateIcon(item.state)}
               </span>
@@ -87,7 +94,7 @@ export function UploadPopover({ onClose }: { onClose(): void }) {
                     <span style={{ width: `${percent}%` }} />
                   </div>
                 )}
-                {item.state === 'failed' && item.error && (
+                {(item.state === 'failed' || item.state === 'waiting') && item.error && (
                   <div className={styles.error}>{item.error}</div>
                 )}
                 {item.state === 'uploading' && (
@@ -102,7 +109,9 @@ export function UploadPopover({ onClose }: { onClose(): void }) {
                     Retry
                   </button>
                 )}
-                {(item.state === 'queued' || item.state === 'uploading') && (
+                {(item.state === 'queued' ||
+                  item.state === 'waiting' ||
+                  item.state === 'uploading') && (
                   <button type="button" onClick={() => void store.cancelUpload(item.id)}>
                     Cancel
                   </button>

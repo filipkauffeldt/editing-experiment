@@ -1,6 +1,7 @@
 import { access, mkdtemp, readdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
+import { DatabaseSync } from 'node:sqlite';
 import {
   asDestinationId,
   asPhotoId,
@@ -10,7 +11,7 @@ import {
   type UploadItem,
 } from '@ee/contracts';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { UploadQueue } from '../src/index';
+import { UploadQueue, type StoredUploadItem } from '../src/index';
 import type { ConnectorFactory, UploadRequest } from '../src/upload/types';
 
 const photoId = asPhotoId('photo-queue');
@@ -54,6 +55,14 @@ function requireItem(items: UploadItem[], id: string): UploadItem {
   const item = items.find((entry) => entry.id === id);
   if (item === undefined) throw new Error(`missing upload ${id}`);
   return item;
+}
+
+async function waitForQueue(predicate: () => boolean, timeoutMs = 3_000): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  while (!predicate()) {
+    if (Date.now() > deadline) throw new Error('timed out waiting for the upload queue');
+    await new Promise((resolve) => setTimeout(resolve, 5));
+  }
 }
 
 describe('UploadQueue', () => {
@@ -327,6 +336,44 @@ describe('UploadQueue', () => {
     expect(requireItem(queueInstance.list(), first!.id).state).toBe('done');
   });
 
+  it('counts concurrent failures in one outage as one failed probe', async () => {
+    const destination = folderDestination('dest-wave', path.join(dir, 'wave'));
+    const start = 2_000_000;
+    let attempts = 0;
+    const queueInstance = queue({
+      now: () => start,
+      concurrencyPerDestination: 2,
+      retryBaseDelayMs: 200,
+      retryMaxDelayMs: 10_000,
+      connectorFactory: factoryFor(async () => {
+        attempts++;
+        throw Object.assign(new Error('connect ECONNREFUSED'), { code: 'ECONNREFUSED' });
+      }),
+    });
+
+    const [first] = await queueInstance.enqueue(photoId, await localFile('wave-1.jpg'), [
+      destination,
+    ]);
+    const [second] = await queueInstance.enqueue(photoId, await localFile('wave-2.jpg'), [
+      destination,
+    ]);
+    queueInstance.start();
+    await waitForQueue(
+      () => queueInstance.list().filter((item) => item.state === 'waiting').length === 2,
+    );
+
+    expect(attempts).toBe(2);
+    const store = (
+      queueInstance as unknown as {
+        store: { get(id: string): StoredUploadItem | undefined };
+      }
+    ).store;
+    // The second in-flight failure belongs to the same probe, so the wait is the base delay.
+    for (const item of [first!, second!]) {
+      expect(store.get(item.id)?.nextAttemptAt).toBe(start + 200);
+    }
+  });
+
   it('marks the item failed after maxAttempts and allows a manual retry', async () => {
     const localPath = await localFile('failed.jpg');
     const destination = folderDestination('dest-failed', path.join(dir, 'failed'));
@@ -419,6 +466,56 @@ describe('UploadQueue', () => {
 
     const second = queue();
     expect(requireItem(second.list(), item!.id).state).toBe('queued');
+  });
+
+  it('opens a database written before the waiting state and before claim tokens', async () => {
+    const legacyPath = path.join(dir, 'legacy.sqlite');
+    const destination = folderDestination('dest-legacy', path.join(dir, 'legacy'));
+    const localPath = await localFile('legacy.jpg');
+    const legacy = new DatabaseSync(legacyPath);
+    legacy.exec(`
+      CREATE TABLE upload_items (
+        id TEXT PRIMARY KEY,
+        photo_id TEXT NOT NULL,
+        destination_id TEXT NOT NULL,
+        destination_json TEXT NOT NULL,
+        local_path TEXT NOT NULL,
+        remote_path TEXT NOT NULL,
+        state TEXT NOT NULL,
+        bytes_sent INTEGER NOT NULL DEFAULT 0,
+        bytes_total INTEGER NOT NULL DEFAULT 0,
+        attempts INTEGER NOT NULL DEFAULT 0,
+        error TEXT,
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL,
+        next_attempt_at INTEGER NOT NULL DEFAULT 0
+      );
+    `);
+    legacy
+      .prepare(
+        `INSERT INTO upload_items (
+           id, photo_id, destination_id, destination_json, local_path, remote_path,
+           state, bytes_sent, bytes_total, attempts, created_at, updated_at, next_attempt_at
+         ) VALUES (?, ?, ?, ?, ?, ?, 'queued', 0, 32, 0, 1, 1, 0)`,
+      )
+      .run(
+        'legacy-upload',
+        photoId,
+        destination.id,
+        JSON.stringify(destination),
+        localPath,
+        'legacy.jpg',
+      );
+    legacy.close();
+
+    const opened = new UploadQueue({ dbPath: legacyPath });
+    queues.push(opened);
+    const [restored] = opened.list();
+    expect(restored).toMatchObject({ id: 'legacy-upload', state: 'queued', attempts: 0 });
+    opened.start();
+    await opened.waitForIdle();
+    expect(requireItem(opened.list(), 'legacy-upload').state).toBe('done');
+    await expect(access(path.join(dir, 'legacy', 'legacy.jpg'))).resolves.toBeUndefined();
   });
 
   it('closes the database and refuses new work', async () => {

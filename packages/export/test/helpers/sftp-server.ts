@@ -53,6 +53,8 @@ export async function startSftpServer(options: {
   username?: string;
   password?: string;
   dropAfterBytes?: number;
+  /** Bind this port; needed to restart a server an uploader is waiting for. */
+  port?: number;
 }): Promise<SftpTestServer> {
   const username = options.username ?? 'photo';
   const password = options.password ?? 's3cret-sftp-pass';
@@ -102,7 +104,7 @@ export async function startSftpServer(options: {
 
   await new Promise<void>((resolve, reject) => {
     server.once('error', reject);
-    server.listen(0, '127.0.0.1', () => {
+    server.listen(options.port ?? 0, '127.0.0.1', () => {
       server.removeListener('error', reject);
       resolve();
     });

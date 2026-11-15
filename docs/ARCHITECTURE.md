@@ -887,6 +887,23 @@ uploads are requeued from `uploads.sqlite` the same way. There is no quit dialog
 job had not been handed to the jobs process yet (the moments it takes to save the edits) is lost,
 and a resumed job that fails shows no toast, only its photo's failed status.
 
+**Upload queue.** One row per file and destination in `uploads.sqlite`, oldest first. A
+destination that cannot be reached right now is a connection outage: connection refused,
+reset, timed out, DNS or network unreachable, or a control or data connection that drops
+mid-transfer, for FTP, FTPS and SFTP. The row becomes `waiting` with a short plain reason and
+does not use up an attempt. Only the oldest row of that destination probes the connection,
+after a wait that doubles from `retryBaseDelayMs` and stops at `retryMaxDelayMs` (30 s), so a
+down server is not hammered by the whole queue. The other rows of that destination wait with
+it, and other destinations keep sending. When a probe succeeds, the waiting rows are released
+oldest first. A failure that will not fix itself (wrong login, permission denied, a path that
+cannot be created, a missing local file, an existing remote file) keeps the rule of
+`maxAttempts` (5) and then `failed`. `waiting` is stored in the queue database, so a restart
+keeps it. A database written before the state existed opens as it is. The upload popover and
+the top bar show "Waiting for connection" apart from "Failed", and a waiting item can be
+cancelled. A photo's thumbnail badge stays Queued while its upload waits. A queued row keeps
+its own copy of the destination, so removing that destination from settings does not fail
+rows that are already waiting.
+
 The renderer draws at the final output size so a 1600 px export never renders a
 45 MP raw. `outputSizeForResize` is the one definition of that size: the renderer
 uses it on the crop's pixel size and the encoder uses it to decide whether its own
