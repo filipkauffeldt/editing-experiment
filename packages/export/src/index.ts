@@ -33,6 +33,12 @@ export {
   tempRemotePath,
 } from './upload/paths';
 export { redactSecrets, safeErrorMessage } from './upload/redact';
+export {
+  connectionOutage,
+  isConnectionOutage,
+  outageReason,
+  type ConnectionOutage,
+} from './upload/outage';
 export { JobEventEmitter, type JobEventListener } from './upload/events';
 export { UploadStore } from './upload/store';
 export { UploadQueue, type UploadQueueOptions } from './upload/queue';
