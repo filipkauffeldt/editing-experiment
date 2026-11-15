@@ -42,7 +42,7 @@ packages/ingest       Sources (folder/card, FTP/SFTP poller), copy workers, rena
 packages/export       JPEG encode (@ee/core), thumbnail stripping, upload queue (FTP/FTPS/SFTP)
 packages/develop-gl   WebGL2 develop pipeline, crs: parameter model, LR preset parser
 packages/retouch      Selections, mosaic op, YuNet face detection (onnxruntime)
-scripts/              fetch-fixtures, screenshot helpers
+scripts/              fetch-fixtures, screenshot helpers, packaging (package-app, appimage-sandbox)
 ```
 
 ## Decision records
@@ -81,7 +81,9 @@ that import them also depend on them. electron-vite externalises the app's
 `dependencies`, so declaring them keeps them out of the main/jobs bundle and resolves
 them at runtime; the native packages (`exiftool-vendored`, `onnxruntime-node`) must not
 be bundled. Keep these declarations. The `@fontsource-variable/*` packages are imported
-from `renderer/fonts.css` and are bundler inputs, not runtime externals.
+from `renderer/fonts.css` and react and react-dom are imported by the renderer only. They are
+bundler inputs, not runtime externals, so they are dev dependencies and the packaged app does not
+carry them.
 
 ## Backend (jobs process)
 
@@ -93,6 +95,8 @@ The default settings folder is `userData`, so both files sit there until the use
 
 ```
 machine.json         settings folder choice, ingest destination and backup folder, export root, folder and card sources, folder destinations, profile folders, preset folders, panel widths, and every metadata template or code replacement path outside the settings folder
+window-state.json    size, position and maximised state of the main window (this machine only, so it is not in settings.json)
+logs/                ee.log and ee.1.log … ee.4.log, see "Logging"
 index.sqlite         photo index, the search text of each photo, the folders added to the Library in place and the paths removed from the Library (cache; sidecars are the source of truth)
 seen.sqlite          files already ingested per source
 uploads.sqlite       upload queue
@@ -410,6 +414,100 @@ step. Each computer still keeps its own paths.
   the source and destination lists say "Password needed" and the form takes the password. A
   reference with no secret is a failed connection, never anonymous FTP. Only an absent
   `credentialRef` is anonymous FTP.
+
+## Packaging and daily use
+
+**Packages.** `pnpm dist:linux` (an x64 AppImage) and `pnpm dist:win` (an x64 NSIS installer) run
+`scripts/package-app.ts`: build the native core (unless `--skip-native`), fetch the YuNet model, build
+the app, run `electron-builder` with `apps/desktop/electron-builder.yml` and write to
+`apps/desktop/release/`. Each runs on its own platform. The Windows installer is per user and needs no
+administrator rights (`oneClick`, `perMachine: false`, below `%LOCALAPPDATA%\Programs`). There is no
+signing, no auto-update and no icon of its own (Electron's is used).
+
+- **What is in it.** `app.asar` holds `out/` and the externals of "Dependency declarations" with
+  their dependencies. Programs and libraries that the operating system starts or loads cannot run
+  from the archive, so `**/*.node`, `exiftool-vendored` with its platform package (`.pl` on Linux,
+  `.exe` on Windows, which pnpm installs by platform) and `onnxruntime-node` are unpacked
+  (`app.asar.unpacked`). Only the ONNX Runtime build of the target platform is included. The
+  workspace packages are bundled by electron-vite and left out of `node_modules`. Lensfun data
+  (`lensfun.json`) is imported by the renderer and the fonts by `fonts.css`, so both are inside the
+  renderer bundle.
+- **`resources/`.** `native/` (`index.cjs` and the addon of the platform), `models/` (the YuNet
+  model) and `licenses/`. `loadCore` (`crates/core/src/index.ts`) looks for `resources/native` through
+  `process.resourcesPath` first, and `findYuNetModel` looks in `resources/models` after
+  `EE_YUNET_MODEL_PATH`. Under `electron .` the property exists but the folders do not, so a
+  development run still resolves the workspace package and `fixtures/models`.
+- **Name and data folder.** `extraMetadata.productName` makes the packaged app's `userData`
+  `~/.config/Editing Experiment` or `%APPDATA%\Editing Experiment`. A development run reads the
+  workspace package name, so its data is elsewhere and the two never share databases or an instance lock.
+- **Sandbox.** The app never disables it. electron-builder writes `--no-sandbox` into the
+  AppImage's desktop entry (`executableArgs: []` stops that) and its `AppRun` adds the flag by itself
+  when `unshare -Ur true` fails, which it does on Ubuntu 24.04. `scripts/appimage-sandbox.ts` opens the
+  built AppImage, removes that block from `AppRun` (it fails if the script's text changed) and packs
+  the image again with electron-builder's own `mksquashfs` and runtime. On such a system the user passes
+  `--no-sandbox` (README, "Install"). The packaged test reads `AppRun` and the desktop entry.
+- **Test.** `packaged-app.e2e.test.ts` starts the AppImage (or the executable named by
+  `EE_PACKAGED_APP`) with `EE_USER_DATA_DIR` set to a temporary folder. The AppImage runs with
+  `APPIMAGE_EXTRACT_AND_RUN=1`, the runtime's switch for `--appimage-extract-and-run`, so no FUSE is
+  needed. It checks that the app is packaged and has the package's version, the window and the jobs
+  process, a raw ingested through the addon with its thumbnail, preview and linear image, a caption
+  written and read through ExifTool, faces found with onnxruntime and the model, a second launch
+  that exits, the default data folder name and the launcher files. Linux CI runs it in `package-linux`
+  and the Windows workflow runs it against the installed app on `main` and on manual dispatch.
+
+**Version.** `apps/desktop/package.json` is the app's version (`app.getVersion()`, `0.1.0`). It is in
+`SystemInfo.appVersion`, in the tooltip of the status mark in the top bar and in Help → About.
+
+**Single instance.** `app.requestSingleInstanceLock()` is taken before anything else starts. The lock
+belongs to the `userData` folder, so a second launch on the same folder sends `second-instance` to
+the first (which restores, shows and focuses its window) and quits without starting the jobs
+process or opening a database. Different folders (tests, a development run) do not meet. Mock mode
+(`EE_MOCK=1`) takes no lock and keeps no window state: it opens no databases and the screenshot tour
+must start the same way every time.
+
+**Window state** (`main/window-state.ts`, `main/window.ts`). `window-state.json` in `userData` holds
+`{ x, y, width, height, maximized }`, the normal bounds (`getNormalBounds`, so a maximised window
+keeps the size it returns to). It is written 400 ms after a resize, move, maximise or unmaximise and
+on close, not while minimised or full screen. `placeWindow` takes the saved state and the work areas
+of the current displays. A rectangle that shares less than 100 x 50 px with every work area (a monitor
+that is gone) is dropped and the window opens at the default size and place. The size never goes
+below the window's minimum. A damaged file is ignored. The file is not part of `settings.json`, which
+is meant to be shared between computers.
+
+**Logging** (`main/log-file.ts`, `main/logging.ts`, `shared/log-bridge.ts`, `shared/log-redact.ts`).
+Only main writes the file, so rotation never races. `RotatingLogFile` appends lines
+`<ISO time> WARN|ERROR [main|jobs|renderer] message` to `userData/logs/ee.log` synchronously, so a
+line written just before a crash is kept. At 2 MB the file becomes `ee.1.log` and older ones move
+down, up to five files in all.
+
+- main: `console.warn` and `console.error` (also still printed), `uncaughtException` and
+  `unhandledRejection`. Electron's error dialog for an uncaught exception is replaced by the log and
+  the process carries on.
+- jobs: the same bridge sends `{ kind: 'log' }` messages to main (`JobsLogMessage`). An uncaught
+  exception is logged and the process exits (main restarts it, see `RestartPolicy`). An unhandled
+  rejection is logged and the process carries on. `job.error` events (a failed ingest or export)
+  are logged by main as errors with their scope, because they are the failures that matter day to day.
+- renderer: main logs the `console-message` events of level warning and error (an uncaught exception
+  or unhandled rejection in the page is a console error), `render-process-gone` and `did-fail-load`.
+  Plain `console.log` is not kept.
+
+Credentials: every line is redacted before it is written. `LogRedactor` replaces the secret values
+the app has handled (the `CredentialStore` reports each secret it stores or reads, so a password is
+known before the jobs process can use it) and the shapes credentials take in text: `scheme://user:pass@`
+(the whole user information), `password=`, `passphrase`, `token`, `secret`, `api key`, `private key`
+followed by a value, `Authorization: Basic|Bearer` and PEM private key blocks. The existing
+`redactSecrets` in the ingest engine and the upload queue still cleans the messages they emit.
+The call sites that log a URL, a source or a destination were read one by one: `protocol.ts` logs
+the `app://` URL of a failed image request (photo id only), the jobs backend logs warnings that
+contain file paths and names (settings, search index, preview check, preset and profile scans,
+export and ingest warnings), the renderer logs thumbnail and template errors with the thrown message,
+and `job.error` messages name the source and host. None builds a URL with user information, and all
+pass through the redactor anyway. `log-credentials.test.ts` runs the credential store, the backend
+and an in-process FTP server that rejects the login and prints the user and password back in its
+reply, and checks that the file holds neither.
+
+**Help menu** (`main/menu-template.ts`): Open log folder (`shell.openPath` on `userData/logs`) and
+About (version, Electron and Chromium versions, data folder). It has no shortcuts.
 
 ## Edited thumbnails and previews
 
