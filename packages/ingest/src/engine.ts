@@ -205,7 +205,7 @@ export function startIngest(config: IngestConfig, hooks: IngestHooks = {}): Inge
 
     /** One look at the source: filter, then drop what the seen store already has. */
     const scan = async (): Promise<LocalScan> => {
-      const files = await listSourceFiles(source);
+      const files = await listSourceFiles(source, { signal });
       const filtered = await filterSourceFiles(files, {
         ...(source.fileTypes === undefined ? {} : { fileTypes: source.fileTypes }),
         ...(source.lockFilter === undefined ? {} : { lockFilter: source.lockFilter }),
