@@ -26,6 +26,7 @@ import { logJobEvent, logRenderer, startLogging } from './logging';
 import { installApplicationMenu } from './menu';
 import { createTrashItem } from './trash';
 import { createMainWindow } from './window';
+import { windowStateFile } from './window-state';
 
 const mock = process.env.EE_MOCK === '1';
 
@@ -123,7 +124,7 @@ void app.whenReady().then(() => {
   });
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) {
-      const window = createMainWindow();
+      const window = createMainWindow({ stateFile: windowStateFile(app.getPath('userData')) });
       logRenderer(window.webContents, log);
     }
   });
@@ -142,7 +143,7 @@ void app.whenReady().then(() => {
       });
     },
   });
-  const window = createMainWindow();
+  const window = createMainWindow({ stateFile: windowStateFile(userDataDir) });
   logRenderer(window.webContents, log);
   // Problems found before the renderer existed are shown once it has loaded.
   window.webContents.once('did-finish-load', () => {
