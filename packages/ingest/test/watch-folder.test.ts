@@ -3,7 +3,6 @@ import { join } from 'node:path';
 import { asSourceId, type FolderSource, type IngestConfig, type JobEvent } from '@ee/contracts';
 import { afterEach, describe, expect, it } from 'vitest';
 import { startIngest } from '../src/engine';
-import type { MemorySeenStore } from '../src/seen-store';
 import type { IngestHandle, IngestedFileInfo } from '../src/types';
 import { delay, waitFor } from './helpers/engine';
 import { cleanupTempDirs, makeTempDir } from './helpers/temp';
@@ -40,12 +39,10 @@ function watch(
     watchIntervalMs: number;
     ingested: IngestedFileInfo[];
     events: JobEvent[];
-    seenStore?: MemorySeenStore;
   },
 ): IngestHandle {
   const handle = startIngest(config(source, destination), {
     watchIntervalMs: options.watchIntervalMs,
-    ...(options.seenStore ? { seenStore: options.seenStore } : {}),
     onFileIngested: async (info) => {
       options.ingested.push(info);
     },
