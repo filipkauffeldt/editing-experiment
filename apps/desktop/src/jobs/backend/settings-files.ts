@@ -61,6 +61,13 @@ export interface SharedSettings {
   sources: SourceConfig[];
   /** FTP and SFTP destinations, without secrets. */
   destinations: Destination[];
+  /**
+   * Top-level fields from a current-version file this version does not know. They are
+   * written back untouched, so a newer computer's settings are not stripped.
+   */
+  extra?: Record<string, unknown>;
+  /** Fields inside `ingest` this version does not know. */
+  ingestExtra?: Record<string, unknown>;
 }
 
 /** What belongs to one computer. Lives in `userData/machine.json`. */
@@ -81,6 +88,10 @@ export interface MachineSettings {
   sources: SourceConfig[];
   /** Folder destinations. */
   destinations: Destination[];
+  /** Top-level fields from a current-version file this version does not know. */
+  extra?: Record<string, unknown>;
+  /** Fields inside `ingest` this version does not know. */
+  ingestExtra?: Record<string, unknown>;
 }
 
 export interface MergedSettings {
@@ -90,18 +101,24 @@ export interface MergedSettings {
 }
 
 export function sharedFileContents(shared: SharedSettings): Record<string, unknown> {
+  const { ingest, ingestExtra, extra, ...known } = shared;
   return {
     version: SHARED_FILE_VERSION,
     format: SHARED_FILE_FORMAT,
-    ...shared,
+    ...extra,
+    ...known,
+    ingest: { ...ingestExtra, ...ingest },
   };
 }
 
 export function machineFileContents(machine: MachineSettings): Record<string, unknown> {
+  const { ingest, ingestExtra, extra, ...known } = machine;
   return {
     version: MACHINE_FILE_VERSION,
     format: MACHINE_FILE_FORMAT,
-    ...machine,
+    ...extra,
+    ...known,
+    ingest: { ...ingestExtra, ...ingest },
   };
 }
 
@@ -119,6 +136,16 @@ export function isLocalSource(source: SourceConfig): boolean {
 
 export function isLocalDestination(destination: Destination): boolean {
   return destination.kind === 'folder';
+}
+
+/** Fields this version does not know, kept so a write does not strip a newer computer's file. */
+function unknownFields(
+  value: Record<string, unknown>,
+  known: readonly string[],
+): Record<string, unknown> | undefined {
+  const names = new Set(known);
+  const extra = Object.fromEntries(Object.entries(value).filter(([name]) => !names.has(name)));
+  return Object.keys(extra).length === 0 ? undefined : extra;
 }
 
 /** The shared half of a state, for a fresh install or a file that had everything. */
@@ -308,7 +335,31 @@ export function normalizeSharedFile(parsed: unknown, defaults: AppSettings): Sha
   const backupTemplate = subfolder(backup);
   const copyMetadataFields = sanitizeCopyMetadataFields(parsed.copyMetadataFields);
   const copySettingGroups = sanitizeCopySettingGroups(parsed.copySettingGroups);
+  const extra = unknownFields(parsed, [
+    'version',
+    'format',
+    'ingest',
+    'exportPresets',
+    'activePresetId',
+    'metadataTemplates',
+    'codeReplacementPaths',
+    'copyMetadataFields',
+    'copySettingGroups',
+    'sources',
+    'destinations',
+  ]);
+  const ingestExtra = unknownFields(ingest, [
+    'fileNaming',
+    'renameTemplate',
+    'metadataTemplateMode',
+    'developPresetId',
+    'destination',
+    'backupDestination',
+    'metadataTemplate',
+  ]);
   return {
+    ...(extra === undefined ? {} : { extra }),
+    ...(ingestExtra === undefined ? {} : { ingestExtra }),
     ingest: {
       fileNaming: isFileNamingMode(ingest.fileNaming) ? ingest.fileNaming : DEFAULT_FILE_NAMING,
       renameTemplate:
@@ -361,7 +412,23 @@ export function normalizeMachineFile(
       if (typeof value === 'string' && value !== '') paths[id] = value;
     }
   }
+  const extra = unknownFields(raw, [
+    'version',
+    'format',
+    'settingsFolder',
+    'ingest',
+    'exportRoot',
+    'profileFolders',
+    'presetFolders',
+    'panelWidths',
+    'paths',
+    'sources',
+    'destinations',
+  ]);
+  const ingestExtra = unknownFields(ingest, ['destinationPath', 'backupDestinationPath']);
   return {
+    ...(extra === undefined ? {} : { extra }),
+    ...(ingestExtra === undefined ? {} : { ingestExtra }),
     ...(typeof raw.settingsFolder === 'string' && raw.settingsFolder !== ''
       ? { settingsFolder: raw.settingsFolder }
       : {}),

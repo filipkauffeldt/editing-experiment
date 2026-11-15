@@ -7,6 +7,7 @@ import {
   type FtpSource,
   type FolderDestination,
   type IpcHandlers,
+  type SourceConfig,
 } from '@ee/contracts';
 import {
   chmod,
@@ -381,6 +382,292 @@ describe('two computers and one settings folder', () => {
     const reopened = new SettingsStore(join(userData, 'settings.json'), defaults);
     expect(reopened.get().copyMetadataFields).toEqual(['headline']);
     expect(reopened.folderInfo().problem).toBeUndefined();
+  });
+});
+
+describe('the shared file on disk', () => {
+  it('is not rewritten at start just because this version would serialise it differently', async () => {
+    const userData = await tempDir();
+    const folder = join(userData, 'synced');
+    await mkdir(folder);
+    const store = new SettingsStore(join(userData, 'settings.json'), defaults);
+    store.useFolder(folder);
+
+    const text = JSON.stringify({
+      version: 3,
+      format: 'ee-settings-folder',
+      ingest: {
+        fileNaming: 'rename',
+        renameTemplate: '{date}',
+        metadataTemplateMode: 'replace',
+      },
+      exportPresets: defaults.exportPresets,
+      activePresetId: defaults.activePresetId,
+      metadataTemplates: [],
+      codeReplacementPaths: [],
+      // Normalisation drops the retired field, but reading must not write.
+      copyMetadataFields: ['headline', 'retiredField'],
+      sources: [],
+      destinations: [],
+    });
+    await writeFile(join(folder, 'settings.json'), text);
+
+    const reopened = new SettingsStore(join(userData, 'settings.json'), defaults);
+    expect(reopened.get().copyMetadataFields).toEqual(['headline']);
+    expect(await readFile(join(folder, 'settings.json'), 'utf8')).toBe(text);
+
+    // A real change writes the normalised file.
+    reopened.set({ copySettingGroups: ['detail'] });
+    const saved = await readJson(join(folder, 'settings.json'));
+    expect(saved.copyMetadataFields).toEqual(['headline']);
+    expect(saved.copySettingGroups).toEqual(['detail']);
+  });
+
+  it('reads a file from a newer app version but never writes it', async () => {
+    const userData = await tempDir();
+    const folder = join(userData, 'synced');
+    await mkdir(folder);
+    const store = new SettingsStore(join(userData, 'settings.json'), defaults);
+    store.useFolder(folder);
+    const text = JSON.stringify({
+      version: 4,
+      format: 'ee-settings-folder',
+      ingest: {
+        fileNaming: 'keep',
+        renameTemplate: '{old}',
+        metadataTemplateMode: 'replace',
+      },
+      exportPresets: defaults.exportPresets,
+      metadataTemplates: [],
+      codeReplacementPaths: [],
+      sources: [],
+      destinations: [],
+      futureTop: { keep: true },
+    });
+    await writeFile(join(folder, 'settings.json'), text);
+
+    const newer = new SettingsStore(join(userData, 'settings.json'), defaults);
+    expect(newer.get().ingest.fileNaming).toBe('keep');
+    expect(newer.folderInfo().problem).toMatch(/newer version of the app/);
+    expect(() => newer.set({ copyMetadataFields: ['headline'] })).toThrowError(
+      /newer version of the app/,
+    );
+    const target = join(userData, 'other');
+    await mkdir(target);
+    expect(() => newer.copyToFolder(target)).toThrowError(/newer version of the app/);
+    expect(await readFile(join(folder, 'settings.json'), 'utf8')).toBe(text);
+  });
+
+  it('keeps top-level and per-entry fields it does not know when it writes', async () => {
+    const userData = await tempDir();
+    const folder = join(userData, 'synced');
+    await mkdir(folder);
+    const preset = { ...defaults.exportPresets[0]!, futurePreset: 'keep' };
+    const shared = {
+      version: 3,
+      format: 'ee-settings-folder',
+      futureTop: { keep: true },
+      ingest: {
+        fileNaming: 'rename',
+        renameTemplate: '{date}',
+        metadataTemplateMode: 'replace',
+        futureIngest: 7,
+      },
+      exportPresets: [preset],
+      activePresetId: preset.id,
+      metadataTemplates: [],
+      codeReplacementPaths: [],
+      sources: [
+        {
+          id: 'pool',
+          kind: 'ftp',
+          name: 'Pool',
+          host: 'ftp.sportfotografen.se',
+          port: 21,
+          username: 'photographer',
+          credentialRef: 'cred-pool',
+          remotePath: '/incoming',
+          pollIntervalMs: 5000,
+          deleteAfterDownload: false,
+          security: 'none',
+          watchForNewFiles: true,
+          futureSource: 'keep',
+        },
+      ],
+      destinations: [
+        {
+          id: 'desk',
+          kind: 'ftp',
+          name: 'Desk',
+          host: 'ftp.sportfotografen.se',
+          port: 21,
+          username: 'ftpuser',
+          credentialRef: 'cred-desk',
+          remotePathTemplate: '{fileName}',
+          security: 'none',
+          futureDestination: 'keep',
+        },
+      ],
+    };
+    await writeFile(join(folder, 'settings.json'), JSON.stringify(shared));
+    await writeFile(
+      join(userData, 'machine.json'),
+      JSON.stringify({
+        version: 1,
+        format: 'ee-machine',
+        settingsFolder: folder,
+        futureMachine: 1,
+        ingest: { destinationPath: '/ingest', futureMachineIngest: 2 },
+        exportRoot: '/exports',
+        paths: {},
+        sources: [
+          {
+            id: 'card',
+            kind: 'folder',
+            name: 'Card',
+            path: '/card',
+            watchForNewFiles: true,
+            futureFolderSource: 'keep',
+          },
+        ],
+        destinations: [
+          {
+            id: 'outbox',
+            kind: 'folder',
+            name: 'Outbox',
+            path: '/outbox',
+            remotePathTemplate: '{fileName}',
+            futureFolderDestination: 'keep',
+          },
+        ],
+      }),
+    );
+
+    const store = new SettingsStore(join(userData, 'settings.json'), defaults);
+    store.set({ copyMetadataFields: ['headline'], exportRoot: '/new' });
+
+    const savedShared = await readJson(join(folder, 'settings.json'));
+    expect(savedShared.futureTop).toEqual({ keep: true });
+    expect(savedShared.ingest).toMatchObject({ futureIngest: 7 });
+    expect(savedShared.sources).toMatchObject([{ watchForNewFiles: true, futureSource: 'keep' }]);
+    expect(savedShared.destinations).toMatchObject([{ futureDestination: 'keep' }]);
+    expect((savedShared.exportPresets as Array<Record<string, unknown>>)[0]).toMatchObject({
+      futurePreset: 'keep',
+    });
+
+    const savedMachine = await readJson(join(userData, 'machine.json'));
+    expect(savedMachine.futureMachine).toBe(1);
+    expect(savedMachine.ingest).toMatchObject({ futureMachineIngest: 2 });
+    expect(savedMachine.sources).toMatchObject([
+      { watchForNewFiles: true, futureFolderSource: 'keep' },
+    ]);
+    expect(savedMachine.destinations).toMatchObject([{ futureFolderDestination: 'keep' }]);
+  });
+
+  it('does not move or replace an unreadable file in a synced folder', async () => {
+    const userData = await tempDir();
+    const folder = join(userData, 'synced');
+    await mkdir(folder);
+    const store = new SettingsStore(join(userData, 'settings.json'), defaults);
+    store.useFolder(folder);
+    const broken = '{ not json';
+    await writeFile(join(folder, 'settings.json'), broken);
+
+    const reopened = new SettingsStore(join(userData, 'settings.json'), defaults);
+    expect(reopened.get().ingest.fileNaming).toBe(defaults.ingest.fileNaming);
+    expect(reopened.folderInfo().problem).toMatch(/could not be read/);
+    expect(reopened.folderInfo().problem).toMatch(/half-synced|conflict/);
+    expect(() => reopened.set({ copyMetadataFields: ['headline'] })).toThrowError(
+      /could not be read/,
+    );
+    expect(await readFile(join(folder, 'settings.json'), 'utf8')).toBe(broken);
+    expect((await readdir(folder)).some((name) => name.includes('corrupt'))).toBe(false);
+  });
+});
+
+describe('paths that belong to one computer', () => {
+  it("keeps the other computer's references through add, remove and reorder, and removes one on its own computer", async () => {
+    const root = await tempDir();
+    const userDataA = join(root, 'userdata-a');
+    const userDataB = join(root, 'userdata-b');
+    const folder = join(root, 'settings');
+    await Promise.all([mkdir(userDataA), mkdir(userDataB), mkdir(folder)]);
+
+    const a = new SettingsStore(join(userDataA, 'settings.json'), defaults);
+    a.useFolder(folder);
+    a.set({ metadataTemplates: ['/machine/a1.XMP', '/machine/a2.XMP'] });
+    const aMachine = await readJson(join(userDataA, 'machine.json'));
+    const aPaths = aMachine.paths as Record<string, string>;
+    const a1 = Object.keys(aPaths).find((id) => aPaths[id] === '/machine/a1.XMP');
+    expect(a1).toBeDefined();
+
+    const b = new SettingsStore(join(userDataB, 'settings.json'), defaults);
+    b.useFolder(folder);
+    expect(b.get().metadataTemplates).toEqual([]);
+    b.set({ metadataTemplates: ['/machine/b1.XMP'] });
+    b.set({ metadataTemplates: ['/machine/b2.XMP', '/machine/b1.XMP'] });
+    expect(b.get().metadataTemplates).toEqual(['/machine/b2.XMP', '/machine/b1.XMP']);
+
+    const shared = await readJson(join(folder, 'settings.json'));
+    expect(shared.metadataTemplates).toHaveLength(4);
+    const refs = shared.metadataTemplates as Array<Record<string, string>>;
+    expect(refs.map((ref) => ref.machine).filter(Boolean)).toEqual(
+      expect.arrayContaining([a1, expect.any(String), expect.any(String), expect.any(String)]),
+    );
+
+    const aAgain = new SettingsStore(join(userDataA, 'settings.json'), defaults);
+    expect(aAgain.get().metadataTemplates).toEqual(['/machine/a1.XMP', '/machine/a2.XMP']);
+    aAgain.set({ metadataTemplates: ['/machine/a2.XMP'] });
+
+    const afterRemoval = await readJson(join(folder, 'settings.json'));
+    expect(afterRemoval.metadataTemplates).toHaveLength(3);
+    const aPathsAfter = (await readJson(join(userDataA, 'machine.json'))).paths as Record<
+      string,
+      string
+    >;
+    expect(Object.values(aPathsAfter)).not.toContain('/machine/a1.XMP');
+    expect(Object.values(aPathsAfter)).toContain('/machine/a2.XMP');
+
+    const aRestarted = new SettingsStore(join(userDataA, 'settings.json'), defaults);
+    expect(aRestarted.get().metadataTemplates).toEqual(['/machine/a2.XMP']);
+    const bRestarted = new SettingsStore(join(userDataB, 'settings.json'), defaults);
+    expect(bRestarted.get().metadataTemplates).toEqual(['/machine/b2.XMP', '/machine/b1.XMP']);
+  });
+
+  it('keeps optional source fields it does not know through a save and restart', async () => {
+    const userData = await tempDir();
+    const store = new SettingsStore(join(userData, 'settings.json'), defaults);
+    const card = {
+      id: asSourceId('card'),
+      kind: 'folder',
+      name: 'Card',
+      path: '/card',
+      watchForNewFiles: true,
+      futureField: { keep: true },
+    } as unknown as SourceConfig;
+    const remote = {
+      ...ftpSource,
+      watchForNewFiles: true,
+      futureField: { keep: true },
+    } as unknown as SourceConfig;
+    store.saveSource(card);
+    store.saveSource(remote);
+
+    const reopened = new SettingsStore(join(userData, 'settings.json'), defaults);
+    expect(reopened.listSources().find((source) => source.id === 'card')).toMatchObject({
+      watchForNewFiles: true,
+      futureField: { keep: true },
+    });
+    expect(reopened.listSources().find((source) => source.id === 'pool')).toMatchObject({
+      watchForNewFiles: true,
+      futureField: { keep: true },
+    });
+    expect((await readJson(join(userData, 'machine.json'))).sources).toMatchObject([
+      { watchForNewFiles: true, futureField: { keep: true } },
+    ]);
+    expect((await readJson(join(userData, 'settings.json'))).sources).toMatchObject([
+      { watchForNewFiles: true, futureField: { keep: true } },
+    ]);
   });
 });
 

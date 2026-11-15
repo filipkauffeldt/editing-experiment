@@ -24,6 +24,7 @@ import {
 import { dirname, isAbsolute, join } from 'node:path';
 import { writeJsonAtomic } from './atomic-json';
 import {
+  SHARED_FILE_VERSION,
   mergeSettings,
   isMachineSettingsFile,
   isSharedSettingsFile,
@@ -100,6 +101,10 @@ export class SettingsStore {
   private readonly machineExisted: boolean;
   private lastSharedRaw: string | undefined;
   private problem: string | undefined;
+  /** The shared file says it came from a newer app version: read it, never write it. */
+  private newerVersion: string | undefined;
+  /** The shared file in a synced folder could not be read: do not replace it with defaults. */
+  private unreadableFile: string | undefined;
 
   /**
    * @param file the `userData/settings.json` path; its folder is the default settings folder
@@ -221,12 +226,15 @@ export class SettingsStore {
   /**
    * Read the shared settings in `folder`. A file written by an older version is split and
    * kept as `settings.json.pre-settings-folder`; a half-finished split is recovered from
-   * its temp file.
+   * its temp file. A current file is never written here: another computer may serialise
+   * it differently, and rewriting it on every start would make sync conflicts.
    */
   private loadSharedFile(
     folder: string,
     machine: MachineSettings,
   ): { shared: SharedSettings; machine: MachineSettings } {
+    this.newerVersion = undefined;
+    this.unreadableFile = undefined;
     const file = this.sharedFileAt(folder);
     if (!existsSync(file)) return this.recover(folder, machine);
     const raw = readFileSync(file, 'utf8');
@@ -239,41 +247,59 @@ export class SettingsStore {
       parsed = undefined;
     }
     if (isSharedSettingsFile(parsed)) {
-      const shared = normalizeSharedFile(parsed, this.defaults);
-      const normalizedRaw = serialized(sharedFileContents(shared));
-      if (normalizedRaw !== raw && this.checkFolder(folder) === undefined) {
-        this.writeSharedNow(folder, shared);
-        this.lastSharedRaw = normalizedRaw;
-      } else {
-        this.lastSharedRaw = existsSync(file) ? readFileSync(file, 'utf8') : raw;
+      const version = (parsed as Record<string, unknown>).version;
+      if (typeof version === 'number' && version > SHARED_FILE_VERSION) {
+        this.newerVersion =
+          `The settings file was written by a newer version of the app (version ${version}). ` +
+          'Nothing was written. Update the app on this computer to change the settings.';
       }
-      return { shared, machine };
+      this.lastSharedRaw = raw;
+      return { shared: normalizeSharedFile(parsed, this.defaults), machine };
     }
     if (isObject(parsed)) {
       // The one-file layout: split it, keeping every migration it needs.
-      const legacy = readLegacySettings(parsed, this.defaults);
-      const split = splitSettings(
-        { settings: legacy.settings, sources: legacy.sources, destinations: legacy.destinations },
-        folder,
-        this.machineExisted ? machine : undefined,
-        newId,
-      );
-      this.writeMachineFor(split.machine);
-      const wrote = this.writeMigrated(folder, split.shared, true);
-      this.lastSharedRaw = wrote
-        ? serialized(sharedFileContents(split.shared))
-        : existsSync(file)
-          ? readFileSync(file, 'utf8')
-          : raw;
-      return split;
+      try {
+        const legacy = readLegacySettings(parsed, this.defaults);
+        const split = splitSettings(
+          { settings: legacy.settings, sources: legacy.sources, destinations: legacy.destinations },
+          folder,
+          this.machineExisted ? machine : undefined,
+          newId,
+        );
+        this.writeMachineFor(split.machine);
+        const wrote = this.writeMigrated(folder, split.shared, true);
+        this.lastSharedRaw = wrote
+          ? serialized(sharedFileContents(split.shared))
+          : existsSync(file)
+            ? readFileSync(file, 'utf8')
+            : raw;
+        return split;
+      } catch (error) {
+        readError = error;
+      }
     }
-    const aside = this.checkFolder(folder) === undefined ? this.moveAside(file) : undefined;
-    this.warn(
-      `settings.json could not be read (${messageOf(readError ?? new Error('not a settings object'))})` +
-        `${aside === undefined ? '' : `; moved to ${aside}`}; the defaults are used`,
-    );
-    const split = splitSettings(this.defaultState(), folder, machine, newId);
-    return split;
+    this.reportUnreadable(folder, file, readError ?? new Error('not a settings object'));
+    return splitSettings(this.defaultState(), folder, machine, newId);
+  }
+
+  /**
+   * A file that does not parse is not ours to replace in a synced folder. The default
+   * `userData` file keeps the old behaviour and is set aside.
+   */
+  private reportUnreadable(folder: string, file: string, error: unknown): void {
+    const reason = messageOf(error);
+    if (folder === this.defaultFolder) {
+      const aside = this.checkFolder(folder) === undefined ? this.moveAside(file) : undefined;
+      this.warn(
+        `settings.json could not be read (${reason})` +
+          `${aside === undefined ? '' : `; moved to ${aside}`}; the defaults are used`,
+      );
+      return;
+    }
+    this.unreadableFile =
+      `The settings file in "${folder}" could not be read (${reason}). Nothing was written. ` +
+      'It may be half-synced or a conflict copy.';
+    this.warn(this.unreadableFile);
   }
 
   /** Write this computer's half when a migration changed it, before the shared file. */
@@ -345,10 +371,6 @@ export class SettingsStore {
     return true;
   }
 
-  private writeSharedNow(folder: string, shared: SharedSettings): void {
-    writeJsonAtomic(this.sharedFileAt(folder), sharedFileContents(shared));
-  }
-
   // ------------------------------------------------------------------- reading
 
   get(): AppSettings {
@@ -382,11 +404,14 @@ export class SettingsStore {
 
   // ------------------------------------------------------------------- writing
 
+  private get writeProblem(): string | undefined {
+    return this.problem ?? this.newerVersion ?? this.unreadableFile;
+  }
+
   private assertWritable(): void {
     if (this.file === undefined) return;
-    if (this.problem !== undefined) {
-      throw new IpcError('io', `${this.problem} Nothing was written.`);
-    }
+    const problem = this.writeProblem;
+    if (problem !== undefined) throw new IpcError('io', problem);
   }
 
   /**
@@ -486,8 +511,9 @@ export class SettingsStore {
   set(patch: Partial<AppSettings>): AppSettings {
     assertSettingsPatch(patch);
     const paths = { ...this.machine.paths };
+    const machinePathsBefore = this.machine.paths;
     const resolves = (ref: SettingsPathRef): boolean =>
-      resolveSettingsPath(this.folder, ref, this.machine.paths) !== undefined;
+      resolveSettingsPath(this.folder, ref, machinePathsBefore) !== undefined;
     const metadataTemplateRef =
       patch.ingest?.metadataTemplatePath === undefined ||
       patch.ingest.metadataTemplatePath.trim() === ''
@@ -519,6 +545,46 @@ export class SettingsStore {
       patch.codeReplacementPaths === undefined
         ? undefined
         : [...new Set(patch.codeReplacementPaths)].map((path) => this.refFor(path, paths));
+
+    // Remove a machine path entry once no shared reference uses it any more. This runs
+    // only when a path field changes, so ordinary settings writes leave the map alone.
+    if (
+      patch.ingest !== undefined ||
+      patch.metadataTemplates !== undefined ||
+      patch.codeReplacementPaths !== undefined
+    ) {
+      const keptIngestTemplate =
+        patch.ingest !== undefined &&
+        metadataTemplateRef === undefined &&
+        patch.ingest.metadataTemplatePath === undefined &&
+        this.shared.ingest.metadataTemplate !== undefined &&
+        !resolves(this.shared.ingest.metadataTemplate)
+          ? this.shared.ingest.metadataTemplate
+          : undefined;
+      const ingestTemplate =
+        patch.ingest === undefined
+          ? this.shared.ingest.metadataTemplate
+          : (metadataTemplateRef ?? keptIngestTemplate);
+      const finalMetadataTemplates =
+        metadataTemplateRefs === undefined
+          ? this.shared.metadataTemplates
+          : keepUnresolved(metadataTemplateRefs, this.shared.metadataTemplates);
+      const finalCodeReplacementPaths =
+        codeReplacementRefs === undefined
+          ? this.shared.codeReplacementPaths
+          : keepUnresolved(codeReplacementRefs, this.shared.codeReplacementPaths);
+      const referenced = new Set<string>();
+      for (const ref of [
+        ...finalMetadataTemplates,
+        ...finalCodeReplacementPaths,
+        ...(ingestTemplate === undefined ? [] : [ingestTemplate]),
+      ]) {
+        if ('machine' in ref) referenced.add(ref.machine);
+      }
+      for (const id of Object.keys(paths)) {
+        if (!referenced.has(id)) delete paths[id];
+      }
+    }
 
     const sharedMutate = (shared: SharedSettings): SharedSettings => {
       let next = shared;
@@ -721,12 +787,13 @@ export class SettingsStore {
 
   folderInfo(): SettingsFolderInfo {
     const hasSettings = this.file !== undefined && existsSync(this.sharedFileAt(this.folder));
+    const problem = this.writeProblem;
     return {
       path: this.folder,
       defaultPath: this.defaultFolder,
       isDefault: this.folder === this.defaultFolder,
       hasSettings,
-      ...(this.problem === undefined ? {} : { problem: this.problem }),
+      ...(problem === undefined ? {} : { problem }),
     };
   }
 
@@ -735,11 +802,22 @@ export class SettingsStore {
       throw new IpcError('invalid_argument', 'the settings folder must be an absolute path');
     }
     const problem = this.checkFolder(path);
-    return {
-      path,
-      hasSettings: problem === undefined && existsSync(this.sharedFileAt(path)),
-      ...(problem === undefined ? {} : { problem }),
-    };
+    if (problem !== undefined) return { path, hasSettings: false, problem };
+    const file = this.sharedFileAt(path);
+    if (!existsSync(file)) return { path, hasSettings: false };
+    try {
+      const parsed: unknown = JSON.parse(readFileSync(file, 'utf8'));
+      if (!isObject(parsed)) throw new Error('not a settings object');
+    } catch (error) {
+      return {
+        path,
+        hasSettings: true,
+        problem:
+          `The settings file in "${path}" could not be read (${messageOf(error)}). ` +
+          'Nothing was written. It may be half-synced or a conflict copy.',
+      };
+    }
+    return { path, hasSettings: true };
   }
 
   /** Use the settings in `path`; an empty folder starts from the defaults. */
@@ -749,6 +827,8 @@ export class SettingsStore {
       // A drive that was missing at start is looked at again when the user chooses it.
       this.problem = this.checkFolder(path);
       if (this.problem === undefined) {
+        this.newerVersion = undefined;
+        this.unreadableFile = undefined;
         const loaded = existsSync(this.sharedFileAt(path))
           ? this.loadSharedFile(path, this.machine)
           : splitSettings(this.defaultState(), path, this.machine, newId);
@@ -759,9 +839,19 @@ export class SettingsStore {
     }
     const problem = this.checkFolder(path);
     if (problem !== undefined) throw new IpcError('io', problem);
+    const previousNewer = this.newerVersion;
+    const previousUnreadable = this.unreadableFile;
+    this.newerVersion = undefined;
+    this.unreadableFile = undefined;
     const loaded = existsSync(this.sharedFileAt(path))
       ? this.loadSharedFile(path, this.machine)
       : splitSettings(this.defaultState(), path, this.machine, newId);
+    if (this.unreadableFile !== undefined) {
+      const message = this.unreadableFile;
+      this.newerVersion = previousNewer;
+      this.unreadableFile = previousUnreadable;
+      throw new IpcError('io', message);
+    }
     const machine: MachineSettings = {
       ...loaded.machine,
       ...(path === this.defaultFolder ? {} : { settingsFolder: path }),
@@ -791,6 +881,8 @@ export class SettingsStore {
     this.assertFolderPath(path);
     const problem = this.checkFolder(path);
     if (problem !== undefined) throw new IpcError('io', problem);
+    if (this.newerVersion !== undefined) throw new IpcError('io', this.newerVersion);
+    if (this.unreadableFile !== undefined) throw new IpcError('io', this.unreadableFile);
     if (existsSync(this.sharedFileAt(path))) {
       throw new IpcError(
         'invalid_argument',
@@ -829,6 +921,8 @@ export class SettingsStore {
 
   private readLatestShared(): SharedSettings {
     if (this.file === undefined) return this.shared;
+    if (this.newerVersion !== undefined) throw new IpcError('io', this.newerVersion);
+    if (this.unreadableFile !== undefined) throw new IpcError('io', this.unreadableFile);
     const file = this.currentSharedFile();
     if (!existsSync(file)) return this.shared;
     const raw = readFileSync(file, 'utf8');
