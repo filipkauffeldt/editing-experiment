@@ -121,14 +121,13 @@ export interface LensfunChoice {
   matched: boolean;
 }
 
-/** The best database lens for the EXIF lens name, or none. Ties go to the one covering the focal length. */
-export function matchLensfun(shot: LensShotInfo): LensfunLens | undefined {
-  if (!shot.lensModel) return undefined;
+/** The best database lens for one lens name, or none. Ties go to the one covering the focal length. */
+function bestLensfunMatch(lensModel: string, shot: LensShotInfo): LensfunLens | undefined {
   const mount = cameraMount(shot);
   let best: { lens: LensfunLens; score: number } | undefined;
   for (const lens of LENSFUN.lenses) {
     if (!rectilinear(lens) || !fitsCamera(lens, mount)) continue;
-    const score = nameScore(shot.lensModel, `${lens.maker} ${lens.model}`);
+    const score = nameScore(lensModel, `${lens.maker} ${lens.model}`);
     // Calibrated on a body of the same format when there is a choice (DX lenses on a DX body).
     const sameFormat = Math.abs((lens.crop ?? 1) - (photoCropFactor(shot) ?? 1)) < 0.2 ? 0.01 : 0;
     if (score >= 0.6 && (!best || score + sameFormat > best.score)) {
@@ -136,6 +135,28 @@ export function matchLensfun(shot: LensShotInfo): LensfunLens | undefined {
     }
   }
   return best?.lens;
+}
+
+/**
+ * The best database lens for the EXIF lens name, or none. An ambiguous Lens ID lists its
+ * candidates joined with " or ". The match is used when one candidate resolves or all resolving
+ * candidates give the same entry. Different entries are not guessed between.
+ */
+export function matchLensfun(shot: LensShotInfo): LensfunLens | undefined {
+  if (!shot.lensModel) return undefined;
+  let matched: LensfunLens | undefined;
+  for (const candidate of shot.lensModel.split(/\s+or\s+/)) {
+    const name = candidate.trim();
+    if (name === '') continue;
+    const lens = bestLensfunMatch(name, shot);
+    if (lens === undefined) continue;
+    if (matched === undefined) {
+      matched = lens;
+    } else if (lensfunKey(lens) !== lensfunKey(matched)) {
+      return undefined;
+    }
+  }
+  return matched;
 }
 
 /** Every lens that fits the body, the matched one first. */

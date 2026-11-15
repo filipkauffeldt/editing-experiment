@@ -626,7 +626,8 @@ with Lensfun as the fallback and manual override. They are applied in the source
 before everything else, in the corrected frame. The bundled Lensfun data covers every
 maker's Nikon Z and Nikon F lenses. A file with no `LensModel` uses the `LensID` ExifTool
 derives from the maker notes, so third-party F-mount lenses and F-mount lenses on a Z body
-through the FTZ resolve too. The research, decision, radial model, profile choice, tiling,
+through the FTZ resolve too. An ambiguous Lens ID is matched candidate by candidate and only
+used when the candidates agree. The research, decision, radial model, profile choice, tiling,
 retouch mapping and verification steps are in
 [ADR 0002](decisions/0002-lens-corrections.md).
 

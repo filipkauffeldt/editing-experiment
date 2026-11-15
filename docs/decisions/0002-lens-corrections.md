@@ -86,7 +86,9 @@ Code is in `packages/develop-gl/src/lens` (maths, matching, measurement), `src/g
   then comes from ExifTool's `LensID`, which is built from the maker-note lens data. Lensfun model
   names can carry a duplicate suffix (`... VR II 162`) or Sigma's line words (`| Art`, `| Sports`,
   `| Contemporary`) that ExifTool does not write. Matching ignores a bare trailing number and
-  treats those line words as A, S and C.
+  treats those line words as A, S and C. An ambiguous Lens ID lists candidates joined with `or`.
+  Each candidate is matched. The entry is used when one candidate resolves or all resolving
+  candidates agree. Different entries give no automatic match.
 - **Lens facts travel in the linear image header** (`LinearImageHeader.lens`, filled by
   `AppResources` with `readLensShot`), so the canvas, the edited previews and the export workers
   resolve the same lens with no further lookups. `resolveUniforms` resolves it with the settings.

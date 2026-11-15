@@ -324,6 +324,48 @@ describe('Lensfun profiles', () => {
     expect(matchLensfun(shot)?.model).toBe(expected);
   });
 
+  // ExifTool joins the candidates of one maker-note lens ID with " or ". The first four strings
+  // are real groups from %nikonLensIDs.
+  const AMBIGUOUS_LENSES: { name: string; expected: string | undefined }[] = [
+    {
+      name: 'AF Zoom-Nikkor 20-35mm f/2.8D IF or Tokina AT-X 235 AF PRO (AF 20-35mm f/2.8)',
+      expected: 'Nikon AF Zoom-Nikkor 20-35mm f/2.8D IF',
+    },
+    {
+      name: 'Tokina AF 235 II (AF 20-35mm f/3.5-4.5) or Tokina AF 193 (AF 19-35mm f/3.5-4.5)',
+      expected: 'Tokina 19-35mm f/3.5-4.5 AF 193',
+    },
+    {
+      name: 'AF Micro-Nikkor 105mm f/2.8D or Sigma Macro 105mm F2.8 EX DG',
+      expected: undefined,
+    },
+    {
+      name: 'Samyang 10mm f/2.8 ED AS NCS CS or Samyang AE 14mm f/2.8 ED AS IF UMC',
+      expected: undefined,
+    },
+    {
+      name: 'Tamron AF 19-35mm f/3.5-4.5 (A10) or Voigtlander Ultragon 19-35mm F3.5-4.5 VMV',
+      expected: undefined,
+    },
+    {
+      // Two real table names with the same Lensfun entry, to cover agreement.
+      name: 'AF Zoom-Nikkor 35-70mm f/3.3-4.5 or AF Zoom-Nikkor 35-70mm f/3.3-4.5 N',
+      expected: 'Nikon AF Zoom-Nikkor 35-70mm f/3.3-4.5 N',
+    },
+  ];
+  const AMBIGUOUS_CASES = BODIES.flatMap((body) =>
+    AMBIGUOUS_LENSES.map((lens) => ({ body, name: lens.name, expected: lens.expected })),
+  );
+  it.each(AMBIGUOUS_CASES)('resolves $name on $body', ({ body, name, expected }) => {
+    const shot: LensShotInfo = {
+      cameraModel: body,
+      lensModel: name,
+      focalLength: 50,
+      fNumber: 2.8,
+    };
+    expect(matchLensfun(shot)?.model).toBe(expected);
+  });
+
   it('prefers the DX calibration for a DX body', () => {
     const z50: LensShotInfo = {
       cameraModel: 'NIKON Z 50',
