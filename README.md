@@ -28,8 +28,9 @@ Export / Export & send.
 - Per-source local ingest filters: file types RAW / JPEG / All, lock state
   Locked / Unlocked / All, and Skip already ingested (on by default). A folder
   source can also Watch for new files: its ingest run keeps scanning the folder
-  and copies photos that appear until Stop. A file is copied only after it
-  stopped changing, and a restart never resumes a watch.
+  and copies photos that appear until Stop. A file is copied only after three
+  seconds without a size or modified-time change, and a restart never resumes a
+  watch.
 - Photo Mechanic `.XMP` metadata templates with Replace (the default) or Fill
   empty, `=code=` replacement tables, and `{variables}` in captions and path
   templates. In the Metadata panel's caption a known `=code=` is replaced as soon as

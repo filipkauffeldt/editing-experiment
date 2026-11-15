@@ -152,11 +152,14 @@ describe.skipIf(nef === undefined || !haveDisplay)(
       await expect.poll(() => row.textContent(), { timeout: 30_000 }).toContain('watching');
 
       copyInto(nef!, join(sourceDir, 'DSC_0001.NEF'));
+      copyInto(nef!, join(sourceDir, 'DSC_0002.NEF'));
 
       await expect
         .poll(async () => (await invoke<Photo[]>('photos:list')).length, { timeout: 60_000 })
-        .toBe(1);
-      await expect.poll(() => row.textContent(), { timeout: 15_000 }).toContain('watching 1/1');
+        .toBe(2);
+      await expect.poll(() => row.textContent(), { timeout: 15_000 }).toContain('watching 2/2');
+      // Both were copied by this run: neither may be reported as already ingested.
+      expect(await row.textContent()).not.toContain('already ingested');
 
       await row.getByRole('button', { name: 'Stop Watch folder' }).click();
       await expect.poll(() => row.textContent(), { timeout: 15_000 }).toContain('stopped');
@@ -173,11 +176,11 @@ describe.skipIf(nef === undefined || !haveDisplay)(
         .poll(async () => invoke<IngestJobInfo[]>('ingest:status'), { timeout: 15_000 })
         .toEqual([]);
 
-      copyInto(nef!, join(sourceDir, 'DSC_0002.NEF'));
-      // Longer than the watcher's one second interval: only a run that was watching would copy it.
-      await window.waitForTimeout(2_500);
+      copyInto(nef!, join(sourceDir, 'DSC_0003.NEF'));
+      // Longer than the watcher's interval and quiet period: only a watching run would copy it.
+      await window.waitForTimeout(5_000);
 
-      expect(await invoke<Photo[]>('photos:list')).toHaveLength(1);
+      expect(await invoke<Photo[]>('photos:list')).toHaveLength(2);
       // The saved option is there, but no run watches until Ingest is pressed.
       expect(await sourceRow().textContent()).toContain('watching for new files');
       expect(await sourceRow().textContent()).not.toMatch(/watching \d+\/\d+/);

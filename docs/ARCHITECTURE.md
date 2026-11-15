@@ -141,13 +141,20 @@ exports/             default exportRoot (only a relative folder template uses it
   `recursive`) every second and copies files that appear through the same filters, rename, template,
   preset, verification and seen-store path as an ordinary pass. The row reports `watching` with the
   files copied so far, like a polled server, and its Stop ends the watch. Only a running ingest run
-  watches: nothing resumes at launch and a card has no such option. A file is copied only when two
-  consecutive looks saw the same size and modified time, so a file another program is still writing
-  is left for a later look and never fails the run. An empty file is not taken. A file that
-  disappears between the look and the copy is skipped without failing the run. The scan is
-  `readdir` and `stat` on an interval, not `fs.watch`, because recursive watching is not dependable
-  across Linux, macOS, Windows and network drives. A source that fails a later scan (a network
-  share that went away) keeps watching and reports the error.
+  watches: nothing resumes at launch and a card has no such option. A file is copied only after its
+  size and modified time stayed the same for a three-second quiet period. A modified time already
+  older than that counts as quiet time when its clock is usable, so files already in the folder are
+  not held for the whole period. The period is three seconds because FAT and exFAT keep modified
+  times in two-second steps. A file that changes is left for a later look and never fails the run.
+  An empty file is not taken. One path with one size and modified time is copied at most once per
+  run, also with incremental off. `filesSkipped` counts only files the seen store had before the
+  run started,
+  so a file this run copied is not reported as already ingested. A file that disappears between the
+  look and the copy is skipped without failing the run. The scan is `readdir` and `stat` on an
+  interval, not `fs.watch`, because recursive watching is not dependable across Linux, macOS,
+  Windows and network drives. A source whose later scan fails (a network share that went away)
+  keeps watching and reports the error once. When the folder returns, copying resumes and the run
+  keeps its first error on the row, as every ingest run does.
 - Card discovery: `CardScanner` (`@ee/ingest`, `cards.ts`) runs in the jobs process behind
   `sources:detectCards`. It imports no native module and runs no platform tool; the one thing Node
   cannot see, a Windows volume label, comes through the injected `readDriveInfo` option, which
