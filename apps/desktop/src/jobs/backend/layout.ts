@@ -22,6 +22,8 @@ export interface UserDataLayout {
   thumbDir: string;
   previewDir: string;
   linearDir: string;
+  /** The camera's full-size JPEGs the Library loupe zooms into. */
+  fullDir: string;
   /** Exported JPEGs, one folder per photo. */
   exportsDir: string;
 }
@@ -41,6 +43,7 @@ export function userDataLayout(root: string): UserDataLayout {
     thumbDir: join(cacheDir, 'thumb'),
     previewDir: join(cacheDir, 'preview'),
     linearDir: join(cacheDir, 'linear'),
+    fullDir: join(cacheDir, 'full'),
     exportsDir: join(root, 'exports'),
   };
 }

@@ -352,4 +352,65 @@ describe('edited thumbnails and previews (jobs side)', () => {
       expect((await served('thumb')).file).not.toBe(cache.editedPath('thumb', id));
     });
   });
+
+  describe('the full-size image the loupe zooms into', () => {
+    const full = () => apps.resolve(appUrl.full(id, photos.get(id).previewRevision));
+
+    it('is the camera JPEG, cached below cache/full, for a photo without retouching', async () => {
+      await develop({ Exposure2012: 0.5 });
+      await send(1, 100);
+      const response = await full();
+      expect(response.status).toBe(200);
+      // The camera's pixels, not the developed render the film strip shows.
+      expect(response.file!.endsWith(join('cache', 'full', `${id}.jpg`))).toBe(true);
+      expect(Math.abs((await centreValue(response.file!)).red - 200)).toBeLessThan(4);
+    });
+
+    it('is the grey placeholder, never the camera JPEG, for a retouched photo with no render', async () => {
+      await retouch([mosaic(0.1)]);
+      const response = await full();
+      expect(response.status).toBe(200);
+      expect(response.headers['cache-control']).toBe('no-store');
+      expect(response.file).not.toContain(join('cache', 'full'));
+      expect(Math.abs((await centreValue(response.file!)).red - 128)).toBeLessThan(4);
+    });
+
+    it('stops serving a camera JPEG that was cached before the retouch existed', async () => {
+      const before = await full();
+      expect(Math.abs((await centreValue(before.file!)).red - 200)).toBeLessThan(4);
+
+      await retouch([mosaic(0.1)]);
+
+      const after = await full();
+      expect(after.file).not.toBe(before.file);
+      expect(Math.abs((await centreValue(after.file!)).red - 128)).toBeLessThan(4);
+    });
+
+    it('is the edited render, whatever resolution it has, once it includes the current mosaic', async () => {
+      await retouch([mosaic(0.1)]);
+      await send(2, 100, [mosaic(0.5)]);
+      // A render of other ops is refused, so the placeholder stays.
+      expect(Math.abs((await centreValue((await full()).file!)).red - 128)).toBeLessThan(4);
+
+      await send(3, 100, [mosaic(0.1)]);
+      const response = await full();
+      expect(response.file).toBe(cache.editedPath('preview', id));
+      expect(await centreValue(response.file!)).toMatchObject({ width: 40, height: 40 });
+
+      // Moving the mosaic makes that render unusable again.
+      const version = photos.get(id).versions.find((v) => v.kind === 'retouch')!;
+      await edits.setRetouch({ photoId: id, versionId: version.id, ops: [mosaic(0.4)] });
+      expect((await full()).file).not.toBe(cache.editedPath('preview', id));
+      expect(Math.abs((await centreValue((await full()).file!)).red - 128)).toBeLessThan(4);
+    });
+
+    it('is the camera JPEG when the newest retouch version has no ops', async () => {
+      await retouch([mosaic(0.1)]);
+      const version = photos.get(id).versions.find((v) => v.kind === 'retouch')!;
+      await edits.setRetouch({ photoId: id, versionId: version.id, ops: [] });
+      const response = await full();
+      expect(response.file).toContain(join('cache', 'full'));
+      expect(Math.abs((await centreValue(response.file!)).red - 200)).toBeLessThan(4);
+    });
+  });
 });

@@ -117,6 +117,13 @@ export const appUrl = {
   /** Larger cached JPEG preview (embedded or rendered). `revision` is `Photo.previewRevision`. */
   preview: (photoId: PhotoId, revision?: number): string =>
     `${APP_PROTOCOL}://preview/${encodeURIComponent(photoId)}${revisionQuery(revision)}`,
+  /**
+   * The camera's full-size JPEG, upright, for zooming in the Library loupe. A photo with retouching
+   * gets its edited preview here instead. `revision` is `Photo.previewRevision`, only worth passing
+   * for a retouched photo, whose image changes with it.
+   */
+  full: (photoId: PhotoId, revision?: number): string =>
+    `${APP_PROTOCOL}://full/${encodeURIComponent(photoId)}${revisionQuery(revision)}`,
   /** Decoded linear image, see {@link LinearImageHeader}. */
   linear: (photoId: PhotoId, maxEdge?: number): string =>
     `${APP_PROTOCOL}://linear/${encodeURIComponent(photoId)}${

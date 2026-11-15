@@ -5,6 +5,7 @@ import {
   asPhotoId,
   type LensShotInfo,
   type LinearImageHeader,
+  type Photo,
 } from '@ee/contracts';
 import {
   decodeJpeg,
@@ -16,9 +17,10 @@ import {
 import { isRawPath } from '@ee/metadata';
 import { randomUUID } from 'node:crypto';
 import { mkdir, readFile, rename, rm, stat, writeFile } from 'node:fs/promises';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import type { AppBackendResponse } from '../../shared/jobs-protocol';
 import { retouchKey } from './edited-previews';
+import { FullImageCache, NoFullImageError } from './full-images';
 import type { PhotoLibrary } from './photo-library';
 import { SAFE_PHOTO_ID, type PreviewCache, type PreviewKind, type ServedFile } from './previews';
 
@@ -39,6 +41,8 @@ export interface AppResourcesOptions {
   previews: PreviewCache;
   /** Directory for decoded linear images; emptied on {@link AppResources.init}. */
   linearDir: string;
+  /** Directory for the camera's full-size JPEGs; defaults to `full` next to `linearDir`. */
+  fullDir?: string;
   /** Most decoded images kept. Default 4. */
   maxEntries?: number;
   /** Most bytes of decoded images kept. Default 1.5 GiB. */
@@ -54,10 +58,12 @@ export interface AppResourcesOptions {
   ) => Promise<LensShotInfo | undefined>;
   /** Test seam. */
   decode?: (path: string, options: DecodeLinearOptions) => Promise<LinearImage>;
+  /** Test seam: the embedded preview of a raw. */
+  extract?: ConstructorParameters<typeof FullImageCache>[0]['extract'];
 }
 
 /**
- * Answers `app://thumb|preview|linear/<photoId>` for the main process.
+ * Answers `app://thumb|preview|full|linear/<photoId>` for the main process.
  *
  * Decoded linear images are written to files under the cache directory (a small
  * LRU of them) and returned by path: main streams the file to the renderer, so
@@ -73,8 +79,13 @@ export class AppResources {
   private readonly maxEntries: number;
   private readonly maxBytes: number;
   private readonly decode: NonNullable<AppResourcesOptions['decode']>;
+  private readonly fullImages: FullImageCache;
 
   constructor(private readonly options: AppResourcesOptions) {
+    this.fullImages = new FullImageCache({
+      dir: options.fullDir ?? join(dirname(options.linearDir), 'full'),
+      ...(options.extract === undefined ? {} : { extract: options.extract }),
+    });
     this.maxEntries = options.maxEntries ?? 4;
     this.maxBytes = options.maxBytes ?? 1.5 * 1024 ** 3;
     this.decode = options.decode ?? decodeLinear;
@@ -84,6 +95,7 @@ export class AppResources {
   async init(): Promise<void> {
     await rm(this.options.linearDir, { recursive: true, force: true });
     await mkdir(this.options.linearDir, { recursive: true });
+    await this.fullImages.init();
   }
 
   /**
@@ -91,6 +103,7 @@ export class AppResources {
    * one cannot leave a cache file (or an entry) behind for a photo that no longer exists.
    */
   async forget(photoId: string): Promise<void> {
+    await this.fullImages.forget(asPhotoId(photoId));
     const prefix = `${photoId}|`;
     for (const key of this.inFlight.keys()) if (key.startsWith(prefix)) this.discarded.add(key);
     for (const [key, entry] of [...this.entries]) {
@@ -120,6 +133,7 @@ export class AppResources {
     const photoId = asPhotoId(rawId);
 
     if (kind === 'thumb' || kind === 'preview') return this.cachedJpeg(kind, photoId);
+    if (kind === 'full') return this.full(photoId);
     if (kind === 'linear') return this.linear(photoId, url.searchParams.get('maxEdge'));
     return text(404, `unknown app:// resource "${kind}"`);
   }
@@ -161,6 +175,42 @@ export class AppResources {
         return text(404, `no ${kind} for photo "${photoId}"`);
       }
       throw error;
+    }
+  }
+
+  /**
+   * The camera's full-size JPEG, for zooming. The camera's pixels show what a retouch hides, so a
+   * photo whose newest retouch version has ops gets exactly what `app://preview` gives it (the
+   * edited render, or the grey placeholder until it exists) and never the camera JPEG.
+   */
+  private async full(photoId: ReturnType<typeof asPhotoId>): Promise<AppBackendResponse> {
+    let photo: Photo;
+    try {
+      photo = this.options.photos.get(photoId);
+    } catch (error) {
+      if (error instanceof IpcError && error.code === 'not_found') {
+        return text(404, `no such photo "${photoId}"`);
+      }
+      throw error;
+    }
+    if (retouchKey(photo.versions) !== '') return this.cachedJpeg('preview', photoId);
+    try {
+      const entry = await this.fullImages.ensure(photo);
+      return {
+        status: 200,
+        headers: {
+          'content-type': 'image/jpeg',
+          'content-length': String(entry.bytes),
+          'cache-control': 'private, max-age=300',
+        },
+        file: entry.file,
+      };
+    } catch (error) {
+      if (error instanceof NoFullImageError) return text(404, error.message);
+      return text(
+        500,
+        `could not read the full-size image of ${photoId}: ${error instanceof Error ? error.message : String(error)}`,
+      );
     }
   }
 
