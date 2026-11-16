@@ -12,7 +12,6 @@ import {
   autoToneBasis,
   autoWhiteBalance,
   beforeParams,
-  createDevelopRenderer,
   profileColorModel,
   cropGeometry,
   croppedToSourcePixels,
@@ -22,11 +21,11 @@ import {
   predictAutoTone,
   whiteBalanceFromPatch,
   type CropViewTransform,
-  type DevelopRenderer,
   withoutLensGeometry,
 } from '@ee/develop-gl';
 import { polygonBounds, shapeBounds, simplifyPolygon } from '@ee/retouch';
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { developCanvasHostFor, type DevelopCanvasHost } from '../develop-canvas-host';
 import { ee } from '../ee';
 import { hasPendingRetouch, paramsForPhoto, topRetouchVersion, type RetouchTool } from '../store';
 import {
@@ -363,7 +362,7 @@ function BlockSizeControl({ photo }: { photo: Photo }) {
   );
 }
 
-function CanvasForPhoto({ photo }: { photo: Photo }) {
+function CanvasForPhoto({ photo, host }: { photo: Photo; host: DevelopCanvasHost }) {
   const store = useAppStore();
   const state = useAppState();
   const params = paramsForPhoto(state, photo);
@@ -392,15 +391,16 @@ function CanvasForPhoto({ photo }: { photo: Photo }) {
     typeof window === 'undefined' || window.eeEnvironment?.screenshots === true;
 
   const containerRef = useRef<HTMLDivElement>(null);
-  const canvasRef = useRef<HTMLCanvasElement>(null);
+  // The host's canvas is put into `canvasSlotRef` (see below), so React never owns it.
+  const canvasSlotRef = useRef<HTMLDivElement>(null);
+  const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const mosaicRef = useRef<HTMLCanvasElement>(null);
   const overlayRef = useRef<SVGSVGElement>(null);
   // Where a zoomed view reads its drawn pixels back to mosaic them.
   const scratchRef = useRef<HTMLCanvasElement | null>(null);
-  const rendererRef = useRef<DevelopRenderer | null>(null);
 
   const [container, setContainer] = useState({ width: 0, height: 0 });
-  const [renderer, setRenderer] = useState<DevelopRenderer | null>(null);
+  const renderer = host.renderer;
   const [loaded, setLoaded] = useState<LoadedImage | null>(null);
 
   // Auto and the picker turn camera gains into a temperature through the profile's ColorMatrix.
@@ -408,11 +408,9 @@ function CanvasForPhoto({ photo }: { photo: Photo }) {
     () => (loaded ? profileColorModel(profile, loaded.header.xyzToCamera) : undefined),
     [profile, loaded],
   );
-  const [error, setError] = useState<string | undefined>(() =>
-    typeof WebGL2RenderingContext === 'undefined' ? 'WebGL2 is not available' : undefined,
-  );
+  const [error, setError] = useState<string | undefined>(host.error);
   const [linearUnavailable, setLinearUnavailable] = useState(false);
-  const [contextLost, setContextLost] = useState(false);
+  const [contextLost, setContextLost] = useState(renderer?.contextLost ?? false);
   const [renderVersion, setRenderVersion] = useState(0);
   const [mosaicVersion, setMosaicVersion] = useState(0);
   const [firstFrame, setFirstFrame] = useState(false);
@@ -668,52 +666,72 @@ function CanvasForPhoto({ photo }: { photo: Photo }) {
     profileKnown,
   ]);
 
-  // Create the WebGL renderer once per canvas; the image is uploaded separately.
+  // The host's canvas goes into this tree before anything else uses it, hidden until this photo's
+  // first frame is drawn, so what the canvas still holds of the previous photo is never shown.
+  useLayoutEffect(() => {
+    const slot = canvasSlotRef.current;
+    const canvas = host.canvas;
+    if (!slot) return;
+    canvas.className = styles.canvas ?? '';
+    canvas.style.opacity = '0';
+    canvas.dataset.visible = 'false';
+    canvas.setAttribute('data-testid', 'develop-canvas');
+    slot.appendChild(canvas);
+    canvasRef.current = canvas;
+    return () => {
+      canvasRef.current = null;
+      canvas.remove();
+    };
+  }, [host]);
+
+  // What the canvas says about itself, for the tests and for assistive tech; it is not React's node.
+  useLayoutEffect(() => {
+    const canvas = host.canvas;
+    const visible = firstFrame && !contextLost;
+    canvas.style.opacity = visible ? '1' : '0';
+    canvas.dataset.visible = visible ? 'true' : 'false';
+    canvas.dataset.ready = loaded !== null && !contextLost ? 'true' : 'false';
+    canvas.dataset.renderVersion = String(renderVersion);
+    if (loaded) canvas.dataset.imageWidth = String(loaded.header.width);
+    else delete canvas.dataset.imageWidth;
+    canvas.setAttribute('aria-label', `Developed preview of ${photo.fileName}`);
+  });
+
+  // The shared renderer takes on this photo: its grain seed and the context-loss callback. The
+  // image is uploaded separately. Leaving the photo lets go of its textures and clears the canvas,
+  // keeping the context and the compiled programs for the next one.
   useEffect(() => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-    if (typeof WebGL2RenderingContext === 'undefined') return;
-    let created: DevelopRenderer;
-    try {
-      created = createDevelopRenderer(canvas, {
-        grainSeed: grainSeedFromId(photo.id),
-        onNeighbourhoodUnavailable: () =>
-          store.notifyOnce(
-            'develop-float',
-            'info',
-            'This GPU cannot draw Texture, Clarity, Dehaze, sharpening or noise reduction (no float render targets), so the preview skips them. Exports still apply them.',
-          ),
-        onContextLost: () => {
-          setContextLost(true);
-          setFirstFrame(false);
-        },
-      });
-    } catch (cause) {
-      queueMicrotask(() => setError(cause instanceof Error ? cause.message : String(cause)));
-      return;
-    }
-    rendererRef.current = created;
-    setRenderer(created);
+    if (!renderer) return;
+    const canvas = host.canvas;
+    renderer.configure({
+      grainSeed: grainSeedFromId(photo.id),
+      onContextLost: () => {
+        setContextLost(true);
+        setFirstFrame(false);
+      },
+    });
     const onRestored = (): void => setContextLost(false);
     canvas.addEventListener('webglcontextrestored', onRestored);
     return () => {
       canvas.removeEventListener('webglcontextrestored', onRestored);
-      created.dispose();
-      rendererRef.current = null;
-      setRenderer(null);
+      renderer.configure({ onContextLost: undefined });
+      renderer.release();
     };
-  }, [photo.id, store]);
+  }, [renderer, host, photo.id]);
 
   // Keep the drawing buffer exactly the size the image is fitted to (capped).
   useLayoutEffect(() => {
     const canvas = canvasRef.current;
     const mosaic = mosaicRef.current;
+    // Not before the area is measured: its stand-in size would resize a canvas that already has a
+    // context (the shared one), which stalls on the GPU, and then size it back a moment later.
+    if (container.width <= 0) return;
     for (const element of [canvas, mosaic]) {
       if (!element) continue;
       if (element.width !== bufferWidth) element.width = bufferWidth;
       if (element.height !== bufferHeight) element.height = bufferHeight;
     }
-  }, [bufferWidth, bufferHeight]);
+  }, [bufferWidth, bufferHeight, container.width]);
 
   // Load the linear image at the size the canvas needs.
   useEffect(() => {
@@ -1298,17 +1316,7 @@ function CanvasForPhoto({ photo }: { photo: Photo }) {
               }}
             />
           )}
-          <canvas
-            ref={canvasRef}
-            className={styles.canvas}
-            data-visible={firstFrame && !contextLost ? 'true' : 'false'}
-            style={{ opacity: firstFrame && !contextLost ? 1 : 0 }}
-            data-testid="develop-canvas"
-            data-ready={loaded !== null && !contextLost ? 'true' : 'false'}
-            data-render-version={renderVersion}
-            data-image-width={loaded?.header.width}
-            aria-label={`Developed preview of ${photo.fileName}`}
-          />
+          <div ref={canvasSlotRef} className={styles.canvasSlot} />
           <canvas
             ref={mosaicRef}
             className={styles.mosaic}
@@ -1470,8 +1478,17 @@ function CanvasForPhoto({ photo }: { photo: Photo }) {
   );
 }
 
-/** Mount point for the develop renderer and the retouch overlay. */
+/**
+ * Mount point for the develop renderer and the retouch overlay. The WebGL canvas and renderer
+ * belong to the window, not to a photo: they are made once and kept while the photo changes (see
+ * `develop-canvas-host.ts`).
+ */
 export function PhotoCanvas({ photo }: { photo: Photo | undefined }) {
+  const store = useAppStore();
+  const photoId = photo?.id;
+  // Chosen when the photo changes: a dead context is replaced for the photo that mounts, and a
+  // live one is kept (see `developCanvasHostFor`).
+  const host = useMemo(() => developCanvasHostFor(store, photoId !== undefined), [store, photoId]);
   if (!photo) {
     return (
       <div className={styles.empty} data-testid="photo-canvas">
@@ -1479,5 +1496,5 @@ export function PhotoCanvas({ photo }: { photo: Photo | undefined }) {
       </div>
     );
   }
-  return <CanvasForPhoto key={photo.id} photo={photo} />;
+  return <CanvasForPhoto key={photo.id} photo={photo} host={host} />;
 }

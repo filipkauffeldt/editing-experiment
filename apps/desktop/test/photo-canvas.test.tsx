@@ -1,4 +1,5 @@
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import type { Photo } from '@ee/contracts';
 import type * as DevelopGl from '@ee/develop-gl';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { AppStoreProvider } from '../src/renderer/store-context';
@@ -25,6 +26,12 @@ const renderer = vi.hoisted(() => ({
   supportsNeighbourhood: true,
   softwareRendering: false,
   dispose: vi.fn(),
+  configure: vi.fn(),
+  release: vi.fn(),
+  /** How many renderers were created. */
+  created: 0,
+  /** Makes the next creation fail, as a context that cannot be made does. */
+  failNext: false,
   /** The options the component created the renderer with. */
   options: undefined as { onNeighbourhoodUnavailable?: () => void } | undefined,
 }));
@@ -34,6 +41,11 @@ vi.mock('@ee/develop-gl', async (importOriginal) => ({
   ...(await importOriginal<typeof DevelopGl>()),
   createDevelopRenderer: (_canvas: unknown, options?: typeof renderer.options) => {
     renderer.options = options;
+    renderer.created += 1;
+    if (renderer.failNext) {
+      renderer.failNext = false;
+      throw new Error('Could not create a WebGL2 context');
+    }
     return renderer;
   },
   grainSeedFromId: () => 0,
@@ -84,6 +96,12 @@ describe('PhotoCanvas preview', () => {
   let fake: FakeBridge;
 
   beforeEach(async () => {
+    renderer.created = 0;
+    renderer.failNext = false;
+    renderer.contextLost = false;
+    renderer.dispose.mockClear();
+    renderer.configure.mockClear();
+    renderer.release.mockClear();
     vi.stubGlobal('WebGL2RenderingContext', class {});
     vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => {
       callback(0);
@@ -108,6 +126,92 @@ describe('PhotoCanvas preview', () => {
     await store.dispose();
     vi.unstubAllGlobals();
     vi.restoreAllMocks();
+  });
+
+  it('keeps one renderer and one canvas while the photo changes, and lets go of each photo', async () => {
+    const [first, second] = store.getVisiblePhotos();
+    if (!first || !second) throw new Error('need two photos');
+    pendingLinear();
+    const view = (photo: typeof first) => (
+      <AppStoreProvider store={store}>
+        <PhotoCanvas photo={photo} />
+      </AppStoreProvider>
+    );
+    const { rerender } = render(view(first));
+    const canvas = await screen.findByTestId('develop-canvas');
+    expect(renderer.created).toBe(1);
+    expect(renderer.configure).toHaveBeenCalledWith(expect.objectContaining({ grainSeed: 0 }));
+    expect(renderer.release).not.toHaveBeenCalled();
+
+    rerender(view(second));
+    // The same canvas element, in the new photo's tree, with the old photo let go of.
+    expect(await screen.findByTestId('develop-canvas')).toBe(canvas);
+    expect(screen.getByTestId('photo-canvas').contains(canvas)).toBe(true);
+    expect(renderer.created).toBe(1);
+    expect(renderer.release).toHaveBeenCalledTimes(1);
+    // Hidden until the new photo's first frame: nothing of the last one shows.
+    expect(canvas.getAttribute('data-visible')).toBe('false');
+    expect(canvas.style.opacity).toBe('0');
+    expect(canvas.getAttribute('data-ready')).toBe('false');
+  });
+
+  describe('a context that is dead when the next photo mounts', () => {
+    const view = (photo: Photo) => (
+      <AppStoreProvider store={store}>
+        <PhotoCanvas photo={photo} />
+      </AppStoreProvider>
+    );
+    const twoPhotos = (): [Photo, Photo] => {
+      const [first, second] = store.getVisiblePhotos();
+      if (!first || !second) throw new Error('need two photos');
+      return [first, second];
+    };
+
+    it('is replaced for that photo: the old renderer is disposed and a new one is made', async () => {
+      const [first, second] = twoPhotos();
+      pendingLinear();
+      const { rerender } = render(view(first));
+      const canvas = await screen.findByTestId('develop-canvas');
+      expect(renderer.created).toBe(1);
+
+      // Lost and not restored.
+      renderer.contextLost = true;
+      rerender(view(second));
+      expect(renderer.created).toBe(2);
+      expect(renderer.dispose).toHaveBeenCalledTimes(1);
+      const next = await screen.findByTestId('develop-canvas');
+      expect(next).not.toBe(canvas);
+      renderer.contextLost = false;
+    });
+
+    it('is replaced when the context could not be made for the photo before', async () => {
+      const [first, second] = twoPhotos();
+      pendingLinear();
+      renderer.failNext = true;
+      const { rerender } = render(view(first));
+      expect(await screen.findByText(/Could not create a WebGL2 context/)).toBeTruthy();
+      expect(renderer.created).toBe(1);
+
+      rerender(view(second));
+      expect(renderer.created).toBe(2);
+      await screen.findByTestId('develop-canvas');
+      expect(screen.queryByText(/Could not create a WebGL2 context/)).toBeNull();
+    });
+
+    it('is kept while the same photo is shown, so a restored context carries on', async () => {
+      const [first] = twoPhotos();
+      pendingLinear();
+      const { rerender } = render(view(first));
+      const canvas = await screen.findByTestId('develop-canvas');
+      renderer.contextLost = true;
+      // Re-rendered with the same photo (the store changed, say): no new renderer.
+      rerender(view(first));
+      renderer.contextLost = false;
+      rerender(view(first));
+      expect(renderer.created).toBe(1);
+      expect(renderer.dispose).not.toHaveBeenCalled();
+      expect(await screen.findByTestId('develop-canvas')).toBe(canvas);
+    });
   });
 
   it('shows the cached preview exactly until the first linear frame renders', async () => {

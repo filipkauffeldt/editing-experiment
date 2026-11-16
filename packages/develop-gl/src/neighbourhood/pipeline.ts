@@ -146,7 +146,7 @@ export interface NeighbourhoodPipeline {
     final: (core: Rect) => FinalTarget,
     after?: (core: Rect) => void,
   ): void;
-  /** Drops cached stages (a new image, a lost context). */
+  /** Drops cached stages and every pooled texture (a new image, a lost context). */
   invalidate(): void;
   dispose(): void;
 }
@@ -659,6 +659,8 @@ export function createNeighbourhoodPipeline(
         gl.deleteTexture(measured.densityTexture);
         measured = undefined;
       }
+      // Nothing is cached now, so every pooled texture is free: keep none of them.
+      pool.trim();
     },
 
     dispose() {
