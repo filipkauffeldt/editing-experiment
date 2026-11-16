@@ -162,5 +162,7 @@ jobs:
           $electron = @(Get-Process -Name electron -ErrorAction SilentlyContinue).Count
           Get-Content $out, $err -ErrorAction SilentlyContinue | Select-Object -Last 60
           taskkill /PID $dev.Id /T /F | Out-Null
+          # taskkill fails when a child has just exited on its own, which is fine here.
+          $global:LASTEXITCODE = 0
           if (-not $started) { throw 'pnpm dev never reached "starting electron app"' }
           if ($electron -eq 0) { throw 'pnpm dev started but no Electron process is running' }
