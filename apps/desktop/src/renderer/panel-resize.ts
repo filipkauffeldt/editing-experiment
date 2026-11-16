@@ -1,6 +1,6 @@
 /*
  * The pointer callbacks below run from a drag, never during render. The refs
- * keep the live width and limits without a render on every mouse move, which
+ * keep the live size and limits without a render on every mouse move, which
  * the compiler's refs rule cannot see through when the handlers are built here.
  */
 /* eslint-disable react-hooks/refs */
@@ -13,10 +13,16 @@ import {
   type PointerEvent as ReactPointerEvent,
   type RefObject,
 } from 'react';
-import { PANEL_WIDTH_SPECS, fitPanelWidth, layoutPanelWidths } from '../shared/panel-widths';
+import {
+  PANEL_SIZE_SPECS,
+  fitPanelSize,
+  layoutPanelSizes,
+  panelSizeLimits,
+  type PanelContainerSize,
+} from '../shared/panel-widths';
 import { useAppState, useAppStore } from './store-context';
 
-export type PanelSide = 'left' | 'right';
+export type PanelSide = 'left' | 'right' | 'top' | 'bottom';
 
 /** Which of the view's panels is where; the side decides which way a drag widens it. */
 export interface ResizablePanelDefinition<Id extends PanelWidthId = PanelWidthId> {
@@ -33,30 +39,38 @@ export interface PanelResizeHandlers {
 }
 
 export interface PanelResizeController {
-  width: number;
+  size: number;
+  min: number;
+  max: number;
   dragging: boolean;
   handlers: PanelResizeHandlers;
-  /** Put the panel back to its default width (the handle's double-click). */
+  /** Put the panel back to its default size (the handle's double-click). */
   reset(): void;
+  /** Move the edge by `delta` pixels: positive makes the panel wider or taller. */
+  nudge(delta: number): void;
 }
 
 interface DragState<Id extends PanelWidthId> {
   id: Id;
   pointerId: number;
   startX: number;
-  startWidth: number;
-  /** The latest width the drag asked for, so pointer up never saves a stale render. */
-  width: number;
+  startY: number;
+  startSize: number;
+  /** The latest size the drag asked for, so pointer up never saves a stale render. */
+  size: number;
 }
 
 const messageOf = (cause: unknown): string =>
   cause instanceof Error ? cause.message : String(cause);
 
+const verticalSide = (side: PanelSide): boolean => side === 'top' || side === 'bottom';
+
 /**
- * Widths of the side panels in one module. The preference lives in settings and
- * is only written when a drag ends; a smaller window re-clamps the shown width
- * without touching it. Every pointer event during a drag is captured by the
- * handle, so the panel contents never see it.
+ * Sizes of the side panels and the film strip in one view. The preference lives
+ * in settings and is only written when a drag ends or a key moves the edge; a
+ * smaller window re-clamps the shown size without touching it. Every pointer
+ * event during a drag is captured by the handle, so the panel contents never
+ * see it.
  */
 export function usePanelLayout<Id extends PanelWidthId>(
   definitions: readonly ResizablePanelDefinition<Id>[],
@@ -71,7 +85,7 @@ export function usePanelLayout<Id extends PanelWidthId>(
 
   const containerRef = useRef<HTMLDivElement>(null);
   const [containerWidth, setContainerWidth] = useState<number>();
-  const containerWidthRef = useRef(containerWidth);
+  const [windowHeight, setWindowHeight] = useState<number>();
 
   const [draft, setDraft] = useState<PanelWidths>();
   const [dragging, setDragging] = useState<Id>();
@@ -88,12 +102,25 @@ export function usePanelLayout<Id extends PanelWidthId>(
     return () => observer.disconnect();
   }, []);
 
+  // A bottom strip's room is the window height, so the one-third cap follows a window resize.
+  useLayoutEffect(() => {
+    const measure = (): void => setWindowHeight(window.innerHeight || undefined);
+    measure();
+    window.addEventListener('resize', measure);
+    return () => window.removeEventListener('resize', measure);
+  }, []);
+
   const ids = useMemo(() => definitions.map((definition) => definition.id), [definitions]);
-  const widths = useMemo(
-    () => layoutPanelWidths(ids, draft ?? preferred, containerWidth),
-    [ids, draft, preferred, containerWidth],
+  const container = useMemo<PanelContainerSize>(
+    () => ({ width: containerWidth, height: windowHeight }),
+    [containerWidth, windowHeight],
   );
-  const widthsRef = useRef(widths);
+  const sizes = useMemo(
+    () => layoutPanelSizes(ids, draft ?? preferred, container),
+    [ids, draft, preferred, container],
+  );
+  const sizesRef = useRef(sizes);
+  const containerSizeRef = useRef(container);
 
   // The event handlers run after a commit and read these; keeping them in refs
   // means a pointer move never waits for a render.
@@ -101,20 +128,43 @@ export function usePanelLayout<Id extends PanelWidthId>(
     preferredRef.current = preferred;
   }, [preferred]);
   useLayoutEffect(() => {
-    containerWidthRef.current = containerWidth;
-  }, [containerWidth]);
+    containerSizeRef.current = container;
+  }, [container]);
   useLayoutEffect(() => {
-    widthsRef.current = widths;
-  }, [widths]);
+    sizesRef.current = sizes;
+  }, [sizes]);
 
-  // While a drag runs, the whole window shows the resize cursor and no text can
-  // be selected, even when the pointer leaves the handle.
-  const dragActive = dragging !== undefined;
+  // While a drag runs, the whole window shows the axis's resize cursor and no
+  // text can be selected, even when the pointer leaves the handle.
+  const axis = dragging === undefined ? undefined : PANEL_SIZE_SPECS[dragging].axis;
   useLayoutEffect(() => {
-    if (!dragActive) return;
-    document.body.classList.add('panel-resizing');
-    return () => document.body.classList.remove('panel-resizing');
-  }, [dragActive]);
+    if (axis === undefined) return;
+    const classes = [
+      'panel-resizing',
+      axis === 'vertical' ? 'panel-resizing-y' : 'panel-resizing-x',
+    ];
+    for (const name of classes) document.body.classList.add(name);
+    return () => {
+      for (const name of classes) document.body.classList.remove(name);
+    };
+  }, [axis]);
+
+  const saveSize = (id: Id, size: number): void => {
+    const stored = preferredRef.current ?? {};
+    const unchanged =
+      size === stored[id] ||
+      (stored[id] === undefined && size === PANEL_SIZE_SPECS[id].defaultSize);
+    if (unchanged) {
+      setDraft(undefined);
+      return;
+    }
+    void store
+      .saveSettings({ panelWidths: { ...stored, [id]: size } })
+      .catch((cause: unknown) => {
+        store.notify('error', `Could not save the panel size: ${messageOf(cause)}`);
+      })
+      .finally(() => setDraft(undefined));
+  };
 
   const finishDrag = (id: Id, element: HTMLElement, pointerId: number): void => {
     const drag = dragRef.current;
@@ -122,22 +172,7 @@ export function usePanelLayout<Id extends PanelWidthId>(
     dragRef.current = null;
     setDragging(undefined);
     if (element.hasPointerCapture(pointerId)) element.releasePointerCapture(pointerId);
-
-    const width = drag.width;
-    const stored = preferredRef.current ?? {};
-    const unchanged =
-      width === stored[id] ||
-      (stored[id] === undefined && width === PANEL_WIDTH_SPECS[id].defaultWidth);
-    if (unchanged) {
-      setDraft(undefined);
-      return;
-    }
-    void store
-      .saveSettings({ panelWidths: { ...stored, [id]: width } })
-      .catch((cause: unknown) => {
-        store.notify('error', `Could not save the panel width: ${messageOf(cause)}`);
-      })
-      .finally(() => setDraft(undefined));
+    saveSize(id, drag.size);
   };
 
   const reset = (id: Id): void => {
@@ -148,31 +183,46 @@ export function usePanelLayout<Id extends PanelWidthId>(
     }
     const next: PanelWidths = { ...stored };
     delete next[id];
-    const width =
-      layoutPanelWidths(ids, next, containerWidthRef.current)[id] ??
-      PANEL_WIDTH_SPECS[id].defaultWidth;
-    setDraft({ ...next, [id]: width });
+    const size =
+      layoutPanelSizes(ids, next, containerSizeRef.current)[id] ?? PANEL_SIZE_SPECS[id].defaultSize;
+    setDraft({ ...next, [id]: size });
     void store
       .saveSettings({ panelWidths: next })
       .catch((cause: unknown) => {
-        store.notify('error', `Could not save the panel width: ${messageOf(cause)}`);
+        store.notify('error', `Could not save the panel size: ${messageOf(cause)}`);
       })
       .finally(() => setDraft(undefined));
   };
 
+  const nudge = (id: Id, delta: number): void => {
+    const spec = PANEL_SIZE_SPECS[id];
+    const others = definitions
+      .filter((candidate) => candidate.id !== id)
+      .map(
+        (candidate) => sizesRef.current[candidate.id] ?? PANEL_SIZE_SPECS[candidate.id].defaultSize,
+      );
+    const current = sizesRef.current[id] ?? spec.defaultSize;
+    const size = fitPanelSize(id, current + delta, others, containerSizeRef.current);
+    if (size === current) return;
+    setDraft((shown) => ({ ...(shown ?? preferredRef.current ?? {}), [id]: size }));
+    saveSize(id, size);
+  };
+
   const handlersFor = (definition: ResizablePanelDefinition<Id>): PanelResizeHandlers => {
     const { id, side } = definition;
+    const vertical = verticalSide(side);
     return {
       onPointerDown: (event) => {
         if (event.button !== 0) return;
         event.stopPropagation();
-        const startWidth = widthsRef.current[id] ?? PANEL_WIDTH_SPECS[id].defaultWidth;
+        const startSize = sizesRef.current[id] ?? PANEL_SIZE_SPECS[id].defaultSize;
         dragRef.current = {
           id,
           pointerId: event.pointerId,
           startX: event.clientX,
-          startWidth,
-          width: startWidth,
+          startY: event.clientY,
+          startSize,
+          size: startSize,
         };
         setDraft({ ...(preferredRef.current ?? {}) });
         setDragging(id);
@@ -182,16 +232,18 @@ export function usePanelLayout<Id extends PanelWidthId>(
         const drag = dragRef.current;
         if (!drag || drag.id !== id || drag.pointerId !== event.pointerId) return;
         event.preventDefault();
-        const delta = side === 'left' ? event.clientX - drag.startX : drag.startX - event.clientX;
+        const pointer = vertical ? event.clientY : event.clientX;
+        const start = vertical ? drag.startY : drag.startX;
+        const grows = side === 'left' || side === 'top' ? pointer - start : start - pointer;
         const others = definitions
           .filter((candidate) => candidate.id !== id)
           .map(
             (candidate) =>
-              widthsRef.current[candidate.id] ?? PANEL_WIDTH_SPECS[candidate.id].defaultWidth,
+              sizesRef.current[candidate.id] ?? PANEL_SIZE_SPECS[candidate.id].defaultSize,
           );
-        const width = fitPanelWidth(id, drag.startWidth + delta, others, containerWidthRef.current);
-        drag.width = width;
-        setDraft((current) => ({ ...(current ?? preferredRef.current ?? {}), [id]: width }));
+        const size = fitPanelSize(id, drag.startSize + grows, others, containerSizeRef.current);
+        drag.size = size;
+        setDraft((current) => ({ ...(current ?? preferredRef.current ?? {}), [id]: size }));
       },
       onPointerUp: (event) => {
         finishDrag(id, event.currentTarget, event.pointerId);
@@ -207,11 +259,15 @@ export function usePanelLayout<Id extends PanelWidthId>(
 
   const panels = {} as Record<Id, PanelResizeController>;
   for (const definition of definitions) {
+    const limits = panelSizeLimits(definition.id, container);
     panels[definition.id] = {
-      width: widths[definition.id] ?? PANEL_WIDTH_SPECS[definition.id].defaultWidth,
+      size: sizes[definition.id] ?? PANEL_SIZE_SPECS[definition.id].defaultSize,
+      min: limits.min,
+      max: limits.max,
       dragging: dragging === definition.id,
       handlers: handlersFor(definition),
       reset: () => reset(definition.id),
+      nudge: (delta) => nudge(definition.id, delta),
     };
   }
 

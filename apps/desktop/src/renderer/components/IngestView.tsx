@@ -87,7 +87,7 @@ export function IngestView() {
       ref={containerRef}
       className={styles.view}
       data-testid="ingest-view"
-      style={{ '--from-width': `${sourcesPanel.width}px` } as React.CSSProperties}
+      style={{ '--from-width': `${sourcesPanel.size}px` } as React.CSSProperties}
     >
       <IngestFrom className={styles.from} />
       <PanelResizeHandle

@@ -1,32 +1,63 @@
 .handle {
   position: relative;
   z-index: 1;
-  width: 1px;
-  height: 100%;
+  flex: none;
   background: var(--line);
-  cursor: col-resize;
   touch-action: none;
 }
 
+/* Side panels: a 1 px vertical line, dragged sideways. */
+.handle[data-side='left'],
+.handle[data-side='right'] {
+  width: 1px;
+  height: 100%;
+  cursor: col-resize;
+}
+
+/* A bottom strip: a 1 px horizontal line on its top edge, dragged up and down. */
+.handle[data-side='top'],
+.handle[data-side='bottom'] {
+  width: 100%;
+  height: 1px;
+  cursor: row-resize;
+}
+
 /*
- * A wider invisible target. It only grows into the centre, never over the
- * panel's own scrollbar, which stays reachable at the panel's inner edge. The
- * view places the line on the centre side of that edge with justify-self.
+ * A wider invisible target. A side panel's grows into the centre, never over
+ * the panel's own scrollbar, which stays reachable at the panel's inner edge.
+ * The film strip's grows up into the photo, never over a thumbnail.
  */
 .handle::before {
   position: absolute;
-  top: 0;
-  bottom: 0;
-  width: 9px;
   content: '';
 }
 
 .handle[data-side='left']::before {
+  top: 0;
+  bottom: 0;
   left: 0;
+  width: 9px;
 }
 
 .handle[data-side='right']::before {
+  top: 0;
   right: 0;
+  bottom: 0;
+  width: 9px;
+}
+
+.handle[data-side='bottom']::before {
+  top: -9px;
+  right: 0;
+  left: 0;
+  height: 9px;
+}
+
+.handle[data-side='top']::before {
+  right: 0;
+  bottom: -9px;
+  left: 0;
+  height: 9px;
 }
 
 .handle:hover,

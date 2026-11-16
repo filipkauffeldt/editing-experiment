@@ -122,7 +122,14 @@ Built in `components/ui/`:
   the handle. Each panel has a content-aware minimum and maximum; the centre keeps at least
   320 px, and a smaller window re-clamps the shown widths without losing the saved preference.
   Double-click resets a panel to its default. Widths are saved to settings when the drag ends,
-  not on every move, and are restored on the next launch.
+  not on every move, and are restored on the next launch. Arrow keys move a focused handle.
+- **Film strip**: the strip below Develop and below the Library loupe has the same 1 px handle on
+  its top edge. The line turns white on hover and while dragging. The height follows the pointer
+  live and the cursor is `row-resize` even when the pointer leaves the handle. The thumbnails
+  scale with the height, keep their shape and stay readable. The strip never goes below 72 px and
+  stops at a third of the window. It keeps the open photo in view. Double-click resets the height,
+  arrow keys move a focused handle, and the one height is saved with the panel sizes and shared
+  by Develop and the loupe.
 - **Settings → Sources** lists the sources and adds a new one from a single **Add ▾** menu
   (Folder, Card, FTP, SFTP), rather than one button per kind.
 

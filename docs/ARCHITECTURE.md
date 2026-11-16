@@ -94,7 +94,7 @@ computers; `machine.json` under Electron's `userData` holds the paths that belon
 The default settings folder is `userData`, so both files sit there until the user picks another.
 
 ```
-machine.json         settings folder choice, ingest destination and backup folder, export root, folder and card sources, folder destinations, profile folders, preset folders, panel widths, and every metadata template or code replacement path outside the settings folder
+machine.json         settings folder choice, ingest destination and backup folder, export root, folder and card sources, folder destinations, profile folders, preset folders, panel widths and the film strip height, and every metadata template or code replacement path outside the settings folder
 window-state.json    size, position and maximised state of the main window (this machine only, so it is not in settings.json)
 logs/                ee.log and ee.1.log … ee.4.log, see "Logging"
 index.sqlite         photo index, the search text of each photo, the folders added to the Library in place and the paths removed from the Library (cache; sidecars are the source of truth); flat folder, label, status and camera columns answer the Library queries from indexes
@@ -384,7 +384,7 @@ step. Each computer still keeps its own paths.
 - **Two files, one `AppSettings`.** `settings.json` in the settings folder holds what every computer
   has in common. `userData/machine.json` holds the choice of settings folder and the paths of this
   computer: ingest destination, backup folder, export root, folder and card sources, folder
-  destinations, profile and preset folders, panel widths. `settings:get` and `settings:set` merge
+  destinations, profile and preset folders, panel widths and the film strip height. `settings:get` and `settings:set` merge
   and split them, so the renderer and every service still see one object.
 - **Template paths.** A metadata template or code replacement file at or below the settings folder
   is stored relative to it with forward slashes, so it resolves on both computers. Any other path is
@@ -1390,6 +1390,14 @@ modules (`keyboard.ts`); leaving Develop applies an open crop and saves a retouc
   `panelsHidden` is not touched, so leaving shows the view that was there before. Hidden panels stay
   mounted (the `hidden` attribute and a zero-width grid column), so they keep their scroll and folded
   sections, and the canvas's `ResizeObserver` refits. Hiding writes pending caption and keyword edits first.
+- **Panel resizing** (`renderer/panel-resize.ts`, `shared/panel-widths.ts`). `usePanelLayout` measures the
+  view and keeps each panel's size between its own limits. `PanelResizeHandle` is one hairline with an
+  invisible hit area, a drag cursor, arrow keys and a double-click reset. The side panels use the
+  horizontal axis. The film strip in Develop and in the Library loupe uses the vertical axis and one
+  shared height in `settings.panelWidths`. The film strip's default is 92 px, its minimum 72 px and its
+  maximum a third of the window. Its frames scale with the height, stay virtualised, and the selected
+  photo is scrolled back into view after a resize. Sizes are saved when a drag ends or a key moves the
+  edge, and a smaller window re-clamps the shown size without losing the preference.
 Design tokens and component rules are in `docs/DESIGN.md`.
 
 - **Library state** (`AppState.library`, `renderer/library.ts`): the folder and the thumbnail size.
@@ -1405,8 +1413,8 @@ Design tokens and component rules are in `docs/DESIGN.md`.
   elsewhere, in one `photos:setLabels` call. Export… and Export & send
   use `openExportDialog` and `exportSelected(true)`.
 - **Filters** (`AppState.filter`, `renderer/filters.ts`, `components/FilterBar.tsx`): one `FilterState` for
-  the Library and Develop, in memory only (a restart starts unfiltered; panel widths are the only
-  persisted UI state). It is AND between filters: tag (`all`, `tagged`, `untagged`), `minRating`
+  the Library and Develop, in memory only (a restart starts unfiltered; panel widths and the film
+  strip height are the only persisted UI state). It is AND between filters: tag (`all`, `tagged`, `untagged`), `minRating`
   (0 off; star N means "N and up", and unrated photos are out while it is on), `colorClasses`
   (several, OR), `statuses` (several, a photo must match every ticked one: Not sent, Failed, Edited,
   Metadata differs), `camera` and `sourceId` (one each, the Camera menu's two groups) and `search`.
