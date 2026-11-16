@@ -6,6 +6,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { FullImageCache, NoFullImageError } from '../src/jobs/backend/full-images';
+import { jpegExifOrientation } from '../src/jobs/backend/image-ops';
 import { fixtureNefs, sampleNefs } from './helpers/fixtures';
 
 /** A left half of 200 and a right half of 40, so a turned image shows which way it was turned. */
@@ -76,11 +77,7 @@ describe('FullImageCache', () => {
 
   const cache = (extra: Partial<ConstructorParameters<typeof FullImageCache>[0]> = {}) =>
     new FullImageCache({ dir, ...extra });
-  const photo = (id: string, path: string, orientation?: number) => ({
-    id: asPhotoId(id),
-    path,
-    ...(orientation === undefined ? {} : { orientation }),
-  });
+  const photo = (id: string, path: string) => ({ id: asPhotoId(id), path });
 
   it('keeps the embedded JPEG of an upright raw as it is, byte for byte', async () => {
     const embedded = await halves(120, 80);
@@ -111,21 +108,36 @@ describe('FullImageCache', () => {
     expect((await redAt(entry.file, 0.5, 0.75)).red).toBeLessThan(60);
   });
 
-  it('copies the file of an upright JPEG photo and turns one with an orientation', async () => {
-    const jpeg = join(root, 'a.jpg');
-    const stored = await halves(120, 80);
-    await writeFile(jpeg, withOrientation(stored, 6));
-    const full = cache();
+  it('copies the file of an upright JPEG photo', async () => {
     const plain = join(root, 'plain.jpg');
+    const stored = await halves(120, 80);
     await writeFile(plain, stored);
-    const upright = await full.ensure(photo('a', plain, 1));
+    const full = cache();
+    const upright = await full.ensure(photo('a', plain));
     expect((await readFile(upright.file)).equals(stored)).toBe(true);
     expect(upright.file).not.toBe(plain);
-
-    const turned = await full.ensure(photo('b', jpeg, 6));
-    expect(await redAt(turned.file, 0.5, 0.25)).toMatchObject({ width: 80, height: 120 });
-    expect((await redAt(turned.file, 0.5, 0.25)).red).toBeGreaterThan(180);
   });
+
+  // The photo is given without an orientation, as an older index entry has it: the file's own tag
+  // decides, so the zoomed image is upright and the shape of the Fit image.
+  it.each([
+    [6, 'top'],
+    [8, 'bottom'],
+  ])(
+    'turns a JPEG with EXIF orientation %i upright from the file alone',
+    async (orientation, bright) => {
+      const jpeg = join(root, `o${orientation}.jpg`);
+      // Stored 120x80, bright left half and dark right half.
+      await writeFile(jpeg, withOrientation(await halves(120, 80), orientation));
+      const full = cache();
+      const turned = await full.ensure(photo(`o${orientation}`, jpeg));
+      const probe = bright === 'top' ? 0.25 : 0.75;
+      const other = bright === 'top' ? 0.75 : 0.25;
+      expect(await redAt(turned.file, 0.5, probe)).toMatchObject({ width: 80, height: 120 });
+      expect((await redAt(turned.file, 0.5, probe)).red).toBeGreaterThan(180);
+      expect((await redAt(turned.file, 0.5, other)).red).toBeLessThan(60);
+    },
+  );
 
   it('has no image for a format with no JPEG to zoom into, and leaves nothing behind', async () => {
     const tiff = join(root, 'a.tif');
@@ -251,5 +263,28 @@ describe('FullImageCache', () => {
     const copy = join(root, 'copy.NEF');
     await copyFile(raw, copy);
     expect((await readFile(raw)).equals(await readFile(copy))).toBe(true);
+  });
+});
+
+describe('jpegExifOrientation', () => {
+  it('reads the tag of a JPEG, and nothing from one without', async () => {
+    const jpeg = await halves(40, 30);
+    expect(jpegExifOrientation(jpeg)).toBeUndefined();
+    for (const orientation of [1, 3, 6, 8]) {
+      expect(jpegExifOrientation(withOrientation(jpeg, orientation))).toBe(orientation);
+    }
+    expect(jpegExifOrientation(Buffer.from('not a jpeg'))).toBeUndefined();
+  });
+
+  it('reads a big-endian tag', async () => {
+    const jpeg = await halves(40, 30);
+    const tiff = Buffer.from([
+      0x4d, 0x4d, 0x00, 0x2a, 0x00, 0x00, 0x00, 0x08, 0x00, 0x01, 0x01, 0x12, 0x00, 0x03, 0x00,
+      0x00, 0x00, 0x01, 0x00, 0x06, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    ]);
+    const body = Buffer.concat([Buffer.from('Exif\0\0', 'latin1'), tiff]);
+    const header = Buffer.from([0xff, 0xe1, (body.length + 2) >> 8, (body.length + 2) & 0xff]);
+    const tagged = Buffer.concat([jpeg.subarray(0, 2), header, body, jpeg.subarray(2)]);
+    expect(jpegExifOrientation(tagged)).toBe(6);
   });
 });

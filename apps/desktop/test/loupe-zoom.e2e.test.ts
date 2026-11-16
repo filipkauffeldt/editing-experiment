@@ -78,7 +78,7 @@ async function makePhoto(blue: number): Promise<Buffer> {
   });
 }
 
-const BLUES = [60, 120, 180];
+const BLUES = [60, 120, 180, 90, 150];
 
 describe.skipIf(!haveDisplay).each(RATIOS)(
   'the Library loupe zooms at devicePixelRatio %s (real Electron app)',
@@ -168,6 +168,57 @@ describe.skipIf(!haveDisplay).each(RATIOS)(
       const shot = await shoot();
       const at = (((shot.height >> 1) + 150) * shot.width + (shot.width >> 1) - 150) * 4;
       return shot.rgba[at + 2]!;
+    };
+    /**
+     * How many pixels of the stripe patch's own black and white are on screen. The gradient around
+     * it stays between 50 and 190, so only the camera's patch (or its sharp edges) has them. The
+     * patch is found from the layout, not from the pixels, so a photo that shows none reads 0.
+     */
+    const patchExtremes = async (): Promise<number> => {
+      const [shot, v] = await Promise.all([shoot(), view()]);
+      const left = Math.round((v.x + STRIPES.x * v.scale) * ratio);
+      const top = Math.round((v.y + STRIPES.y * v.scale) * ratio);
+      const size = Math.round(STRIPES.w * v.scale * ratio);
+      let found = 0;
+      for (let y = Math.max(0, top); y < Math.min(shot.height, top + size); y++) {
+        for (let x = Math.max(0, left); x < Math.min(shot.width, left + size); x++) {
+          const value = luma(shot, x, y);
+          if (value < 20 || value > 235) found += 1;
+        }
+      }
+      return found;
+    };
+    const mosaicOver = async (photo: Photo): Promise<void> => {
+      const mosaic: MosaicOp = {
+        type: 'mosaic',
+        shapes: [
+          {
+            type: 'rect',
+            x: (STRIPES.x - 100) / IMAGE.width,
+            y: (STRIPES.y - 100) / IMAGE.height,
+            w: (STRIPES.w + 200) / IMAGE.width,
+            h: (STRIPES.h + 200) / IMAGE.height,
+          },
+        ],
+        blockSizeRel: 0.05,
+      };
+      const version = await invoke<{ id: string }>('photos:createVersion', {
+        photoId: photo.id,
+        kind: 'retouch',
+      });
+      await invoke('retouch:set', { photoId: photo.id, versionId: version.id, ops: [mosaic] });
+    };
+    /** Arrow keys to a photo of the burst. */
+    const goTo = async (photo: Photo): Promise<void> => {
+      const target = photos.findIndex((candidate) => candidate.id === photo.id);
+      for (let i = 0; i < photos.length; i++) {
+        const id = await read('data-photo-id');
+        const current = photos.findIndex((candidate) => candidate.id === id);
+        if (current === target) return;
+        const next = photos[current < target ? current + 1 : current - 1]!;
+        await window.keyboard.press(current < target ? 'ArrowRight' : 'ArrowLeft');
+        await waitForPhoto(next.id);
+      }
     };
     const toFit = async (): Promise<void> => {
       if ((await read('data-zoom')) !== 'fit') {
@@ -378,48 +429,89 @@ describe.skipIf(!haveDisplay).each(RATIOS)(
 
     it('never shows camera pixels of a retouched photo, at Fit or zoomed', async () => {
       const retouched = photos[2]!;
-      const mosaic: MosaicOp = {
-        type: 'mosaic',
-        shapes: [
-          {
-            type: 'rect',
-            x: (STRIPES.x - 100) / IMAGE.width,
-            y: (STRIPES.y - 100) / IMAGE.height,
-            w: (STRIPES.w + 200) / IMAGE.width,
-            h: (STRIPES.h + 200) / IMAGE.height,
-          },
-        ],
-        blockSizeRel: 0.05,
-      };
-      const version = await invoke<{ id: string }>('photos:createVersion', {
-        photoId: retouched.id,
-        kind: 'retouch',
-      });
-      await invoke('retouch:set', { photoId: retouched.id, versionId: version.id, ops: [mosaic] });
-      await window.keyboard.press('ArrowRight');
-      await window.keyboard.press('ArrowRight');
-      await waitForPhoto(retouched.id);
+      await mosaicOver(retouched);
+      await goTo(retouched);
       await toFit();
       await pointAtStripes();
       await window.keyboard.press('z');
       await waitForZoom('100');
       // Whatever the stage shows (the grey placeholder until the render arrives, then the edited
-      // preview) has none of the patch's pure black and white: the camera's pixels never reach
-      // the screen. The gradient around it stays between 50 and 140.
+      // preview) has none of the patch's pure black and white.
       for (let i = 0; i < 10; i++) {
-        const shot = await shoot();
-        let extremes = 0;
-        for (let y = shot.height / 2 - 150; y < shot.height / 2 + 150; y++) {
-          for (let x = shot.width / 2 - 150; x < shot.width / 2 + 150; x++) {
-            const value = luma(shot, Math.round(x), Math.round(y));
-            if (value < 20 || value > 235) extremes += 1;
-          }
-        }
-        expect(extremes).toBe(0);
+        expect(await patchExtremes()).toBe(0);
         await new Promise((resolve) => setTimeout(resolve, 300));
       }
-      // The retouched photo is not asked for as the camera's JPEG: its frame is the camera's size.
+      // The camera's JPEG is not what is shown: the retouched photo's frame is its edited preview.
       expect(await read('data-full-ready')).toBe('false');
+      await toFit();
+    });
+
+    describe('a retouch added after the camera JPEG was shown or fetched', () => {
+      /** Zoomed in on the patch of a photo, which must show the camera's pixels now. */
+      const zoomOn = async (photo: Photo): Promise<void> => {
+        await goTo(photo);
+        await toFit();
+        await pointAtStripes();
+        await window.keyboard.press('z');
+        await waitForZoom('100');
+        await waitForFull();
+        // The positive control: with no retouch the patch is on screen, sharp.
+        expect(await patchExtremes()).toBeGreaterThan(500);
+      };
+      const expectNoCameraPixels = async (what: string): Promise<void> => {
+        for (let i = 0; i < 8; i++) {
+          expect(await patchExtremes(), what).toBe(0);
+          await new Promise((resolve) => setTimeout(resolve, 250));
+        }
+      };
+
+      it('replaces the zoomed image of the photo on screen', async () => {
+        const photo = photos[3]!;
+        await zoomOn(photo);
+        await mosaicOver(photo);
+        await window.waitForSelector('[data-testid="loupe-stage"][data-full-ready="false"]');
+        await expectNoCameraPixels('the photo on screen');
+        await window.keyboard.press('z');
+        await waitForZoom('fit');
+      });
+
+      it('is not shown after a retouch made while the loupe was left, then zoomed again', async () => {
+        const photo = photos[4]!;
+        await zoomOn(photo);
+        await window.keyboard.press('d');
+        await window.waitForSelector('[data-testid="develop-canvas"]');
+        await mosaicOver(photo);
+        await window.keyboard.press('g');
+        await window.keyboard.press('e');
+        await window.waitForSelector('[data-testid="loupe-stage"]');
+        await waitForPhoto(photo.id);
+        await pointAtStripes();
+        await window.keyboard.press('z');
+        await waitForZoom('100');
+        await expectNoCameraPixels('after coming back to the loupe');
+        await toFit();
+      });
+    });
+
+    it('is not shown for a neighbour that was retouched after it had been fetched ahead', async () => {
+      // photos[1] is clean. Zoomed on photos[0], its full-size JPEG is fetched ahead.
+      const neighbour = photos[1]!;
+      await goTo(photos[0]!);
+      await toFit();
+      await pointAtStripes();
+      await window.keyboard.press('z');
+      await waitForZoom('100');
+      await waitForFull();
+      await waitForResponse(`app://full/${neighbour.id}`);
+      await mosaicOver(neighbour);
+      // The backend's update reaches the window as an event.
+      await new Promise((resolve) => setTimeout(resolve, 500));
+      await window.keyboard.press('ArrowRight');
+      await waitForPhoto(neighbour.id);
+      for (let i = 0; i < 8; i++) {
+        expect(await patchExtremes()).toBe(0);
+        await new Promise((resolve) => setTimeout(resolve, 250));
+      }
       await toFit();
     });
 

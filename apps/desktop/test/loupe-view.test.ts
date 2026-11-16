@@ -98,6 +98,8 @@ describe('loupeUrls', () => {
     expect(loupeUrls(plain)).toEqual({ preview: 'app://preview/a?v=3', full: 'app://full/a' });
     const retouched = photo('a', { previewRevision: 3, versions: [retouch(1)] });
     expect(loupeUrls(retouched).full).toBe('app://full/a?v=3');
+    // Never the camera image's URL, even before the first render has given the photo a revision.
+    expect(loupeUrls(photo('a', { versions: [retouch(1)] })).full).toBe('app://full/a?v=0');
   });
 
   it('needs the preview at Fit and the full-size JPEG when zoomed', () => {

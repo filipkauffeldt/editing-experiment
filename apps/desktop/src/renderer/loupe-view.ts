@@ -78,7 +78,7 @@ export interface LoupeUrls {
 export function loupeUrls(photo: Photo): LoupeUrls {
   return {
     preview: appUrl.preview(photo.id, photo.previewRevision),
-    full: appUrl.full(photo.id, hasRetouchOps(photo) ? photo.previewRevision : undefined),
+    full: appUrl.full(photo.id, hasRetouchOps(photo) ? (photo.previewRevision ?? 0) : undefined),
   };
 }
 

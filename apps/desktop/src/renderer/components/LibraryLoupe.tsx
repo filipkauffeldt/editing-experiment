@@ -116,9 +116,13 @@ export function LibraryLoupe({ photos }: { photos: Photo[] }) {
   const needed = photo ? neededUrl(photo, zoomed) : undefined;
   const ready = needed !== undefined && (zoomed ? full?.url : preview?.url) === needed;
   const around = useMemo(() => neighbours(photos, photo?.id), [photos, photo?.id]);
+  // A neighbour whose URL changed (it was retouched) drops what was held for the old one at once.
+  const wantedUrls = around.map((next) => neededUrl(next, zoomed));
+  const wantedKey = wantedUrls.join('\n');
   useEffect(() => {
-    preloader.current?.keepOnly(needed === undefined ? [] : [needed]);
-  }, [needed]);
+    preloader.current?.keepOnly(needed === undefined ? wantedUrls : [needed, ...wantedUrls]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [needed, wantedKey]);
   useEffect(() => {
     if (!ready) return;
     preloader.current?.want(around.map((next) => neededUrl(next, zoomed)));

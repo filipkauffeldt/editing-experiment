@@ -2,16 +2,14 @@ import type { PhotoId } from '@ee/contracts';
 import { decodeJpeg, encodeJpeg, extractPreview, type RawPreview } from '@ee/core';
 import { isRawPath } from '@ee/metadata';
 import { randomUUID } from 'node:crypto';
-import { copyFile, mkdir, readFile, rename, rm, stat, writeFile } from 'node:fs/promises';
+import { copyFile, mkdir, open, readFile, rename, rm, stat, writeFile } from 'node:fs/promises';
 import { extname, join } from 'node:path';
-import { decodeOrientedRgba } from './image-ops';
+import { decodeOrientedRgba, jpegExifOrientation } from './image-ops';
 
 /** What {@link FullImageCache} needs to know of a photo. */
 export interface FullImageSource {
   id: PhotoId;
   path: string;
-  /** EXIF orientation (1..8) of a JPEG's stored pixels; absent means upright. */
-  orientation?: number;
 }
 
 export interface FullImageEntry {
@@ -144,7 +142,8 @@ export class FullImageCache {
         `${extname(photo.path) || 'this format'} has no JPEG to zoom into`,
       );
     }
-    const orientation = photo.orientation ?? 1;
+    // The file's own tag decides, not the index, which may not know it (an older entry).
+    const orientation = await readOrientation(photo.path);
     if (orientation >= 2 && orientation <= 8) {
       // The decoder applies the file's own tag, and the copy carries none.
       const upright = await decodeJpeg(await readFile(photo.path));
@@ -174,5 +173,17 @@ export class FullImageCache {
       // removed with the whole directory at next start.
       await rm(entry.file, { force: true }).catch(() => undefined);
     }
+  }
+}
+
+/** The orientation tag of a JPEG file, 1 when it has none. The tag is in the first segments. */
+async function readOrientation(path: string): Promise<number> {
+  const file = await open(path, 'r');
+  try {
+    const head = Buffer.alloc(256 * 1024);
+    const { bytesRead } = await file.read(head, 0, head.length, 0);
+    return jpegExifOrientation(head.subarray(0, bytesRead)) ?? 1;
+  } finally {
+    await file.close();
   }
 }

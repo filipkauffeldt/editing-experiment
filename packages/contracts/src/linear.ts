@@ -119,11 +119,14 @@ export const appUrl = {
     `${APP_PROTOCOL}://preview/${encodeURIComponent(photoId)}${revisionQuery(revision)}`,
   /**
    * The camera's full-size JPEG, upright, for zooming in the Library loupe. A photo with retouching
-   * gets its edited preview here instead. `revision` is `Photo.previewRevision`, only worth passing
-   * for a retouched photo, whose image changes with it.
+   * gets its edited preview here instead. For a retouched photo pass `Photo.previewRevision` (0 when
+   * absent): the URL then differs from the camera image's, and from every older render's, so no
+   * cache can answer it with camera pixels. A photo without retouching passes nothing.
    */
   full: (photoId: PhotoId, revision?: number): string =>
-    `${APP_PROTOCOL}://full/${encodeURIComponent(photoId)}${revisionQuery(revision)}`,
+    `${APP_PROTOCOL}://full/${encodeURIComponent(photoId)}${
+      revision === undefined ? '' : `?v=${Math.round(revision)}`
+    }`,
   /** Decoded linear image, see {@link LinearImageHeader}. */
   linear: (photoId: PhotoId, maxEdge?: number): string =>
     `${APP_PROTOCOL}://linear/${encodeURIComponent(photoId)}${
