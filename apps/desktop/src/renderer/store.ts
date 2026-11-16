@@ -840,6 +840,7 @@ export class AppStore {
   private readonly pendingPhotos = new Map<PhotoId, Photo>();
   private photoFlush: ReturnType<typeof setTimeout> | number | null = null;
   private foldersTimer: ReturnType<typeof setTimeout> | undefined;
+  private developTimer: ReturnType<typeof setTimeout> | undefined;
   private visibleCache: VisibleCache | undefined;
   private searchRun = 0;
   private searchTimer: ReturnType<typeof setTimeout> | undefined;
@@ -1037,6 +1038,8 @@ export class AppStore {
     this.editedPreviews?.dispose();
     this.searchRun += 1;
     clearTimeout(this.searchTimer);
+    clearTimeout(this.foldersTimer);
+    clearTimeout(this.developTimer);
     this.cancelPhotoFlush();
     this.flushQueuedPhotos();
     await this.flushPendingEdits();
@@ -1388,6 +1391,15 @@ export class AppStore {
       this.set({ photos });
     }
     if (skipped || photos.length !== before) this.refreshFoldersSoon();
+    if (
+      this.state.lazy &&
+      this.state.module === 'develop' &&
+      (skipped || photos.length !== before)
+    ) {
+      // Ingest reaches a bounded film strip through the index again, not by growing it.
+      clearTimeout(this.developTimer);
+      this.developTimer = setTimeout(() => void this.loadDevelopPhotos(), SEARCH_REFRESH_MS);
+    }
     // A new photo is not in the last search's answer.
     if (photos.length > before) this.refreshSearch(SEARCH_REFRESH_MS);
     // A photo the backend calls stale (its default profile changed) is drawn again when it is shown.
