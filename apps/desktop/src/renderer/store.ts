@@ -47,11 +47,13 @@ import {
   type ExportJobId,
   type ExportPreset,
   type ExportTargetPreview,
+  type FolderImportInfo,
   type PresetId,
   type IngestJobInfo,
   type IngestSettings,
   type IptcFields,
   type JobEvent,
+  type JobId,
   type LensShotInfo,
   type Photo,
   type PhotoId,
@@ -92,6 +94,9 @@ import {
   type TagFilter,
 } from './filters';
 import {
+  baseName,
+  folderIsAtOrBelow,
+  folderOf,
   initialLibrary,
   inLibraryFolder,
   mergeFieldEdits,
@@ -351,6 +356,12 @@ export interface AppState {
   module: AppModule;
   library: LibraryState;
   photos: Photo[];
+  /** Folders the user added to the Library in place, from the index database. */
+  addedFolders: string[];
+  /** Added-folder runs by job id; terminal ones keep their last counts until the next run. */
+  folderImports: Record<string, FolderImportInfo>;
+  /** The open "Remove folder from Library" confirmation; absent when closed. */
+  folderRemove?: FolderRemoveRequest;
   sources: SourceConfig[];
   destinations: Destination[];
   settings?: AppSettings;
@@ -461,6 +472,17 @@ export interface DeleteRequest {
   photoIds: PhotoId[];
   busy: boolean;
   mode: 'trash' | 'library';
+}
+
+/** The folder row "Remove folder from Library…" was asked about. */
+export interface FolderRemoveRequest {
+  path: string;
+  name: string;
+  /** Photos in the folder, or below it when it is an added root. */
+  count: number;
+  /** An added root removes its whole tree and forgets nested roots too. */
+  root: boolean;
+  busy: boolean;
 }
 
 /** Key for one version's develop parameters. */
@@ -700,6 +722,8 @@ const emptyState = (): AppState => ({
   module: 'develop',
   library: initialLibrary(),
   photos: [],
+  addedFolders: [],
+  folderImports: {},
   sources: [],
   destinations: [],
   presets: [],
@@ -977,6 +1001,7 @@ export class AppStore {
       ingest,
       exportPresets,
       exportJobs,
+      addedFolders,
     ] = await Promise.allSettled([
       this.bridge.invoke('photos:list'),
       this.bridge.invoke('sources:list'),
@@ -987,6 +1012,7 @@ export class AppStore {
       this.bridge.invoke('ingest:status'),
       this.bridge.invoke('exportPresets:list'),
       this.bridge.invoke('export:list'),
+      this.bridge.invoke('photos:listAddedFolders'),
     ]);
 
     const value = <T>(result: PromiseSettledResult<T>): T | undefined =>
@@ -1034,6 +1060,7 @@ export class AppStore {
       exportJobs: value(exportJobs) ?? [],
       uploads: value(uploads) ?? [],
       ingest: runs,
+      addedFolders: value(addedFolders) ?? [],
       loading: false,
       error: photos.status === 'rejected' ? messageOf(photos.reason) : undefined,
     });
@@ -1547,6 +1574,130 @@ export class AppStore {
 
   readonly setLibraryFolder = (folder: string | undefined): void => {
     this.setLibrary({ folder });
+  };
+
+  /**
+   * "Add folder…": ask for a folder and index it where it is. The backend refuses a folder that
+   * is a source, on a card, or in the app's data, and says why.
+   */
+  readonly addLibraryFolder = async (): Promise<void> => {
+    let path: string | undefined;
+    try {
+      const picked = await this.bridge.invoke('dialog:pick', {
+        kind: 'folder',
+        title: 'Add a folder of photos',
+      });
+      path = picked?.[0];
+    } catch (cause) {
+      this.toast('error', `Could not open the folder picker: ${messageOf(cause)}`);
+      return;
+    }
+    if (path === undefined) return;
+    await this.startFolderImport('add', path);
+  };
+
+  /** "Rescan folder": look through an added folder for files that appeared since. */
+  readonly rescanLibraryFolder = async (path: string): Promise<void> => {
+    await this.startFolderImport('rescan', path);
+  };
+
+  private async startFolderImport(mode: FolderImportInfo['mode'], path: string): Promise<void> {
+    try {
+      const info = await this.bridge.invoke(
+        mode === 'add' ? 'photos:addFolder' : 'photos:rescanFolder',
+        { path },
+      );
+      const addedFolders =
+        mode === 'add' && !this.state.addedFolders.includes(info.root)
+          ? [...this.state.addedFolders, info.root]
+          : this.state.addedFolders;
+      this.set({
+        folderImports: { ...this.state.folderImports, [info.jobId]: info },
+        addedFolders,
+      });
+    } catch (cause) {
+      this.toast(
+        'error',
+        `Could not ${mode === 'add' ? 'add the folder' : 'rescan the folder'}: ${messageOf(cause)}`,
+      );
+    }
+  }
+
+  readonly stopFolderImport = async (jobId: JobId): Promise<void> => {
+    try {
+      await this.bridge.invoke('photos:stopFolderImport', { jobId });
+    } catch (cause) {
+      this.toast('error', `Could not stop the folder import: ${messageOf(cause)}`);
+    }
+  };
+
+  readonly refreshAddedFolders = async (): Promise<void> => {
+    try {
+      this.set({ addedFolders: (await this.bridge.invoke('photos:listAddedFolders')) ?? [] });
+    } catch (cause) {
+      this.toast('error', `Could not read the added folders: ${messageOf(cause)}`);
+    }
+  };
+
+  /** Right-click on a sidebar folder: ask before its photos leave the Library. */
+  readonly requestRemoveLibraryFolder = (
+    path: string,
+    name: string,
+    count: number,
+    root: boolean,
+  ): void => {
+    if (this.state.folderRemove?.busy) return;
+    this.set({ folderRemove: { path, name, count, root, busy: false } });
+  };
+
+  readonly cancelRemoveLibraryFolder = (): void => {
+    if (this.state.folderRemove && !this.state.folderRemove.busy) {
+      this.set({ folderRemove: undefined });
+    }
+  };
+
+  /**
+   * Drop the folder's photos from the Library and forget its added root. No file is touched, so
+   * this is the same road as "Remove from Library…" per photo.
+   */
+  readonly confirmRemoveLibraryFolder = async (): Promise<void> => {
+    const request = this.state.folderRemove;
+    if (!request || request.busy) return;
+    const photoIds = this.state.photos
+      .filter((photo) =>
+        request.root
+          ? folderIsAtOrBelow(request.path, folderOf(photo.path))
+          : folderOf(photo.path) === request.path,
+      )
+      .map((photo) => photo.id);
+    for (const id of photoIds) this.removing.add(id);
+    this.set({ folderRemove: { ...request, busy: true } });
+    let result: DeletePhotosResult;
+    try {
+      result = await this.bridge.invoke('photos:removeFolder', { path: request.path });
+    } catch (cause) {
+      for (const id of photoIds) this.removing.delete(id);
+      this.set({ folderRemove: undefined });
+      this.toast('error', `Could not remove the folder from the Library: ${messageOf(cause)}`);
+      return;
+    }
+    const deleted = new Set(result.deleted);
+    for (const id of photoIds) {
+      this.removing.delete(id);
+      if (deleted.has(id)) this.removed.add(id);
+    }
+    this.removePhotos(result.deleted);
+    this.set({ folderRemove: undefined });
+    await this.refreshAddedFolders();
+    // The chosen folder row is gone; showing "All photos" is less surprising than an empty grid.
+    if (this.state.library.folder === request.path) this.setLibrary({ folder: undefined });
+    if (result.failed.length > 0) {
+      const messages = result.failed.map((failure) => failure.message).join('; ');
+      this.toast(
+        'error',
+        `${result.failed.length} of ${photoIds.length} photos were not removed. ${messages}`,
+      );
+    }
   };
 
   readonly setThumbSize = (thumbSize: number): void => this.setLibrary({ thumbSize });
@@ -4338,6 +4489,37 @@ export class AppStore {
             : [event.job, ...this.state.exportJobs],
         });
         this.reportBackgroundSend(event.job);
+        break;
+      }
+      case 'library.progress':
+      case 'library.state': {
+        this.set({
+          folderImports: { ...this.state.folderImports, [event.jobId]: event },
+        });
+        if (event.type !== 'library.state' || event.state === 'running') break;
+        void this.refreshAddedFolders();
+        const what = event.mode === 'add' ? 'Added' : 'Rescanned';
+        const name = baseName(event.root);
+        if (event.state === 'failed') {
+          this.toast(
+            'error',
+            `Could not ${event.mode === 'add' ? 'add' : 'rescan'} ${name}: ${event.error ?? 'unknown error'}`,
+          );
+        } else if (event.state === 'stopped') {
+          this.toast(
+            'info',
+            `Stopped ${event.mode === 'add' ? 'adding' : 'rescanning'} ${name}: ${event.filesImported} photo${event.filesImported === 1 ? '' : 's'} added.`,
+          );
+        } else {
+          const skipped =
+            event.filesSkipped > 0
+              ? `, ${event.filesSkipped} skipped because they could not be read`
+              : '';
+          this.toast(
+            event.filesSkipped > 0 ? 'info' : 'success',
+            `${what} ${name}: ${event.filesImported} photo${event.filesImported === 1 ? '' : 's'}${skipped}.`,
+          );
+        }
         break;
       }
       case 'ingest.progress': {

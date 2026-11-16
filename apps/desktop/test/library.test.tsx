@@ -136,6 +136,42 @@ describe('library folders', () => {
     expect(folderOf('/a.nef')).toBe('/');
   });
 
+  it('shows added roots even when their photos are only in subfolders, with the whole-tree count', () => {
+    const photos = mockPhotos();
+    const first = photos[0]!;
+    const list = libraryFolders(
+      [
+        { ...first, path: '/library/season/day 1/a.jpg' },
+        { ...first, path: '/library/season/day 2/b.jpg' },
+        { ...first, path: '/other/c.jpg' },
+      ],
+      ['/library/season', '/library/season/day 2'],
+    );
+    expect(
+      list.map((folder) => [folder.path, folder.name, folder.count, folder.root ?? false]),
+    ).toEqual([
+      ['/library/season', 'season', 2, true],
+      ['/library/season/day 1', 'day 1', 1, false],
+      ['/library/season/day 2', 'day 2', 1, true],
+      ['/other', 'other', 1, false],
+    ]);
+  });
+
+  it('tells same-named folders from different roots apart', () => {
+    const photos = mockPhotos();
+    const first = photos[0]!;
+    const folders = libraryFolders([
+      { ...first, path: '/ingest/2026/game/a.jpg' },
+      { ...first, path: '/archive/2026/game/b.jpg' },
+      { ...first, path: '/archive/other/c.jpg' },
+    ]);
+    expect(folders.map((folder) => folder.name)).toEqual([
+      'archive/2026/game',
+      'other',
+      'ingest/2026/game',
+    ]);
+  });
+
   it('filters the grid to the chosen folder', async () => {
     await openLibrary();
     const user = userEvent.setup();

@@ -6,6 +6,7 @@ import { CopySettingsDialog } from './components/CopySettingsDialog';
 import { DeletePhotosDialog } from './components/DeletePhotosDialog';
 import { DevelopView } from './components/DevelopView';
 import { ExportDialog } from './components/ExportDialog';
+import { FolderRemoveDialog } from './components/FolderRemoveDialog';
 import { IngestView } from './components/IngestView';
 import { LibraryView } from './components/LibraryView';
 import { PhotoMenu } from './components/PhotoMenu';
@@ -40,6 +41,7 @@ function Shell() {
       {state.dialog && <SettingsDialog />}
       {state.exportOpen && <ExportDialog />}
       {state.deleteRequest && <DeletePhotosDialog />}
+      {state.folderRemove && <FolderRemoveDialog />}
       <PhotoMenu />
     </div>
   );

@@ -12,6 +12,7 @@ import { EditedPreviews, retouchKey } from './edited-previews';
 import { LabelService } from './label-service';
 import { withIpcErrors } from './errors';
 import { FaceService, findYuNetModel } from './faces';
+import { FolderImportService } from './folder-import';
 import { createBackendHandlers } from './handlers';
 import { createOnFileIngested } from './ingest-pipeline';
 import { IngestService } from './ingest-service';
@@ -27,7 +28,8 @@ import { ProfileLibrary } from './profiles';
 import { PreviewCache } from './previews';
 import { ExportQueue } from './export-queue';
 import { ExportService, clearInterruptedExportStates } from './export-service';
-import { ExportedFileStore } from './exported-files';
+import { ExportedFileStore, normalizeExportPath } from './exported-files';
+import { cardScannerFromEnv } from './cards';
 import { SettingsStore } from './settings-store';
 import { reconcileDestination } from './reconcile';
 import { SearchIndex } from './search-index';
@@ -95,6 +97,9 @@ export async function createBackend(options: BackendOptions): Promise<Backend> {
       emitJob({ type: 'job.error', at: Date.now(), scope: 'settings', message });
     },
   );
+  // One scanner for the app's life: it remembers the cards it found and their counts, and the
+  // added-folder check asks the same one what is a card.
+  const cards = cardScannerFromEnv(process.env);
   const index = new PhotoIndex(layout.indexDb);
   const search = new SearchIndex(
     index,
@@ -185,6 +190,30 @@ export async function createBackend(options: BackendOptions): Promise<Backend> {
   const exportedFiles = new ExportedFileStore(layout.exportedFilesFile, (message) =>
     console.warn(message),
   );
+  const folderImport = new FolderImportService({
+    photos,
+    settings,
+    cards,
+    userDataDir: options.userDataDir,
+    cacheDir: layout.cacheDir,
+    isExported: (path) => exportedFiles.has(path),
+    // Ingest's per-file work after its copy, with no metadata template and no develop preset.
+    createIngestHook: (hooks) =>
+      createOnFileIngested(
+        {
+          photos,
+          previews,
+          metadata,
+          edits,
+          exiftool,
+          report: reportJobError,
+          ...hooks,
+        },
+        {},
+      ),
+    emit: emitJob,
+    warn: (message) => console.warn(message),
+  });
   const exporter = new ExportService({
     photos,
     settings,
@@ -244,11 +273,15 @@ export async function createBackend(options: BackendOptions): Promise<Backend> {
       },
       ingestSettings,
     );
+    // Added folders are looked through only when the user asks. If one is below the ingest
+    // destination, the startup scan must not treat it as an ingest copy.
+    const addedRoots = new Set(photos.addedFolders().map((path) => normalizeExportPath(path)));
     return reconcileDestination({
       directory: ingestSettings.destination.path,
       known: index.paths(),
       excluded: photos.excludedPaths(),
       isExported: (path) => exportedFiles.has(path),
+      skipDirectory: (path) => addedRoots.has(normalizeExportPath(path)),
       index: hook,
       signal: reconcileAbort.signal,
       onError: (path, error) =>
@@ -285,6 +318,8 @@ export async function createBackend(options: BackendOptions): Promise<Backend> {
       presetLibrary,
       profiles,
       ingest,
+      cards,
+      folders: folderImport,
       queue,
       exports,
       exporter,
@@ -304,6 +339,7 @@ export async function createBackend(options: BackendOptions): Promise<Backend> {
         // Order matters: ingest and uploads use ExifTool and the databases.
         { name: 'ingest', run: () => ingest.dispose() },
         { name: 'reconcile', run: () => (reconcileAbort.abort(), reconciled) },
+        { name: 'added folders', run: () => folderImport.dispose() },
         { name: 'face detection', run: () => faces.dispose() },
         { name: 'export queue', run: async () => exports.close() },
         { name: 'upload queue', run: () => queue.close() },

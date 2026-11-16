@@ -34,6 +34,42 @@ export interface IngestStateEvent extends JobEventBase {
   warning?: string;
 }
 
+/** Whether a folder is being added to the Library or looked through again. */
+export type FolderImportMode = 'add' | 'rescan';
+
+/** State of one added-folder run. */
+export type FolderImportState = 'running' | 'finished' | 'stopped' | 'failed';
+
+/** Snapshot of one added-folder run, as returned by `photos:addFolder` and `photos:rescanFolder`. */
+export interface FolderImportInfo {
+  jobId: JobId;
+  /** Absolute folder path. */
+  root: string;
+  mode: FolderImportMode;
+  state: FolderImportState;
+  /** Image files to index: not already in the Library and not in a removed path. */
+  filesTotal: number;
+  /** Files looked at so far, including the ones that could not be read. */
+  filesDone: number;
+  /** Photos that reached the index. */
+  filesImported: number;
+  /** Files skipped because they could not be read or indexed. */
+  filesSkipped: number;
+  /** File being indexed right now. */
+  currentFile?: string;
+  error?: string;
+}
+
+/** Progress of an added-folder run. */
+export interface FolderImportProgressEvent extends JobEventBase, FolderImportInfo {
+  type: 'library.progress';
+}
+
+/** An added-folder run changed state. */
+export interface FolderImportStateEvent extends JobEventBase, FolderImportInfo {
+  type: 'library.state';
+}
+
 /** Progress of one upload. */
 export interface UploadProgressEvent extends JobEventBase {
   type: 'upload.progress';
@@ -88,6 +124,8 @@ export interface ExportStateEvent extends JobEventBase {
 export type JobEvent =
   | IngestProgressEvent
   | IngestStateEvent
+  | FolderImportProgressEvent
+  | FolderImportStateEvent
   | UploadProgressEvent
   | UploadStateEvent
   | JobErrorEvent

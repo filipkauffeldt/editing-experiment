@@ -15,6 +15,65 @@
   text-transform: uppercase;
 }
 
+.heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding-right: 8px;
+}
+
+.heading .title {
+  padding-right: 0;
+}
+
+.runs {
+  padding: 10px 12px 0;
+  border-top: 1px solid var(--line);
+  margin-top: 8px;
+}
+
+.run {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 6px 0;
+}
+
+.runText {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.menu {
+  position: fixed;
+  z-index: 20;
+  min-width: 220px;
+  padding: 4px;
+  border: 1px solid var(--line);
+  background: var(--panel);
+  box-shadow: 0 8px 24px rgb(0 0 0 / 35%);
+}
+
+.menuItem {
+  display: block;
+  width: 100%;
+  padding: 6px 8px;
+  border: 0;
+  background: transparent;
+  color: var(--text);
+  text-align: left;
+}
+
+.menuItem:hover {
+  background: var(--raised);
+}
+
 .list {
   margin: 0;
   padding: 0;

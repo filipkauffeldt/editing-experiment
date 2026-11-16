@@ -20,6 +20,7 @@ import type {
 import type {
   DestinationId,
   ExportJobId,
+  JobId,
   PhotoId,
   PresetId,
   SourceId,
@@ -27,7 +28,7 @@ import type {
   VersionId,
 } from './ids';
 import type { IptcFields } from './iptc';
-import type { JobEvent, IngestJobInfo } from './jobs';
+import type { FolderImportInfo, JobEvent, IngestJobInfo } from './jobs';
 import type { Photo, PhotoVersion } from './photo';
 import type { PhotoProfiles, ProfileIndex, ProfileRequest, ProfileResolution } from './profile';
 import type { Rect } from './geometry';
@@ -220,6 +221,11 @@ export interface DeletePhotosArgs {
 /** Arguments of `photos:removeFromLibrary`. Only ids, never paths. */
 export interface RemoveFromLibraryArgs {
   photoIds: PhotoId[];
+}
+
+/** Arguments of `photos:removeFolder`. An absolute folder path as the sidebar shows it. */
+export interface RemoveFolderArgs {
+  path: string;
 }
 
 /**
@@ -422,6 +428,26 @@ export interface IpcApi {
    */
   'photos:removeFromLibrary': (args: RemoveFromLibraryArgs) => Promise<RemoveFromLibraryResult>;
   /**
+   * Add a folder of photos to the Library where it is: every supported image below it, subfolders
+   * included, is indexed without copying, moving or renaming anything. Existing sidecars and
+   * embedded metadata are read. Refused for a folder inside or around a configured source, on a
+   * memory card, or in the app's data or cache. The folder is remembered in the index database.
+   * Runs in the background; progress arrives as `library.progress` and `library.state`.
+   */
+  'photos:addFolder': (args: { path: string }) => Promise<FolderImportInfo>;
+  /** Look through an added folder again for files that appeared since. Same work as `photos:addFolder`. */
+  'photos:rescanFolder': (args: { path: string }) => Promise<FolderImportInfo>;
+  /** Stop an added-folder run. Idempotent. */
+  'photos:stopFolderImport': (args: { jobId: JobId }) => Promise<void>;
+  /**
+   * Drop a sidebar folder's photos from the Library without touching a file, the way
+   * `photos:removeFromLibrary` does, and forget the folder's added root. The paths are
+   * remembered, so the startup scan leaves the files alone.
+   */
+  'photos:removeFolder': (args: RemoveFolderArgs) => Promise<RemoveFromLibraryResult>;
+  /** The folders added in place, as stored in the index database. */
+  'photos:listAddedFolders': () => Promise<string[]>;
+  /**
    * Store the edited thumbnail and preview rendered by the renderer. Resolves with
    * the photo as it is now; `previewStale` is still set when the render was refused
    * because the edits changed meanwhile.
@@ -591,6 +617,11 @@ export const INVOKE_CHANNELS = [
   'photos:setLabels',
   'photos:delete',
   'photos:removeFromLibrary',
+  'photos:addFolder',
+  'photos:rescanFolder',
+  'photos:stopFolderImport',
+  'photos:removeFolder',
+  'photos:listAddedFolders',
   'photos:setEditedPreview',
   'ingest:start',
   'ingest:stop',
