@@ -36,11 +36,45 @@ export function photosHandlers(
       const scoped = world.photos.filter(
         (photo) => args?.folder === undefined || dirname(photo.path) === args.folder,
       );
-      const offset = args?.offset ?? 0;
+      const limit = args?.limit ?? 1000;
+      const offset =
+        args?.fromEnd === true ? Math.max(0, scoped.length - limit) : (args?.offset ?? 0);
       return {
-        photos: scoped.slice(offset, offset + (args?.limit ?? 1000)),
+        photos: scoped.slice(offset, offset + limit),
         total: scoped.length,
         scopeTotal: scoped.length,
+        offset,
+      };
+    },
+    'photos:facets': async (args) => {
+      const scoped = world.photos.filter(
+        (photo) => args?.folder === undefined || dirname(photo.path) === args.folder,
+      );
+      const tag = { all: scoped.length, tagged: 0, untagged: 0 };
+      const status = { 'not-sent': 0, failed: 0, edited: 0, 'metadata-differs': 0 };
+      const cameras = new Map<string, number>();
+      for (const photo of scoped) {
+        if (photo.tagged) tag.tagged += 1;
+        else tag.untagged += 1;
+        if (photo.status.upload !== 'done') status['not-sent'] += 1;
+        if (photo.status.upload === 'failed') status.failed += 1;
+        if (photo.status.edited) status.edited += 1;
+        if (photo.status.metadataDiffersFromTemplate) status['metadata-differs'] += 1;
+        const camera = photo.camera;
+        const key = camera
+          ? `${camera.model ?? camera.make ?? 'Unknown'}|${camera.serialNumber ?? ''}`
+          : '';
+        if (key) cameras.set(key, (cameras.get(key) ?? 0) + 1);
+      }
+      return {
+        shown: scoped.length,
+        scopeTotal: scoped.length,
+        tag,
+        status,
+        cameras: [...cameras].map(([key, count]) => {
+          const [model, serial] = key.split('|');
+          return { key, label: serial ? `${model} · ${serial}` : (model ?? key), count };
+        }),
       };
     },
     'photos:get': async ({ photoId }) => {

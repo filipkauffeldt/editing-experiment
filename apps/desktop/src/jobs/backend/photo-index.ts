@@ -1,4 +1,11 @@
-import type { LibraryFolderInfo, Photo, PhotoId, PhotoQueryFilter, SourceId } from '@ee/contracts';
+import type {
+  LibraryFolderInfo,
+  Photo,
+  PhotoFacets,
+  PhotoId,
+  PhotoQueryFilter,
+  SourceId,
+} from '@ee/contracts';
 import { mkdirSync } from 'node:fs';
 import { dirname, sep } from 'node:path';
 import { DatabaseSync, type StatementSync } from 'node:sqlite';
@@ -41,6 +48,8 @@ export interface PhotoQueryResult {
   photos: Photo[];
   total: number;
   scopeTotal: number;
+  /** Position of the first photo in the filtered order. */
+  offset: number;
 }
 
 export interface PhotoQueryOptions {
@@ -50,6 +59,8 @@ export interface PhotoQueryOptions {
   offset?: number;
   limit?: number;
   anchorId?: PhotoId;
+  /** With no anchor, take the last page of the order. */
+  fromEnd?: boolean;
   /** Restrict to these ids (a search result); applied after the SQL filter. */
   ids?: ReadonlySet<PhotoId>;
 }
@@ -442,21 +453,111 @@ export class PhotoIndex {
     );
 
     const order = this.order(options.sort);
+    const limit = Math.max(1, Math.min(options.limit ?? 1000, 10_000));
     let offset = options.offset ?? 0;
     if (options.anchorId !== undefined) {
       const position = this.position(options.anchorId, where, order);
-      if (position !== undefined) {
-        const limit = options.limit ?? 1000;
-        offset = Math.max(0, position - Math.floor(limit / 2));
-      }
+      if (position !== undefined) offset = Math.max(0, position - Math.floor(limit / 2));
+    } else if (options.fromEnd) {
+      offset = Math.max(0, total - limit);
     }
-    const limit = Math.max(1, Math.min(options.limit ?? 1000, 10_000));
     const rows = this.db
       .prepare(
         `SELECT json, template_path, source_path FROM photos${where.sql} ORDER BY ${order} LIMIT ? OFFSET ?`,
       )
       .all(...where.params, limit, offset) as unknown as Row[];
-    return { photos: rows.map((row) => toRecord(row).photo), total, scopeTotal };
+    return { photos: rows.map((row) => toRecord(row).photo), total, scopeTotal, offset };
+  }
+
+  /**
+   * What the filter bar's options would show for the current scope. One aggregate query with
+   * conditional sums, so the numbers stay true when only a page is in the renderer.
+   */
+  facets(options: PhotoQueryOptions): PhotoFacets {
+    const scope = this.scope(options);
+    const filter = options.filter ?? {};
+    const rest = this.filterSql({
+      filter: { ...filter, tag: undefined, statuses: [] },
+      ...(options.ids === undefined ? {} : { ids: options.ids }),
+    });
+    const restSql = rest.sql === '' ? '1' : rest.sql.replace(/^ WHERE /, '');
+    const ticked = filter.statuses ?? [];
+    const statusCondition = (status: NonNullable<PhotoQueryFilter['statuses']>[number]): string => {
+      if (status === 'not-sent') return "COALESCE(upload, 'none') != 'done'";
+      if (status === 'failed') return "upload = 'failed'";
+      if (status === 'edited') return 'edited = 1';
+      return 'metadata_differs = 1';
+    };
+    const all = (conditions: readonly string[]): string =>
+      conditions.length === 0 ? '1' : conditions.join(' AND ');
+    const allStatus = all(ticked.map(statusCondition));
+    const tagOk =
+      filter.tag === 'tagged'
+        ? 'tagged = 1'
+        : filter.tag === 'untagged'
+          ? 'COALESCE(tagged, 0) = 0'
+          : '1';
+
+    const params: (string | number)[] = [];
+    const sums: string[] = [];
+    const sum = (conditions: readonly string[], alias: string): void => {
+      sums.push(`SUM(CASE WHEN ${restSql} AND ${all(conditions)} THEN 1 ELSE 0 END) AS ${alias}`);
+      params.push(...rest.params);
+    };
+    sum([allStatus], 'tag_all');
+    sum([allStatus, 'tagged = 1'], 'tag_tagged');
+    sum([allStatus, 'COALESCE(tagged, 0) = 0'], 'tag_untagged');
+    sum([allStatus, tagOk], 'shown');
+    const statusKeys = ['not-sent', 'failed', 'edited', 'metadata-differs'] as const;
+    for (const status of statusKeys) {
+      const others = ticked.filter((candidate) => candidate !== status).map(statusCondition);
+      sum([tagOk, ...others, statusCondition(status)], `status_${status.replace('-', '_')}`);
+    }
+    const row = this.db
+      .prepare(`SELECT COUNT(*) AS scope_total, ${sums.join(', ')} FROM photos${scope.sql}`)
+      .get(...params, ...scope.params) as unknown as Record<string, number>;
+
+    const cameraRest = this.filterSql({
+      filter: { ...filter, camera: undefined, tag: undefined, statuses: [] },
+      ...(options.ids === undefined ? {} : { ids: options.ids }),
+    });
+    const cameraWhere =
+      cameraRest.sql === ''
+        ? scope.sql === ''
+          ? " WHERE camera_key != ''"
+          : `${scope.sql} AND camera_key != ''`
+        : scope.sql === ''
+          ? `${cameraRest.sql} AND camera_key != ''`
+          : `${scope.sql} AND ${cameraRest.sql.replace(/^ WHERE /, '')} AND camera_key != ''`;
+    const cameraRows = this.db
+      .prepare(
+        `SELECT camera_key AS key, COUNT(*) AS count FROM photos${cameraWhere} GROUP BY camera_key ORDER BY camera_key`,
+      )
+      .all(...scope.params, ...cameraRest.params) as unknown as { key: string; count: number }[];
+
+    return {
+      shown: Number(row.shown ?? 0),
+      scopeTotal: Number(row.scope_total ?? 0),
+      tag: {
+        all: Number(row.tag_all ?? 0),
+        tagged: Number(row.tag_tagged ?? 0),
+        untagged: Number(row.tag_untagged ?? 0),
+      },
+      status: {
+        'not-sent': Number(row.status_not_sent ?? 0),
+        failed: Number(row.status_failed ?? 0),
+        edited: Number(row.status_edited ?? 0),
+        'metadata-differs': Number(row.status_metadata_differs ?? 0),
+      },
+      cameras: cameraRows.map((camera) => {
+        const [model, serial] = camera.key.split('|');
+        return {
+          key: camera.key,
+          label: serial ? `${model} · ${serial}` : (model ?? camera.key),
+          count: Number(camera.count),
+        };
+      }),
+    };
   }
 
   /** The 0-based position of `photoId` in the query's order, when it matches the filter. */

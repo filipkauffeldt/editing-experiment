@@ -74,9 +74,20 @@ export function createBackendHandlers(deps: HandlerDeps): IpcHandlers {
         ...(args?.offset === undefined ? {} : { offset: args.offset }),
         ...(args?.limit === undefined ? {} : { limit: args.limit }),
         ...(args?.anchorId === undefined ? {} : { anchorId: args.anchorId }),
+        ...(args?.fromEnd === true ? { fromEnd: true } : {}),
         ...(found === undefined ? {} : { ids: new Set(found) }),
       });
       return result;
+    },
+    'photos:facets': async (args) => {
+      const search = args?.filter?.search?.trim() ?? '';
+      const found = search === '' ? undefined : deps.search.search(search).photoIds;
+      return photos.facets({
+        ...(args?.folder === undefined ? {} : { folder: args.folder }),
+        ...(args?.filter === undefined ? {} : { filter: args.filter }),
+        ...(args?.sort === undefined ? {} : { sort: args.sort }),
+        ...(found === undefined ? {} : { ids: new Set(found) }),
+      });
     },
     'photos:get': async ({ photoId }) => photos.get(photoId),
     'photos:search': async ({ query }) => deps.search.search(query),

@@ -82,6 +82,66 @@ describe('photo index queries', () => {
     }
   });
 
+  it('counts the filter options and cameras for the scope in one grouped query', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'ee-index-facets-'));
+    dirs.push(dir);
+    const index = new PhotoIndex(join(dir, 'index.sqlite'));
+    const base = photo('a', '/photos/game/a.NEF', { tagged: true, rating: 5 });
+    index.save(base);
+    index.save(photo('b', '/photos/game/b.NEF', { rating: 3 }));
+    index.save(
+      photo('c', '/photos/game/c.NEF', {
+        camera: { model: 'NIKON Z 8', serialNumber: '2' },
+        status: { ...base.status, edited: true, upload: 'failed' },
+      }),
+    );
+    index.save(photo('d', '/photos/other/d.NEF', { tagged: true }));
+
+    const all = index.facets({ folder: '/photos/game' });
+    expect(all.scopeTotal).toBe(3);
+    expect(all.shown).toBe(3);
+    expect(all.tag).toEqual({ all: 3, tagged: 1, untagged: 2 });
+    expect(all.status['not-sent']).toBe(3);
+    expect(all.status.failed).toBe(1);
+    expect(all.status.edited).toBe(1);
+    expect(all.cameras).toEqual([
+      { key: 'NIKON Z 8|2', label: 'NIKON Z 8 · 2', count: 1 },
+      { key: 'NIKON Z 9|1', label: 'NIKON Z 9 · 1', count: 2 },
+    ]);
+
+    const tagged = index.facets({ folder: '/photos/game', filter: { tag: 'tagged' } });
+    expect(tagged.shown).toBe(1);
+    expect(tagged.status['not-sent']).toBe(1);
+    const rated = index.facets({ folder: '/photos/game', filter: { minRating: 4 } });
+    expect(rated.scopeTotal).toBe(3);
+    expect(rated.shown).toBe(1);
+    expect(rated.tag).toEqual({ all: 1, tagged: 1, untagged: 0 });
+    index.close();
+  });
+
+  it('returns a page position and starts at the newest photos when asked', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'ee-index-page-'));
+    dirs.push(dir);
+    const index = new PhotoIndex(join(dir, 'index.sqlite'));
+    for (let n = 0; n < 10; n += 1) {
+      index.save(
+        photo(`p${n}`, `/photos/game/p${n}.NEF`, {
+          captureTime: `2026-05-01T12:00:0${n}`,
+        }),
+      );
+    }
+    const first = index.query({ folder: '/photos/game', limit: 3 });
+    expect(first.offset).toBe(0);
+    expect(first.photos.map((entry) => entry.fileName)).toEqual(['p0.NEF', 'p1.NEF', 'p2.NEF']);
+    const anchored = index.query({ folder: '/photos/game', anchorId: 'p9' as PhotoId, limit: 3 });
+    expect(anchored.offset).toBe(8);
+    expect(anchored.photos.map((entry) => entry.fileName)).toEqual(['p8.NEF', 'p9.NEF']);
+    const newest = index.query({ folder: '/photos/game', fromEnd: true, limit: 3 });
+    expect(newest.offset).toBe(7);
+    expect(newest.photos.at(-1)?.fileName).toBe('p9.NEF');
+    index.close();
+  });
+
   it('migrates an index made before the query columns existed without losing a photo', async () => {
     const dir = await mkdtemp(join(tmpdir(), 'ee-index-old-'));
     dirs.push(dir);

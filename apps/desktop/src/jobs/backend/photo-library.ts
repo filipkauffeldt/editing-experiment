@@ -59,6 +59,10 @@ export class PhotoLibrary {
     return this.index.query(options);
   }
 
+  facets(options: Parameters<PhotoIndex['facets']>[0]): ReturnType<PhotoIndex['facets']> {
+    return this.index.facets(options);
+  }
+
   record(photoId: PhotoId): PhotoRecord {
     const record = this.index.get(photoId);
     if (!record) throw new IpcError('not_found', `no photo ${photoId}`);

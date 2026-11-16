@@ -14,7 +14,14 @@ export class LabelService {
   ) {}
 
   async setLabels(args: SetPhotoLabelsArgs): Promise<Photo[]> {
-    const { tagged, colorClass, rating } = args;
+    const { colorClass, rating } = args;
+    if (args.toggleTagged === true && args.tagged !== undefined) {
+      throw new IpcError('invalid_argument', 'photos:setLabels takes tagged or toggleTagged');
+    }
+    const tagged =
+      args.toggleTagged === true
+        ? !args.photoIds.every((photoId) => this.photos.get(photoId).tagged)
+        : args.tagged;
     if (tagged === undefined && colorClass === undefined && rating === undefined) {
       throw new IpcError('invalid_argument', 'photos:setLabels needs tagged, colorClass or rating');
     }

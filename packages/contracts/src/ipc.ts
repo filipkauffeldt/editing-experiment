@@ -100,6 +100,8 @@ export interface QueryPhotosArgs {
   anchorId?: PhotoId;
   offset?: number;
   limit?: number;
+  /** With no anchor, take the last page of the order (the newest capture times). */
+  fromEnd?: boolean;
 }
 
 /** Result of `photos:query`: the page and how many photos the scope and filter hold. */
@@ -109,6 +111,27 @@ export interface QueryPhotosResult {
   total: number;
   /** Photos in the scope before the filter. */
   scopeTotal: number;
+  /** Position of the first returned photo in the filtered order. */
+  offset: number;
+}
+
+/** A camera in the filter menu, with how many photos in the scope it holds. */
+export interface PhotoFacetCamera {
+  key: string;
+  label: string;
+  count: number;
+}
+
+/** What the filter bar's options would show, calculated by the index for the current scope. */
+export interface PhotoFacets {
+  /** Photos the filter shows now. */
+  shown: number;
+  /** Photos in the scope before the filter. */
+  scopeTotal: number;
+  tag: Record<'all' | 'tagged' | 'untagged', number>;
+  status: Record<'not-sent' | 'failed' | 'edited' | 'metadata-differs', number>;
+  /** Cameras in the scope with the rest of the filter applied (the camera choice itself left out). */
+  cameras: PhotoFacetCamera[];
 }
 
 /** Arguments of `photos:search`. */
@@ -245,6 +268,11 @@ export interface DeleteVersionArgs {
 /** Arguments of `photos:setLabels`. Omitted fields are left unchanged. */
 export interface SetPhotoLabelsArgs {
   photoIds: PhotoId[];
+  /**
+   * Photo Mechanic's toggle: untag all of them when every one is tagged, tag all otherwise.
+   * Decided by the backend so a selection larger than the loaded page is still correct.
+   */
+  toggleTagged?: boolean;
   /** Photo Mechanic tag flag. */
   tagged?: boolean;
   /** Colour class: 0 = none, 1..8. */
@@ -483,6 +511,10 @@ export interface IpcApi {
   'photos:folders': () => Promise<LibraryOverview>;
   /** A filtered, sorted page of photos, answered by the index in the jobs process. */
   'photos:query': (args: QueryPhotosArgs) => Promise<QueryPhotosResult>;
+  /** Counts and the camera menu for the filter bar, from the index's grouped query. */
+  'photos:facets': (
+    args: Omit<QueryPhotosArgs, 'anchorId' | 'offset' | 'limit' | 'fromEnd'>,
+  ) => Promise<PhotoFacets>;
   'photos:get': (args: { photoId: PhotoId }) => Promise<Photo>;
   /** Find photos by file name, caption and keywords, across the whole Library. */
   'photos:search': (args: SearchPhotosArgs) => Promise<SearchPhotosResult>;
@@ -712,6 +744,7 @@ export const INVOKE_CHANNELS = [
   'photos:list',
   'photos:folders',
   'photos:query',
+  'photos:facets',
   'photos:get',
   'photos:search',
   'photos:createVersion',
