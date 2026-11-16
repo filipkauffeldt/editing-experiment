@@ -96,6 +96,20 @@ export class ImagePool {
     this.free.set(key, list);
   }
 
+  /**
+   * Deletes the textures nothing holds. A renderer that outlives one photo calls it between
+   * photos, so the sizes of earlier photos and window sizes do not pile up on the GPU.
+   */
+  trim(): void {
+    for (const list of this.free.values()) {
+      for (const image of list) {
+        this.gl.deleteTexture(image.texture);
+        this.all.delete(image);
+      }
+    }
+    this.free.clear();
+  }
+
   dispose(): void {
     for (const image of this.all) this.gl.deleteTexture(image.texture);
     this.all.clear();

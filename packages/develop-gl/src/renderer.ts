@@ -129,6 +129,23 @@ export interface DevelopRenderer {
   setProfile(profile: ResolvedProfile | null): void;
   readonly contextLost: boolean;
   /**
+   * Changes what a renderer that outlives one photo needs to change with it: the grain seed (see
+   * {@link DevelopRendererOptions.grainSeed}) and the callbacks. Only what is given changes.
+   */
+  configure(
+    update: Pick<
+      DevelopRendererOptions,
+      'grainSeed' | 'onContextLost' | 'onNeighbourhoodUnavailable'
+    >,
+  ): void;
+  /**
+   * Lets go of everything that belongs to the current photo (its textures, the neighbourhood
+   * stages, the histogram target) and clears the canvas, keeping the context and the compiled
+   * programs. The next photo is set with {@link setImage}. Nothing of the old photo can be drawn
+   * after this.
+   */
+  release(): void;
+  /**
    * Whether Texture, Clarity, Dehaze, sharpening and noise reduction can be drawn here.
    * When false they are skipped by this renderer; a caller that must produce them (an
    * export) renders with the CPU reference instead (`renderCpu`).
@@ -335,8 +352,10 @@ const toColumnMajor = (m: readonly number[]): Float32Array =>
 
 export function createDevelopRenderer(
   canvas: Canvas,
-  options: DevelopRendererOptions = {},
+  requested: DevelopRendererOptions = {},
 ): DevelopRenderer {
+  // Copied, because `configure` changes it and the caller's object is not ours.
+  const options: DevelopRendererOptions = { ...requested };
   const context = (canvas as HTMLCanvasElement).getContext('webgl2', {
     alpha: false,
     antialias: false,
@@ -393,6 +412,8 @@ export function createDevelopRenderer(
     event.preventDefault();
     lost = true;
     source = undefined;
+    // Its texture belonged to the context that is gone.
+    histogramTarget = undefined;
     options.onContextLost?.();
   };
   const onRestored = (): void => {
@@ -1021,6 +1042,25 @@ export function createDevelopRenderer(
 
     get supportsNeighbourhood() {
       return neighbourhoodSupported;
+    },
+
+    configure(update) {
+      if ('grainSeed' in update) options.grainSeed = update.grainSeed;
+      if ('onContextLost' in update) options.onContextLost = update.onContextLost;
+      if ('onNeighbourhoodUnavailable' in update) {
+        options.onNeighbourhoodUnavailable = update.onNeighbourhoodUnavailable;
+      }
+    },
+
+    release() {
+      if (disposed || lost) return;
+      freeSource();
+      frame = undefined;
+      pipeline?.invalidate();
+      dropHistogramTarget();
+      gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+      gl.clearColor(0, 0, 0, 1);
+      gl.clear(gl.COLOR_BUFFER_BIT);
     },
 
     get softwareRendering() {
