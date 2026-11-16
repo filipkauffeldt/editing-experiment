@@ -300,6 +300,30 @@ async function run(options: Options, userData: string): Promise<void> {
     );
     samples['large folder first thumbnails'] = { ms: Date.now() - thumbStart };
 
+    const folderIpc = await page.evaluate(async () => {
+      const transport = (
+        window as unknown as {
+          eeTransport: {
+            invoke(channel: string, args: unknown[]): Promise<{ ok: boolean; value?: unknown }>;
+          };
+        }
+      ).eeTransport;
+      const folders = (await transport.invoke('photos:folders', [])).value as {
+        folders: { path: string }[];
+      };
+      const started = performance.now();
+      const result = await transport.invoke('photos:list', [{ folder: folders.folders[0]?.path }]);
+      const elapsed = performance.now() - started;
+      return {
+        ms: Math.round(elapsed),
+        bytes: new Blob([JSON.stringify(result.value)]).size,
+      };
+    });
+    samples['IPC photos:list call'] = {
+      ms: folderIpc.ms,
+      detail: `${Math.round(folderIpc.bytes / 1024)} kB`,
+    };
+
     const search = page.getByTestId('filter-search');
     const searchStart = Date.now();
     await search.fill('match-001');
@@ -406,30 +430,6 @@ async function run(options: Options, userData: string): Promise<void> {
     samples['grid scroll (steady)'] = {
       ms: steady.worst,
       detail: `${steady.over50} of ${steady.frames} frames over 50 ms`,
-    };
-
-    const folderIpc = await page.evaluate(async () => {
-      const transport = (
-        window as unknown as {
-          eeTransport: {
-            invoke(channel: string, args: unknown[]): Promise<{ ok: boolean; value?: unknown }>;
-          };
-        }
-      ).eeTransport;
-      const folders = (await transport.invoke('photos:folders', [])).value as {
-        folders: { path: string }[];
-      };
-      const started = performance.now();
-      const result = await transport.invoke('photos:list', [{ folder: folders.folders[0]?.path }]);
-      const elapsed = performance.now() - started;
-      return {
-        ms: Math.round(elapsed),
-        bytes: new Blob([JSON.stringify(result.value)]).size,
-      };
-    });
-    samples['IPC photos:list call'] = {
-      ms: folderIpc.ms,
-      detail: `${Math.round(folderIpc.bytes / 1024)} kB`,
     };
 
     const sizes = await page.evaluate(async () => {
