@@ -136,6 +136,21 @@ describe('library folders', () => {
     expect(folderOf('/a.nef')).toBe('/');
   });
 
+  it('tells same-named folders from different roots apart', () => {
+    const photos = mockPhotos();
+    const first = photos[0]!;
+    const folders = libraryFolders([
+      { ...first, path: '/ingest/2026/game/a.jpg' },
+      { ...first, path: '/archive/2026/game/b.jpg' },
+      { ...first, path: '/archive/other/c.jpg' },
+    ]);
+    expect(folders.map((folder) => folder.name)).toEqual([
+      'archive/2026/game',
+      'other',
+      'ingest/2026/game',
+    ]);
+  });
+
   it('filters the grid to the chosen folder', async () => {
     await openLibrary();
     const user = userEvent.setup();

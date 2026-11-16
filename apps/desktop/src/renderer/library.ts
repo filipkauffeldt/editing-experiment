@@ -32,8 +32,8 @@ export interface LibraryFolder {
 }
 
 /**
- * The local folders that hold ingested copies, from the photos themselves. A photo's `path` is
- * always its copy in the ingest destination, so cards and remote servers can never appear here.
+ * The local folders that hold photos, from the photos themselves: ingest copies and folders the
+ * user added in place. Sources are not consulted.
  */
 export function libraryFolders(photos: readonly Photo[]): LibraryFolder[] {
   const counts = new Map<string, number>();
@@ -41,9 +41,34 @@ export function libraryFolders(photos: readonly Photo[]): LibraryFolder[] {
     const folder = folderOf(photo.path);
     counts.set(folder, (counts.get(folder) ?? 0) + 1);
   }
-  return [...counts]
+  const folders = [...counts]
     .map(([path, count]) => ({ path, name: baseName(path), count }))
     .sort((left, right) => left.path.localeCompare(right.path, undefined, { numeric: true }));
+  return disambiguateNames(folders);
+}
+
+/**
+ * Two roots can hold folders of the same name (`/card/2026/game` and `/archive/2026/game`). Show
+ * the shortest parent suffix that tells them apart, so the sidebar never lists two identical
+ * rows.
+ */
+function disambiguateNames(folders: LibraryFolder[]): LibraryFolder[] {
+  const segments = (path: string): string[] => path.split(/[\\/]+/).filter(Boolean);
+  const suffix = (path: string, depth: number): string => {
+    const parts = segments(path);
+    return parts.slice(Math.max(0, parts.length - depth)).join('/');
+  };
+  return folders.map((folder) => {
+    const others = folders.filter((candidate) => candidate.path !== folder.path);
+    let depth = 1;
+    while (
+      depth <= segments(folder.path).length &&
+      others.some((other) => suffix(other.path, depth) === suffix(folder.path, depth))
+    ) {
+      depth += 1;
+    }
+    return { ...folder, name: suffix(folder.path, depth) };
+  });
 }
 
 /** Whether the photo is in the folder the Library shows (every folder when none is picked). */

@@ -68,6 +68,11 @@ export const dialogHandlers: NamespaceHandlers<'dialog'> = {
               : '/mock/picked/file.jpg';
       return multiple ? [picked, '/mock/presets/Daylight Neutral.xmp'] : [picked];
     }
+    // End-to-end tests cannot drive a native dialog. `EE_PICK_FOLDER` answers a folder pick for
+    // them; the app never sets it.
+    if (kind === 'folder' && process.env.EE_PICK_FOLDER) {
+      return [process.env.EE_PICK_FOLDER];
+    }
     const options: Electron.OpenDialogOptions = {
       title,
       properties: [

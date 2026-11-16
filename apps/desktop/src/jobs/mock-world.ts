@@ -648,6 +648,7 @@ export function createMockHandlers(world: MockWorld, emit: Emit): Partial<IpcHan
     // real backend minus the trash. Removing from the Library is the same here.
     'photos:delete': async ({ photoIds }) => dropPhotos(photoIds),
     'photos:removeFromLibrary': async ({ photoIds }) => dropPhotos(photoIds),
+    'photos:listAddedFolders': async () => [],
     'photos:deleteVersion': async ({ photoId, versionId }) => {
       const photo = findPhoto(photoId);
       const version = photo.versions.find((candidate) => candidate.id === versionId);

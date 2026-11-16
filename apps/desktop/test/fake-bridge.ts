@@ -123,6 +123,7 @@ export function createFakeBridge(
       return { echo: message, jobsPid: 1, jobsTime: 0 };
     },
     'photos:list': async () => photos,
+    'photos:listAddedFolders': async () => [],
     'photos:search': async (...args) => {
       const terms = searchTerms((args[0] as { query: string }).query);
       return {
