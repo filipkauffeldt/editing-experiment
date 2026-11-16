@@ -10,6 +10,7 @@ import {
 import { JobEventEmitter, type UploadQueue } from '@ee/export';
 import {
   ExifToolService,
+  fileExists,
   readCaptureTime,
   readIptc,
   shiftCaptureTime as shiftOnDisk,
@@ -86,7 +87,12 @@ afterEach(async () => {
 function addPhoto(
   library: PhotoLibrary,
   path: string,
-  options: { fileName?: string; captureTime?: string; sidecarPath?: string } = {},
+  options: {
+    fileName?: string;
+    captureTime?: string;
+    sidecarPath?: string;
+    inPlace?: boolean;
+  } = {},
 ): Photo {
   const fileName = options.fileName ?? path.split(/[\\/]/).pop() ?? path;
   const photo: Photo = {
@@ -95,6 +101,7 @@ function addPhoto(
     sidecarPath: options.sidecarPath ?? path,
     fileName,
     ...(options.captureTime === undefined ? {} : { captureTime: options.captureTime }),
+    ...(options.inPlace === true ? { inPlace: true } : {}),
     sourceId: asSourceId('test'),
     tagged: false,
     colorClass: 0,
@@ -184,6 +191,39 @@ describe('shifting the capture time', () => {
     );
     const back = await metadata.shiftCaptureTime({ photoIds: [photo.id], offsetSeconds: 133 });
     expect(back.updated[0]!.photo.captureTime).toBe(captureTime);
+  });
+
+  it('creates the sidecar for an in-place raw that has none', async () => {
+    const source = sampleNefs()[0] ?? fixtureNefs()[0];
+    if (source === undefined) return;
+    const raw = join(root, 'in-place.NEF');
+    await copyFile(source, raw);
+    const sidecar = sidecarPathFor(raw);
+    expect(await fileExists(sidecar)).toBe(false);
+    const beforeHash = await sha256(raw);
+    const captureTime = await readCaptureTime(raw, exiftool);
+    expect(captureTime).toBeDefined();
+    const photo = addPhoto(library, raw, {
+      fileName: 'in-place.NEF',
+      captureTime,
+      sidecarPath: sidecar,
+      inPlace: true,
+    });
+
+    const result = await metadata.shiftCaptureTime({ photoIds: [photo.id], offsetSeconds: 120 });
+
+    expect(result.failed).toEqual([]);
+    expect(result.noCaptureTime).toEqual([]);
+    const shifted = result.updated[0]!;
+    expect(shifted.photo.inPlace).toBe(true);
+    expect(shifted.photo.captureTime).toBe(shiftCaptureTimeValue(captureTime!, 120));
+    expect(library.get(photo.id).inPlace).toBe(true);
+    expect(await fileExists(sidecar)).toBe(true);
+    expect(await sha256(raw)).toBe(beforeHash);
+    const tags = await exiftool.read(sidecar);
+    expect(toIsoDate(tags['XMP-exif:DateTimeOriginal'])).toBe(shifted.photo.captureTime);
+    expect(toIsoDate(tags['XMP-xmp:CreateDate'])).toBe(shifted.photo.captureTime);
+    expect(toIsoDate(tags['XMP-photoshop:DateCreated'])).toBe(shifted.dateCreated);
   });
 
   it('updates the sort order at once and keeps a photo without a time last', async () => {
