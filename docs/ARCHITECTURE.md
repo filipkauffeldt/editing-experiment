@@ -873,13 +873,16 @@ the photo on screen is bounded and never delays it.
 - **`app://full/<id>`** (`FullImageCache` in `jobs/backend/full-images.ts`). A raw gives its largest
   embedded preview (`extractPreview`, read by LibRaw), a JPEG gives the file. Upright bytes are
   written to `cache/full/<id>.jpg` as they are, a turned one is decoded, turned and encoded once
-  (quality 92). A format with no JPEG (TIFF, PNG, HEIF) answers 404 and the loupe keeps the preview.
+  (quality 92). A JPEG's orientation is the tag in the file (`jpegExifOrientation`), never the index's. A format with no JPEG (TIFF, PNG, HEIF) answers 404 and the loupe keeps the preview.
   The cache holds at most 32 files and 512 MiB, least recently used first, is emptied at start and
   forgets a deleted photo. Nothing is written beside the photo.
 - **Privacy.** The camera JPEG shows what a retouch hides. A photo whose newest retouch version has
   ops gets exactly what `app://preview` gives it from `PreviewCache.resolve`: the edited preview
   drawn with the current ops, and a grey placeholder (`no-store`) until it exists. The camera file
-  is neither built nor served for it, also when it was cached before the retouch was made. The loupe
+  is neither built nor served for it, also when it was cached before the retouch was made. Its URL
+  is `app://full/<id>?v=<previewRevision>` (0 when absent), which a retouch change bumps, so the
+  `<img>`, the preloader's images and the browser cache never answer it with the camera image. The
+  preloader drops what it held for a neighbour whose URL changed. The loupe
   then zooms into that image at the resolution it has, in a frame of the camera's size so the zoom
   levels mean the same part of the frame.
 - **The zoom carries.** The loupe's zoom belongs to the loupe, not to a photo (`LOUPE_ZOOM_KEY`), so
