@@ -214,6 +214,9 @@ async function runMock(outDir: string): Promise<void> {
     await window.getByTestId('settings-dialog').getByRole('tab', { name: 'Presets' }).click();
     await window.getByTestId('presets-summary').waitFor();
     await shoot('05e-preset-settings.png');
+    await window.getByTestId('settings-dialog').getByRole('tab', { name: 'Cache' }).click();
+    await window.getByTestId('cache-settings').waitFor();
+    await shoot('05g-cache-settings.png');
     await window
       .getByTestId('settings-dialog')
       .getByRole('tab', { name: 'Settings folder' })

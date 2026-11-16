@@ -49,6 +49,15 @@ Export / Export & send.
   copies and folders added in place in the sidebar. Cards and servers are
   intentionally not shown there. An added folder is read where it is, scanned
   again only when asked, and removed from the Library without touching a file.
+  The sidebar holds the folder tree with counts. A large index loads one folder
+  at a time instead of every photo; Develop opens that folder around the open
+  photo, moves its bounded page with the arrows, and asks the index for filters,
+  counts and order. **Remove folder from Library…** works
+  on any folder, with or without its subfolders, and never touches the disk.
+- A thumbnail and preview cache with a size limit on this computer (Settings →
+  Cache, 20 GB by default). Old previews are evicted before thumbnails, and an
+  evicted file is made again from the photo when it is shown. Retouched photos
+  keep their edited render or a placeholder, never the camera preview.
 - Culling a burst: the loupe zooms with the keys of Develop, into the camera's
   full-size JPEG (a raw's embedded preview, or the JPEG file), so a 100% focus
   check needs no raw decode. It shows the whole frame, not developed and not
@@ -534,7 +543,8 @@ entered there.
 - `packages/develop-gl` — WebGL2 develop pipeline, `crs:` model, Lightroom preset parser.
 - `packages/retouch` — selections, mosaic, YuNet face detection.
 - `packages/export` — JPEG encode, embedded-preview checks, upload queue.
-- `scripts` — fixture fetchers, the screenshot runner and the packaging script.
+- `scripts` — fixture fetchers, the screenshot runner, the packaging script and the Library scale
+  measurement (`node scripts/measure-library-scale.ts`).
 
 ## Licence
 

@@ -206,6 +206,12 @@ export function assertSettingsPatch(patch: Partial<AppSettings>): void {
   if (patch.panelWidths !== undefined && !isObject(patch.panelWidths)) {
     throw new IpcError('invalid_argument', 'panelWidths must be an object of panel widths');
   }
+  if (
+    patch.cacheLimitBytes !== undefined &&
+    (!Number.isInteger(patch.cacheLimitBytes) || patch.cacheLimitBytes < 0)
+  ) {
+    throw new IpcError('invalid_argument', 'cacheLimitBytes must be a whole number of bytes');
+  }
 }
 
 /** The old single-action settings shape, kept only to migrate it. */

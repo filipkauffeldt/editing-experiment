@@ -62,6 +62,29 @@ export async function makePreviewJpegs(source: PreviewSource): Promise<PreviewJp
 const encode = (image: RenderedImage, quality: number): Promise<Buffer> =>
   encodeJpeg(image.rgba, image.width, image.height, { quality, chroma: '420', iccSrgb: true });
 
+/**
+ * Only the thumbnail, for regenerating one evicted cache file while the grid scrolls.
+ * It never resizes to the 2560 px preview first, so scrolling an evicted folder stays cheap.
+ */
+export async function makeThumbnailJpeg(source: PreviewSource): Promise<Buffer> {
+  if ('file' in source) {
+    if (!JPEG_EXTENSIONS.has(extname(source.file).toLowerCase())) {
+      throw new Error(`previews of ${extname(source.file) || 'this'} files are not supported`);
+    }
+    const decoded = await decodeJpeg(await readFile(source.file));
+    const small = await resizeRgba(decoded.rgba, decoded.width, decoded.height, {
+      maxEdge: THUMB_MAX_EDGE,
+    });
+    return encode(small, THUMB_QUALITY);
+  }
+  const stored = await decodeJpeg(source.jpeg, { skipOrientation: true });
+  const upright = orientRgba(stored, source.orientation);
+  const small = await resizeRgba(upright.rgba, upright.width, upright.height, {
+    maxEdge: THUMB_MAX_EDGE,
+  });
+  return encode(small, THUMB_QUALITY);
+}
+
 /** Preview and thumbnail JPEGs from the renderer's already upright, edited pixels. */
 export async function encodeEditedJpegs(images: {
   thumb: RenderedImage;

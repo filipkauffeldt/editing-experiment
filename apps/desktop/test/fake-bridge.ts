@@ -15,10 +15,18 @@ import {
   type Photo,
   type PhotoId,
   type SourceConfig,
+  type SourceId,
   type UploadItem,
   type VersionId,
 } from '@ee/contracts';
 import { matchesSearch, searchTerms, searchTextOf } from '@ee/metadata';
+import {
+  cameraKey,
+  cameraLabel,
+  filterCounts,
+  filterPhotos,
+  initialFilter,
+} from '../src/renderer/filters';
 import { formatCaptureDateTime, parseCaptureDateTime, shiftCaptureDateTime } from '@ee/metadata';
 import {
   expandMockCaption,
@@ -123,7 +131,153 @@ export function createFakeBridge(
       const { message } = args[0] as { message: string };
       return { echo: message, jobsPid: 1, jobsTime: 0 };
     },
-    'photos:list': async () => photos,
+    'photos:list': async (...args) => {
+      const folder = (args[0] as { folder?: string } | undefined)?.folder;
+      return folder === undefined
+        ? photos
+        : photos.filter((photo) => dirname(photo.path) === folder);
+    },
+    'photos:folders': async () => {
+      const counts = new Map<string, number>();
+      for (const photo of photos) {
+        const folder = dirname(photo.path);
+        counts.set(folder, (counts.get(folder) ?? 0) + 1);
+      }
+      return {
+        total: photos.length,
+        folders: [...counts].map(([path, count]) => ({ path, count })),
+      };
+    },
+    'photos:query': async (...args) => {
+      const {
+        folder,
+        offset: wantedOffset = 0,
+        limit = 1000,
+        fromEnd,
+        anchorId,
+        filter,
+        sort,
+      } = (args[0] ?? {}) as {
+        folder?: string;
+        offset?: number;
+        limit?: number;
+        fromEnd?: boolean;
+        anchorId?: PhotoId;
+        filter?: {
+          tag?: 'all' | 'tagged' | 'untagged';
+          minRating?: number;
+          colorClasses?: number[];
+          statuses?: ('not-sent' | 'failed' | 'edited' | 'metadata-differs')[];
+          camera?: string;
+          sourceId?: SourceId;
+          search?: string;
+        };
+        sort?: 'filename' | 'capture-time';
+      };
+      const scoped =
+        folder === undefined ? photos : photos.filter((photo) => dirname(photo.path) === folder);
+      const terms = searchTerms(filter?.search ?? '');
+      const searchIds =
+        terms.length === 0
+          ? undefined
+          : new Set(
+              scoped
+                .filter((photo) =>
+                  matchesSearch(photo.fileName, searchTextOf(metadata.get(photo.id) ?? {}), terms),
+                )
+                .map((photo) => photo.id),
+            );
+      const filtered = filterPhotos(
+        scoped,
+        {
+          ...initialFilter(),
+          tag: filter?.tag ?? 'all',
+          minRating: filter?.minRating ?? 0,
+          colorClasses: filter?.colorClasses ?? [],
+          statuses: filter?.statuses ?? [],
+          ...(filter?.camera === undefined ? {} : { camera: filter.camera }),
+          ...(filter?.sourceId === undefined ? {} : { sourceId: filter.sourceId }),
+        },
+        searchIds,
+      );
+      filtered.sort((left, right) => {
+        if (sort !== 'filename') {
+          const leftTime = left.captureTime ? Date.parse(left.captureTime) : Number.NaN;
+          const rightTime = right.captureTime ? Date.parse(right.captureTime) : Number.NaN;
+          const leftKnown = !Number.isNaN(leftTime);
+          const rightKnown = !Number.isNaN(rightTime);
+          if (leftKnown !== rightKnown) return leftKnown ? -1 : 1;
+          if (leftKnown && rightKnown && leftTime !== rightTime) return leftTime - rightTime;
+        }
+        return left.fileName.localeCompare(right.fileName, undefined, { numeric: true });
+      });
+      let offset = fromEnd === true ? Math.max(0, filtered.length - limit) : wantedOffset;
+      if (anchorId !== undefined) {
+        const position = filtered.findIndex((photo) => photo.id === anchorId);
+        if (position >= 0) offset = Math.max(0, position - Math.floor(limit / 2));
+      }
+      return {
+        photos: filtered.slice(offset, offset + limit),
+        total: filtered.length,
+        scopeTotal: scoped.length,
+        offset,
+      };
+    },
+    'photos:facets': async (...args) => {
+      const { folder, filter } = (args[0] ?? {}) as {
+        folder?: string;
+        filter?: {
+          tag?: 'all' | 'tagged' | 'untagged';
+          minRating?: number;
+          colorClasses?: number[];
+          statuses?: ('not-sent' | 'failed' | 'edited' | 'metadata-differs')[];
+          camera?: string;
+          sourceId?: SourceId;
+          search?: string;
+        };
+      };
+      const scoped =
+        folder === undefined ? photos : photos.filter((photo) => dirname(photo.path) === folder);
+      const terms = searchTerms(filter?.search ?? '');
+      const searchIds =
+        terms.length === 0
+          ? undefined
+          : new Set(
+              scoped
+                .filter((photo) =>
+                  matchesSearch(photo.fileName, searchTextOf(metadata.get(photo.id) ?? {}), terms),
+                )
+                .map((photo) => photo.id),
+            );
+      const state = {
+        ...initialFilter(),
+        tag: filter?.tag ?? 'all',
+        minRating: filter?.minRating ?? 0,
+        colorClasses: filter?.colorClasses ?? [],
+        statuses: filter?.statuses ?? [],
+        ...(filter?.camera === undefined ? {} : { camera: filter.camera }),
+        ...(filter?.sourceId === undefined ? {} : { sourceId: filter.sourceId }),
+      };
+      const counts = filterCounts(scoped, state, searchIds);
+      const withoutCamera = filterPhotos(scoped, { ...state, camera: undefined }, searchIds);
+      const cameras = new Map<string, number>();
+      for (const photo of withoutCamera) {
+        const key = cameraKey(photo);
+        if (!key) continue;
+        cameras.set(key, (cameras.get(key) ?? 0) + 1);
+      }
+      return {
+        shown: counts.shown,
+        scopeTotal: scoped.length,
+        tag: counts.tag,
+        status: counts.status,
+        cameras: [...cameras].map(([key, count]) => ({
+          key,
+          label: cameraLabel(key),
+          count,
+        })),
+      };
+    },
     'photos:listAddedFolders': async () => [],
     'photos:search': async (...args) => {
       const terms = searchTerms((args[0] as { query: string }).query);
@@ -154,12 +308,23 @@ export function createFakeBridge(
       return version;
     },
     'photos:setLabels': async (...args) => {
-      const { photoIds, tagged, colorClass, rating } = args[0] as {
+      const {
+        photoIds,
+        tagged: explicitTagged,
+        toggleTagged,
+        colorClass,
+        rating,
+      } = args[0] as {
         photoIds: PhotoId[];
         tagged?: boolean;
+        toggleTagged?: boolean;
         colorClass?: number;
         rating?: number;
       };
+      const tagged =
+        toggleTagged === true
+          ? !photoIds.every((photoId) => findPhoto(photoId).tagged)
+          : explicitTagged;
       return photoIds.map((photoId) => {
         const photo = findPhoto(photoId);
         if (tagged !== undefined) photo.tagged = tagged;
@@ -206,6 +371,41 @@ export function createFakeBridge(
       }
       return { updated, noCaptureTime, failed: [] };
     },
+    'photos:removeFolder': async (...args) => {
+      const { path, subfolders } = args[0] as { path: string; subfolders?: boolean };
+      const prefix = `${path.replace(/[\\/]+$/, '')}/`;
+      const removed = photos
+        .filter(
+          (photo) =>
+            dirname(photo.path) === path ||
+            (subfolders === true && dirname(photo.path).startsWith(prefix)),
+        )
+        .map((photo) => photo.id);
+      for (const photoId of removed) {
+        const index = photos.findIndex((candidate) => candidate.id === photoId);
+        if (index >= 0) photos.splice(index, 1);
+      }
+      if (removed.length > 0) emit('photos:removedMany', { photoIds: removed });
+      return { deleted: removed, failed: [] };
+    },
+    'cache:stats': async () => ({
+      bytes: 0,
+      thumbBytes: 0,
+      previewBytes: 0,
+      limitBytes: 20 * 1024 ** 3,
+    }),
+    'cache:setLimit': async (...args) => ({
+      bytes: 0,
+      thumbBytes: 0,
+      previewBytes: 0,
+      limitBytes: (args[0] as { limitBytes: number }).limitBytes,
+    }),
+    'cache:clear': async () => ({
+      bytes: 0,
+      thumbBytes: 0,
+      previewBytes: 0,
+      limitBytes: 20 * 1024 ** 3,
+    }),
     'photos:deleteVersion': async (...args) => {
       const { photoId, versionId } = args[0] as { photoId: PhotoId; versionId: VersionId };
       const photo = findPhoto(photoId);

@@ -13,6 +13,7 @@ import { ee } from '../ee';
 import type { DialogTab } from '../store';
 import { useAppState, useAppStore } from '../store-context';
 import { useCredentialPresence } from '../use-credential-presence';
+import { CacheSettings } from './CacheSettings';
 import { FolderIcon, PlusIcon, ServerIcon } from './icons';
 import { MetadataSettings } from './MetadataSettings';
 import { Modal } from './Modal';
@@ -1081,6 +1082,7 @@ export function SettingsDialog() {
     { id: 'metadata', label: 'Metadata' },
     { id: 'profiles', label: 'Profiles' },
     { id: 'presets', label: 'Presets' },
+    { id: 'cache', label: 'Cache' },
     { id: 'settingsFolder', label: 'Settings folder' },
   ];
 
@@ -1116,6 +1118,7 @@ export function SettingsDialog() {
         {tab === 'metadata' && <MetadataSettings />}
         {tab === 'profiles' && <ProfilesSettings />}
         {tab === 'presets' && <PresetsSettings />}
+        {tab === 'cache' && <CacheSettings />}
         {tab === 'settingsFolder' && <SettingsFolderSettings />}
       </div>
     </Modal>

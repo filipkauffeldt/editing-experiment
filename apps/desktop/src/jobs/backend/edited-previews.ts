@@ -114,8 +114,8 @@ export class EditedPreviews {
    * would sit next to a canvas drawn with the new values.
    */
   async invalidateOutdatedDefaults(): Promise<void> {
-    for (const photo of this.photos.list()) {
-      if (!photo.status.edited || !isRawPath(photo.path)) continue;
+    for (const photo of this.photos.listEdited()) {
+      if (!isRawPath(photo.path)) continue;
       const meta = await this.cache.readEditedMeta(photo.id);
       if (meta === undefined || hasCurrentDefaults(meta)) continue;
       await this.cache.removeEdited(photo.id);

@@ -29,7 +29,7 @@ import type {
 } from './ids';
 import type { IptcFields } from './iptc';
 import type { FolderImportInfo, JobEvent, IngestJobInfo } from './jobs';
-import type { Photo, PhotoVersion } from './photo';
+import type { LibraryOverview, Photo, PhotoVersion } from './photo';
 import type { PhotoProfiles, ProfileIndex, ProfileRequest, ProfileResolution } from './profile';
 import type { Rect } from './geometry';
 import type { FaceDetection, RetouchOp } from './retouch';
@@ -69,6 +69,69 @@ export interface SystemInfo {
 export interface ListPhotosArgs {
   /** Only photos from this source. */
   sourceId?: SourceId;
+  /** Only photos directly in this folder. */
+  folder?: string;
+  /** Skip this many rows, after sorting by the index order. */
+  offset?: number;
+  /** Return at most this many rows. */
+  limit?: number;
+}
+
+/** The filter a `photos:query` applies in the jobs process. */
+export interface PhotoQueryFilter {
+  tag?: 'all' | 'tagged' | 'untagged';
+  /** 0 or absent is off, otherwise this many stars and up. */
+  minRating?: number;
+  colorClasses?: number[];
+  statuses?: ('not-sent' | 'failed' | 'edited' | 'metadata-differs')[];
+  camera?: string;
+  sourceId?: SourceId;
+  /** Free text search over file name, caption and keywords. */
+  search?: string;
+}
+
+/** Arguments of `photos:query`, the paged list Develop shows. */
+export interface QueryPhotosArgs {
+  /** Only photos directly in this folder; absent means the whole Library. */
+  folder?: string;
+  filter?: PhotoQueryFilter;
+  sort?: 'filename' | 'capture-time';
+  /** Return this photo and the photos around it when the page does not contain it. */
+  anchorId?: PhotoId;
+  offset?: number;
+  limit?: number;
+  /** With no anchor, take the last page of the order (the newest capture times). */
+  fromEnd?: boolean;
+}
+
+/** Result of `photos:query`: the page and how many photos the scope and filter hold. */
+export interface QueryPhotosResult {
+  photos: Photo[];
+  /** Photos matching the filter in the scope. */
+  total: number;
+  /** Photos in the scope before the filter. */
+  scopeTotal: number;
+  /** Position of the first returned photo in the filtered order. */
+  offset: number;
+}
+
+/** A camera in the filter menu, with how many photos in the scope it holds. */
+export interface PhotoFacetCamera {
+  key: string;
+  label: string;
+  count: number;
+}
+
+/** What the filter bar's options would show, calculated by the index for the current scope. */
+export interface PhotoFacets {
+  /** Photos the filter shows now. */
+  shown: number;
+  /** Photos in the scope before the filter. */
+  scopeTotal: number;
+  tag: Record<'all' | 'tagged' | 'untagged', number>;
+  status: Record<'not-sent' | 'failed' | 'edited' | 'metadata-differs', number>;
+  /** Cameras in the scope with the rest of the filter applied (the camera choice itself left out). */
+  cameras: PhotoFacetCamera[];
 }
 
 /** Arguments of `photos:search`. */
@@ -205,6 +268,11 @@ export interface DeleteVersionArgs {
 /** Arguments of `photos:setLabels`. Omitted fields are left unchanged. */
 export interface SetPhotoLabelsArgs {
   photoIds: PhotoId[];
+  /**
+   * Photo Mechanic's toggle: untag all of them when every one is tagged, tag all otherwise.
+   * Decided by the backend so a selection larger than the loaded page is still correct.
+   */
+  toggleTagged?: boolean;
   /** Photo Mechanic tag flag. */
   tagged?: boolean;
   /** Colour class: 0 = none, 1..8. */
@@ -226,6 +294,17 @@ export interface RemoveFromLibraryArgs {
 /** Arguments of `photos:removeFolder`. An absolute folder path as the sidebar shows it. */
 export interface RemoveFolderArgs {
   path: string;
+  /** Also remove the photos in its subfolders. */
+  subfolders?: boolean;
+}
+
+/** How much disk the thumbnail and preview caches hold. */
+export interface CacheStats {
+  bytes: number;
+  thumbBytes: number;
+  previewBytes: number;
+  /** The shared limit for both caches together. */
+  limitBytes: number;
 }
 
 /**
@@ -365,6 +444,11 @@ export interface AppSettings {
    * moves on to the next photo. Absent means off.
    */
   autoAdvance?: boolean;
+  /**
+   * Shared size limit in bytes for `cache/thumb` and `cache/preview` together. This belongs to
+   * one computer and lives in `machine.json`; absent uses the 20 GB default.
+   */
+  cacheLimitBytes?: number;
 }
 
 /** Arguments of `dialog:pick`. */
@@ -423,6 +507,14 @@ export interface IpcApi {
 
   // --- photos (the index) ---
   'photos:list': (args?: ListPhotosArgs) => Promise<Photo[]>;
+  /** The folder tree with counts for the whole index; the photos are loaded per folder. */
+  'photos:folders': () => Promise<LibraryOverview>;
+  /** A filtered, sorted page of photos, answered by the index in the jobs process. */
+  'photos:query': (args: QueryPhotosArgs) => Promise<QueryPhotosResult>;
+  /** Counts and the camera menu for the filter bar, from the index's grouped query. */
+  'photos:facets': (
+    args: Omit<QueryPhotosArgs, 'anchorId' | 'offset' | 'limit' | 'fromEnd'>,
+  ) => Promise<PhotoFacets>;
   'photos:get': (args: { photoId: PhotoId }) => Promise<Photo>;
   /** Find photos by file name, caption and keywords, across the whole Library. */
   'photos:search': (args: SearchPhotosArgs) => Promise<SearchPhotosResult>;
@@ -604,6 +696,13 @@ export interface IpcApi {
   'upload:retry': (args: { uploadId: UploadId }) => Promise<void>;
   'upload:cancel': (args: { uploadId: UploadId }) => Promise<void>;
 
+  // --- the disposable thumbnail and preview cache ---
+  'cache:stats': () => Promise<CacheStats>;
+  /** Set the shared limit for `cache/thumb` and `cache/preview`, then evict down to it. */
+  'cache:setLimit': (args: { limitBytes: number }) => Promise<CacheStats>;
+  /** Delete every cached thumbnail and preview. They are made again on demand. */
+  'cache:clear': () => Promise<CacheStats>;
+
   // --- settings & dialogs (served by the main process) ---
   'settings:get': () => Promise<AppSettings>;
   /** Shallow-merges the given top-level keys; returns the result. */
@@ -629,6 +728,8 @@ export interface IpcEvents {
    * removed.
    */
   'photos:removed': { photoId: PhotoId };
+  /** Many photos left the Library in one operation (Remove folder from Library). */
+  'photos:removedMany': { photoIds: PhotoId[] };
   'jobs:event': JobEvent;
 }
 
@@ -641,6 +742,9 @@ export const INVOKE_CHANNELS = [
   'system:ping',
   'system:info',
   'photos:list',
+  'photos:folders',
+  'photos:query',
+  'photos:facets',
   'photos:get',
   'photos:search',
   'photos:createVersion',
@@ -701,6 +805,9 @@ export const INVOKE_CHANNELS = [
   'upload:list',
   'upload:retry',
   'upload:cancel',
+  'cache:stats',
+  'cache:setLimit',
+  'cache:clear',
   'settings:get',
   'settings:set',
   'settings:folder',
@@ -715,6 +822,7 @@ export const EVENT_CHANNELS = [
   'photos:added',
   'photos:updated',
   'photos:removed',
+  'photos:removedMany',
   'jobs:event',
 ] as const satisfies readonly (keyof IpcEvents)[];
 

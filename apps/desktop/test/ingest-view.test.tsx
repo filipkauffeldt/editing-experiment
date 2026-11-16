@@ -102,6 +102,7 @@ describe('Ingest view layout', () => {
       'Metadata',
       'Profiles',
       'Presets',
+      'Cache',
       'Settings folder',
     ]);
   });

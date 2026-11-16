@@ -50,6 +50,7 @@ describe('channel registry', () => {
       | 'export'
       | 'exportPresets'
       | 'upload'
+      | 'cache'
       | 'settings'
       | 'dialog'
     >();

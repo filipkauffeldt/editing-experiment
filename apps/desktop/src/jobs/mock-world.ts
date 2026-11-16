@@ -619,6 +619,24 @@ export function createMockHandlers(world: MockWorld, emit: Emit): Partial<IpcHan
     'export:render': async () => {},
     'export:rendererReady': async () => {},
     'upload:list': async () => world.uploads,
+    'cache:stats': async () => ({
+      bytes: 0,
+      thumbBytes: 0,
+      previewBytes: 0,
+      limitBytes: 20 * 1024 ** 3,
+    }),
+    'cache:setLimit': async ({ limitBytes }) => ({
+      bytes: 0,
+      thumbBytes: 0,
+      previewBytes: 0,
+      limitBytes,
+    }),
+    'cache:clear': async () => ({
+      bytes: 0,
+      thumbBytes: 0,
+      previewBytes: 0,
+      limitBytes: 20 * 1024 ** 3,
+    }),
     'upload:retry': async ({ uploadId }) => {
       const item = world.uploads.find((candidate) => candidate.id === uploadId);
       if (!item) return;
@@ -631,7 +649,17 @@ export function createMockHandlers(world: MockWorld, emit: Emit): Partial<IpcHan
       updateUpload(world, emit, item, 'cancelled');
     },
 
-    'photos:setLabels': async ({ photoIds, tagged, colorClass, rating }) => {
+    'photos:setLabels': async ({
+      photoIds,
+      tagged: explicitTagged,
+      toggleTagged,
+      colorClass,
+      rating,
+    }) => {
+      const tagged =
+        toggleTagged === true
+          ? !photoIds.every((photoId) => findPhoto(photoId).tagged)
+          : explicitTagged;
       const updated: Photo[] = [];
       for (const photoId of photoIds) {
         const photo = findPhoto(photoId);

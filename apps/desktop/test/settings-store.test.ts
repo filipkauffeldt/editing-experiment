@@ -348,6 +348,22 @@ describe('SettingsStore panel widths', () => {
   });
 });
 
+describe('SettingsStore cache limit', () => {
+  it('keeps the one cache number on this computer, not in the synced settings', async () => {
+    const dir = await tempDir();
+    const file = join(dir, 'settings.json');
+    const store = new SettingsStore(file, defaults);
+    store.set({ cacheLimitBytes: 5 * 1024 ** 3 });
+    expect(store.get().cacheLimitBytes).toBe(5 * 1024 ** 3);
+    const machine = await readFile(join(dir, 'machine.json'), 'utf8');
+    expect(machine).toContain('cacheLimitBytes');
+    expect(await readFile(file, 'utf8').catch(() => '')).not.toContain('cacheLimitBytes');
+    expect(new SettingsStore(file, defaults).get().cacheLimitBytes).toBe(5 * 1024 ** 3);
+    expect(() => store.set({ cacheLimitBytes: -1 })).toThrow(/cacheLimitBytes/);
+    expect(() => store.set({ cacheLimitBytes: 1.5 })).toThrow(/cacheLimitBytes/);
+  });
+});
+
 describe('SettingsStore file naming', () => {
   it('defaults to rename for a fresh install', () => {
     const store = new SettingsStore(undefined, defaults);

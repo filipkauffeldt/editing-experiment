@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { baseName, libraryFolders, type LibraryFolder } from '../library';
+import { baseName, libraryFolders, libraryFoldersFromInfos, type LibraryFolder } from '../library';
 import { useAppState, useAppStore } from '../store-context';
 import { Button } from './ui/Button';
 import styles from './LibrarySidebar.module.css';
@@ -21,8 +21,11 @@ export function LibrarySidebar({ className }: { className?: string }) {
   const state = useAppState();
   const { library, addedFolders, folderImports } = state;
   const folders = useMemo(
-    () => libraryFolders(state.photos, addedFolders),
-    [state.photos, addedFolders],
+    () =>
+      state.folders.length > 0
+        ? libraryFoldersFromInfos(state.folders)
+        : libraryFolders(state.photos, addedFolders),
+    [state.folders, state.photos, addedFolders],
   );
   const everything = library.folder === undefined;
   const [menu, setMenu] = useState<FolderMenuState>();
@@ -77,7 +80,9 @@ export function LibrarySidebar({ className }: { className?: string }) {
             onClick={() => store.setLibraryFolder(undefined)}
           >
             <span className={styles.name}>All photos</span>
-            <span className={`${styles.count} mono`}>{state.photos.length}</span>
+            <span className={`${styles.count} mono`}>
+              {state.totalPhotos || state.photos.length}
+            </span>
           </button>
         </li>
         {folders.map((folder) => (

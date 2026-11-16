@@ -10,6 +10,7 @@ import {
 import {
   decodeJpeg,
   decodeLinear,
+  extractPreview,
   resizeRgba,
   type DecodeLinearOptions,
   type LinearImage,
@@ -17,7 +18,7 @@ import {
 import { isRawPath } from '@ee/metadata';
 import { randomUUID } from 'node:crypto';
 import { mkdir, readFile, rename, rm, stat, writeFile } from 'node:fs/promises';
-import { dirname, join } from 'node:path';
+import { dirname, extname, join } from 'node:path';
 import type { AppBackendResponse } from '../../shared/jobs-protocol';
 import { retouchKey } from './edited-previews';
 import { FullImageCache, NoFullImageError } from './full-images';
@@ -32,6 +33,8 @@ const text = (status: number, body: string): AppBackendResponse => ({
 
 /** Most decodes waiting ahead of time: the next photo and the previous one. */
 const WARM_PENDING = 2;
+
+const JPEG_EXTENSIONS = new Set(['.jpg', '.jpeg', '.jpe']);
 
 interface WarmRequest {
   key: string;
@@ -58,6 +61,8 @@ export interface AppResourcesOptions {
   linearDir: string;
   /** Directory for the camera's full-size JPEGs; defaults to `full` next to `linearDir`. */
   fullDir?: string;
+  /** Size-bounded thumbnail and preview store; misses are regenerated from the photo. */
+  cache?: { touch(file: string): void };
   /** Most decoded images kept. Default 6: the open photo's two sizes and its neighbours'. */
   maxEntries?: number;
   /** Most bytes of decoded images kept. Default 1.5 GiB. */
@@ -91,6 +96,8 @@ export class AppResources {
   /** In-flight decodes of a deleted photo: their result is thrown away when they finish. */
   private readonly discarded = new Set<string>();
   private readonly lensShots = new Map<string, Promise<LensShotInfo | undefined>>();
+  /** One generation per photo and kind, so a scroll does not decode the same photo repeatedly. */
+  private readonly regenerating = new Map<string, Promise<boolean>>();
   private readonly maxEntries: number;
   private readonly maxBytes: number;
   private readonly decode: NonNullable<AppResourcesOptions['decode']>;
@@ -185,23 +192,94 @@ export class AppResources {
       served = { file: previews.pathFor(kind, photoId), placeholder: false };
     }
     try {
-      const { size } = await stat(served.file);
-      return {
-        status: 200,
-        headers: {
-          'content-type': 'image/jpeg',
-          'content-length': String(size),
-          // A placeholder stands in until the render arrives under a new `?v=`.
-          'cache-control': served.placeholder ? 'no-store' : 'private, max-age=60',
-        },
-        file: served.file,
-      };
+      return await this.serve(kind, photoId, served);
     } catch (error) {
-      if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+    }
+    // The cache was evicted (or cleared): make the requested file again from the photo on disk.
+    // A retouched photo must never show the camera's unretouched pixels, so its placeholder
+    // stays until the renderer draws the edited version, and the photo is marked stale.
+    let photo: Photo;
+    try {
+      photo = photos.get(photoId);
+    } catch (error) {
+      if (error instanceof IpcError && error.code === 'not_found') {
         return text(404, `no ${kind} for photo "${photoId}"`);
       }
       throw error;
     }
+    if (retouchKey(photo.versions) !== '') {
+      this.markStale(photo);
+      return this.serve(kind, photoId, {
+        file: await previews.placeholder(),
+        placeholder: true,
+      });
+    }
+    const made = await this.regenerate(photo, kind);
+    if (!made) return text(404, `no ${kind} for photo "${photoId}"`);
+    if (photo.status.edited) this.markStale(photo);
+    return this.serve(kind, photoId, {
+      file: previews.pathFor(kind, photoId),
+      placeholder: false,
+    });
+  }
+
+  /** Serve a cached file and note that it was used (batched by the disk cache). */
+  private async serve(
+    _kind: PreviewKind,
+    _photoId: ReturnType<typeof asPhotoId>,
+    served: ServedFile,
+  ): Promise<AppBackendResponse> {
+    const { size } = await stat(served.file);
+    this.options.cache?.touch(served.file);
+    return {
+      status: 200,
+      headers: {
+        'content-type': 'image/jpeg',
+        'content-length': String(size),
+        // A placeholder stands in until the render arrives under a new `?v=`.
+        'cache-control': served.placeholder ? 'no-store' : 'private, max-age=60',
+      },
+      file: served.file,
+    };
+  }
+
+  /** An edited photo whose cache is gone needs the renderer to draw it again. */
+  private markStale(photo: Photo): void {
+    if (photo.previewStale) return;
+    this.options.photos.update(photo.id, (current) => ({ ...current, previewStale: true }));
+  }
+
+  /** Make a camera thumbnail or preview again from the photo on disk. */
+  private regenerate(photo: Photo, kind: PreviewKind): Promise<boolean> {
+    const key = `${photo.id}|${kind}`;
+    const running = this.regenerating.get(key);
+    if (running) return running;
+    const run = (async (): Promise<boolean> => {
+      try {
+        if (isRawPath(photo.path)) {
+          const preview = await extractPreview(photo.path);
+          const source = { jpeg: preview.jpeg, orientation: preview.orientation };
+          if (kind === 'thumb') await this.options.previews.generateThumb(photo.id, source);
+          else await this.options.previews.generate(photo.id, source);
+          return true;
+        }
+        if (!JPEG_EXTENSIONS.has(extname(photo.path).toLowerCase())) return false;
+        const source = { file: photo.path };
+        if (kind === 'thumb') await this.options.previews.generateThumb(photo.id, source);
+        else await this.options.previews.generate(photo.id, source);
+        return true;
+      } catch (error) {
+        console.warn(
+          `cache: could not remake the ${kind} of ${photo.fileName}: ${error instanceof Error ? error.message : String(error)}`,
+        );
+        return false;
+      } finally {
+        this.regenerating.delete(key);
+      }
+    })();
+    this.regenerating.set(key, run);
+    return run;
   }
 
   /**

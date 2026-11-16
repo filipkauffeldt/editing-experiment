@@ -15,6 +15,7 @@ import type { IngestService } from './ingest-service';
 import type { LabelService } from './label-service';
 import type { MetadataService } from './metadata-service';
 import type { PhotoDeleter } from './photo-deleter';
+import type { DiskCache } from './disk-cache';
 import type { SearchIndex } from './search-index';
 import type { PresetLibrary } from './preset-library';
 import type { PresetStore } from './presets';
@@ -44,6 +45,7 @@ export interface HandlerDeps {
   queue: UploadQueue;
   exports: ExportQueue;
   exporter: ExportService;
+  cache: DiskCache;
 }
 
 /** One handler per channel the jobs process serves in real mode. */
@@ -59,7 +61,34 @@ export function createBackendHandlers(deps: HandlerDeps): IpcHandlers {
   return {
     ...systemHandlers({ mock: false, appVersion: deps.appVersion, emit: deps.emit }),
 
-    'photos:list': async (args) => photos.list(args?.sourceId),
+    'photos:list': async (args) =>
+      args?.folder === undefined ? photos.list(args?.sourceId) : photos.listFolder(args.folder),
+    'photos:folders': async () => photos.overview(),
+    'photos:query': async (args) => {
+      const search = args?.filter?.search?.trim() ?? '';
+      const found = search === '' ? undefined : deps.search.search(search).photoIds;
+      const result = photos.query({
+        ...(args?.folder === undefined ? {} : { folder: args.folder }),
+        ...(args?.filter === undefined ? {} : { filter: args.filter }),
+        ...(args?.sort === undefined ? {} : { sort: args.sort }),
+        ...(args?.offset === undefined ? {} : { offset: args.offset }),
+        ...(args?.limit === undefined ? {} : { limit: args.limit }),
+        ...(args?.anchorId === undefined ? {} : { anchorId: args.anchorId }),
+        ...(args?.fromEnd === true ? { fromEnd: true } : {}),
+        ...(found === undefined ? {} : { ids: new Set(found) }),
+      });
+      return result;
+    },
+    'photos:facets': async (args) => {
+      const search = args?.filter?.search?.trim() ?? '';
+      const found = search === '' ? undefined : deps.search.search(search).photoIds;
+      return photos.facets({
+        ...(args?.folder === undefined ? {} : { folder: args.folder }),
+        ...(args?.filter === undefined ? {} : { filter: args.filter }),
+        ...(args?.sort === undefined ? {} : { sort: args.sort }),
+        ...(found === undefined ? {} : { ids: new Set(found) }),
+      });
+    },
     'photos:get': async ({ photoId }) => photos.get(photoId),
     'photos:search': async ({ query }) => deps.search.search(query),
     'photos:createVersion': (args) => edits.createVersion(args),
@@ -147,6 +176,20 @@ export function createBackendHandlers(deps: HandlerDeps): IpcHandlers {
     'upload:list': async () => queue.list(),
     'upload:retry': async ({ uploadId }) => queue.retry(uploadId),
     'upload:cancel': async ({ uploadId }) => queue.cancel(uploadId),
+
+    'cache:stats': async () => deps.cache.stats(),
+    'cache:setLimit': async ({ limitBytes }) => {
+      if (!Number.isInteger(limitBytes) || limitBytes < 0) {
+        throw new IpcError('invalid_argument', 'the cache limit must be a whole number of bytes');
+      }
+      settings.set({ cacheLimitBytes: limitBytes });
+      await deps.cache.setLimit(limitBytes);
+      return deps.cache.stats();
+    },
+    'cache:clear': async () => {
+      await deps.cache.clear();
+      return deps.cache.stats();
+    },
 
     'settings:get': async () => settings.get(),
     'settings:set': async (patch) => settings.set(patch),

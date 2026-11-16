@@ -63,18 +63,30 @@ export function FolderRemoveDialog() {
     >
       <p className={styles.text} data-testid="folder-remove-message">
         {subject}{' '}
-        {request.root
+        {request.subfolders
           ? 'in this folder and its subfolders will be removed'
           : 'in this folder will be removed'}{' '}
         from the Library, with {pronoun} edits and ratings in the app. Files on disk are not
         touched.
       </p>
+      <label className={styles.checkbox}>
+        <input
+          type="checkbox"
+          checked={request.subfolders}
+          disabled={busy}
+          data-testid="folder-remove-subfolders"
+          onChange={(event) => store.setFolderRemoveSubfolders(event.target.checked)}
+        />
+        Include subfolders
+      </label>
       <p className={styles.note}>
         Nothing is deleted, moved or changed on disk, not the photos, {pronoun} XMP sidecars or the
         folder.{' '}
-        {request.root
+        {request.root && request.subfolders
           ? 'The added folder is forgotten, with any added folder below it.'
-          : 'Photos in subfolders stay in the Library; only this folder is removed.'}
+          : request.subfolders
+            ? 'Subfolders are removed too, with any added folder below this one.'
+            : 'Photos in subfolders stay in the Library; only this folder is removed.'}
       </p>
     </Modal>
   );

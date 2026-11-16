@@ -5,7 +5,7 @@ declare global {
     /** Raw IPC transport injected by the preload script. Use {@link ee} instead. */
     eeTransport: BridgeTransport;
     /** Environment flags from the preload; absent in unit tests. */
-    eeEnvironment?: { screenshots?: boolean };
+    eeEnvironment?: { screenshots?: boolean; lazyLibraryPhotos?: number };
   }
 }
 

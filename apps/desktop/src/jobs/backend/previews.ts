@@ -3,7 +3,13 @@ import { encodeJpeg } from '@ee/core';
 import { randomUUID } from 'node:crypto';
 import { access, mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { makePreviewJpegs, type PreviewJpegs, type PreviewSource } from './image-ops';
+import type { DiskCache } from './disk-cache';
+import {
+  makePreviewJpegs,
+  makeThumbnailJpeg,
+  type PreviewJpegs,
+  type PreviewSource,
+} from './image-ops';
 
 /**
  * Photo ids are UUIDs minted at ingest. Anything else (separators, `..`, absolute
@@ -58,6 +64,8 @@ export class PreviewCache {
   constructor(
     private readonly thumbDir: string,
     private readonly previewDir: string,
+    /** Optional size-bounded store in front of the same files. */
+    private readonly cache?: DiskCache,
   ) {}
 
   pathFor(kind: PreviewKind, photoId: PhotoId): string {
@@ -89,8 +97,22 @@ export class PreviewCache {
       mkdir(this.previewDir, { recursive: true }),
     ]);
     const { preview, thumb } = await makePreviewJpegs(source);
-    await writeAtomic(this.pathFor('preview', photoId), preview);
-    await writeAtomic(this.pathFor('thumb', photoId), thumb);
+    const previewFile = this.pathFor('preview', photoId);
+    const thumbFile = this.pathFor('thumb', photoId);
+    await writeAtomic(previewFile, preview);
+    await writeAtomic(thumbFile, thumb);
+    await Promise.all([
+      this.cache?.added(previewFile, 'preview'),
+      this.cache?.added(thumbFile, 'thumb'),
+    ]);
+  }
+
+  /** Only the thumbnail, for an evicted file in the grid. */
+  async generateThumb(photoId: PhotoId, source: PreviewSource): Promise<void> {
+    await mkdir(this.thumbDir, { recursive: true });
+    const file = this.pathFor('thumb', photoId);
+    await writeAtomic(file, await makeThumbnailJpeg(source));
+    await this.cache?.added(file, 'thumb');
   }
 
   /** Store the edited JPEGs. The original embedded previews stay untouched. */
@@ -108,9 +130,15 @@ export class PreviewCache {
       defaultsVersion: EDITED_PREVIEW_DEFAULTS_VERSION,
     };
     // The meta goes last: on a first write the files are not served until it exists.
-    await writeAtomic(this.editedPath('preview', photoId), preview);
-    await writeAtomic(this.editedPath('thumb', photoId), thumb);
+    const previewFile = this.editedPath('preview', photoId);
+    const thumbFile = this.editedPath('thumb', photoId);
+    await writeAtomic(previewFile, preview);
+    await writeAtomic(thumbFile, thumb);
     await writeAtomic(this.metaPath(photoId), Buffer.from(JSON.stringify(stored)));
+    await Promise.all([
+      this.cache?.added(previewFile, 'preview'),
+      this.cache?.added(thumbFile, 'thumb'),
+    ]);
   }
 
   async readEditedMeta(photoId: PhotoId): Promise<EditedPreviewMeta | undefined> {
@@ -140,20 +168,21 @@ export class PreviewCache {
 
   /** Drop the edited JPEGs so the original embedded previews are served again. */
   async removeEdited(photoId: PhotoId): Promise<void> {
-    await rm(this.metaPath(photoId), { force: true });
-    await Promise.all([
-      rm(this.editedPath('thumb', photoId), { force: true }),
-      rm(this.editedPath('preview', photoId), { force: true }),
-    ]);
+    const files = [
+      this.metaPath(photoId),
+      this.editedPath('thumb', photoId),
+      this.editedPath('preview', photoId),
+    ];
+    await Promise.all(files.map((file) => rm(file, { force: true })));
+    await Promise.all(files.map((file) => this.cache?.removed(file)));
   }
 
   /** Drop every cached JPEG of a photo: camera previews, edited ones and the marker. */
   async removeAll(photoId: PhotoId): Promise<void> {
     await this.removeEdited(photoId);
-    await Promise.all([
-      rm(this.pathFor('thumb', photoId), { force: true }),
-      rm(this.pathFor('preview', photoId), { force: true }),
-    ]);
+    const files = [this.pathFor('thumb', photoId), this.pathFor('preview', photoId)];
+    await Promise.all(files.map((file) => rm(file, { force: true })));
+    await Promise.all(files.map((file) => this.cache?.removed(file)));
   }
 
   /**
@@ -182,6 +211,11 @@ export class PreviewCache {
     }
     if (retouchKey !== '') return { file: await this.placeholderFile(), placeholder: true };
     return { file: this.pathFor(kind, photoId), placeholder: false };
+  }
+
+  /** The grey stand-in a retouched photo shows until its edited render exists. */
+  async placeholder(): Promise<string> {
+    return this.placeholderFile();
   }
 
   private async placeholderFile(): Promise<string> {

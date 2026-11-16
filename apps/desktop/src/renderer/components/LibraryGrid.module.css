@@ -14,6 +14,7 @@
 
 .cell {
   position: absolute;
+  contain: layout paint style;
 }
 
 .thumb {

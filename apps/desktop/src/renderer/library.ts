@@ -1,4 +1,4 @@
-import type { IptcFields, Photo } from '@ee/contracts';
+import type { IptcFields, LibraryFolderInfo, Photo } from '@ee/contracts';
 
 export const THUMB_SIZE_RANGE = { min: 96, max: 280, default: 160 } as const;
 
@@ -84,6 +84,24 @@ export function libraryFolders(
     [...folders.values()].sort((left, right) =>
       left.path.localeCompare(right.path, undefined, { numeric: true }),
     ),
+  );
+}
+
+/**
+ * The sidebar from the index's folder tree. The counts come from the jobs process, so a large
+ * index never puts every photo in the renderer just to count a folder.
+ */
+export function libraryFoldersFromInfos(folders: readonly LibraryFolderInfo[]): LibraryFolder[] {
+  return disambiguateNames(
+    folders
+      .filter((folder) => folder.count > 0 || folder.root === true)
+      .map((folder) => ({
+        path: folder.path,
+        name: baseName(folder.path),
+        count: folder.count,
+        ...(folder.root === true ? { root: true } : {}),
+      }))
+      .sort((left, right) => left.path.localeCompare(right.path, undefined, { numeric: true })),
   );
 }
 

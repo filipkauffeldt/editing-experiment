@@ -109,8 +109,12 @@ export function DevelopView() {
             Next &amp; send
           </Button>
         </FilterBar>
-        {photos.length === 0 && state.photos.length > 0 && isFiltering(state.filter) ? (
-          <FilterEmpty hidden={state.photos.length} />
+        {photos.length === 0 &&
+        (state.lazy ? (state.facets?.scopeTotal ?? 0) : state.photos.length) > 0 &&
+        isFiltering(state.filter) ? (
+          <FilterEmpty
+            hidden={state.lazy ? (state.facets?.scopeTotal ?? 0) : state.photos.length}
+          />
         ) : (
           <FilmStrip photos={photos} />
         )}
