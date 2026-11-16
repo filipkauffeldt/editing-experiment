@@ -145,15 +145,35 @@ export class PhotoDeleter {
       throw new IpcError('invalid_argument', 'photos:removeFolder needs an absolute folder path');
     }
     const folder = normalizeExportPath(args.path);
+    const addedRoot = this.deps.photos
+      .addedFolders()
+      .find((candidate) => normalizeExportPath(candidate) === folder);
+    const sameOrBelow = (parent: string, child: string): boolean => {
+      const path = normalizeExportPath(child);
+      return path === parent || isBelow(parent, path);
+    };
     const photoIds = this.deps.photos
       .list()
-      .filter((photo) => normalizeExportPath(dirname(photo.path)) === folder)
+      .filter((photo) =>
+        addedRoot === undefined
+          ? normalizeExportPath(dirname(photo.path)) === folder
+          : sameOrBelow(folder, photo.path),
+      )
       .map((photo) => photo.id);
     const result = await this.each('photos:removeFolder', { photoIds }, (photoId) =>
       this.removeOne(photoId),
     );
     // A folder that could not be emptied stays added, so the user can try again.
-    if (result.failed.length === 0) this.deps.photos.removeAddedFolder(args.path);
+    if (result.failed.length === 0) {
+      if (addedRoot === undefined) {
+        this.deps.photos.removeAddedFolder(args.path);
+      } else {
+        // Roots nested inside the removed one would otherwise stay behind with no way to reach them.
+        for (const candidate of this.deps.photos.addedFolders()) {
+          if (sameOrBelow(folder, candidate)) this.deps.photos.removeAddedFolder(candidate);
+        }
+      }
+    }
     return result;
   }
 

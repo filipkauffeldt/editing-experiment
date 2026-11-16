@@ -20,7 +20,10 @@ export function LibrarySidebar({ className }: { className?: string }) {
   const store = useAppStore();
   const state = useAppState();
   const { library, addedFolders, folderImports } = state;
-  const folders = useMemo(() => libraryFolders(state.photos), [state.photos]);
+  const folders = useMemo(
+    () => libraryFolders(state.photos, addedFolders),
+    [state.photos, addedFolders],
+  );
   const everything = library.folder === undefined;
   const [menu, setMenu] = useState<FolderMenuState>();
   const running = Object.values(folderImports).filter((run) => run.state === 'running');
@@ -128,7 +131,7 @@ export function LibrarySidebar({ className }: { className?: string }) {
           style={{ left: menu.x, top: menu.y }}
           onContextMenu={(event) => event.preventDefault()}
         >
-          {addedFolders.includes(menu.folder.path) && (
+          {menu.folder.root === true && (
             <button
               type="button"
               role="menuitem"
@@ -151,7 +154,12 @@ export function LibrarySidebar({ className }: { className?: string }) {
             onClick={() => {
               const folder = menu.folder;
               setMenu(undefined);
-              store.requestRemoveLibraryFolder(folder.path, folder.name, folder.count);
+              store.requestRemoveLibraryFolder(
+                folder.path,
+                folder.name,
+                folder.count,
+                folder.root === true,
+              );
             }}
           >
             Remove folder from Library…

@@ -95,6 +95,8 @@ import {
 } from './filters';
 import {
   baseName,
+  folderIsAtOrBelow,
+  folderOf,
   initialLibrary,
   inLibraryFolder,
   mergeFieldEdits,
@@ -476,8 +478,10 @@ export interface DeleteRequest {
 export interface FolderRemoveRequest {
   path: string;
   name: string;
-  /** Photos in that folder when the dialog opened. */
+  /** Photos in the folder, or below it when it is an added root. */
   count: number;
+  /** An added root removes its whole tree and forgets nested roots too. */
+  root: boolean;
   busy: boolean;
 }
 
@@ -1636,9 +1640,14 @@ export class AppStore {
   };
 
   /** Right-click on a sidebar folder: ask before its photos leave the Library. */
-  readonly requestRemoveLibraryFolder = (path: string, name: string, count: number): void => {
+  readonly requestRemoveLibraryFolder = (
+    path: string,
+    name: string,
+    count: number,
+    root: boolean,
+  ): void => {
     if (this.state.folderRemove?.busy) return;
-    this.set({ folderRemove: { path, name, count, busy: false } });
+    this.set({ folderRemove: { path, name, count, root, busy: false } });
   };
 
   readonly cancelRemoveLibraryFolder = (): void => {
@@ -1655,7 +1664,11 @@ export class AppStore {
     const request = this.state.folderRemove;
     if (!request || request.busy) return;
     const photoIds = this.state.photos
-      .filter((photo) => inLibraryFolder(photo, { ...this.state.library, folder: request.path }))
+      .filter((photo) =>
+        request.root
+          ? folderIsAtOrBelow(request.path, folderOf(photo.path))
+          : folderOf(photo.path) === request.path,
+      )
       .map((photo) => photo.id);
     for (const id of photoIds) this.removing.add(id);
     this.set({ folderRemove: { ...request, busy: true } });

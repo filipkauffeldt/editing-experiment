@@ -28,23 +28,63 @@ export function baseName(path: string): string {
 export interface LibraryFolder {
   path: string;
   name: string;
+  /** Photos directly in the folder, or below an added root. */
   count: number;
+  /** True for a folder the user added in place; it can be rescanned and removed with its subfolders. */
+  root?: boolean;
+}
+
+/** A path key that compares the same folder regardless of separator style or a trailing slash. */
+function folderKey(path: string): string {
+  const key = path.replace(/[\\/]+/g, '/').replace(/\/+$/, '');
+  return key === '' ? '/' : key;
+}
+
+/** Whether `child` is `parent` or a folder below it; both are photo/folder paths as stored. */
+export function folderIsAtOrBelow(parent: string, child: string): boolean {
+  const parentKey = folderKey(parent);
+  const childKey = folderKey(child);
+  if (parentKey === '/') return childKey.startsWith('/');
+  return parentKey === childKey || childKey.startsWith(`${parentKey}/`);
 }
 
 /**
- * The local folders that hold photos, from the photos themselves: ingest copies and folders the
- * user added in place. Sources are not consulted.
+ * The local folders that hold photos, from the photos themselves, plus every folder the user added
+ * in place even when its photos are all in subfolders. Sources are not consulted. An added root's
+ * count is every photo below it, because removing it removes the whole tree.
  */
-export function libraryFolders(photos: readonly Photo[]): LibraryFolder[] {
+export function libraryFolders(
+  photos: readonly Photo[],
+  addedFolders: readonly string[] = [],
+): LibraryFolder[] {
   const counts = new Map<string, number>();
   for (const photo of photos) {
     const folder = folderOf(photo.path);
     counts.set(folder, (counts.get(folder) ?? 0) + 1);
   }
-  const folders = [...counts]
-    .map(([path, count]) => ({ path, name: baseName(path), count }))
-    .sort((left, right) => left.path.localeCompare(right.path, undefined, { numeric: true }));
-  return disambiguateNames(folders);
+  const folders = new Map<string, LibraryFolder>();
+  for (const [path, count] of counts) {
+    folders.set(path, { path, name: baseName(path), count });
+  }
+  const seenRoots = new Set<string>();
+  for (const root of addedFolders) {
+    const key = folderKey(root);
+    if (seenRoots.has(key)) continue;
+    seenRoots.add(key);
+    const count = photos.filter((photo) => folderIsAtOrBelow(root, folderOf(photo.path))).length;
+    const existing = folders.get(root);
+    if (existing) {
+      existing.count = count;
+      existing.root = true;
+    } else {
+      folders.set(root, { path: root, name: baseName(root), count, root: true });
+    }
+  }
+  return disambiguateNames(
+    [...folders.values()].sort((left, right) =>
+      left.path.localeCompare(right.path, undefined, { numeric: true }),
+    ),
+  );
 }
 
 /**

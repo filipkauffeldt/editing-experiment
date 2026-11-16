@@ -62,13 +62,19 @@ export function FolderRemoveDialog() {
       }
     >
       <p className={styles.text} data-testid="folder-remove-message">
-        {subject} in this folder will be removed from the Library, with {pronoun} edits and ratings
-        in the app. Files on disk are not touched.
+        {subject}{' '}
+        {request.root
+          ? 'in this folder and its subfolders will be removed'
+          : 'in this folder will be removed'}{' '}
+        from the Library, with {pronoun} edits and ratings in the app. Files on disk are not
+        touched.
       </p>
       <p className={styles.note}>
         Nothing is deleted, moved or changed on disk, not the photos, {pronoun} XMP sidecars or the
-        folder. Photos in subfolders stay in the Library. The folder is forgotten, so Rescan folder
-        no longer offers it.
+        folder.{' '}
+        {request.root
+          ? 'The added folder is forgotten, with any added folder below it.'
+          : 'Photos in subfolders stay in the Library; only this folder is removed.'}
       </p>
     </Modal>
   );
