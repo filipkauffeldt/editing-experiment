@@ -67,6 +67,7 @@ import {
   type SettingsFolderChoice,
   type SettingsFolderInfo,
   type Shape,
+  type ShiftCaptureTimeResult,
   type SliderParam,
   type SourceConfig,
   type SourceId,
@@ -457,6 +458,8 @@ export interface AppState {
   batchCaptionFocusKeywords?: boolean;
   /** The open "Delete photos" / "Remove from Library" confirmation; absent when closed. */
   deleteRequest?: DeleteRequest;
+  /** The open "Shift capture time" dialog; absent when closed. */
+  captureTimeShift?: CaptureTimeShiftRequest;
   /** The photo context menu (right-click), at a window position; absent when closed. */
   photoMenu?: { x: number; y: number };
   loading: boolean;
@@ -482,6 +485,12 @@ export interface FolderRemoveRequest {
   count: number;
   /** An added root removes its whole tree and forgets nested roots too. */
   root: boolean;
+  busy: boolean;
+}
+
+/** Photos the "Shift capture time" dialog will move, and whether the backend is working. */
+export interface CaptureTimeShiftRequest {
+  photoIds: PhotoId[];
   busy: boolean;
 }
 
@@ -4674,6 +4683,75 @@ export class AppStore {
 
   /** Ask before dropping the same photos from the Library, leaving their files alone. */
   readonly requestRemoveFromLibrary = (): void => this.requestDelete('library');
+
+  /** Open the capture time offset dialog for the same photos Delete acts on. */
+  readonly requestShiftCaptureTime = (): void => {
+    const allowed = this.canDelete();
+    const photoIds = allowed ? this.deleteTargets() : [];
+    this.set({
+      photoMenu: undefined,
+      ...(photoIds.length > 0
+        ? { captureTimeShift: { photoIds, busy: false } satisfies CaptureTimeShiftRequest }
+        : {}),
+    });
+  };
+
+  readonly cancelCaptureTimeShift = (): void => {
+    const request = this.state.captureTimeShift;
+    // A shift already handed to the backend cannot be called back; the dialog waits for it.
+    if (request && !request.busy) this.set({ captureTimeShift: undefined });
+  };
+
+  /**
+   * Shift every photo in the dialog by `offsetSeconds` from its own time. Photos without a
+   * clock time and failures are reported, and the others are still written.
+   */
+  readonly confirmCaptureTimeShift = async (offsetSeconds: number): Promise<void> => {
+    const request = this.state.captureTimeShift;
+    if (!request || request.busy) return;
+    this.set({ captureTimeShift: { ...request, busy: true } });
+    let result: ShiftCaptureTimeResult;
+    try {
+      result = await this.bridge.invoke('photos:shiftCaptureTime', {
+        photoIds: request.photoIds,
+        offsetSeconds,
+      });
+    } catch (cause) {
+      this.set({ captureTimeShift: { ...request, busy: false } });
+      this.toast('error', `Could not shift the capture time: ${messageOf(cause)}`);
+      return;
+    }
+
+    const metadata = { ...this.state.metadata };
+    for (const { photo, dateCreated } of result.updated) {
+      this.upsertPhoto(photo);
+      const fields = metadata[photo.id];
+      if (fields) metadata[photo.id] = { ...fields, dateCreated };
+    }
+    this.set({ captureTimeShift: undefined, metadata });
+
+    const shifted = result.updated.length;
+    const noTime = result.noCaptureTime.length;
+    if (shifted > 0) {
+      this.toast(
+        'success',
+        `Shifted the capture time of ${shifted} photo${shifted === 1 ? '' : 's'}` +
+          (noTime > 0 ? ` · ${noTime} photo${noTime === 1 ? '' : 's'} had no capture time` : ''),
+      );
+    } else if (noTime > 0) {
+      this.toast(
+        'info',
+        `${noTime} photo${noTime === 1 ? '' : 's'} had no capture time; nothing changed`,
+      );
+    }
+    if (result.failed.length > 0) {
+      const messages = result.failed.map((failure) => failure.message).join('; ');
+      this.toast(
+        'error',
+        `${result.failed.length} photo${result.failed.length === 1 ? '' : 's'} could not be shifted: ${messages}`,
+      );
+    }
+  };
 
   readonly cancelDelete = (): void => {
     const request = this.state.deleteRequest;

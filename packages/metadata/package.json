@@ -8,7 +8,8 @@
   "exports": {
     ".": "./src/index.ts",
     "./code-replacement-tokens": "./src/code-replacement-tokens.ts",
-    "./variables": "./src/variables.ts"
+    "./variables": "./src/variables.ts",
+    "./capture-time-value": "./src/capture-time-value.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit",

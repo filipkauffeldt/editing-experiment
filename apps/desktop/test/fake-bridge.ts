@@ -19,6 +19,7 @@ import {
   type VersionId,
 } from '@ee/contracts';
 import { matchesSearch, searchTerms, searchTextOf } from '@ee/metadata';
+import { formatCaptureDateTime, parseCaptureDateTime, shiftCaptureDateTime } from '@ee/metadata';
 import {
   expandMockCaption,
   mockCodeReplacementFiles,
@@ -183,6 +184,28 @@ export function createFakeBridge(
     'photos:delete': async (...args) => dropPhotos((args[0] as { photoIds: PhotoId[] }).photoIds),
     'photos:removeFromLibrary': async (...args) =>
       dropPhotos((args[0] as { photoIds: PhotoId[] }).photoIds),
+    'photos:shiftCaptureTime': async (...args) => {
+      const { photoIds, offsetSeconds } = args[0] as {
+        photoIds: PhotoId[];
+        offsetSeconds: number;
+      };
+      const updated: { photo: Photo; dateCreated: string }[] = [];
+      const noCaptureTime: PhotoId[] = [];
+      for (const photoId of new Set(photoIds)) {
+        const photo = findPhoto(photoId);
+        const parts = photo.captureTime ? parseCaptureDateTime(photo.captureTime) : undefined;
+        if (parts === undefined) {
+          noCaptureTime.push(photoId);
+          continue;
+        }
+        const shifted = formatCaptureDateTime(shiftCaptureDateTime(parts, offsetSeconds));
+        photo.captureTime = shifted;
+        metadata.set(photoId, { ...(metadata.get(photoId) ?? {}), dateCreated: shifted });
+        emit('photos:updated', photo);
+        updated.push({ photo, dateCreated: shifted });
+      }
+      return { updated, noCaptureTime, failed: [] };
+    },
     'photos:deleteVersion': async (...args) => {
       const { photoId, versionId } = args[0] as { photoId: PhotoId; versionId: VersionId };
       const photo = findPhoto(photoId);

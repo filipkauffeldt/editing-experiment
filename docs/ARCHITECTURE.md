@@ -18,7 +18,7 @@ The proof of concept covers one end-to-end workflow:
    watching for new files while its run goes. XMP sidecars are written and thumbnails appear
    live in the film strip.
 2. **Library.** A virtualised grid and loupe, multi-selection, the shared filter bar,
-   ratings, colour classes, tagging and batch captioning.
+   ratings, colour classes, tagging, batch captioning and a capture time shift.
 3. **Develop.** A `crs:` parameter set that follows Lightroom's names, develop presets from Lightroom
    and Camera Raw's preset folders or imported,
    camera profiles, lens corrections, crop/straighten, copy/paste/sync of settings, per-photo undo
@@ -115,6 +115,8 @@ settings.json.pre-settings-folder   the old one-file settings, kept after the fi
   camera data, caches a 2560px preview and a 320px thumbnail, applies the PM template (replace
   existing values by default, or fill empty fields) and the configured develop preset, indexes the
   photo and emits `photos:added`. Ingest awaits the hook per source, so photos appear in copy order.
+  A raw that arrives with an XMP sidecar takes its capture time from the sidecar, so a time
+  shifted before ingest survives.
   A preset is merged over the file's current `crs:` settings, so a photo that arrived with its own
   develop settings (e.g. an existing Lightroom sidecar) keeps them; a missing preset (see "Develop
   presets") is skipped with one warning per job, and never fails the copy. Applying a preset marks the photo edited and `previewStale`, so the
@@ -492,6 +494,10 @@ Key types (names are binding, fields can grow):
   filesImported, filesSkipped, currentFile?, error? }`, sent as `library.progress` and
   `library.state`; `photos:addFolder`, `photos:rescanFolder`, `photos:stopFolderImport`,
   `photos:removeFolder` and `photos:listAddedFolders` are the added-folder channels.
+- `photos:shiftCaptureTime { photoIds, offsetSeconds }` moves each photo from its own
+  capture time and returns the updated photos with the new IPTC creation date, the ids
+  left alone without a clock time, and per-photo failures. `offsetSeconds` is a signed
+  whole number.
 - `ExportPreset { id, name, folderTemplate, fileNaming, fileNameTemplate, ifExists, format,
   quality, colorSpace, resize, outputSharpening, metadata, stripGps, version, sendTo }`;
   `fileNaming` is `keep` (the photo's current base name plus `.jpg`) or `rename`
@@ -532,6 +538,16 @@ LibRaw) only; TIFF, PNG, HEIF and WebP are ingested but have no decoded preview.
 
 ## Metadata conventions
 
+- Capture time shift (the photo menu's **Shift capture time…**): each selected photo moves
+  from its own time by whole seconds. A raw is never written. Its `exif:DateTimeOriginal`,
+  `xmp:CreateDate` and `photoshop:DateCreated` go into the XMP sidecar, which wins over the
+  raw's EXIF from then on and is what a rebuilt index reads. A JPEG/TIFF gets EXIF
+  `DateTimeOriginal` and `CreateDate`, the same three XMP properties and IIM
+  `DateCreated`/`TimeCreated`. Its sub-second and offset tags stay and its modified time is
+  put back after the write. The index's `captureTime` is updated and emitted as
+  `photos:updated`, so sorting, the film strip, Next & send, `{date}`/`{time}` variables,
+  the Metadata panel's IPTC date and exports follow at once. Photos without a clock time
+  are left alone and reported. One failure does not stop the rest.
 - Raws: metadata in `<basename>.xmp` sidecar (Lightroom/Photo Mechanic
   compatible naming). JPEGs: embedded (IIM + XMP, kept in sync, UTF-8).
 - Tag and colour class use Photo Mechanic's XMP namespace
@@ -1069,8 +1085,9 @@ copy camera EXIF and GPS from the original, or only copyright; `stripGps` drops 
 location tags.
 
 `all` copies the original's `DateTimeOriginal`, `CreateDate`, their `SubSecTime*` and
-`OffsetTime*` tags, so burst order and the camera's UTC offset survive; no `ModifyDate` or XMP
-date names the export time. A tag copy that updated nothing (a source ExifTool cannot open) fails
+`OffsetTime*` tags, so burst order and the camera's UTC offset survive. The copied EXIF dates
+are then assigned the index's current `captureTime` in the same ExifTool write, so a shifted
+raw exports with its shifted time and no extra date tags are added. No `ModifyDate` or XMP date names the export time. A tag copy that updated nothing (a source ExifTool cannot open) fails
 the export instead of leaving a JPEG without them. `iptc`, `copyright` and `none` carry no camera
 EXIF, so no EXIF dates (`iptc` still writes the IPTC/XMP creation date taken from the original).
 In `all` and `iptc` the exported file's modified time is set to the photo's capture time, as the
@@ -1249,7 +1266,7 @@ Design tokens and component rules are in `docs/DESIGN.md`.
 - **Delete** (`AppState.deleteRequest`): the Delete key (and Backspace on macOS, where the "delete" key
   reports it) and a right-click menu on the grid and the film strip with Tag, a rating row and a class row
   (the same `toggleTag`, `setRating` and `setColorClass` as the keys, so they act on the whole Library
-  selection) above "Delete…" and "Remove from Library…" (the menu measures itself to stay inside the window). Both act on
+  selection) above "Shift capture time…", "Delete…" and "Remove from Library…" (the menu measures itself to stay inside the window). Both act on
   the Library's selection and on the open photo in Develop; a right-click on a photo outside the
   selection selects it first. It does nothing in a text field, behind a dialog, in Ingest or during crop
   and retouch. A dialog states the count and that the files go to the system trash; Enter confirms, Esc

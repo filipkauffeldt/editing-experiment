@@ -4,6 +4,8 @@ export * from './errors';
 export * from './exiftool';
 export * from './paths';
 export * from './values';
+export * from './capture-time-value';
+export * from './capture-time';
 export * from './iptc';
 export * from './labels';
 export * from './develop';

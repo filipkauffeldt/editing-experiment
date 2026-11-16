@@ -11,6 +11,7 @@ import { IngestView } from './components/IngestView';
 import { LibraryView } from './components/LibraryView';
 import { PhotoMenu } from './components/PhotoMenu';
 import { SettingsDialog } from './components/SettingsDialog';
+import { ShiftCaptureTimeDialog } from './components/ShiftCaptureTimeDialog';
 import { ShortcutsOverlay } from './components/ShortcutsOverlay';
 import { Toasts } from './components/Toasts';
 import { TopBar } from './components/TopBar';
@@ -42,6 +43,7 @@ function Shell() {
       {state.exportOpen && <ExportDialog />}
       {state.deleteRequest && <DeletePhotosDialog />}
       {state.folderRemove && <FolderRemoveDialog />}
+      {state.captureTimeShift && <ShiftCaptureTimeDialog />}
       <PhotoMenu />
     </div>
   );

@@ -144,10 +144,16 @@ export class ExifToolService {
   /**
    * Copy selected tags from another file without touching the destination's
    * other metadata. Used by export to carry camera EXIF/GPS into a JPEG that
-   * was encoded from pixels (the encoder itself writes no EXIF).
+   * was encoded from pixels (the encoder itself writes no EXIF). `setTags` are
+   * assigned in the same ExifTool call, so an overridden date costs no extra pass.
    */
-  async copyTags(target: string, source: string, tags: readonly string[]): Promise<void> {
-    if (tags.length === 0) return;
+  async copyTags(
+    target: string,
+    source: string,
+    tags: readonly string[],
+    setTags: Readonly<Record<string, string>> = {},
+  ): Promise<void> {
+    if (tags.length === 0 && Object.keys(setTags).length === 0) return;
     await this.#withLimit(async () => {
       const result = await this.#et.write(
         target,
@@ -158,6 +164,7 @@ export class ExifToolService {
             '-TagsFromFile',
             source,
             ...tags.map((tag) => `-${tag}`),
+            ...Object.entries(setTags).map(([tag, value]) => `-${tag}=${value}`),
           ],
         },
       );

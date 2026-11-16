@@ -23,6 +23,8 @@ import { EXPORT_MARKER_NAME, EXPORT_MARKER_TEXT } from '@ee/ingest';
 import {
   asString,
   expandVariables,
+  formatExifDateTime,
+  parseCaptureDateTime,
   readIptc,
   writeIptc,
   type ExifToolService,
@@ -350,7 +352,15 @@ export class ExportService {
     try {
       if (preset.metadata === 'all') {
         const tags = preset.stripGps ? EXIF_TAGS : [...EXIF_TAGS, ...GPS_TAGS];
-        await this.deps.exiftool.copyTags(named, sourcePath, tags);
+        // The index's time is the photo's own, which a shifted raw keeps in its sidecar while
+        // its EXIF still has the camera's. Assign it in the copy's own ExifTool call; the
+        // copied sub-second and offset tags stay untouched.
+        await this.deps.exiftool.copyTags(
+          named,
+          sourcePath,
+          tags,
+          captureDateAssignments(captureTime),
+        );
       }
       const written =
         preset.metadata === 'copyright'
@@ -474,6 +484,18 @@ function validateRendered(rendered: RenderedImage): void {
   ) {
     throw new IpcError('invalid_argument', 'rendered must be width*height*4 bytes of RGBA');
   }
+}
+
+/** The EXIF dates an `all` export writes from the index instead of the camera's. */
+function captureDateAssignments(captureTime: string | undefined): Record<string, string> {
+  if (captureTime === undefined) return {};
+  const parts = parseCaptureDateTime(captureTime);
+  if (parts === undefined) return {};
+  const exif = formatExifDateTime(parts);
+  return {
+    'EXIF:DateTimeOriginal': exif,
+    'EXIF:CreateDate': exif,
+  };
 }
 
 function contextFor(
