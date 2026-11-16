@@ -368,7 +368,7 @@ export function startIngest(config: IngestConfig, hooks: IngestHooks = {}): Inge
       }
     };
     const watchIntervalMs = hooks.watchIntervalMs ?? DEFAULT_WATCH_INTERVAL_MS;
-    /** Signatures already added to `filesTotal` in this run, so a slow file is counted once. */
+    /** Source paths already added to `filesTotal` in this run, so a slow file is counted once. */
     const counted = new Set<string>();
     let firstLook = true;
     let scanFailureReported = false;
@@ -438,9 +438,11 @@ export function startIngest(config: IngestConfig, hooks: IngestHooks = {}): Inge
           (entry) =>
             !copiedInRun.has(signatureOf(entry.file)) && !failedFiles.has(signatureOf(entry.file)),
         );
-        const newcomers = result.pending.filter((entry) => !counted.has(signatureOf(entry.file)));
+        // A file seen half written has another size and modified time on the
+        // next look; it is still one source path, so the totals count it once.
+        const newcomers = result.pending.filter((entry) => !counted.has(entry.file.path));
         for (const entry of newcomers) {
-          counted.add(signatureOf(entry.file));
+          counted.add(entry.file.path);
         }
         job.filesTotal += newcomers.length;
         if (candidates.length > 0) {
