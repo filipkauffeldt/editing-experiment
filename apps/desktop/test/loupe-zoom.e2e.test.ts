@@ -92,7 +92,13 @@ describe.skipIf(!haveDisplay).each(RATIOS)(
     const problems: string[] = [];
     /** Every `app://` response the window received, in order: what actually came from the backend. */
     const responses: string[] = [];
-    let linearBefore = 0;
+    /**
+     * Every `app://linear` request the window issued, when it was issued. A request that came
+     * from Develop or from its neighbour warm-up can answer long after it was made, so only the
+     * requests made at a given moment say what that moment asked the backend to decode.
+     */
+    const linearRequests: string[] = [];
+    let linearRequestsBefore = 0;
 
     const invoke = async <T>(channel: string, ...args: unknown[]): Promise<T> => {
       const result = await window.evaluate(
@@ -273,6 +279,9 @@ describe.skipIf(!haveDisplay).each(RATIOS)(
       window.on('response', (response) => {
         if (response.url().startsWith('app://')) responses.push(response.url());
       });
+      window.on('request', (request) => {
+        if (request.url().startsWith('app://linear/')) linearRequests.push(request.url());
+      });
 
       const config: IngestConfig = {
         sources: [{ id: asSourceId('card'), name: 'card', kind: 'folder', path: card }],
@@ -300,8 +309,10 @@ describe.skipIf(!haveDisplay).each(RATIOS)(
       await window.waitForSelector('[data-testid="loupe-stage"]');
       await waitForPhoto(photos[0]!.id);
       expect(await window.evaluate(() => globalThis.devicePixelRatio)).toBe(ratio);
-      // Whatever the app decoded before the loupe opened (the window starts in Develop).
-      linearBefore = responses.filter((url) => url.startsWith('app://linear/')).length;
+      // Whatever the app decoded before the loupe opened (the window starts in Develop) was
+      // asked for before this point. Counting requests, not responses, leaves out the decode
+      // that is still in flight and answers later without the loupe having asked for it.
+      linearRequestsBefore = linearRequests.length;
     }, 240_000);
 
     afterAll(async () => {
@@ -329,8 +340,9 @@ describe.skipIf(!haveDisplay).each(RATIOS)(
       await waitForFull();
       expect(await read('data-frame')).toBe(`${IMAGE.width}x${IMAGE.height}`);
       expect(stripeProblems(await shoot(), 1)).toEqual([]);
-      // No raw decode since the loupe opened.
-      expect(responses.filter((url) => url.startsWith('app://linear/'))).toHaveLength(linearBefore);
+      // No raw decode since the loupe opened: a decode starts only when the window asks for
+      // the linear image, and nothing has since the baseline was taken.
+      expect(linearRequests).toHaveLength(linearRequestsBefore);
       expect(responses.some((url) => url.startsWith(`app://full/${photos[0]!.id}`))).toBe(true);
     });
 
@@ -527,12 +539,18 @@ describe.skipIf(!haveDisplay).each(RATIOS)(
       const index = photos.findIndex((photo) => photo.id === current);
       const asked = (id: string) =>
         responses.some((url) => url.startsWith(`app://linear/${id}?`) && url.includes('warm=1'));
+      const requested = (id: string) =>
+        linearRequests.some(
+          (url) => url.startsWith(`app://linear/${id}?`) && url.includes('warm=1'),
+        );
       for (const next of [photos[index + 1], photos[index - 1]]) {
         if (!next) continue;
         for (let i = 0; i < 200 && !asked(next.id); i++) {
           await new Promise((resolve) => setTimeout(resolve, 100));
         }
         expect(asked(next.id), `${next.fileName} was warmed`).toBe(true);
+        // The zoom test counts requests; this proves the window's requests are seen at all.
+        expect(requested(next.id), `${next.fileName} was asked for`).toBe(true);
       }
     });
 
