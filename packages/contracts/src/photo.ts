@@ -74,6 +74,12 @@ export interface Photo {
   width?: number;
   height?: number;
   /**
+   * True for a photo in a folder the user added to the Library in place. Its `path` is the
+   * user's own file, not a copy made by ingest. Deleting it still moves the file to the trash,
+   * behind the same source checks as any other photo.
+   */
+  inPlace?: boolean;
+  /**
    * EXIF orientation (1..8) of the original pixels, once known. `crs:Crop*`
    * settings in the sidecar are stored in that pre-orientation space, while
    * `EditParams.crop` and `width`/`height` are in the oriented space; the

@@ -163,6 +163,7 @@ export function createOnFileIngested(
   return async (info: IngestedFileInfo): Promise<void> => {
     if (photos.hasPath(info.path)) return;
     const raw = isRawPath(info.path);
+    const inPlace = info.inPlace === true;
     const problem = (scope: string, error: unknown): void =>
       report({
         jobId: info.jobId,
@@ -303,15 +304,17 @@ export function createOnFileIngested(
       versions: versions ?? [{ id: developVersionId(info.photoId), kind: 'develop', ops: {} }],
       // The camera preview shows none of it; the renderer draws the edited one when first needed.
       ...(edited ? { previewStale: true } : {}),
+      ...(inPlace ? { inPlace: true } : {}),
     };
     // Reconciliation and a normal ingest can reach the same file; index it once.
     if (photos.hasPath(info.path)) return;
     try {
       // Recovered photos name themselves as their source; only a real source file is recorded.
+      // An in-place photo is in its own folder and has no separate source file.
       photos.add(
         photo,
         templatePath,
-        info.sourceId === RECOVERED_SOURCE ? undefined : info.sourcePath,
+        inPlace || info.sourceId === RECOVERED_SOURCE ? undefined : info.sourcePath,
       );
     } catch (error) {
       // The file is copied and verified but will not show up; say so, and where it is.

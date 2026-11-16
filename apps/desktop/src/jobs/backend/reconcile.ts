@@ -18,6 +18,10 @@ export const RECOVERED_SOURCE: SourceId = asSourceId('recovered');
 export interface FindUnindexedOptions {
   /** A file the app exported (`exported-files.json`); it is never a photo. */
   isExported?(path: string): boolean;
+  /** Skip this folder and everything below it; used for folders added in place. */
+  skipDirectory?(path: string): boolean;
+  /** Also apply the export-folder rule to `directory` itself. */
+  skipRoot?: boolean;
 }
 
 /**
@@ -49,6 +53,7 @@ export async function findUnindexed(
   const pending = [directory];
   while (pending.length > 0) {
     const current = pending.pop() as string;
+    if (options.skipDirectory?.(current) === true) continue;
     let entries;
     try {
       entries = await readdir(current, { withFileTypes: true });
@@ -58,7 +63,7 @@ export async function findUnindexed(
       throw error;
     }
     if (
-      current !== directory &&
+      (current !== directory || options.skipRoot === true) &&
       isExportFolder(
         basename(current),
         entries.map((entry) => entry.name),
@@ -116,6 +121,8 @@ export interface ReconcileOptions {
   excluded?: ReadonlySet<string>;
   /** Files the app exported; see {@link FindUnindexedOptions.isExported}. */
   isExported?(path: string): boolean;
+  /** Folders added to the Library in place: nothing scans them by itself. */
+  skipDirectory?(path: string): boolean;
   /** The normal per-file ingest hook: previews, template, index. */
   index: OnFileIngested;
   signal?: AbortSignal;
@@ -128,6 +135,7 @@ export async function reconcileDestination(options: ReconcileOptions): Promise<n
   let added = 0;
   for (const path of await findUnindexed(options.directory, options.known, {
     ...(options.isExported === undefined ? {} : { isExported: options.isExported }),
+    ...(options.skipDirectory === undefined ? {} : { skipDirectory: options.skipDirectory }),
   })) {
     if (options.signal?.aborted) break;
     if (options.excluded?.has(path)) continue;

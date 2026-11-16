@@ -1,8 +1,7 @@
 import { IpcError, type IpcHandlers } from '@ee/contracts';
 import { isRawPath } from '@ee/metadata';
-import { delimiter } from 'node:path';
-import { readDriveInfo } from '@ee/core';
-import { CardScanner, testSource, type GetSecret } from '@ee/ingest';
+import { testSource, type GetSecret } from '@ee/ingest';
+import type { CardScanner } from '@ee/ingest';
 import type { UploadQueue } from '@ee/export';
 import { systemHandlers } from '../handlers/system';
 import type { Emit, PhotoLibrary } from './photo-library';
@@ -11,6 +10,7 @@ import type { EditedPreviews } from './edited-previews';
 import type { ExportQueue } from './export-queue';
 import type { ExportService } from './export-service';
 import type { FaceService } from './faces';
+import type { FolderImportService } from './folder-import';
 import type { IngestService } from './ingest-service';
 import type { LabelService } from './label-service';
 import type { MetadataService } from './metadata-service';
@@ -38,20 +38,12 @@ export interface HandlerDeps {
   presetLibrary: PresetLibrary;
   profiles: ProfileLibrary;
   ingest: IngestService;
+  /** One scanner for the app's life, shared with added-folder validation. */
+  cards: CardScanner;
+  folders: FolderImportService;
   queue: UploadQueue;
   exports: ExportQueue;
   exporter: ExportService;
-}
-
-/**
- * `EE_CARD_ROOTS` replaces the folders that are scanned for cards (separated like
- * `PATH`). It exists so end-to-end tests can mount a card in a temp folder; the app
- * never sets it.
- */
-function cardScannerFromEnv(env: NodeJS.ProcessEnv): CardScanner {
-  const roots = env.EE_CARD_ROOTS?.split(delimiter).filter((root) => root !== '');
-  // The volume label of a Windows drive comes from the native core; other platforms ignore it.
-  return new CardScanner(roots && roots.length > 0 ? { mountRoots: roots } : { readDriveInfo });
 }
 
 /** One handler per channel the jobs process serves in real mode. */
@@ -64,10 +56,6 @@ export function createBackendHandlers(deps: HandlerDeps): IpcHandlers {
     throw new IpcError('internal', `${channel} is served by the main process`);
   };
 
-  // One scanner for the app's life: it remembers the cards it found and their counts, so a scan
-  // that times out on a slow reader does not forget a card.
-  const cards = cardScannerFromEnv(process.env);
-
   return {
     ...systemHandlers({ mock: false, appVersion: deps.appVersion, emit: deps.emit }),
 
@@ -79,6 +67,11 @@ export function createBackendHandlers(deps: HandlerDeps): IpcHandlers {
     'photos:setLabels': (args) => labels.setLabels(args),
     'photos:delete': (args) => deps.deleter.delete(args),
     'photos:removeFromLibrary': (args) => deps.deleter.removeFromLibrary(args),
+    'photos:addFolder': ({ path }) => deps.folders.addFolder(path),
+    'photos:rescanFolder': ({ path }) => deps.folders.rescanFolder(path),
+    'photos:stopFolderImport': async ({ jobId }) => deps.folders.stop(jobId),
+    'photos:removeFolder': (args) => deps.deleter.removeFolder(args),
+    'photos:listAddedFolders': async () => photos.addedFolders(),
     'photos:setEditedPreview': async (args) => editedPreviews.set(args),
 
     'ingest:start': ({ config }) => ingest.start(config),
@@ -92,7 +85,7 @@ export function createBackendHandlers(deps: HandlerDeps): IpcHandlers {
       settings.removeSource(sourceId);
     },
     'sources:test': ({ source }) => testSource(source, { getSecret: deps.getSecret }),
-    'sources:detectCards': (args) => cards.scan(args),
+    'sources:detectCards': (args) => deps.cards.scan(args),
 
     'destinations:list': async () => settings.listDestinations(),
     'destinations:save': async ({ destination }) => settings.saveDestination(destination),

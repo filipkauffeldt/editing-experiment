@@ -3,6 +3,7 @@ import {
   type DeletePhotosResult,
   type Photo,
   type PhotoId,
+  type RemoveFolderArgs,
   type RemoveFromLibraryArgs,
   type RemoveFromLibraryResult,
   type SourceConfig,
@@ -98,14 +99,15 @@ async function realDirectory(directory: string): Promise<string> {
  *
  * Safety (AGENTS.md: never modify or delete an original on a source):
  * - It takes photo ids and resolves the paths from the index itself.
- * - Every indexed photo was indexed as a copy under an ingest destination (by ingest, or by the
- *   startup scan of that folder), and the destination changes from job to job, so the current
- *   destination setting is not consulted. What is refused: a path inside any configured card or
- *   folder source (written path and real path, so a symlink cannot lead into one), and a photo
- *   whose path is the very file it was ingested from (the index records the source file of
- *   every ingested photo; those found by the startup scan have none and are copies by
- *   construction). The sidecar must be the photo itself or its sibling `<name>.xmp`, and
- *   nothing may be a folder.
+ * - Every indexed photo is a copy under an ingest destination (by ingest, or by the startup scan
+ *   of that folder) except a photo in a folder the user added in place. The destination changes
+ *   from job to job, so the current destination setting is not consulted. What is refused: a path
+ *   inside any configured card or folder source (written path and real path, so a symlink cannot
+ *   lead into one), and a photo whose path is the very file it was ingested from (the index
+ *   records the source file of every ingested photo; those found by the startup scan have none
+ *   and are copies by construction). An in-place photo is an original the user deliberately
+ *   opened; it has no source file recorded, and Delete is the explicit trash action. The sidecar
+ *   must be the photo itself or its sibling `<name>.xmp`, and nothing may be a folder.
  *
  * Order, per photo and under the photo's lock so no edit lands half way:
  * 1. the XMP sidecar to the trash, then the photo file. A sidecar left behind would be picked up
@@ -131,6 +133,28 @@ export class PhotoDeleter {
    */
   async removeFromLibrary(args: RemoveFromLibraryArgs): Promise<RemoveFromLibraryResult> {
     return this.each('photos:removeFromLibrary', args, (photoId) => this.removeOne(photoId));
+  }
+
+  /**
+   * Drops every photo in one sidebar folder from the Library, the same way
+   * {@link removeFromLibrary} does, and forgets the folder's added root. It never touches the
+   * disk. The folder is the exact directory the sidebar row stands for.
+   */
+  async removeFolder(args: RemoveFolderArgs): Promise<RemoveFromLibraryResult> {
+    if (typeof args?.path !== 'string' || !isAbsolute(args.path)) {
+      throw new IpcError('invalid_argument', 'photos:removeFolder needs an absolute folder path');
+    }
+    const folder = normalizeExportPath(args.path);
+    const photoIds = this.deps.photos
+      .list()
+      .filter((photo) => normalizeExportPath(dirname(photo.path)) === folder)
+      .map((photo) => photo.id);
+    const result = await this.each('photos:removeFolder', { photoIds }, (photoId) =>
+      this.removeOne(photoId),
+    );
+    // A folder that could not be emptied stays added, so the user can try again.
+    if (result.failed.length === 0) this.deps.photos.removeAddedFolder(args.path);
+    return result;
   }
 
   private async each(
@@ -270,8 +294,11 @@ export class PhotoDeleter {
       }
     };
 
-    // The original is not a copy. Recovered photos record themselves as their own source.
+    // The original is not a copy. Recovered photos record themselves as their own source. A
+    // photo added to the Library in place is an original too, but the user chose to open its
+    // folder, so deleting it is the same explicit trash action and keeps every check above.
     if (
+      photo.inPlace !== true &&
       sourcePath !== undefined &&
       photo.sourceId !== RECOVERED_SOURCE &&
       normalize(resolve(sourcePath)) === normalize(path)

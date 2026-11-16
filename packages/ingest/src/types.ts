@@ -53,6 +53,11 @@ export interface IngestedFileInfo {
   /** Absolute path of the primary copy. */
   path: string;
   fileName: string;
+  /**
+   * The file was not copied by ingest; it is the user's own file in a folder added to the
+   * Library in place. `sourcePath` names it too, but no copy exists.
+   */
+  inPlace?: boolean;
   sidecarPath?: string;
   backupPath?: string;
   backupSidecarPath?: string;
