@@ -56,6 +56,14 @@ interface LocalScan {
   warning?: string;
 }
 
+/** What a watch run has counted for one source path in `filesTotal`. */
+interface CountedFile {
+  /** The signature that gave the path its current entry in `filesTotal`. */
+  signature: string;
+  /** Whether that signature was copied, so a later one is a new file at the path. */
+  copied: boolean;
+}
+
 /**
  * How long the folder watcher waits between scans. Short enough that a photo
  * arrives while the game is still on, long enough that a scan costs little.
@@ -368,8 +376,8 @@ export function startIngest(config: IngestConfig, hooks: IngestHooks = {}): Inge
       }
     };
     const watchIntervalMs = hooks.watchIntervalMs ?? DEFAULT_WATCH_INTERVAL_MS;
-    /** Source paths already added to `filesTotal` in this run, so a slow file is counted once. */
-    const counted = new Set<string>();
+    /** Each source path's current entry in `filesTotal`, so a slow file is counted once. */
+    const counted = new Map<string, CountedFile>();
     let firstLook = true;
     let scanFailureReported = false;
 
@@ -439,12 +447,23 @@ export function startIngest(config: IngestConfig, hooks: IngestHooks = {}): Inge
             !copiedInRun.has(signatureOf(entry.file)) && !failedFiles.has(signatureOf(entry.file)),
         );
         // A file seen half written has another size and modified time on the
-        // next look; it is still one source path, so the totals count it once.
-        const newcomers = result.pending.filter((entry) => !counted.has(entry.file.path));
-        for (const entry of newcomers) {
-          counted.add(entry.file.path);
+        // next look; until a version is copied the path keeps one entry. After
+        // a copy, a new signature is a replacement at that path and counts once
+        // more, so `filesDone` never passes `filesTotal`.
+        for (const entry of result.pending) {
+          const signature = signatureOf(entry.file);
+          const countedFile = counted.get(entry.file.path);
+          if (countedFile === undefined) {
+            counted.set(entry.file.path, { signature, copied: false });
+            job.filesTotal += 1;
+          } else if (countedFile.signature !== signature) {
+            if (countedFile.copied) {
+              job.filesTotal += 1;
+              countedFile.copied = false;
+            }
+            countedFile.signature = signature;
+          }
         }
-        job.filesTotal += newcomers.length;
         if (candidates.length > 0) {
           setState(job, 'running');
         }
@@ -461,7 +480,10 @@ export function startIngest(config: IngestConfig, hooks: IngestHooks = {}): Inge
             }
             job.seq += 1;
             await copyOne({ ...candidate, seq: job.seq });
-            copiedInRun.add(signatureOf(candidate.file));
+            const signature = signatureOf(candidate.file);
+            copiedInRun.add(signature);
+            const countedFile = counted.get(candidate.file.path);
+            if (countedFile !== undefined) countedFile.copied = true;
           } catch (error) {
             if (isAbortError(error) || signal.aborted) {
               return;

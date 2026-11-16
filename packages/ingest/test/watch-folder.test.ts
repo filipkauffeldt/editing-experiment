@@ -153,6 +153,33 @@ describe('a folder source that watches for new files', () => {
     expect(await readdir(destination)).toEqual([ingested[0]!.fileName]);
   });
 
+  it('counts a file replaced after it was copied as a new file', async () => {
+    const root = await makeTempDir();
+    const source = join(root, 'source');
+    const destination = join(root, 'destination');
+    await mkdir(source);
+    const file = join(source, '_DSC1.NEF');
+    const ingested: IngestedFileInfo[] = [];
+    const handle = watch(folderSource('watch', source, true), destination, {
+      watchIntervalMs: 50,
+      watchQuietPeriodMs: 60,
+      ingested,
+      events: [],
+    });
+    await waitFor(() => handle.status()[0]?.state === 'watching', 'the first look');
+
+    await writeFile(file, 'first version');
+    await waitFor(() => ingested.length === 1, 'the first copy');
+
+    await writeFile(file, 'replacement version');
+    await waitFor(() => ingested.length === 2, 'the replacement');
+    await delay(200);
+
+    expect(await readFile(ingested[1]!.path, 'utf8')).toBe('replacement version');
+    expect(handle.status()[0]).toMatchObject({ state: 'watching', filesDone: 2, filesTotal: 2 });
+    expect((await readdir(destination)).sort()).toEqual(['_DSC1_01.NEF', '_DSC1_02.NEF']);
+  });
+
   it('counts a file seen half written once in the totals', async () => {
     const root = await makeTempDir();
     const source = join(root, 'source');
