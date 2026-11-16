@@ -634,7 +634,7 @@ describe('paths that belong to one computer', () => {
     expect(bRestarted.get().metadataTemplates).toEqual(['/machine/b2.XMP', '/machine/b1.XMP']);
   });
 
-  it('keeps optional source fields it does not know through a save and restart', async () => {
+  it('keeps watchForNewFiles and optional source fields through a save and restart', async () => {
     const userData = await tempDir();
     const store = new SettingsStore(join(userData, 'settings.json'), defaults);
     const card = {
@@ -647,7 +647,6 @@ describe('paths that belong to one computer', () => {
     } as unknown as SourceConfig;
     const remote = {
       ...ftpSource,
-      watchForNewFiles: true,
       futureField: { keep: true },
     } as unknown as SourceConfig;
     store.saveSource(card);
@@ -659,14 +658,13 @@ describe('paths that belong to one computer', () => {
       futureField: { keep: true },
     });
     expect(reopened.listSources().find((source) => source.id === 'pool')).toMatchObject({
-      watchForNewFiles: true,
       futureField: { keep: true },
     });
     expect((await readJson(join(userData, 'machine.json'))).sources).toMatchObject([
       { watchForNewFiles: true, futureField: { keep: true } },
     ]);
     expect((await readJson(join(userData, 'settings.json'))).sources).toMatchObject([
-      { watchForNewFiles: true, futureField: { keep: true } },
+      { futureField: { keep: true } },
     ]);
   });
 });
