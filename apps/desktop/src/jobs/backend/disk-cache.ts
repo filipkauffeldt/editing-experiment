@@ -37,6 +37,7 @@ export class DiskCache {
   private flushTimer: ReturnType<typeof setInterval> | undefined;
   private scanTimer: ReturnType<typeof setTimeout> | undefined;
   private scanDelayResolve: (() => void) | undefined;
+  private evictTimer: ReturnType<typeof setTimeout> | undefined;
   private total = 0;
   private dirty = false;
   private closed = false;
@@ -162,6 +163,8 @@ export class DiskCache {
     this.flushTimer = undefined;
     if (this.scanTimer !== undefined) clearTimeout(this.scanTimer);
     this.scanTimer = undefined;
+    if (this.evictTimer !== undefined) clearTimeout(this.evictTimer);
+    this.evictTimer = undefined;
     this.scanDelayResolve?.();
     this.scanDelayResolve = undefined;
     await this.scan;
@@ -205,6 +208,7 @@ export class DiskCache {
     // Small batches between event-loop turns: the jobs process stays responsive to the
     // first folder switch while a large cache is being inventoried.
     for (let at = 0; at < names.length; at += 250) {
+      if (this.closed) return;
       await Promise.all(
         names.slice(at, at + 250).map(async (name) => {
           if (name.endsWith('.tmp') || name === '_placeholder.jpg') return;
@@ -279,6 +283,14 @@ export class DiskCache {
         } catch (error) {
           this.warn(`cache: could not evict ${path}: ${messageOf(error)}`);
         }
+      }
+      if (total > this.limitBytes && this.evictTimer === undefined) {
+        // Everything left was written moments ago; look again once it is no longer protected.
+        this.evictTimer = setTimeout(() => {
+          this.evictTimer = undefined;
+          void this.evict();
+        }, this.protectMs + 1_000);
+        this.evictTimer.unref?.();
       }
     })().finally(() => {
       this.eviction = undefined;
