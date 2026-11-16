@@ -25,6 +25,10 @@ const renderer = vi.hoisted(() => ({
   supportsNeighbourhood: true,
   softwareRendering: false,
   dispose: vi.fn(),
+  configure: vi.fn(),
+  release: vi.fn(),
+  /** How many renderers were created. */
+  created: 0,
   /** The options the component created the renderer with. */
   options: undefined as { onNeighbourhoodUnavailable?: () => void } | undefined,
 }));
@@ -34,6 +38,7 @@ vi.mock('@ee/develop-gl', async (importOriginal) => ({
   ...(await importOriginal<typeof DevelopGl>()),
   createDevelopRenderer: (_canvas: unknown, options?: typeof renderer.options) => {
     renderer.options = options;
+    renderer.created += 1;
     return renderer;
   },
   grainSeedFromId: () => 0,
@@ -84,6 +89,9 @@ describe('PhotoCanvas preview', () => {
   let fake: FakeBridge;
 
   beforeEach(async () => {
+    renderer.created = 0;
+    renderer.configure.mockClear();
+    renderer.release.mockClear();
     vi.stubGlobal('WebGL2RenderingContext', class {});
     vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => {
       callback(0);
@@ -108,6 +116,33 @@ describe('PhotoCanvas preview', () => {
     await store.dispose();
     vi.unstubAllGlobals();
     vi.restoreAllMocks();
+  });
+
+  it('keeps one renderer and one canvas while the photo changes, and lets go of each photo', async () => {
+    const [first, second] = store.getVisiblePhotos();
+    if (!first || !second) throw new Error('need two photos');
+    pendingLinear();
+    const view = (photo: typeof first) => (
+      <AppStoreProvider store={store}>
+        <PhotoCanvas photo={photo} />
+      </AppStoreProvider>
+    );
+    const { rerender } = render(view(first));
+    const canvas = await screen.findByTestId('develop-canvas');
+    expect(renderer.created).toBe(1);
+    expect(renderer.configure).toHaveBeenCalledWith(expect.objectContaining({ grainSeed: 0 }));
+    expect(renderer.release).not.toHaveBeenCalled();
+
+    rerender(view(second));
+    // The same canvas element, in the new photo's tree, with the old photo let go of.
+    expect(await screen.findByTestId('develop-canvas')).toBe(canvas);
+    expect(screen.getByTestId('photo-canvas').contains(canvas)).toBe(true);
+    expect(renderer.created).toBe(1);
+    expect(renderer.release).toHaveBeenCalledTimes(1);
+    // Hidden until the new photo's first frame: nothing of the last one shows.
+    expect(canvas.getAttribute('data-visible')).toBe('false');
+    expect(canvas.style.opacity).toBe('0');
+    expect(canvas.getAttribute('data-ready')).toBe('false');
   });
 
   it('shows the cached preview exactly until the first linear frame renders', async () => {

@@ -69,6 +69,11 @@
   transition: opacity 120ms ease;
 }
 
+/* Holds the host's canvas, which is not React's node; it lays out as if it were the stage's child. */
+.canvasSlot {
+  display: contents;
+}
+
 .mosaic {
   pointer-events: none;
 }
