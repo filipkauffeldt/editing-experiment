@@ -15,6 +15,10 @@ export interface DevelopCanvasHost {
   readonly error: string | undefined;
 }
 
+/** A host that cannot draw: its context failed to be made, or was lost and has not come back. */
+const isDead = (host: DevelopCanvasHost): boolean =>
+  host.error !== undefined || host.renderer?.contextLost === true;
+
 function createDevelopCanvasHost(store: AppStore): DevelopCanvasHost {
   const canvas = document.createElement('canvas');
   let renderer: DevelopRenderer | null = null;
@@ -48,9 +52,20 @@ const hosts = new WeakMap<AppStore, DevelopCanvasHost>();
  * The store's host, made on first use and kept for the life of the window: leaving Develop and
  * coming back finds the context and the compiled programs where they were. It holds no photo while
  * no photo canvas is mounted (that canvas lets go of it), only the programs and a canvas.
+ *
+ * `renewIfDead` is for a photo that is about to mount. A context that could not be made, or was
+ * lost and has not been restored, then costs that one photo and no more: the old renderer is
+ * disposed and the photo gets a new canvas and a new context. A context lost and restored while
+ * the same photo stays on screen is not replaced (the renderer recovers it), because this is only
+ * asked for when the photo changes.
  */
-export function developCanvasHostFor(store: AppStore): DevelopCanvasHost {
+export function developCanvasHostFor(store: AppStore, renewIfDead = false): DevelopCanvasHost {
   let host = hosts.get(store);
+  if (host && renewIfDead && isDead(host)) {
+    host.renderer?.dispose();
+    host.canvas.remove();
+    host = undefined;
+  }
   if (!host) {
     host = createDevelopCanvasHost(store);
     hosts.set(store, host);

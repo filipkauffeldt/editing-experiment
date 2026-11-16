@@ -1073,10 +1073,12 @@ the photo on screen is bounded and never delays it.
   as before, and the preview image shows meanwhile, so nothing of the last photo is on screen.
   The textures and framebuffers alive are the same after any number of photos (a browser test
   counts them over photos of many sizes), and a photo drawn after others is byte for byte the
-  photo a fresh canvas draws (an e2e compares the compositor's pixels). Context loss is as before:
-  the renderer rebuilds its resources when the context is restored, the photo on screen clears its
-  lost flag from the `webglcontextrestored` event, and a photo that mounts while the context is
-  lost starts in that state. A resize of a canvas that has a context stalls on software GL (about
+  photo a fresh canvas draws (an e2e compares the compositor's pixels). Context loss is as before
+  for the photo on screen: the renderer rebuilds its resources when the context is restored and the
+  photo clears its lost flag from the `webglcontextrestored` event. A dead context costs one photo
+  and no more: when a photo mounts and the host has an error (the context could not be made) or its
+  context is still lost, the host disposes the renderer and the photo gets a new canvas and a new
+  context. A resize of a canvas that has a context stalls on software GL (about
   0.3 s), so the canvas is not sized before its area is measured, and a photo whose stage differs
   in size from the last one pays that once.
 - **Auto-advance** (`AppSettings.autoAdvance`, off by default). With it on, `T`, `1`-`5`, `0` and the

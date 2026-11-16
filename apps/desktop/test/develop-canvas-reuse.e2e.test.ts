@@ -331,6 +331,84 @@ describe.skipIf(!haveDisplay)(
       }
     });
 
+    /** Marks the canvas element on screen, to tell later whether it is still the same one. */
+    const markCanvas = (): Promise<void> =>
+      window.evaluate(() => {
+        const canvas = document.querySelector('[data-testid="develop-canvas"]');
+        (canvas as unknown as { __mark: boolean }).__mark = true;
+      });
+    const isMarked = (): Promise<boolean> =>
+      window.evaluate(
+        () =>
+          (
+            document.querySelector('[data-testid="develop-canvas"]') as unknown as {
+              __mark?: boolean;
+            }
+          ).__mark === true,
+      );
+    const loseContext = (restore: boolean): Promise<void> =>
+      window.evaluate(async (andRestore) => {
+        const canvas = document.querySelector(
+          '[data-testid="develop-canvas"]',
+        ) as HTMLCanvasElement;
+        // Asking an existing canvas for its context makes none, but the counter cannot tell.
+        const counter = window as unknown as { __webglContexts: number };
+        const extension = canvas.getContext('webgl2')?.getExtension('WEBGL_lose_context');
+        counter.__webglContexts -= 1;
+        if (!extension) throw new Error('no WEBGL_lose_context');
+        extension.loseContext();
+        await new Promise((done) => setTimeout(done, 100));
+        if (andRestore) extension.restoreContext();
+      }, restore);
+
+    it('carries on with the same canvas when a context is lost and restored on the photo shown', async () => {
+      await window.reload();
+      await window.waitForFunction(() => 'eeTransport' in window);
+      await window.waitForSelector('[data-testid="film-strip"] button');
+      await window.locator('body').click({ position: { x: 5, y: 5 } });
+      await window.locator('[data-testid="film-strip"] button').nth(1).click();
+      await waitForFrame(photos[1]!);
+      await markCanvas();
+      const before = await shoot();
+
+      await loseContext(true);
+      await window.waitForFunction(() => {
+        const canvas = document.querySelector('[data-testid="develop-canvas"]');
+        return canvas?.getAttribute('data-visible') === 'true';
+      });
+      await waitForFrame(photos[1]!);
+      expect(await isMarked()).toBe(true);
+      expect(await contexts()).toBe(1);
+      expect((await shoot()).equals(before)).toBe(true);
+    });
+
+    it('costs one photo, not the window, when a context is lost and never restored', async () => {
+      await window.reload();
+      await window.waitForFunction(() => 'eeTransport' in window);
+      await window.waitForSelector('[data-testid="film-strip"] button');
+      await window.locator('body').click({ position: { x: 5, y: 5 } });
+      await window.locator('[data-testid="film-strip"] button').nth(1).click();
+      await waitForFrame(photos[1]!);
+      await markCanvas();
+
+      await loseContext(false);
+      // Nothing is shown for the photo whose context is gone.
+      await window.waitForFunction(
+        () =>
+          document.querySelector('[data-testid="develop-canvas"]')?.getAttribute('data-visible') ===
+          'false',
+      );
+
+      // The next photo gets a new canvas and a new context, and is drawn as a fresh canvas draws it.
+      await window.keyboard.press('ArrowRight');
+      await waitForFrame(photos[2]!);
+      expect(await isMarked()).toBe(false);
+      expect(await contexts()).toBe(2);
+      const drawn = await shoot();
+      const fresh = await openFresh(2);
+      expect(drawn.equals(fresh)).toBe(true);
+    });
+
     it('had no errors in the console', () => {
       expect(problems).toEqual([]);
     });

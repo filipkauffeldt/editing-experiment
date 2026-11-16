@@ -1484,7 +1484,14 @@ function CanvasForPhoto({ photo, host }: { photo: Photo; host: DevelopCanvasHost
  * `develop-canvas-host.ts`).
  */
 export function PhotoCanvas({ photo }: { photo: Photo | undefined }) {
-  const host = developCanvasHostFor(useAppStore());
+  const store = useAppStore();
+  const photoId = photo?.id;
+  // Chosen when the photo changes: a dead context is replaced for the photo that mounts, and a
+  // live one is kept (see `developCanvasHostFor`).
+  const host = useMemo(
+    () => developCanvasHostFor(store, photoId !== undefined),
+    [store, photoId],
+  );
   if (!photo) {
     return (
       <div className={styles.empty} data-testid="photo-canvas">
