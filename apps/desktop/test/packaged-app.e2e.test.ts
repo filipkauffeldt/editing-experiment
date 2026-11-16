@@ -200,24 +200,31 @@ describe.skipIf(!packaged || !nef || !haveDisplay)('packaged app', () => {
     expect(await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().length)).toBe(1);
   }, 90_000);
 
-  it('uses its own user data folder by default, apart from a development run', async () => {
-    const home = join(root, 'home');
-    mkdirSync(home);
-    const other = await electron.launch({
-      executablePath: packaged!,
-      env: appEnv({
-        XDG_CONFIG_HOME: home,
-        APPDATA: home,
-        EE_USER_DATA_DIR: '',
-      }),
-    });
-    try {
-      const path = await other.evaluate(({ app: electronApp }) => electronApp.getPath('userData'));
-      expect(path).toBe(join(home, 'Editing Experiment'));
-    } finally {
-      await other.close().catch(() => undefined);
-    }
-  }, 90_000);
+  // Redirected through XDG_CONFIG_HOME. Windows ignores APPDATA for this, so the test would use the
+  // real profile there and meet a running app's instance lock.
+  it.skipIf(process.platform !== 'linux')(
+    'uses its own user data folder by default, apart from a development run',
+    async () => {
+      const home = join(root, 'home');
+      mkdirSync(home);
+      const other = await electron.launch({
+        executablePath: packaged!,
+        env: appEnv({
+          XDG_CONFIG_HOME: home,
+          EE_USER_DATA_DIR: '',
+        }),
+      });
+      try {
+        const path = await other.evaluate(({ app: electronApp }) =>
+          electronApp.getPath('userData'),
+        );
+        expect(path).toBe(join(home, 'Editing Experiment'));
+      } finally {
+        await other.close().catch(() => undefined);
+      }
+    },
+    90_000,
+  );
 
   it.skipIf(!isAppImage)(
     'does not turn the sandbox off in the launcher or the desktop entry',
