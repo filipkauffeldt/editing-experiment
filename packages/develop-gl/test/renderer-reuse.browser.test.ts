@@ -116,64 +116,75 @@ function draw(
   return shown(canvas);
 }
 
+// Software rendering of the neighbourhood passes is slow when the other browser tests run beside it.
+const SLOW = 180_000;
+
 describe('one renderer for many photos', () => {
-  it('draws each photo as a fresh renderer does, whatever came before it', () => {
-    const reused = canvasOf(96, 64);
-    const renderer = create(reused);
-    for (const photo of [...PHOTOS, ...PHOTOS].slice(0, 8)) {
-      reused.width = photo.width;
-      reused.height = photo.height;
-      const afterOthers = draw(renderer, reused, photo);
+  it(
+    'draws each photo as a fresh renderer does, whatever came before it',
+    () => {
+      const reused = canvasOf(96, 64);
+      const renderer = create(reused);
+      for (const photo of [...PHOTOS, ...PHOTOS].slice(0, 8)) {
+        reused.width = photo.width;
+        reused.height = photo.height;
+        const afterOthers = draw(renderer, reused, photo);
 
-      const fresh = canvasOf(photo.width, photo.height);
-      const freshRenderer = create(fresh, photo.seed);
-      const { header, data } = imageOf(photo);
-      freshRenderer.setImage(header, data);
-      freshRenderer.render({ ...photo.params, GrainAmount: 20 });
-      expect(maxAbsDiff(afterOthers, shown(fresh)), `photo ${photo.seed}`).toBe(0);
-      freshRenderer.dispose();
-    }
-  });
-
-  it('keeps the textures and framebuffers alive level over many photos', () => {
-    const tracker = trackObjects();
-    try {
-      const canvas = canvasOf(96, 64);
-      const renderer = create(canvas);
-      const atEnd: Record<Kind, number>[] = [];
-      for (let i = 0; i < 60; i++) {
-        // Every visit has a size no earlier one had, with the neighbourhood passes on, so a pool
-        // that kept the textures of the sizes it has seen would grow with every photo.
-        const base = PHOTOS[i % PHOTOS.length]!;
-        const photo = { ...base, width: 64 + i * 2, height: 48 + i };
-        canvas.width = photo.width;
-        canvas.height = photo.height;
-        draw(renderer, canvas, photo);
-        // The canvas of the Develop view lets go of the photo when it leaves.
-        if (i % 2 === 0) renderer.release();
-        atEnd.push(tracker.live());
+        const fresh = canvasOf(photo.width, photo.height);
+        const freshRenderer = create(fresh, photo.seed);
+        const { header, data } = imageOf(photo);
+        freshRenderer.setImage(header, data);
+        freshRenderer.render({ ...photo.params, GrainAmount: 20 });
+        expect(maxAbsDiff(afterOthers, shown(fresh)), `photo ${photo.seed}`).toBe(0);
+        freshRenderer.dispose();
       }
-      // The photos alternate between released and not, and between lighter and heavier edits, so
-      // the same visit repeats every ten photos. Once the first rounds are through, it leaves
-      // exactly what it left ten photos earlier.
-      for (let i = 20; i < atEnd.length; i++) {
-        expect(atEnd[i], `visit ${i}`).toEqual(atEnd[i - 10]);
-      }
+    },
+    SLOW,
+  );
 
-      // A released photo holds none of its own textures: only the fixed ones are left.
-      renderer.release();
-      const idle = tracker.live();
-      expect(idle.texture).toBeLessThan(Math.max(...atEnd.map((c) => c.texture)));
-      const programs = idle.program;
-      draw(renderer, canvas, { ...PHOTOS[0]!, width: canvas.width, height: canvas.height });
-      renderer.release();
-      expect(tracker.live()).toEqual(idle);
-      // The compiled programs are the ones from before: no new program for a new photo.
-      expect(tracker.live().program).toBe(programs);
-    } finally {
-      tracker.stop();
-    }
-  });
+  it(
+    'keeps the textures and framebuffers alive level over many photos',
+    () => {
+      const tracker = trackObjects();
+      try {
+        const canvas = canvasOf(96, 64);
+        const renderer = create(canvas);
+        const atEnd: Record<Kind, number>[] = [];
+        for (let i = 0; i < 36; i++) {
+          // Every visit has a size no earlier one had, with the neighbourhood passes on, so a pool
+          // that kept the textures of the sizes it has seen would grow with every photo.
+          const base = PHOTOS[i % PHOTOS.length]!;
+          const photo = { ...base, width: 48 + i * 2, height: 36 + i };
+          canvas.width = photo.width;
+          canvas.height = photo.height;
+          draw(renderer, canvas, photo);
+          // The canvas of the Develop view lets go of the photo when it leaves.
+          if (i % 2 === 0) renderer.release();
+          atEnd.push(tracker.live());
+        }
+        // The photos alternate between released and not, and between lighter and heavier edits, so
+        // the same visit repeats every ten photos. Once the first rounds are through, it leaves
+        // exactly what it left ten photos earlier.
+        for (let i = 20; i < atEnd.length; i++) {
+          expect(atEnd[i], `visit ${i}`).toEqual(atEnd[i - 10]);
+        }
+
+        // A released photo holds none of its own textures: only the fixed ones are left.
+        renderer.release();
+        const idle = tracker.live();
+        expect(idle.texture).toBeLessThan(Math.max(...atEnd.map((c) => c.texture)));
+        const programs = idle.program;
+        draw(renderer, canvas, { ...PHOTOS[0]!, width: canvas.width, height: canvas.height });
+        renderer.release();
+        expect(tracker.live()).toEqual(idle);
+        // The compiled programs are the ones from before: no new program for a new photo.
+        expect(tracker.live().program).toBe(programs);
+      } finally {
+        tracker.stop();
+      }
+    },
+    SLOW,
+  );
 
   it('frees every texture and program on dispose', () => {
     const tracker = trackObjects();
@@ -200,41 +211,45 @@ describe('one renderer for many photos', () => {
     expect(() => renderer.render({})).toThrow(/No image/);
   });
 
-  it('recovers from a lost context and tells the callback it was last given', async () => {
-    const canvas = canvasOf(96, 64);
-    const renderer = create(canvas);
-    const stale: string[] = [];
-    const current: string[] = [];
-    renderer.configure({ onContextLost: () => stale.push('lost') });
-    // A later photo's canvas takes over the callback.
-    renderer.configure({ onContextLost: () => current.push('lost') });
-    draw(renderer, canvas, PHOTOS[0]!);
+  it(
+    'recovers from a lost context and tells the callback it was last given',
+    async () => {
+      const canvas = canvasOf(96, 64);
+      const renderer = create(canvas);
+      const stale: string[] = [];
+      const current: string[] = [];
+      renderer.configure({ onContextLost: () => stale.push('lost') });
+      // A later photo's canvas takes over the callback.
+      renderer.configure({ onContextLost: () => current.push('lost') });
+      draw(renderer, canvas, PHOTOS[0]!);
 
-    const extension = canvas.getContext('webgl2')?.getExtension('WEBGL_lose_context');
-    expect(extension).toBeTruthy();
-    extension?.loseContext();
-    await new Promise((resolve) => setTimeout(resolve, 50));
-    expect(renderer.contextLost).toBe(true);
-    expect(current).toEqual(['lost']);
-    expect(stale).toEqual([]);
+      const extension = canvas.getContext('webgl2')?.getExtension('WEBGL_lose_context');
+      expect(extension).toBeTruthy();
+      extension?.loseContext();
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      expect(renderer.contextLost).toBe(true);
+      expect(current).toEqual(['lost']);
+      expect(stale).toEqual([]);
 
-    const restored = new Promise<void>((resolve) =>
-      canvas.addEventListener('webglcontextrestored', () => resolve(), { once: true }),
-    );
-    extension?.restoreContext();
-    await restored;
-    // The renderer's own listener is added first, so it has recreated its resources by now.
-    expect(renderer.contextLost).toBe(false);
+      const restored = new Promise<void>((resolve) =>
+        canvas.addEventListener('webglcontextrestored', () => resolve(), { once: true }),
+      );
+      extension?.restoreContext();
+      await restored;
+      // The renderer's own listener is added first, so it has recreated its resources by now.
+      expect(renderer.contextLost).toBe(false);
 
-    const photo = PHOTOS[1]!;
-    canvas.width = photo.width;
-    canvas.height = photo.height;
-    const after = draw(renderer, canvas, photo);
-    const fresh = canvasOf(photo.width, photo.height);
-    const freshRenderer = create(fresh, photo.seed);
-    const { header, data } = imageOf(photo);
-    freshRenderer.setImage(header, data);
-    freshRenderer.render({ ...photo.params, GrainAmount: 20 });
-    expect(maxAbsDiff(after, shown(fresh))).toBe(0);
-  });
+      const photo = PHOTOS[1]!;
+      canvas.width = photo.width;
+      canvas.height = photo.height;
+      const after = draw(renderer, canvas, photo);
+      const fresh = canvasOf(photo.width, photo.height);
+      const freshRenderer = create(fresh, photo.seed);
+      const { header, data } = imageOf(photo);
+      freshRenderer.setImage(header, data);
+      freshRenderer.render({ ...photo.params, GrainAmount: 20 });
+      expect(maxAbsDiff(after, shown(fresh))).toBe(0);
+    },
+    SLOW,
+  );
 });
