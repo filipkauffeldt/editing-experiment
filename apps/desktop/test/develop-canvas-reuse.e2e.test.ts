@@ -108,8 +108,6 @@ describe.skipIf(!haveDisplay)(
       return typed.value;
     };
 
-    const stageId = (): Promise<string | null> =>
-      window.locator('[data-testid="photo-canvas"] [data-photo-id]').getAttribute('data-photo-id');
     /** The photo is on screen: its stage is there and the canvas has drawn its first frame. */
     const waitForFrame = async (photo: Photo): Promise<void> => {
       await window.waitForFunction(
