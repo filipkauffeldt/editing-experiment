@@ -1085,9 +1085,9 @@ copy camera EXIF and GPS from the original, or only copyright; `stripGps` drops 
 location tags.
 
 `all` copies the original's `DateTimeOriginal`, `CreateDate`, their `SubSecTime*` and
-`OffsetTime*` tags, so burst order and the camera's UTC offset survive. The copied EXIF and
-XMP dates are then set to the index's current `captureTime`, so a shifted raw exports with
-its shifted time. No `ModifyDate` or XMP date names the export time. A tag copy that updated nothing (a source ExifTool cannot open) fails
+`OffsetTime*` tags, so burst order and the camera's UTC offset survive. The copied EXIF dates
+are then assigned the index's current `captureTime` in the same ExifTool write, so a shifted
+raw exports with its shifted time and no extra date tags are added. No `ModifyDate` or XMP date names the export time. A tag copy that updated nothing (a source ExifTool cannot open) fails
 the export instead of leaving a JPEG without them. `iptc`, `copyright` and `none` carry no camera
 EXIF, so no EXIF dates (`iptc` still writes the IPTC/XMP creation date taken from the original).
 In `all` and `iptc` the exported file's modified time is set to the photo's capture time, as the

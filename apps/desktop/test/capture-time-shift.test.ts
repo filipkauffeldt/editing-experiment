@@ -42,6 +42,16 @@ const sha256 = async (path: string): Promise<string> =>
     .update(await readFile(path))
     .digest('hex');
 
+const DATE_TAGS =
+  /^(ExifIFD|IFD0|XMP-[a-z]+|IPTC|Composite):(DateTimeOriginal|CreateDate|ModifyDate|MetadataDate|DateCreated|TimeCreated|SubSec\w+|OffsetTime\w*|DigitalCreationDate)$/;
+
+const dateTags = (tags: Record<string, unknown>): Record<string, string> =>
+  Object.fromEntries(
+    Object.entries(tags)
+      .filter(([key]) => DATE_TAGS.test(key))
+      .map(([key, value]) => [key, String(value)]),
+  );
+
 async function makeJpeg(path: string, tags: Record<string, string>): Promise<void> {
   await sharp({ create: { width: 24, height: 16, channels: 3, background: '#357' } })
     .jpeg()
@@ -301,8 +311,8 @@ describe('exporting a shifted raw', () => {
     const tags = await exiftool.read(out.path);
     expect(toIsoDate(tags['ExifIFD:DateTimeOriginal'])).toBe(shift!.after);
     expect(toIsoDate(tags['ExifIFD:CreateDate'])).toBe(shift!.after);
-    expect(toIsoDate(tags['XMP-exif:DateTimeOriginal'])).toBe(shift!.after);
-    expect(toIsoDate(tags['XMP-xmp:CreateDate'])).toBe(shift!.after);
+    expect(tags['XMP-exif:DateTimeOriginal']).toBeUndefined();
+    expect(tags['XMP-xmp:CreateDate']).toBeUndefined();
     expect(toIsoDate(tags['XMP-photoshop:DateCreated'])).toBe(shift!.dateCreated);
     expect(tags['ExifIFD:SubSecTimeOriginal']).toBe(original['ExifIFD:SubSecTimeOriginal']);
     expect(tags['ExifIFD:SubSecTimeDigitized']).toBe(original['ExifIFD:SubSecTimeDigitized']);
@@ -312,6 +322,50 @@ describe('exporting a shifted raw', () => {
     expect((await stat(out.path)).mtimeMs).toBe(
       Date.parse(`${shift!.after}${typeof offset === 'string' ? offset : ''}`),
     );
+  });
+
+  it('leaves an unshifted export with the date tags it had before', async () => {
+    const source = sampleNefs()[0] ?? fixtureNefs()[0];
+    if (source === undefined) return;
+    const raw = join(root, 'plain.NEF');
+    await copyFile(source, raw);
+    const original = await exiftool.read(raw);
+    const captureTime = await readCaptureTime(raw, exiftool);
+    expect(captureTime).toBeDefined();
+    const photo = addPhoto(library, raw, {
+      fileName: 'plain.NEF',
+      captureTime,
+      sidecarPath: sidecarPathFor(raw),
+    });
+    const preset = {
+      ...defaultExportPreset(),
+      id: asPresetId('plain'),
+      name: 'Plain',
+      folderTemplate: join(root, 'exports'),
+      fileNaming: 'rename' as const,
+      fileNameTemplate: '{filenamebase}',
+      metadata: 'all' as const,
+      sendTo: [],
+    };
+
+    const out = await exporter.exportOne({ photoId: photo.id, preset, rendered });
+
+    const copiedKeys = [
+      'ExifIFD:DateTimeOriginal',
+      'ExifIFD:CreateDate',
+      'ExifIFD:SubSecTimeOriginal',
+      'ExifIFD:SubSecTimeDigitized',
+      'ExifIFD:OffsetTimeOriginal',
+      'ExifIFD:OffsetTimeDigitized',
+      'Composite:SubSecDateTimeOriginal',
+      'Composite:SubSecCreateDate',
+    ];
+    const expected = Object.fromEntries(
+      copiedKeys
+        .filter((key) => original[key] !== undefined)
+        .map((key) => [key, String(original[key])]),
+    );
+    expect(dateTags(await exiftool.read(out.path))).toEqual(expected);
   });
 });
 
