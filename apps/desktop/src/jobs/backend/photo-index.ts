@@ -474,6 +474,22 @@ export class PhotoIndex {
    * conditional sums, so the numbers stay true when only a page is in the renderer.
    */
   facets(options: PhotoQueryOptions): PhotoFacets {
+    const large = (options.ids?.size ?? 0) > 5_000;
+    if (!large) return this.facetsNow(options);
+    this.useIdTable = true;
+    this.db.exec('CREATE TEMP TABLE IF NOT EXISTS query_ids (id TEXT PRIMARY KEY)');
+    this.db.exec('DELETE FROM query_ids');
+    const insert = this.db.prepare('INSERT OR IGNORE INTO query_ids (id) VALUES (?)');
+    for (const id of options.ids ?? []) insert.run(id);
+    try {
+      return this.facetsNow(options);
+    } finally {
+      this.db.exec('DROP TABLE IF EXISTS query_ids');
+      this.useIdTable = false;
+    }
+  }
+
+  private facetsNow(options: PhotoQueryOptions): PhotoFacets {
     const scope = this.scope(options);
     const filter = options.filter ?? {};
     const rest = this.filterSql({

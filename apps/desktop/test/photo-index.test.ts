@@ -116,6 +116,9 @@ describe('photo index queries', () => {
     expect(rated.scopeTotal).toBe(3);
     expect(rated.shown).toBe(1);
     expect(rated.tag).toEqual({ all: 1, tagged: 1, untagged: 0 });
+    // A search result too large for one IN list still counts through the temporary table.
+    const huge = new Set(Array.from({ length: 5_100 }, (_, n) => `missing-${n}` as PhotoId));
+    expect(index.facets({ ids: huge })).toMatchObject({ shown: 0, scopeTotal: 4 });
     index.close();
   });
 
