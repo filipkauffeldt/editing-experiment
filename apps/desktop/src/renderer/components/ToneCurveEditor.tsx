@@ -63,6 +63,8 @@ export interface ToneCurveEditorProps {
   histogram?: readonly number[];
   onChangePoints(points: ToneCurvePoint[]): void;
   onChangeParam(name: SliderParam, value: number): void;
+  /** Arrow-key steps on a split point; a burst is one undo step. */
+  onNudgeParam?(name: SliderParam, value: number): void;
   onReset(): void;
 }
 
@@ -105,6 +107,7 @@ export function ToneCurveEditor({
   histogram,
   onChangePoints,
   onChangeParam,
+  onNudgeParam,
   onReset,
 }: ToneCurveEditorProps) {
   const svgRef = useRef<SVGSVGElement>(null);
@@ -266,7 +269,10 @@ export function ToneCurveEditor({
     const step = event.shiftKey ? 5 : 1;
     const direction = event.key === 'ArrowRight' ? 1 : -1;
     const moved = moveParametricSplit(splits, index, (splits[index] ?? 0) + direction * step);
-    onChangeParam(PARAMETRIC_SPLIT_PARAMS[index] ?? 'ParametricShadowSplit', moved[index] ?? 0);
+    (onNudgeParam ?? onChangeParam)(
+      PARAMETRIC_SPLIT_PARAMS[index] ?? 'ParametricShadowSplit',
+      moved[index] ?? 0,
+    );
   };
 
   return (

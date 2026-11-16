@@ -194,7 +194,8 @@ two side panels default to 280 px. There is no bottom bar.
   folded header shows the values that are set as one line and `≠ template` (tooltip: Differs from
   template) when one of them differs from the template, so a difference never hides. Which groups are open is remembered while the app runs.
   Templates are added in Settings → Metadata, not in the panel.
-- **Develop panel**: `Copy settings…` on the first row, the histogram and its exposure line, then
+- **Develop panel**: `Reset all` on the left and `Copy settings…` on the right of the first row, the
+  histogram and its exposure line, then
   **Preset** and **Profile** as one row each (a label and a field). Preset is a menu over the grouped
   list, with Refresh and Import at its top, so hundreds of presets never push the sliders down. Profile
   is a select ending in *Browse profile folders…*; a profile this machine does not have gets the one

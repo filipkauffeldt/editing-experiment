@@ -78,10 +78,10 @@
   gap: 8px;
 }
 
-/* Copy settings, alone on the first row, right-aligned. */
+/* Reset on the left, Copy settings on the right of the first row. */
 .topRow {
   display: flex;
-  justify-content: flex-end;
+  justify-content: space-between;
   padding: 4px 8px;
   border-bottom: 1px solid var(--line);
 }

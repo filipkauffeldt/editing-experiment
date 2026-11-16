@@ -97,6 +97,26 @@ describe('typed slider values', () => {
     expect(temperature.value).toBe('5500');
   });
 
+  it('undoes a typed value and its live applies as one step', async () => {
+    const { store } = await renderApp();
+    const user = userEvent.setup();
+    const exposure = field('Exposure value');
+
+    await user.tripleClick(exposure);
+    await user.keyboard('1.5');
+    expect(params(store).Exposure2012).toBe(1.5);
+    await user.keyboard('{Enter}');
+    expect(params(store).Exposure2012).toBe(1.5);
+
+    act(() => {
+      expect(store.undoDevelop()).toBe(true);
+    });
+    await waitFor(() => expect(params(store).Exposure2012).toBeUndefined());
+    expect(store.canRedoDevelop()).toBe(true);
+    act(() => store.redoDevelop());
+    await waitFor(() => expect(params(store).Exposure2012).toBe(1.5));
+  });
+
   it('keeps a cleared Temperature field empty until blur, then goes back to As Shot', async () => {
     const { store } = await renderApp();
     setRawWhiteBalance(store);
