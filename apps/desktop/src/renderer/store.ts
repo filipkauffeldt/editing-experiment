@@ -485,6 +485,7 @@ export interface FolderRemoveRequest {
   count: number;
   /** An added root removes its whole tree and forgets nested roots too. */
   root: boolean;
+  busy: boolean;
 }
 
 /** Photos the "Shift capture time" dialog will move, and whether the backend is working. */
