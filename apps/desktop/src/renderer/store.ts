@@ -32,6 +32,7 @@ import {
   DEFAULT_COPY_SETTING_GROUPS,
   SLIDER_SPECS,
   type AppSettings,
+  type CacheStats,
   type CredentialSecret,
   type CropParams,
   type DeletePhotosResult,
@@ -55,9 +56,11 @@ import {
   type JobEvent,
   type JobId,
   type LensShotInfo,
+  type LibraryFolderInfo,
   type Photo,
   type PhotoId,
   type PhotoProfiles,
+  type PhotoQueryFilter,
   type Point,
   type ProfileIndex,
   type ProfileListing,
@@ -123,7 +126,7 @@ export type SelectionMode = 'replace' | 'toggle' | 'range';
 /** The four modules of the top bar; Retouch is `AppState.retouch` on the Develop view. */
 export type AppModule = 'ingest' | 'library' | 'develop';
 export type DialogTab =
-  'sources' | 'destinations' | 'metadata' | 'profiles' | 'presets' | 'settingsFolder';
+  'sources' | 'destinations' | 'metadata' | 'profiles' | 'presets' | 'cache' | 'settingsFolder';
 
 /** A photo's camera profile as the renderer uses it. */
 export interface PhotoProfile {
@@ -357,6 +360,12 @@ export interface AppState {
   module: AppModule;
   library: LibraryState;
   photos: Photo[];
+  /** The whole folder tree with counts, from the index; the photos load per folder. */
+  folders: LibraryFolderInfo[];
+  /** How many photos the index holds, even when only one folder is loaded. */
+  totalPhotos: number;
+  /** The index is too large to keep in memory; folders and pages load on demand. */
+  lazy: boolean;
   /** Folders the user added to the Library in place, from the index database. */
   addedFolders: string[];
   /** Added-folder runs by job id; terminal ones keep their last counts until the next run. */
@@ -403,6 +412,8 @@ export interface AppState {
   profileIndex?: ProfileIndex;
   /** What the preset folders hold (problems, folders), for the Settings tab; `presets` is its list. */
   presetIndex?: PresetIndex;
+  /** Current size of the disposable thumbnail and preview caches, for Settings. */
+  cacheStats?: CacheStats;
   /**
    * Values of develop sections that are switched off, by `<photoId>:<section>`. Switching a section
    * off resets its sliders (so the render drops it) and parks the values here; switching it on
@@ -481,10 +492,12 @@ export interface DeleteRequest {
 export interface FolderRemoveRequest {
   path: string;
   name: string;
-  /** Photos in the folder, or below it when it is an added root. */
+  /** Photos in the folder, or below it when subfolders are included. */
   count: number;
-  /** An added root removes its whole tree and forgets nested roots too. */
+  /** The row is an added root; it starts with subfolders included and forgets nested roots. */
   root: boolean;
+  /** The dialog's "Include subfolders" choice. */
+  subfolders: boolean;
   busy: boolean;
 }
 
@@ -629,6 +642,19 @@ function sortPhotos(photos: Photo[], sort: SortMode): Photo[] {
   });
 }
 
+/** The renderer filter as the jobs process applies it to a page of the index. */
+export function queryFilter(filter: FilterState): PhotoQueryFilter {
+  return {
+    tag: filter.tag,
+    minRating: filter.minRating,
+    colorClasses: [...filter.colorClasses],
+    statuses: [...filter.statuses],
+    ...(filter.camera === undefined ? {} : { camera: filter.camera }),
+    ...(filter.sourceId === undefined ? {} : { sourceId: filter.sourceId }),
+    ...(filter.search.trim() === '' ? {} : { search: filter.search.trim() }),
+  };
+}
+
 /** Photos after the shared filter, in the chosen order (Develop's film strip, Next & send). */
 export function selectVisiblePhotos(state: AppState): Photo[] {
   return sortPhotos(filterPhotos(state.photos, state.filter, state.searchResult?.ids), state.sort);
@@ -703,6 +729,17 @@ export const hasPendingRetouch = (session: RetouchSession | undefined): boolean 
   session.dirty &&
   (session.areas.length > 0 || session.versionId !== undefined);
 
+/**
+ * Above this many photos the store stops loading the whole index. It keeps the folder tree
+ * with counts and loads one folder (or a page of the film strip) at a time. A small index,
+ * as in tests and the mock demo, keeps the old behaviour: every photo is in memory.
+ */
+const LAZY_LIBRARY_PHOTOS = 2_000;
+/** The film strip window a large index loads around the open photo. */
+const LAZY_DEVELOP_WINDOW = 1_000;
+/** What "All photos" loads at once in a large index. */
+const LAZY_ALL_PHOTOS = 5_000;
+
 /** Throttle for develop writes: first change goes out at once, then at most every 80 ms. */
 const DEVELOP_THROTTLE_MS = 80;
 
@@ -731,6 +768,9 @@ const emptyState = (): AppState => ({
   module: 'develop',
   library: initialLibrary(),
   photos: [],
+  folders: [],
+  totalPhotos: 0,
+  lazy: false,
   addedFolders: [],
   folderImports: {},
   sources: [],
@@ -799,6 +839,7 @@ export class AppStore {
   private readonly photoPositions = new Map<PhotoId, number>();
   private readonly pendingPhotos = new Map<PhotoId, Photo>();
   private photoFlush: ReturnType<typeof setTimeout> | number | null = null;
+  private foldersTimer: ReturnType<typeof setTimeout> | undefined;
   private visibleCache: VisibleCache | undefined;
   private searchRun = 0;
   private searchTimer: ReturnType<typeof setTimeout> | undefined;
@@ -963,6 +1004,10 @@ export class AppStore {
       this.bridge.on('photos:removed', ({ photoId }) => {
         if (!this.removing.has(photoId)) this.removePhotos([photoId]);
       }),
+      this.bridge.on('photos:removedMany', ({ photoIds }) => {
+        const gone = photoIds.filter((photoId) => !this.removing.has(photoId));
+        if (gone.length > 0) this.removePhotos(gone);
+      }),
       this.bridge.on('jobs:event', (event) => this.handleJobEvent(event)),
     );
     if (typeof window !== 'undefined') {
@@ -1001,7 +1046,7 @@ export class AppStore {
 
   private async loadAll(): Promise<void> {
     const [
-      photos,
+      overview,
       sources,
       destinations,
       settings,
@@ -1012,7 +1057,7 @@ export class AppStore {
       exportJobs,
       addedFolders,
     ] = await Promise.allSettled([
-      this.bridge.invoke('photos:list'),
+      this.bridge.invoke('photos:folders'),
       this.bridge.invoke('sources:list'),
       this.bridge.invoke('destinations:list'),
       this.bridge.invoke('settings:get'),
@@ -1027,13 +1072,45 @@ export class AppStore {
     const value = <T>(result: PromiseSettledResult<T>): T | undefined =>
       result.status === 'fulfilled' ? result.value : undefined;
 
-    const loadedPhotos = [...(value(photos) ?? [])];
+    const tree = value(overview);
+    const total = tree?.total ?? 0;
+    const lazy = tree !== undefined && total > LAZY_LIBRARY_PHOTOS;
+    let loadedPhotos: Photo[] = [];
+    let folder = this.state.library.folder;
+    if (!lazy) {
+      try {
+        loadedPhotos = [...(await this.bridge.invoke('photos:list'))];
+      } catch (cause) {
+        this.set({ error: messageOf(cause) });
+      }
+    } else if (this.state.module === 'library') {
+      // Open one folder: the first that holds photos, so the grid is usable at once.
+      folder = folder ?? tree?.folders.find((candidate) => candidate.count > 0)?.path;
+      if (folder !== undefined) {
+        loadedPhotos = await this.bridge
+          .invoke('photos:list', { folder })
+          .catch(() => [] as Photo[]);
+      }
+    } else {
+      // The default view is Develop: load a bounded window of the film strip.
+      const result = await this.bridge
+        .invoke('photos:query', { limit: LAZY_DEVELOP_WINDOW, sort: 'capture-time' })
+        .catch(() => undefined);
+      loadedPhotos = result?.photos ?? [];
+    }
     const queued = [...this.pendingPhotos.values()];
     this.pendingPhotos.clear();
     for (const photo of queued) {
       const position = loadedPhotos.findIndex((candidate) => candidate.id === photo.id);
       if (position >= 0) loadedPhotos[position] = photo;
-      else loadedPhotos.push(photo);
+      else if (
+        !lazy ||
+        (this.state.module === 'library'
+          ? folder === undefined || folderOf(photo.path) === folder
+          : loadedPhotos.length < LAZY_DEVELOP_WINDOW)
+      ) {
+        loadedPhotos.push(photo);
+      }
     }
     this.photoById.clear();
     this.photoPositions.clear();
@@ -1060,6 +1137,10 @@ export class AppStore {
 
     this.set({
       photos: loadedPhotos,
+      folders: tree?.folders ?? [],
+      totalPhotos: total || loadedPhotos.length,
+      lazy,
+      library: { ...this.state.library, folder },
       sources: value(sources) ?? [],
       destinations: value(destinations) ?? [],
       settings: value(settings),
@@ -1071,7 +1152,7 @@ export class AppStore {
       ingest: runs,
       addedFolders: value(addedFolders) ?? [],
       loading: false,
-      error: photos.status === 'rejected' ? messageOf(photos.reason) : undefined,
+      error: overview.status === 'rejected' ? messageOf(overview.reason) : this.state.error,
     });
 
     const loadedSettings = value(settings);
@@ -1107,6 +1188,97 @@ export class AppStore {
     this.visibleCache = { ids: result.map((photo) => photo.id), filter, searchResult, sort };
     return result;
   };
+
+  /** Guards a folder or query load against a click that came while it was running. */
+  private photosRun = 0;
+
+  /** Replace the loaded photos and the maps that index them. */
+  private replacePhotos(photos: Photo[]): void {
+    this.photoById.clear();
+    this.photoPositions.clear();
+    photos.forEach((photo, index) => {
+      this.photoById.set(photo.id, photo);
+      this.photoPositions.set(photo.id, index);
+    });
+    this.visibleCache = undefined;
+    this.set({ photos });
+  }
+
+  /** Load one Library folder (or "All photos" up to a bounded page on a large index). */
+  private async loadLibraryFolder(folder: string | undefined): Promise<void> {
+    if (!this.state.lazy) {
+      this.setLibrary({ folder });
+      return;
+    }
+    const run = ++this.photosRun;
+    try {
+      const photos =
+        folder === undefined
+          ? (
+              await this.bridge.invoke('photos:query', {
+                filter: queryFilter(this.state.filter),
+                sort: this.state.sort === 'capture-time' ? 'capture-time' : 'filename',
+                limit: LAZY_ALL_PHOTOS,
+              })
+            ).photos
+          : await this.bridge.invoke('photos:list', { folder });
+      if (run !== this.photosRun) return;
+      this.setLibrary({ folder });
+      this.replacePhotos(photos);
+      this.ensureSelectionVisible();
+    } catch (cause) {
+      if (run !== this.photosRun) return;
+      this.toast('error', `Could not open the folder: ${messageOf(cause)}`);
+    }
+  }
+
+  /**
+   * A page of Develop's film strip from the jobs process. A large index never puts every
+   * photo in memory: the page follows the filters, the sort and the open photo.
+   */
+  private async loadDevelopPhotos(): Promise<void> {
+    if (!this.state.lazy) return;
+    const run = ++this.photosRun;
+    try {
+      const result = await this.bridge.invoke('photos:query', {
+        filter: queryFilter(this.state.filter),
+        sort: this.state.sort === 'capture-time' ? 'capture-time' : 'filename',
+        limit: LAZY_DEVELOP_WINDOW,
+        ...(this.state.selectedId === undefined ? {} : { anchorId: this.state.selectedId }),
+      });
+      if (run !== this.photosRun) return;
+      this.replacePhotos(result.photos);
+      this.ensureSelectionVisible();
+    } catch (cause) {
+      if (run !== this.photosRun) return;
+      this.toast('error', `Could not load the film strip: ${messageOf(cause)}`);
+    }
+  }
+
+  /** Counts in the sidebar can change without the open folder's photos changing. */
+  private async refreshFolders(): Promise<void> {
+    try {
+      const overview = await this.bridge.invoke('photos:folders');
+      const removedFolder =
+        this.state.library.folder !== undefined &&
+        !overview.folders.some((folder) => folder.path === this.state.library.folder);
+      this.set({ folders: overview.folders, totalPhotos: overview.total });
+      if (removedFolder) await this.loadLibraryFolder(undefined);
+    } catch {
+      // The next photo event or folder click asks again.
+    }
+  }
+
+  /** Make sure a photo loaded as a summary has its versions and facts before it is opened. */
+  private async ensureFullPhoto(photoId: PhotoId): Promise<void> {
+    const photo = this.photoById.get(photoId);
+    if (!this.state.lazy || !photo || photo.versions.length > 0) return;
+    try {
+      this.upsertPhoto(await this.bridge.invoke('photos:get', { photoId }));
+    } catch {
+      // Gone meanwhile: the selection rule will move on.
+    }
+  }
 
   private photoAffectsVisible(previous: Photo | undefined, next: Photo): boolean {
     if (!previous) return true;
@@ -1178,14 +1350,44 @@ export class AppStore {
     this.photoFlush = null;
   }
 
+  /** Whether a photo event belongs to the photos the renderer is holding now. */
+  private photoInScope(photo: Photo): boolean {
+    if (!this.state.lazy) return true;
+    if (this.photoById.has(photo.id)) return true;
+    if (this.state.module === 'library') {
+      return (
+        this.state.library.folder === undefined ||
+        folderOf(photo.path) === this.state.library.folder
+      );
+    }
+    return this.state.photos.length < LAZY_DEVELOP_WINDOW;
+  }
+
+  /** Folder counts changed even when the open folder's photos did not. */
+  private refreshFoldersSoon(): void {
+    if (!this.state.lazy) return;
+    clearTimeout(this.foldersTimer);
+    this.foldersTimer = setTimeout(() => void this.refreshFolders(), 500);
+  }
+
   private flushQueuedPhotos(): void {
     if (this.pendingPhotos.size === 0) return;
     const queued = [...this.pendingPhotos.values()];
     this.pendingPhotos.clear();
     const photos = [...this.state.photos];
     const before = photos.length;
-    for (const photo of queued) this.applyPhoto(photo, photos);
-    this.set({ photos });
+    let skipped = false;
+    for (const photo of queued) {
+      if (!this.photoInScope(photo)) {
+        skipped = true;
+        continue;
+      }
+      this.applyPhoto(photo, photos);
+    }
+    if (photos.length !== before || queued.some((photo) => this.photoById.has(photo.id))) {
+      this.set({ photos });
+    }
+    if (skipped || photos.length !== before) this.refreshFoldersSoon();
     // A new photo is not in the last search's answer.
     if (photos.length > before) this.refreshSearch(SEARCH_REFRESH_MS);
     // A photo the backend calls stale (its default profile changed) is drawn again when it is shown.
@@ -1252,9 +1454,11 @@ export class AppStore {
       this.editedPreviews?.setSelected(undefined);
       return;
     }
-    void this.loadMetadata(selectedId);
-    void this.loadParams(selectedId);
-    this.editedPreviews?.setSelected(selectedId);
+    void this.ensureFullPhoto(selectedId).then(() => {
+      void this.loadMetadata(selectedId);
+      void this.loadParams(selectedId);
+      this.editedPreviews?.setSelected(selectedId);
+    });
   }
 
   /** Snapshot a photo the user leaves when it has edits, so Previous can reuse them. */
@@ -1368,6 +1572,10 @@ export class AppStore {
       this.set({ filter, searchResult: undefined });
     }
     this.ensureSelectionVisible();
+    if (this.state.lazy) {
+      if (this.state.module === 'develop') void this.loadDevelopPhotos();
+      else if (this.state.library.folder === undefined) void this.loadLibraryFolder(undefined);
+    }
   }
 
   readonly setTagFilter = (tag: TagFilter): void => this.applyFilter({ tag });
@@ -1417,6 +1625,7 @@ export class AppStore {
           searchResult: { query, ids: new Set(result.photoIds), pending: result.pending },
         });
         this.ensureSelectionVisible();
+        if (this.state.lazy && this.state.module === 'develop') void this.loadDevelopPhotos();
         // Captions still being read: ask again, so the list catches up without a new keystroke.
         if (result.pending > 0) this.refreshSearch(SEARCH_POLL_MS);
       })
@@ -1437,6 +1646,9 @@ export class AppStore {
 
   readonly setSort = (sort: SortMode): void => {
     this.set({ sort });
+    if (!this.state.lazy) return;
+    if (this.state.module === 'develop') void this.loadDevelopPhotos();
+    else if (this.state.library.folder === undefined) void this.loadLibraryFolder(undefined);
   };
 
   /** Optimistically apply a label change to the photo objects in the store. */
@@ -1556,9 +1768,17 @@ export class AppStore {
       if (this.state.retouch) void this.requestExitRetouch();
     }
     this.set({ module });
-    if (module === 'develop' && !this.state.selectedId) {
-      const first = this.getVisiblePhotos()[0];
-      if (first) this.select(first.id);
+    if (module === 'develop') {
+      if (this.state.lazy) void this.loadDevelopPhotos();
+      if (!this.state.selectedId) {
+        const first = this.getVisiblePhotos()[0];
+        if (first) this.select(first.id);
+      }
+    } else if (module === 'library' && this.state.lazy) {
+      const folder =
+        this.state.library.folder ??
+        this.state.folders.find((candidate) => candidate.count > 0)?.path;
+      void this.loadLibraryFolder(folder);
     }
   };
 
@@ -1582,7 +1802,8 @@ export class AppStore {
   readonly getLibraryPhotos = (): Photo[] => selectLibraryPhotos(this.state);
 
   readonly setLibraryFolder = (folder: string | undefined): void => {
-    this.setLibrary({ folder });
+    if (folder === this.state.library.folder && !this.state.lazy) return;
+    void this.loadLibraryFolder(folder);
   };
 
   /**
@@ -1656,7 +1877,15 @@ export class AppStore {
     root: boolean,
   ): void => {
     if (this.state.folderRemove?.busy) return;
-    this.set({ folderRemove: { path, name, count, root, busy: false } });
+    this.set({
+      folderRemove: { path, name, count, root, subfolders: root, busy: false },
+    });
+  };
+
+  readonly setFolderRemoveSubfolders = (subfolders: boolean): void => {
+    const request = this.state.folderRemove;
+    if (!request || request.busy) return;
+    this.set({ folderRemove: { ...request, subfolders } });
   };
 
   readonly cancelRemoveLibraryFolder = (): void => {
@@ -1674,7 +1903,7 @@ export class AppStore {
     if (!request || request.busy) return;
     const photoIds = this.state.photos
       .filter((photo) =>
-        request.root
+        request.subfolders
           ? folderIsAtOrBelow(request.path, folderOf(photo.path))
           : folderOf(photo.path) === request.path,
       )
@@ -1683,7 +1912,10 @@ export class AppStore {
     this.set({ folderRemove: { ...request, busy: true } });
     let result: DeletePhotosResult;
     try {
-      result = await this.bridge.invoke('photos:removeFolder', { path: request.path });
+      result = await this.bridge.invoke('photos:removeFolder', {
+        path: request.path,
+        subfolders: request.subfolders,
+      });
     } catch (cause) {
       for (const id of photoIds) this.removing.delete(id);
       this.set({ folderRemove: undefined });
@@ -1698,8 +1930,17 @@ export class AppStore {
     this.removePhotos(result.deleted);
     this.set({ folderRemove: undefined });
     await this.refreshAddedFolders();
-    // The chosen folder row is gone; showing "All photos" is less surprising than an empty grid.
-    if (this.state.library.folder === request.path) this.setLibrary({ folder: undefined });
+    // The chosen folder row is gone: open the first folder that is left, or "All photos".
+    const openGone =
+      this.state.library.folder === request.path ||
+      (request.subfolders && folderIsAtOrBelow(request.path, this.state.library.folder ?? ''));
+    await this.refreshFolders();
+    if (openGone) {
+      const next = this.state.lazy
+        ? (this.state.folders.find((folder) => folder.count > 0)?.path ?? undefined)
+        : undefined;
+      await this.loadLibraryFolder(next);
+    }
     if (result.failed.length > 0) {
       const messages = result.failed.map((failure) => failure.message).join('; ');
       this.toast(
@@ -4185,6 +4426,26 @@ export class AppStore {
     this.set({ settings });
   };
 
+  /** Read how much the disposable thumbnail and preview caches hold now. */
+  readonly loadCacheStats = async (): Promise<CacheStats> => {
+    const cacheStats = await this.bridge.invoke('cache:stats');
+    this.set({ cacheStats });
+    return cacheStats;
+  };
+
+  /** The one cache size limit, stored on this computer and evicted down to at once. */
+  readonly setCacheLimit = async (limitBytes: number): Promise<CacheStats> => {
+    const cacheStats = await this.bridge.invoke('cache:setLimit', { limitBytes });
+    this.set({ cacheStats });
+    return cacheStats;
+  };
+
+  readonly clearCache = async (): Promise<CacheStats> => {
+    const cacheStats = await this.bridge.invoke('cache:clear');
+    this.set({ cacheStats });
+    return cacheStats;
+  };
+
   // ------------------------------------------------------------ settings folder
 
   readonly loadSettingsFolder = async (): Promise<SettingsFolderInfo> =>
@@ -4851,6 +5112,7 @@ export class AppStore {
         )
       : undefined;
 
+    this.refreshFoldersSoon();
     const photos = this.state.photos.filter((photo) => !gone.has(photo.id));
     for (const id of gone) this.photoById.delete(id);
     this.photoPositions.clear();

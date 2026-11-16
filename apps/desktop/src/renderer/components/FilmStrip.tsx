@@ -142,6 +142,7 @@ export function FilmStrip({ photos }: { photos: Photo[] }) {
               <img
                 src={appUrl.thumb(photo.id, photo.previewRevision)}
                 alt={photo.fileName}
+                decoding="async"
                 draggable={false}
               />
               <PhotoBadges
