@@ -35,10 +35,21 @@ body {
   display: none !important;
 }
 
-/* A panel drag keeps its cursor and starts no text selection anywhere. */
-body.panel-resizing,
-body.panel-resizing * {
+/* A panel drag keeps its axis's cursor and starts no text selection anywhere. */
+body.panel-resizing-x,
+body.panel-resizing-x * {
   cursor: col-resize !important;
+}
+
+body.panel-resizing-y,
+body.panel-resizing-y * {
+  cursor: row-resize !important;
+}
+
+body.panel-resizing-x,
+body.panel-resizing-x *,
+body.panel-resizing-y,
+body.panel-resizing-y * {
   user-select: none !important;
 }
 

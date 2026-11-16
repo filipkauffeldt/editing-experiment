@@ -62,7 +62,7 @@ export function DevelopView() {
       style={{
         gridTemplateColumns: hidden
           ? '0px minmax(0, 1fr) 0px'
-          : `${metadata.width}px minmax(0, 1fr) ${develop.width}px`,
+          : `${metadata.size}px minmax(0, 1fr) ${develop.size}px`,
       }}
       data-panels={hidden ? 'hidden' : 'shown'}
     >

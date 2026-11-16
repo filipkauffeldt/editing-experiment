@@ -389,11 +389,19 @@ export interface DetectFacesArgs {
 /** Ingest options that are not tied to the set of sources. */
 export type IngestSettings = Omit<IngestConfig, 'sources'>;
 
-/** The resizable side panels, keyed by module and side. */
+/** The resizable panels, keyed by module and side, plus the film strip. */
 export type PanelWidthId =
-  'library-sidebar' | 'library-inspector' | 'develop-metadata' | 'develop-panel' | 'ingest-sources';
+  | 'library-sidebar'
+  | 'library-inspector'
+  | 'develop-metadata'
+  | 'develop-panel'
+  | 'ingest-sources'
+  | 'film-strip';
 
-/** User-chosen panel widths in CSS pixels; an absent key uses the panel's default. */
+/**
+ * User-chosen panel sizes in CSS pixels: a width for the side panels, a height for the film
+ * strip. An absent key uses the panel's default.
+ */
 export type PanelWidths = Partial<Record<PanelWidthId, number>>;
 
 /** Persisted user settings. */

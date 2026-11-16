@@ -59,7 +59,7 @@ export function LibraryView() {
       style={{
         gridTemplateColumns: hidden
           ? '0px minmax(0, 1fr) 0px'
-          : `${inspector.width}px minmax(0, 1fr) ${sidebar.width}px`,
+          : `${inspector.size}px minmax(0, 1fr) ${sidebar.size}px`,
       }}
       data-panels={hidden ? 'hidden' : 'shown'}
     >
