@@ -72,6 +72,11 @@
   border-bottom: 1px solid var(--line);
 }
 
+/* The field written on every photo gets real height, as in Develop. */
+textarea.caption {
+  min-height: 112px;
+}
+
 .fieldHeader {
   display: flex;
   align-items: center;

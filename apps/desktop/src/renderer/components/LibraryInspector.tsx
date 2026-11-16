@@ -4,10 +4,10 @@ import { modKeyLabel } from '../platform';
 import { sharedFields, summarizeSelection, type Shared } from '../selection-summary';
 import { activePhoto } from '../store';
 import { useAppState, useAppStore } from '../store-context';
+import { CaptionArea } from './CaptionArea';
 import { KeywordsEditor } from './MetadataPanel';
 import { RatingStars } from './PhotoOverlays';
 import { Button } from './ui/Button';
-import { TextArea } from './ui/Field';
 import styles from './LibraryInspector.module.css';
 
 /** Past this many photos the fields are not read just to compare them; the batch dialog still works. */
@@ -58,7 +58,6 @@ function FieldHeader({
 }
 
 function SinglePhoto({ photo }: { photo: Photo }) {
-  const store = useAppStore();
   const state = useAppState();
   const fields = state.metadata[photo.id] ?? {};
   const camera = photo.camera;
@@ -84,22 +83,18 @@ function SinglePhoto({ photo }: { photo: Photo }) {
           Differs from the ingest template
         </p>
       )}
-      <div className={styles.field}>
+      <label className={styles.field}>
         <FieldHeader label="Caption" />
-        <TextArea
-          aria-label="Caption"
-          placeholder="No caption"
+        <CaptionArea
+          photoId={photo.id}
           value={fields.caption ?? ''}
-          onChange={(event) => store.updateMetadataField(photo.id, 'caption', event.target.value)}
+          placeholder="No caption"
+          className={styles.caption}
         />
-      </div>
+      </label>
       <div className={styles.field}>
         <FieldHeader label="Keywords" />
-        <KeywordsEditor
-          photoId={photo.id}
-          keywords={fields.keywords ?? []}
-          shortcutTarget={false}
-        />
+        <KeywordsEditor photoId={photo.id} keywords={fields.keywords ?? []} />
       </div>
     </>
   );
@@ -196,9 +191,9 @@ function SeveralPhotos({ photos }: { photos: Photo[] }) {
 }
 
 /**
- * Right side of the Library. One selected photo: its file facts, caption and keywords, editable.
- * Several: what they share, `Differs` where they do not, and a way into the batch caption dialog,
- * which is how several photos are edited.
+ * Left side of the Library, where Develop has its metadata. One selected photo: its file facts,
+ * caption and keywords, editable. Several: what they share, `Differs` where they do not, and a way
+ * into the batch caption dialog, which is how several photos are edited.
  */
 export function LibraryInspector({ className }: { className?: string }) {
   const state = useAppState();
