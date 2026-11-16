@@ -198,17 +198,19 @@ export async function createBackend(options: BackendOptions): Promise<Backend> {
     cacheDir: layout.cacheDir,
     isExported: (path) => exportedFiles.has(path),
     // Ingest's per-file work after its copy, with no metadata template and no develop preset.
-    onFileIngested: createOnFileIngested(
-      {
-        photos,
-        previews,
-        metadata,
-        edits,
-        exiftool,
-        report: reportJobError,
-      },
-      {},
-    ),
+    createIngestHook: (hooks) =>
+      createOnFileIngested(
+        {
+          photos,
+          previews,
+          metadata,
+          edits,
+          exiftool,
+          report: reportJobError,
+          ...hooks,
+        },
+        {},
+      ),
     emit: emitJob,
     warn: (message) => console.warn(message),
   });

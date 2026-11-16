@@ -10,7 +10,7 @@ import {
   type SourceId,
 } from '@ee/contracts';
 import type { CardScanner, IngestedFileInfo, OnFileIngested } from '@ee/ingest';
-import { isRawPath, sidecarPathFor } from '@ee/metadata';
+import { fileExists, isRawPath, sidecarPathFor } from '@ee/metadata';
 import { randomUUID } from 'node:crypto';
 import { constants } from 'node:fs';
 import { access, realpath, stat } from 'node:fs/promises';
@@ -22,6 +22,18 @@ import type { SettingsStore } from './settings-store';
 
 /** Source id of photos in folders the user added in place. */
 export const IN_PLACE_SOURCE: SourceId = asSourceId('in-place');
+
+/**
+ * Files of one added folder that are read, rendered and indexed at the same time. The per-file
+ * work is I/O and a native preview extraction; four keeps a large folder moving without loading
+ * dozens of raws at once. `photos:added` is still emitted in file-name order by the run's gates.
+ */
+export const FOLDER_INDEX_CONCURRENCY = 4;
+
+interface IndexHooks {
+  beforeIndex(info: IngestedFileInfo): Promise<void>;
+  afterIndex(info: IngestedFileInfo): void;
+}
 
 const messageOf = (error: unknown): string =>
   error instanceof Error ? error.message : String(error);
@@ -45,6 +57,26 @@ async function pathVariants(path: string): Promise<string[]> {
   return [...new Set([written, real])];
 }
 
+interface Gate {
+  wait: Promise<void>;
+  release(): void;
+}
+
+/** One turn per file, each waiting for the one before it. `release` is safe to call twice. */
+function orderGates(count: number): Gate[] {
+  const gates: Gate[] = [];
+  let previous = Promise.resolve();
+  for (let index = 0; index < count; index += 1) {
+    let release = (): void => {};
+    const promise = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    gates.push({ wait: previous, release });
+    previous = promise;
+  }
+  return gates;
+}
+
 export interface FolderImportDeps {
   photos: PhotoLibrary;
   /** The configured sources, read fresh for every validation. */
@@ -56,12 +88,13 @@ export interface FolderImportDeps {
   /** Files the app exported; they are not photos. */
   isExported(path: string): boolean;
   /** The per-file work after ingest's copy, with no metadata template or develop preset. */
-  onFileIngested: OnFileIngested;
+  createIngestHook(hooks: IndexHooks): OnFileIngested;
   emit(event: JobEvent): void;
   warn(message: string): void;
 }
 
 interface Run {
+  info: FolderImportInfo;
   controller: AbortController;
   done: Promise<void>;
 }
@@ -82,6 +115,7 @@ export class FolderImportService {
 
   async addFolder(path: string): Promise<FolderImportInfo> {
     const root = await this.availableFolder(path);
+    this.assertNoRun(root);
     await this.assertSafe(root);
     this.deps.photos.addAddedFolder(root);
     return this.start(root, 'add');
@@ -92,6 +126,7 @@ export class FolderImportService {
     if (root === undefined) {
       throw new IpcError('invalid_argument', `${path} is not a folder added to the Library`);
     }
+    this.assertNoRun(root);
     await this.availableFolder(root);
     await this.assertSafe(root);
     return this.start(root, 'rescan');
@@ -114,6 +149,18 @@ export class FolderImportService {
   private addedRoot(path: string): string | undefined {
     const wanted = normalizeExportPath(path);
     return this.deps.photos.addedFolders().find((folder) => normalizeExportPath(folder) === wanted);
+  }
+
+  private assertNoRun(root: string): void {
+    const wanted = normalizeExportPath(root);
+    const active = [...this.runs.values()].find(
+      (run) => normalizeExportPath(run.info.root) === wanted,
+    );
+    if (active === undefined) return;
+    throw new IpcError(
+      'invalid_argument',
+      `The folder ${root} is already being ${active.info.mode === 'add' ? 'added' : 'rescanned'}. Stop that run first.`,
+    );
   }
 
   /** The folder's real path, or a clear error. Never creates anything. */
@@ -207,6 +254,7 @@ export class FolderImportService {
   }
 
   private start(root: string, mode: FolderImportMode): FolderImportInfo {
+    this.assertNoRun(root);
     const info: FolderImportInfo = {
       jobId: asJobId(randomUUID()),
       root,
@@ -228,7 +276,7 @@ export class FolderImportService {
       .finally(() => {
         this.runs.delete(info.jobId);
       });
-    this.runs.set(info.jobId, { controller, done });
+    this.runs.set(info.jobId, { info, controller, done });
     this.emitState(info);
     return { ...info };
   }
@@ -247,46 +295,82 @@ export class FolderImportService {
     info.filesTotal = files.length;
     this.emitProgress(info);
 
-    let seq = 0;
-    for (const path of files) {
-      if (signal.aborted) break;
-      info.currentFile = basename(path);
-      this.emitProgress(info);
-      try {
-        // A file the process cannot read is skipped, not turned into a Library entry.
-        await access(path, constants.R_OK);
-        const { size, mtimeMs } = await stat(path);
-        const raw = isRawPath(path);
-        const ingested: IngestedFileInfo = {
-          photoId: asPhotoId(randomUUID()),
-          jobId: info.jobId,
-          sourceId: IN_PLACE_SOURCE,
-          sourceKind: 'folder',
-          sourceName: basename(info.root),
-          sourcePath: path,
-          sourceFileName: basename(path),
-          path,
-          fileName: basename(path),
-          sidecarPath: raw ? sidecarPathFor(path) : path,
-          size,
-          mtimeMs,
-          sha256: '',
-          seq: (seq += 1),
-          inPlace: true,
-        };
-        await this.deps.onFileIngested(ingested);
-        info.filesImported += 1;
-      } catch (error) {
-        info.filesSkipped += 1;
-        this.deps.warn(`${path}: ${messageOf(error)}`);
+    // Each file has a turn to write its index row (and announce `photos:added`). Reads and
+    // previews run concurrently; the adds stay in file-name order.
+    const gates = orderGates(files.length);
+    const ingest = this.deps.createIngestHook({
+      beforeIndex: async (ingested) => gates[ingested.seq - 1]?.wait,
+      afterIndex: (ingested) => gates[ingested.seq - 1]?.release(),
+    });
+
+    let next = 0;
+    const worker = async (): Promise<void> => {
+      for (;;) {
+        const index = next;
+        next += 1;
+        if (index >= files.length || signal.aborted) return;
+        await this.indexFile(info, files[index] as string, index + 1, ingest, gates[index]!);
       }
-      info.filesDone += 1;
-      this.emitProgress(info);
-    }
+    };
+    await Promise.all(
+      Array.from({ length: Math.min(FOLDER_INDEX_CONCURRENCY, files.length) }, worker),
+    );
 
     info.currentFile = undefined;
     info.state = signal.aborted ? 'stopped' : 'finished';
     this.emitState(info);
+  }
+
+  private async indexFile(
+    info: FolderImportInfo,
+    path: string,
+    seq: number,
+    ingest: OnFileIngested,
+    gate: { release(): void },
+  ): Promise<void> {
+    info.currentFile = basename(path);
+    this.emitProgress(info);
+    try {
+      // A file the process cannot read is skipped, not turned into a Library entry.
+      await access(path, constants.R_OK);
+      const { size, mtimeMs } = await stat(path);
+      const raw = isRawPath(path);
+      // A raw with no sidecar has no edits to read, and no file is invented for it. An in-place
+      // JPEG carries its metadata itself.
+      const metadataPath = raw ? sidecarPathFor(path) : path;
+      const sidecarPath = raw
+        ? (await fileExists(metadataPath))
+          ? metadataPath
+          : undefined
+        : path;
+      const ingested: IngestedFileInfo = {
+        photoId: asPhotoId(randomUUID()),
+        jobId: info.jobId,
+        sourceId: IN_PLACE_SOURCE,
+        sourceKind: 'folder',
+        sourceName: basename(info.root),
+        sourcePath: path,
+        sourceFileName: basename(path),
+        path,
+        fileName: basename(path),
+        ...(sidecarPath === undefined ? {} : { sidecarPath }),
+        size,
+        mtimeMs,
+        sha256: '',
+        seq,
+        inPlace: true,
+      };
+      await ingest(ingested);
+      info.filesImported += 1;
+    } catch (error) {
+      info.filesSkipped += 1;
+      this.deps.warn(`${path}: ${messageOf(error)}`);
+    } finally {
+      // A skipped file must not hold back the files after it.
+      gate.release();
+      info.filesDone += 1;
+      this.emitProgress(info);
+    }
   }
 
   private emitProgress(info: FolderImportInfo): void {
