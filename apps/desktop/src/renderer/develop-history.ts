@@ -108,6 +108,12 @@ export class DevelopHistory {
     this.typedGesture = undefined;
   }
 
+  /** End every open gesture: the photo changed, the window lost focus, or a drag was cancelled. */
+  endAllGestures(): void {
+    this.pointerGesture = undefined;
+    this.typedGesture = undefined;
+  }
+
   private activeGesture(): number | undefined {
     return this.typedGesture ?? this.pointerGesture;
   }
@@ -197,6 +203,19 @@ export class DevelopHistory {
 
   redoDepth(photoId: PhotoId): number {
     return this.histories.get(photoId)?.redo.length ?? 0;
+  }
+
+  /**
+   * The settings the history expects the sidecar to hold now. With steps left it is the newest
+   * `after`; with all steps undone it is the `before` of the last undone step. Undefined when the
+   * photo has no history.
+   */
+  current(photoId: PhotoId): DevelopSettingsSnapshot | undefined {
+    const history = this.histories.get(photoId);
+    const step = history?.steps.at(-1);
+    if (step) return cloneDevelopSnapshot(step.after);
+    const undone = history?.redo.at(-1);
+    return undone ? cloneDevelopSnapshot(undone.before) : undefined;
   }
 
   /** Drop what is kept for a photo: it was deleted or removed from the Library. */

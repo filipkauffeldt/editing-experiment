@@ -35,6 +35,32 @@ describe('develop history', () => {
     expect(history.canRedo(photo)).toBe(false);
   });
 
+  it('knows the settings it expects the sidecar to hold, also after an undo', () => {
+    const history = new DevelopHistory();
+    expect(history.current(photo)).toBeUndefined();
+
+    history.record(photo, settings({}), settings({ Exposure2012: 1 }));
+    expect(history.current(photo)).toEqual(settings({ Exposure2012: 1 }));
+    history.record(photo, settings({ Exposure2012: 1 }), settings({ Exposure2012: 2 }));
+    expect(history.current(photo)).toEqual(settings({ Exposure2012: 2 }));
+    history.undo(photo);
+    expect(history.current(photo)).toEqual(settings({ Exposure2012: 1 }));
+    history.undo(photo);
+    expect(history.current(photo)).toEqual(settings({}));
+    history.redo(photo);
+    expect(history.current(photo)).toEqual(settings({ Exposure2012: 1 }));
+  });
+
+  it('ends both open gestures on request', () => {
+    const history = new DevelopHistory();
+    history.beginGesture();
+    history.beginTypedEdit();
+    history.record(photo, settings({}), settings({ Exposure2012: 1 }));
+    history.endAllGestures();
+    history.record(photo, settings({ Exposure2012: 1 }), settings({ Exposure2012: 2 }));
+    expect(history.undoDepth(photo)).toBe(2);
+  });
+
   it('does not record a change that changes nothing', () => {
     const history = new DevelopHistory();
     const before = settings({ Exposure2012: 1 });

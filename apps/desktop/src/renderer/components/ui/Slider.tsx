@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { clampNumber, parseNumberDraft } from '../../number-draft';
 import styles from './Slider.module.css';
 
@@ -92,6 +92,13 @@ export function Slider({
   const appliedInEdit = useRef(false);
   // Escape leaves through blur, which must not commit the discarded draft.
   const skipBlurCommit = useRef(false);
+  // An unmounted slider (the photo changed, the panel closed) may not get a blur event.
+  useEffect(
+    () => () => {
+      if (focused.current !== null) onEditEnd?.();
+    },
+    [onEditEnd],
+  );
 
   const activeDraft = draft !== null && draft.source === sourceKey ? draft.text : null;
   const neutralAt = percent(neutral ?? (min + max) / 2, min, max);

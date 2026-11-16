@@ -148,6 +148,9 @@ export function useKeyboardShortcuts(store: AppStore): void {
       const command = event.ctrlKey || event.metaKey;
 
       if (event.key === 'Escape') {
+        // Escape abandons a drag or a typed value, so it must close their history gesture.
+        pointerDown = false;
+        store.endDevelopGestures();
         if (state.photoMenu) {
           event.preventDefault();
           store.closePhotoMenu();
@@ -575,7 +578,9 @@ export function useKeyboardShortcuts(store: AppStore): void {
     };
     const onBlur = (): void => {
       setPanHeld(false);
-      endPointerGesture();
+      pointerDown = false;
+      // The pointer up will not arrive any more, and a focused field may not blur either.
+      store.endDevelopGestures();
     };
     window.addEventListener('keydown', onKeyDown);
     window.addEventListener('keyup', onKeyUp);
@@ -586,6 +591,7 @@ export function useKeyboardShortcuts(store: AppStore): void {
     window.addEventListener('pointercancel', releaseRangeFocus, true);
     window.addEventListener('pointerup', endPointerGesture, true);
     window.addEventListener('pointercancel', endPointerGesture, true);
+    window.addEventListener('lostpointercapture', endPointerGesture, true);
     window.addEventListener('click', releaseToolbarFocus);
     return () => {
       window.removeEventListener('keydown', onKeyDown);
@@ -596,6 +602,7 @@ export function useKeyboardShortcuts(store: AppStore): void {
       window.removeEventListener('pointercancel', releaseRangeFocus, true);
       window.removeEventListener('pointerup', endPointerGesture, true);
       window.removeEventListener('pointercancel', endPointerGesture, true);
+      window.removeEventListener('lostpointercapture', endPointerGesture, true);
       window.removeEventListener('click', releaseToolbarFocus);
       setPanHeld(false);
     };

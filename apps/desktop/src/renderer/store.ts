@@ -3,6 +3,7 @@ import type { InstantReplacement } from '@ee/metadata/code-replacement-tokens';
 import {
   DevelopHistory,
   cloneDevelopSnapshot,
+  sameDevelopSnapshot,
   type DevelopSettingsSnapshot,
 } from './develop-history';
 import {
@@ -759,6 +760,8 @@ export class AppStore {
   private readonly editedPhotoIds = new Set<PhotoId>();
   /** Per-photo undo and redo of develop settings, for this session only. */
   private readonly developHistory = new DevelopHistory();
+  /** Batch settings calls (Paste, Sync, Previous) still running, by affected photo. */
+  private readonly pendingDevelopApplies = new Map<PhotoId, Promise<void>>();
   private readonly photoById = new Map<PhotoId, Photo>();
   private readonly photoPositions = new Map<PhotoId, number>();
   private readonly pendingPhotos = new Map<PhotoId, Photo>();
@@ -1159,6 +1162,8 @@ export class AppStore {
   }
 
   private applySelection(photoId: PhotoId | undefined, mode: SelectionMode = 'replace'): void {
+    // A sweep or typed value belongs to the photo it started on, never to the next one.
+    this.endDevelopGestures();
     if (
       photoId === this.state.selectedId &&
       mode === 'replace' &&
@@ -1509,6 +1514,7 @@ export class AppStore {
    */
   readonly setModule = (module: AppModule): void => {
     if (module === this.state.module) return;
+    this.endDevelopGestures();
     if (this.state.module === 'develop') {
       if (this.state.crop) this.applyCrop();
       if (this.state.retouch) void this.requestExitRetouch();
@@ -2661,6 +2667,14 @@ export class AppStore {
       if ((this.paramEditVersion.get(key) ?? 0) !== startedAt && this.state.editParams[key]) {
         return;
       }
+      const loaded = this.snapshotDevelop(photoId, params);
+      const expected = this.developHistory.current(photoId);
+      if (expected && !sameDevelopSnapshot(expected, loaded)) {
+        // A local write, or a batch change, that has not reached the sidecar yet.
+        if (this.hasPendingDevelopSave(key) || this.pendingDevelopApplies.has(photoId)) return;
+        // The sidecar was changed outside the history: its old steps no longer describe it.
+        this.developHistory.forget(photoId);
+      }
       this.publishEditParams({ ...this.state.editParams, [key]: params });
       this.set({ editDefaults: { ...this.state.editDefaults, [photoId]: defaults } });
     } catch (cause) {
@@ -2859,6 +2873,9 @@ export class AppStore {
 
   readonly endDevelopTypedEdit = (): void => this.developHistory.endTypedEdit();
 
+  /** End any open develop gesture, for a photo change, a lost pointer or a cancelled drag. */
+  readonly endDevelopGestures = (): void => this.developHistory.endAllGestures();
+
   /** Whether the open photo (or `photoId`) has a develop change to undo. */
   readonly canUndoDevelop = (photoId?: PhotoId): boolean => {
     const id = photoId ?? this.state.selectedId;
@@ -2869,6 +2886,14 @@ export class AppStore {
     const id = photoId ?? this.state.selectedId;
     return id !== undefined && this.developHistory.canRedo(id);
   };
+
+  private hasPendingDevelopSave(key: string): boolean {
+    const entry = this.developThrottles.get(key);
+    return (
+      this.paramWrites.has(key) ||
+      (entry !== undefined && (entry.pending !== undefined || entry.timer !== null))
+    );
+  }
 
   private cancelDevelopSave(photoId: PhotoId, versionId: VersionId | undefined): void {
     const key = editParamsKey(photoId, versionId);
@@ -2885,24 +2910,54 @@ export class AppStore {
     this.writeDevelopSnapshot(photoId, versionId, snapshot, { history: false });
   }
 
+  private performUndo(photoId: PhotoId): boolean {
+    const snapshot = this.developHistory.undo(photoId);
+    if (!snapshot) return false;
+    this.restoreDevelopSnapshot(photoId, snapshot);
+    return true;
+  }
+
+  private performRedo(photoId: PhotoId): boolean {
+    const snapshot = this.developHistory.redo(photoId);
+    if (!snapshot) return false;
+    this.restoreDevelopSnapshot(photoId, snapshot);
+    return true;
+  }
+
+  /**
+   * Run an undo or redo once every Paste, Sync or Previous that touches this photo has settled.
+   * A step is recorded only after the backend answered, so undoing before that would restore an
+   * older step and then be overwritten by the batch result.
+   */
+  private whenDevelopApplySettles(photoId: PhotoId, action: () => boolean): void {
+    const pending = this.pendingDevelopApplies.get(photoId);
+    if (!pending) {
+      action();
+      return;
+    }
+    void pending.then(() => this.whenDevelopApplySettles(photoId, action));
+  }
+
   /** Undo the last develop change of the open photo; returns whether there was one. */
   readonly undoDevelop = (): boolean => {
     const photo = activePhoto(this.state);
     if (!photo) return false;
-    const snapshot = this.developHistory.undo(photo.id);
-    if (!snapshot) return false;
-    this.restoreDevelopSnapshot(photo.id, snapshot);
-    return true;
+    if (this.pendingDevelopApplies.has(photo.id)) {
+      this.whenDevelopApplySettles(photo.id, () => this.performUndo(photo.id));
+      return true;
+    }
+    return this.performUndo(photo.id);
   };
 
   /** Redo the change the last undo took back; returns whether there was one. */
   readonly redoDevelop = (): boolean => {
     const photo = activePhoto(this.state);
     if (!photo) return false;
-    const snapshot = this.developHistory.redo(photo.id);
-    if (!snapshot) return false;
-    this.restoreDevelopSnapshot(photo.id, snapshot);
-    return true;
+    if (this.pendingDevelopApplies.has(photo.id)) {
+      this.whenDevelopApplySettles(photo.id, () => this.performRedo(photo.id));
+      return true;
+    }
+    return this.performRedo(photo.id);
   };
 
   /** The develop params of any photo as saved or edited (without raw defaults), including edits that have not reached the sidecar yet. */
@@ -3393,6 +3448,11 @@ export class AppStore {
       this.toast('error', 'Select at least one photo');
       return 0;
     }
+    let settle!: () => void;
+    const settled = new Promise<void>((resolve) => {
+      settle = resolve;
+    });
+    for (const id of ids) this.pendingDevelopApplies.set(id, settled);
     try {
       await this.flushPendingEdits();
       // What each photo had before, for one undo step per affected photo.
@@ -3435,6 +3495,11 @@ export class AppStore {
     } catch (cause) {
       this.toast('error', `Could not ${verb.toLowerCase()} settings: ${messageOf(cause)}`);
       return 0;
+    } finally {
+      for (const id of ids) {
+        if (this.pendingDevelopApplies.get(id) === settled) this.pendingDevelopApplies.delete(id);
+      }
+      settle();
     }
   }
 

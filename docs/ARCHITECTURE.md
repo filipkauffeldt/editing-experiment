@@ -921,16 +921,23 @@ switched-off sections, so an undo restores a section switch with its settings.
   through `patchParams` or a dedicated wrapper). A backend read (`loadParams`) and a batch result
   from `develop:applySettings` are the only writes that do not come from a user change. The batch
   result records one step per affected photo. A new kind of change cannot publish parameters
-  without going through that method, because `AppStore.set` does not accept `editParams`.
+  without going through that method, because `AppStore.set` does not accept `editParams`. A
+  sidecar read records nothing. When it differs from the settings the history expects, the photo's
+  history is dropped, because those steps no longer describe the sidecar. A read that is behind a
+  local write still in flight is ignored instead.
 - **One gesture is one step.** A window `pointerdown`/`pointerup` pair in `renderer/keyboard.ts`
   opens and closes a gesture, so every change of a drag (slider, colour wheel, tone curve) coalesces
   into the step the first frame opened. A typed value opens a gesture on focus of the slider's field
   and closes it on blur, so its live applies and the commit are one step. Arrow-key steps call the
   `nudge*` writers: changes to the same parameter within 600 ms are one step, and a pause starts a
-  new one. A gesture never merges into the step before it.
+  new one. A gesture never merges into the step before it. Pointer cancel, lost pointer capture,
+  window blur, Escape and a photo or module change also close it, and a slider that unmounts closes
+  its typed edit.
 - **Undo and redo.** `Ctrl/Cmd+Z` undoes and `Shift+Ctrl/Cmd+Z` or `Ctrl/Cmd+Y` redoes in Develop, on
   the open photo only. A pending throttled save is dropped and the restored settings go through the
   normal save path, so the sidecar, the canvas and `EditedPreviewScheduler` follow as for any edit.
+  Undo and redo also wait for a Paste, Sync or Previous on that photo to settle, so its step exists
+  before the undo takes it back, and the sidecar never ends with the batch result afterwards.
   A new change clears the redo steps. In a text field the keys keep their native text undo. During
   Retouch, `Ctrl/Cmd+Z` keeps stepping through the session's areas. During Crop, undo and redo are
   ignored: the draft crop is saved as one step on Done, so its own gestures never mix with the
