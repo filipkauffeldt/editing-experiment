@@ -107,7 +107,23 @@ describe.skipIf(!haveDisplay)(
     const activeName = (): Promise<string | null> =>
       window.locator('[data-testid="film-strip"] [aria-selected="true"] img').getAttribute('alt');
     const selectPhoto = async (fileName: string): Promise<void> => {
-      await window.locator(`[data-testid="film-strip"] button[title^="${fileName}"]`).click();
+      const target = window.locator(`[data-testid="film-strip"] button[title^="${fileName}"]`);
+      // The strip is virtualised and opens on the newest page; scroll to the photo's end first.
+      if ((await target.count()) === 0) {
+        await window.locator('[data-testid="film-strip"]').evaluate((element) => {
+          element.scrollLeft = 0;
+          element.dispatchEvent(new Event('scroll', { bubbles: true }));
+        });
+        await window.waitForTimeout(200);
+      }
+      if ((await target.count()) === 0) {
+        await window.locator('[data-testid="film-strip"]').evaluate((element) => {
+          element.scrollLeft = element.scrollWidth;
+          element.dispatchEvent(new Event('scroll', { bubbles: true }));
+        });
+        await window.waitForTimeout(200);
+      }
+      await target.click();
       await window.waitForFunction(
         (name) =>
           document

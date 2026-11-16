@@ -579,19 +579,37 @@ The index is the source of truth for what the Library holds, not the renderer's 
 - An index up to 2,000 photos is loaded whole, as before. A larger one opens one folder:
   `photos:list { folder }` returns that folder's photos and the grid keeps filtering, sorting and
   selecting them locally. **All photos** loads the first 5,000 of the filtered, sorted list.
-- Develop on a large index gets a bounded page from `photos:query` (1,000 around the open photo),
-  with tag, rating, colour, status, camera, source and text search applied and the order decided
-  in the jobs process. Photo events from a running ingest or folder import still update what is
-  on screen; folder counts follow.
-- A photo loaded as part of a page is replaced by the full row (`photos:get`) when it is opened.
-- The grid stays virtualised by rows. Scroll updates are coalesced to one per animation frame, and
-  images decode asynchronously.
+- Develop on a large index is scoped to the Library folder (all photos when no folder is open)
+  and gets a bounded page from `photos:query`, with tag, rating, colour, status, camera, source and
+  text search applied and the order decided in the jobs process. Entering Develop from a folder
+  opens that folder's photos around the photo selected in the grid. With nothing selected on
+  startup it takes the last page of the order, so the strip shows the newest photos.
+- The page holds 1,000 photos around the open one. When the open photo comes within 100 photos of
+  an edge that has more behind it, the page moves around that photo. The selection, unsaved edits,
+  undo history and any crop or retouch session are not replaced. The arrow keys and Next & send
+  cross a page edge through `photos:query`; the strip keeps its mounted scroll position.
+- The list and page rows are full `Photo` objects. There is no summary row and no extra
+  `photos:get` when a photo is opened.
+- A selection can be larger than the loaded page. A page move keeps selected ids whose photos are
+  not loaded; labels, metadata, paste/sync settings, capture-time shift, export, delete and Remove
+  from Library act on every selected id. An export render asks for the full row of a photo outside
+  the page.
+- Filter counts, the camera menu and the status total come from `photos:facets`, one grouped
+  aggregate for the current scope with the other filters applied. The loaded page is only a
+  fallback while that answer is on its way.
+- Photo events from a running ingest or folder import update photos already in the page. New
+  photos are not appended; Develop asks the index again at most once a second, and waits while a
+  pointer drag or typed edit is open on the photo on screen. Folder counts follow.
+- The grid stays virtualised by rows. Scroll updates are coalesced to one per animation frame,
+  cells are memoised, and images decode asynchronously.
+- `EE_LAZY_LIBRARY_PHOTOS` overrides the 2,000 photo threshold for tests only, read once by the
+  preload script. CI runs the Library/Develop e2e files again with it at 0.
 - `PhotoIndex` fills flat columns (`folder`, `file_name`, `capture_time`, labels, status, camera)
   from the photo on every save. Indexes: `photos_folder`, `photos_capture`, `photos_labels`,
   `photos_upload`, `photos_source` and `photos_path`. `EXPLAIN QUERY PLAN` for a folder's list uses
   `photos_folder`. An older `index.sqlite` gets the columns and indexes in place: one transaction
   fills the missing flat columns and no row is dropped.
-- Measurement: `pnpm tsx scripts/measure-library-scale.ts` builds a throwaway `userData` with
+- Measurement: `node scripts/measure-library-scale.ts` builds a throwaway `userData` with
   100 folders and 60,000 photos, a handful of reused generated JPEGs and search text, then launches
   the built app. It reports launch and folder times, renderer and jobs memory, scroll frames over
   50 ms, and the rows and bytes of the IPC answers. `--photos` and `--folders` change the size;

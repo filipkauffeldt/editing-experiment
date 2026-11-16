@@ -331,6 +331,44 @@ jobs:
       - name: Electron e2e (launch, filters, sidebars, Develop and cards, under Xvfb)
         run: xvfb-run -a --server-args='-screen 0 1920x1080x24' pnpm test:e2e:ui
 
+  e2e-lazy:
+    needs: native
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+      # Version comes from "packageManager" in package.json.
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - uses: actions/download-artifact@v8
+        with:
+          name: native-addon
+          path: crates/core
+      - uses: actions/cache@v6
+        with:
+          path: fixtures/raw
+          key: fixtures-raw-${{ hashFiles('scripts/fetch-fixtures.ts') }}
+      - run: pnpm fetch-fixtures
+      - uses: actions/cache@v6
+        with:
+          path: |
+            fixtures/models
+            fixtures/retouch
+          key: fixtures-retouch-${{ hashFiles('scripts/fetch-retouch.ts') }}
+      - run: pnpm fetch-retouch
+      - name: Install Xvfb
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends xvfb xauth
+      - name: Install Electron binary
+        run: node scripts/ensure-electron.mjs
+      - name: Electron e2e (the Library paths forced lazy, under Xvfb)
+        run: xvfb-run -a --server-args='-screen 0 1920x1080x24' pnpm test:e2e:lazy
+
   build-screenshots:
     needs: native
     runs-on: ubuntu-latest

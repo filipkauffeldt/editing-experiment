@@ -57,7 +57,22 @@ describe.skipIf(!haveDisplay)(
     };
 
     const selectPhoto = async (fileName: string): Promise<void> => {
-      await window.locator(`[data-testid="film-strip"] button[title^="${fileName}"]`).click();
+      const target = window.locator(`[data-testid="film-strip"] button[title^="${fileName}"]`);
+      if ((await target.count()) === 0) {
+        await window.locator('[data-testid="film-strip"]').evaluate((element) => {
+          element.scrollLeft = 0;
+          element.dispatchEvent(new Event('scroll', { bubbles: true }));
+        });
+        await window.waitForTimeout(200);
+      }
+      if ((await target.count()) === 0) {
+        await window.locator('[data-testid="film-strip"]').evaluate((element) => {
+          element.scrollLeft = element.scrollWidth;
+          element.dispatchEvent(new Event('scroll', { bubbles: true }));
+        });
+        await window.waitForTimeout(200);
+      }
+      await target.click();
       await window.waitForFunction(
         (name) =>
           document

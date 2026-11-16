@@ -50,8 +50,9 @@ Export / Export & send.
   intentionally not shown there. An added folder is read where it is, scanned
   again only when asked, and removed from the Library without touching a file.
   The sidebar holds the folder tree with counts. A large index loads one folder
-  at a time instead of every photo; Develop loads a bounded film strip page and
-  asks the index for filters and order. **Remove folder from Library…** works
+  at a time instead of every photo; Develop opens that folder around the open
+  photo, moves its bounded page with the arrows, and asks the index for filters,
+  counts and order. **Remove folder from Library…** works
   on any folder, with or without its subfolders, and never touches the disk.
 - A thumbnail and preview cache with a size limit on this computer (Settings →
   Cache, 20 GB by default). Old previews are evicted before thumbnails, and an

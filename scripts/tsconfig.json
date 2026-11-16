@@ -2,15 +2,11 @@
   "extends": "../tsconfig.base.json",
   "compilerOptions": {
     "lib": ["ES2023", "DOM"],
-    "module": "ESNext",
-    "moduleResolution": "Bundler",
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
     "allowImportingTsExtensions": true,
     "erasableSyntaxOnly": true,
-    "rewriteRelativeImportExtensions": true,
-    "paths": {
-      "@ee/contracts": ["../packages/contracts/src/index.ts"],
-      "@ee/core": ["../crates/core/src/index.ts"]
-    }
+    "rewriteRelativeImportExtensions": true
   },
   "include": ["."]
 }

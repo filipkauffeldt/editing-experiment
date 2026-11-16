@@ -1,12 +1,11 @@
 // Fills a throwaway userData folder with a realistic large Library and measures the built app.
-// Usage: pnpm tsx scripts/measure-library-scale.ts [--photos 60000] [--folders 100] [--keep]
+// Usage: node scripts/measure-library-scale.ts [--photos 60000] [--folders 100] [--keep]
 //
 // Nothing here is shipped. The index rows look like ingest's, the search text is already read,
 // and a handful of generated JPEGs are reused for every cached thumbnail and preview (no
 // binaries are stored in the repository). Run `pnpm build` first; the app is launched with
 // EE_USER_DATA_DIR pointing at the generated folder.
 import { _electron as electron } from '@playwright/test';
-import { encodeJpeg } from '../crates/core/src/index.ts';
 import { spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
@@ -14,12 +13,40 @@ import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { DatabaseSync } from 'node:sqlite';
-import { PhotoIndex } from '../apps/desktop/src/jobs/backend/photo-index.ts';
-import type { LibraryOverview, Photo } from '../packages/contracts/src/photo.ts';
-import type { PhotoId } from '../packages/contracts/src/ids.ts';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const desktopRequire = createRequire(join(root, 'apps/desktop/package.json'));
+
+/** The subset of the index row the generator writes. Kept local so `node` starts without a build. */
+interface IndexedPhoto {
+  id: string;
+  path: string;
+  sidecarPath: string;
+  fileName: string;
+  captureTime: string;
+  camera: Record<string, unknown>;
+  width: number;
+  height: number;
+  sourceId: string;
+  tagged: boolean;
+  rating: number;
+  colorClass: number;
+  status: Record<string, string | boolean>;
+  versions: { id: string; kind: 'develop'; ops: Record<string, never> }[];
+}
+
+interface SharpFactory {
+  (options: {
+    create: {
+      width: number;
+      height: number;
+      channels: 3;
+      background: { r: number; g: number; b: number };
+    };
+  }): { jpeg(options?: { quality?: number }): { toBuffer(): Promise<Buffer> } };
+}
+
+const sharp = desktopRequire('sharp') as SharpFactory;
 
 interface Options {
   photos: number;
@@ -70,23 +97,17 @@ function ensureDisplay(): void {
   process.exit(rerun.status ?? 1);
 }
 
-function frame(width: number, height: number, tint: number): Buffer {
-  const rgba = Buffer.alloc(width * height * 4);
-  for (let i = 0; i < width * height; i += 1) {
-    rgba[i * 4] = (40 + tint * 11) % 255;
-    rgba[i * 4 + 1] = (70 + (((i / width) | 0) % 140)) % 255;
-    rgba[i * 4 + 2] = (90 + (((i % width) | 0) % 120)) % 255;
-    rgba[i * 4 + 3] = 255;
-  }
-  return rgba;
-}
-
 async function jpeg(width: number, height: number, tint: number): Promise<Buffer> {
-  return encodeJpeg(frame(width, height, tint), width, height, {
-    quality: 70,
-    chroma: '420',
-    iccSrgb: true,
-  });
+  return sharp({
+    create: {
+      width,
+      height,
+      channels: 3,
+      background: { r: (40 + tint * 11) % 255, g: 90 + tint * 9, b: 120 - tint * 7 },
+    },
+  })
+    .jpeg({ quality: 70 })
+    .toBuffer();
 }
 
 /** One small preview and thumbnail, reused for every photo. */
@@ -140,7 +161,46 @@ async function generate(options: Options): Promise<{ userData: string; destinati
   );
 
   const { preview, thumb } = await sampleJpegs();
-  const index = new PhotoIndex(join(userData, 'index.sqlite'));
+  const db = new DatabaseSync(join(userData, 'index.sqlite'));
+  db.exec(`
+    PRAGMA journal_mode = WAL;
+    PRAGMA synchronous = NORMAL;
+    CREATE TABLE photos (
+      seq INTEGER PRIMARY KEY AUTOINCREMENT,
+      id TEXT NOT NULL UNIQUE,
+      source_id TEXT NOT NULL,
+      path TEXT NOT NULL,
+      folder TEXT,
+      file_name TEXT,
+      capture_time TEXT,
+      tagged INTEGER,
+      rating INTEGER,
+      color_class INTEGER,
+      edited INTEGER,
+      upload TEXT,
+      metadata_differs INTEGER,
+      camera_key TEXT,
+      template_path TEXT,
+      source_path TEXT,
+      search_text TEXT,
+      json TEXT NOT NULL
+    );
+    CREATE INDEX photos_source ON photos (source_id, seq);
+    CREATE INDEX photos_path ON photos (path);
+    CREATE INDEX photos_folder ON photos (folder, capture_time, file_name);
+    CREATE INDEX photos_capture ON photos (capture_time, file_name);
+    CREATE INDEX photos_labels ON photos (tagged, rating, color_class);
+    CREATE INDEX photos_upload ON photos (upload);
+    CREATE TABLE removed_paths (path TEXT PRIMARY KEY);
+    CREATE TABLE added_folders (path TEXT PRIMARY KEY);
+  `);
+  const insert = db.prepare(`
+    INSERT INTO photos (
+      id, source_id, path, folder, file_name, capture_time, tagged, rating, color_class,
+      edited, upload, metadata_differs, camera_key, template_path, source_path, search_text, json
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, ?, ?)
+  `);
+  db.exec('BEGIN IMMEDIATE');
   const names = folderNames(options.folders);
   const counts = distribution(options.photos, options.folders);
   const started = Date.now();
@@ -151,10 +211,10 @@ async function generate(options: Options): Promise<{ userData: string; destinati
     mkdirSync(folderPath, { recursive: true });
     for (let n = 0; n < count; n += 1) {
       made += 1;
-      const id = `00000000-0000-4000-8000-${String(made).padStart(12, '0')}` as PhotoId;
+      const id = `00000000-0000-4000-8000-${String(made).padStart(12, '0')}`;
       const fileName = `_DSC${String(1000 + n).padStart(4, '0')}.NEF`;
       const path = join(folderPath, fileName);
-      const photo: Photo = {
+      const photo: IndexedPhoto = {
         id,
         path,
         sidecarPath: `${path}.xmp`,
@@ -172,7 +232,7 @@ async function generate(options: Options): Promise<{ userData: string; destinati
         },
         width: 8256,
         height: 5504,
-        sourceId: 'in-place' as Photo['sourceId'],
+        sourceId: 'in-place',
         tagged: n % 3 === 0,
         rating: n % 6 === 0 ? 5 : n % 5 === 0 ? 3 : 0,
         colorClass: n % 40 === 0 ? 2 : 0,
@@ -183,20 +243,31 @@ async function generate(options: Options): Promise<{ userData: string; destinati
           export: n % 7 === 0 ? 'done' : 'none',
           upload: n % 7 === 0 ? 'done' : 'none',
         },
-        versions: [
-          { id: `${id}-develop` as Photo['versions'][number]['id'], kind: 'develop', ops: {} },
-        ],
+        versions: [{ id: `${id}-develop`, kind: 'develop', ops: {} }],
       };
-      index.save(photo);
+      const camera = photo.camera as { make?: string; model?: string; serialNumber?: string };
+      insert.run(
+        id,
+        photo.sourceId,
+        path,
+        dirname(path),
+        fileName,
+        photo.captureTime,
+        photo.tagged ? 1 : 0,
+        photo.rating,
+        photo.colorClass,
+        photo.status.edited ? 1 : 0,
+        String(photo.status.upload),
+        photo.status.metadataDiffersFromTemplate ? 1 : 0,
+        `${camera.model ?? camera.make ?? 'Unknown'}|${camera.serialNumber ?? ''}`,
+        `match report ${fileName} sportfotografen.se`,
+        JSON.stringify(photo),
+      );
       writeFileSync(join(userData, 'cache', 'thumb', `${id}.jpg`), thumb);
       writeFileSync(join(userData, 'cache', 'preview', `${id}.jpg`), preview);
     }
   }
-  index.close();
-  // The search index reads captions in the background when a row has none. Fill them in one
-  // transaction, as a finished background pass would have.
-  const db = new DatabaseSync(join(userData, 'index.sqlite'));
-  db.exec(`UPDATE photos SET search_text = 'match report ' || file_name || ' sportfotografen.se'`);
+  db.exec('COMMIT');
   db.close();
   console.log(`generated ${made} photos in ${counts.length} folders in ${Date.now() - started} ms`);
   return { userData, destination };
@@ -446,9 +517,9 @@ async function run(options: Options, userData: string): Promise<void> {
         return result.value as T;
       };
       const bytes = (value: unknown): number => new Blob([JSON.stringify(value)]).size;
-      const folders = await call<LibraryOverview>('photos:folders');
-      const photos = await call<Photo[]>('photos:list', [{ folder: folders.folders[0]?.path }]);
-      const page = await call<{ photos: Photo[] }>('photos:query', [
+      const folders = await call<{ folders: { path: string }[] }>('photos:folders');
+      const photos = await call<unknown[]>('photos:list', [{ folder: folders.folders[0]?.path }]);
+      const page = await call<{ photos: unknown[] }>('photos:query', [
         { folder: folders.folders[0]?.path, limit: 3000 },
       ]);
       return {
