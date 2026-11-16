@@ -372,9 +372,13 @@ describe('uploads through a connection outage', () => {
           .list()
           .some((item) => item.destinationId === asDestinationId('up') && item.state === 'done'),
       );
-      expect(
-        queue.list().find((item) => item.destinationId === asDestinationId('down'))?.state,
-      ).toBe('waiting');
+      // The down destination alternates a probe (uploading) with the wait between probes, and
+      // the 'up' row can finish in either phase, so wait for the state instead of sampling once.
+      await expect
+        .poll(
+          () => queue!.list().find((item) => item.destinationId === asDestinationId('down'))?.state,
+        )
+        .toBe('waiting');
       expect(await readFile(path.join(upRoot, 'photos', 'up.jpg'))).toEqual(upContents);
       await expect(access(path.join(downRoot, 'photos', 'down.jpg'))).rejects.toThrow();
 
