@@ -4881,9 +4881,35 @@ export class AppStore {
       match !== undefined &&
       match.mountPath === wanted.mountPath &&
       match.volumeLabel === wanted.volumeLabel;
-    const saved = unchanged ? wanted : await this.saveSource(wanted);
-    if (!this.state.pickedCards.includes(saved.id)) {
-      this.set({ pickedCards: [...this.state.pickedCards, saved.id] });
+    if (unchanged) {
+      if (!this.state.pickedCards.includes(wanted.id)) {
+        this.set({ pickedCards: [...this.state.pickedCards, wanted.id] });
+      }
+      return;
+    }
+    // Show the tick, and the card's filters, at once. Saving is a round trip, and a scan or
+    // count that answers in between would otherwise draw the row from the old state and drop
+    // the tick under the user's finger. The save replaces this entry; a failure takes it back.
+    const previous = this.state.sources.find((source) => source.id === wanted.id);
+    const wasPicked = this.state.pickedCards.includes(wanted.id);
+    this.set({
+      sources: previous
+        ? this.state.sources.map((source) => (source.id === wanted.id ? wanted : source))
+        : [...this.state.sources, wanted],
+      pickedCards: wasPicked ? this.state.pickedCards : [...this.state.pickedCards, wanted.id],
+    });
+    try {
+      await this.saveSource(wanted);
+    } catch (cause) {
+      this.set({
+        sources: previous
+          ? this.state.sources.map((source) => (source.id === wanted.id ? previous : source))
+          : this.state.sources.filter((source) => source.id !== wanted.id),
+        pickedCards: wasPicked
+          ? this.state.pickedCards
+          : this.state.pickedCards.filter((id) => id !== wanted.id),
+      });
+      throw cause;
     }
   };
 
