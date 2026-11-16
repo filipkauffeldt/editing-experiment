@@ -83,6 +83,25 @@ describe('edited thumbnails and previews in the store', () => {
     expect(store.getState().photos.find((p) => p.id === photo.id)?.previewRevision).toBe(1);
   });
 
+  it('redraws the thumbnail after an undo and a redo', async () => {
+    const { store, rendered } = await setup();
+    store.setSlider('Exposure2012', 0.5);
+    await vi.advanceTimersByTimeAsync(800);
+    store.setSlider('Exposure2012', 0.8);
+    await vi.advanceTimersByTimeAsync(800);
+    expect(rendered).toHaveLength(2);
+
+    expect(store.undoDevelop()).toBe(true);
+    await vi.advanceTimersByTimeAsync(800);
+    expect(rendered).toHaveLength(3);
+    expect(rendered[2]?.params).toMatchObject({ Exposure2012: 0.5 });
+
+    expect(store.redoDevelop()).toBe(true);
+    await vi.advanceTimersByTimeAsync(800);
+    expect(rendered).toHaveLength(4);
+    expect(rendered[3]?.params).toMatchObject({ Exposure2012: 0.8 });
+  });
+
   it('renders a crop and a preset change as well', async () => {
     const { store, rendered } = await setup();
     const preset = store.getState().presets[0]!;
