@@ -61,6 +61,8 @@ const GROUPS: { title: string; rows: [string, string][] }[] = [
   {
     title: 'Develop',
     rows: [
+      ['Ctrl/⌘ + Z', 'Undo the last develop change'],
+      ['Shift + Ctrl/⌘ + Z, Ctrl/⌘ + Y', 'Redo the last develop change'],
       ['Y', 'Before / after'],
       ['J', 'Show clipping (red highlights, blue shadows)'],
       ['W', 'White balance picker (Esc cancels)'],

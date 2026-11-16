@@ -83,6 +83,13 @@ Export / Export & send.
 - Lightroom-style crop and straighten `C`, applied in the preview and the
   export.
 - Copy, paste and sync develop settings by group.
+- Undo and redo develop settings for the open photo. `Ctrl/⌘+Z` undoes,
+  `Shift+Ctrl/⌘+Z` and `Ctrl/⌘+Y` redo. A slider drag or a typed value is one
+  step, and the history is kept in memory for the session, one per photo.
+  **Reset all** in the Develop panel puts every setting and the crop back to the
+  defaults (raw defaults apply again) in one step. Retouch keeps its own undo,
+  typing in a caption or another text field keeps the field's undo, and crop
+  mode ignores undo and redo until Done saves the draft crop as one step.
 - Retouch mosaic (rectangle, lasso) with YuNet face detection inside a
   rectangle or lasso. Every area and face can be switched on and off and
   subtracted again, and a saved retouch can be resumed and edited.
@@ -388,7 +395,8 @@ modules.
 | `Ctrl/⌘`+wheel or pinch        | Zoom around the pointer                                                                                             |
 | `Scroll`                       | Pan the zoomed photo in any mode (does nothing at Fit); `Shift`+scroll pans sideways                                |
 | `Space`+drag                   | Pan the zoomed photo in any mode and in the loupe; the active tool is paused while Space is held                    |
-| `Ctrl/⌘`+`Z`                   | Undo the last retouch shape                                                                                         |
+| `Ctrl/⌘`+`Z`                   | Undo the last develop change (Develop); undo the last retouch shape (Retouch)                          |
+| `Shift`+`Ctrl/⌘`+`Z`, `Ctrl/⌘`+`Y` | Redo the last develop change (Develop)                                                             |
 | `Ctrl/⌘`+`I`                   | Batch caption (Library); focus the caption field (Develop)                                                          |
 | `Ctrl/⌘`+`K`                   | Batch caption at Keywords (Library); focus the keywords field (Develop)                                             |
 | `Ctrl/⌘`+`A`                   | Select all in the Library                                                                                           |

@@ -21,8 +21,8 @@ The proof of concept covers one end-to-end workflow:
    ratings, colour classes, tagging and batch captioning.
 3. **Develop.** A `crs:` parameter set that follows Lightroom's names, develop presets from Lightroom
    and Camera Raw's preset folders or imported,
-   camera profiles, lens corrections, crop/straighten, copy/paste/sync of settings and a
-   live WebGL2 preview.
+   camera profiles, lens corrections, crop/straighten, copy/paste/sync of settings, per-photo undo
+   and redo for the session, Reset all, and a live WebGL2 preview.
 4. **Retouch.** Rectangle and lasso areas, YuNet face detection inside a rectangle or lasso, and
    mosaic/pixelate of the areas. Every area can be switched on and off, added or subtracted, and a
    saved retouch can be resumed and edited again.
@@ -906,6 +906,42 @@ the photo on screen is bounded and never delays it.
   apply to a multi-selection, in the grid, on the last photo or while a crop or retouch session is
   open. The switch is in the filter row of the loupe and of Develop.
 
+## Develop undo, redo and Reset all
+
+Develop keeps one undo and redo history per photo, in the renderer for the session only. It is not
+saved and is gone on restart. `renderer/develop-history.ts` holds the steps. Each step is the
+photo's `EditParams` before and after a change (absent keys stay absent) plus the values parked by
+switched-off sections, so an undo restores a section switch with its settings.
+
+- **One writer.** Every change to a photo's develop settings goes through
+  `AppStore.writeDevelopSnapshot` (`renderer/store.ts`), the only code that publishes a user change
+  to `AppState.editParams`. Slider and typed values, resets, curves, the colour mixer and grading,
+  presets, Auto tone, Auto WB, the WB picker, profile and lens settings, a committed crop, Paste,
+  Previous, Sync, section switches and Reset all all call it (the slider and less common writers
+  through `patchParams` or a dedicated wrapper). A backend read (`loadParams`) and a batch result
+  from `develop:applySettings` are the only writes that do not come from a user change. The batch
+  result records one step per affected photo. A new kind of change cannot publish parameters
+  without going through that method, because `AppStore.set` does not accept `editParams`.
+- **One gesture is one step.** A window `pointerdown`/`pointerup` pair in `renderer/keyboard.ts`
+  opens and closes a gesture, so every change of a drag (slider, colour wheel, tone curve) coalesces
+  into the step the first frame opened. A typed value opens a gesture on focus of the slider's field
+  and closes it on blur, so its live applies and the commit are one step. Arrow-key steps call the
+  `nudge*` writers: changes to the same parameter within 600 ms are one step, and a pause starts a
+  new one. A gesture never merges into the step before it.
+- **Undo and redo.** `Ctrl/Cmd+Z` undoes and `Shift+Ctrl/Cmd+Z` or `Ctrl/Cmd+Y` redoes in Develop, on
+  the open photo only. A pending throttled save is dropped and the restored settings go through the
+  normal save path, so the sidecar, the canvas and `EditedPreviewScheduler` follow as for any edit.
+  A new change clears the redo steps. In a text field the keys keep their native text undo. During
+  Retouch, `Ctrl/Cmd+Z` keeps stepping through the session's areas. During Crop, undo and redo are
+  ignored: the draft crop is saved as one step on Done, so its own gestures never mix with the
+  develop history.
+- **Bounds.** At most 100 steps per photo. The renderer keeps histories for at most 200 photos and
+  drops the least recently edited. Deleting or removing a photo drops its history. Retouch,
+  metadata, ratings, labels, tags, zoom and view toggles are not in it.
+- **Reset all.** The Develop panel's `Reset all` button writes an empty parameter set and clears the
+  section parking, in one step. The sidecar holds no `crs:` settings again, raw defaults apply, and
+  the crop is back to the whole image. It does not touch retouch or metadata.
+
 ## Copy, paste and sync develop settings
 
 Lightroom-style settings transfer. The groups are defined once in
@@ -933,8 +969,8 @@ stay with each photo.
   keep what the user sees.
 - Thumbnails are redrawn through the existing `EditedPreviewScheduler`
   (`scheduleNow`, ahead of the debounce).
-- There is no general undo stack in the app, so a batch paste is one write but not an
-  undoable step yet.
+- A batch paste is one backend write, and each affected photo gets its own step in its develop
+  history (see "Develop undo, redo and Reset all"). `Ctrl/Cmd+Z` only changes the open photo.
 
 ## Metadata templates and Copy/Paste metadata
 

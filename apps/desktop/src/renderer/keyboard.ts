@@ -292,10 +292,35 @@ export function useKeyboardShortcuts(store: AppStore): void {
         store.selectAllInLibrary();
         return;
       }
-      if (command && (event.key === 'z' || event.key === 'Z') && state.retouch) {
-        event.preventDefault();
-        store.undoRetouchShape();
-        return;
+      // Undo and redo. A text field keeps their text meaning, Retouch keeps its own shape
+      // history, and Crop has no history of its own: the develop history never steps in there.
+      if (command && !event.altKey) {
+        const z = event.key === 'z' || event.key === 'Z';
+        const y = event.key === 'y' || event.key === 'Y';
+        const undo = !event.shiftKey && z;
+        const redo = (event.shiftKey && z) || (!event.shiftKey && y);
+        if (undo || redo) {
+          if (textEntry) return;
+          if (state.retouch) {
+            // As before: Ctrl/Cmd+Z steps back through the session's areas. Shift+Ctrl/Cmd+Z
+            // does the same, and Ctrl/Cmd+Y does nothing, because there is no redo for shapes.
+            if (z) {
+              event.preventDefault();
+              store.undoRetouchShape();
+            }
+            return;
+          }
+          if (state.crop) {
+            event.preventDefault();
+            return;
+          }
+          if (state.module === 'develop') {
+            event.preventDefault();
+            if (undo) store.undoDevelop();
+            else store.redoDevelop();
+            return;
+          }
+        }
       }
 
       // Copy/paste develop settings. AltGr (Ctrl+Alt on Windows/Linux) is not a
@@ -535,20 +560,42 @@ export function useKeyboardShortcuts(store: AppStore): void {
       event.preventDefault();
       setPanHeld(false);
     };
-    const onBlur = (): void => setPanHeld(false);
+    // A pointer drag is one develop undo step: a slider, a colour wheel and a tone curve all
+    // change the settings many times between pointer down and up.
+    let pointerDown = false;
+    const beginPointerGesture = (event: PointerEvent): void => {
+      if (event.button !== 0 || pointerDown) return;
+      pointerDown = true;
+      store.beginDevelopGesture();
+    };
+    const endPointerGesture = (): void => {
+      if (!pointerDown) return;
+      pointerDown = false;
+      store.endDevelopGesture();
+    };
+    const onBlur = (): void => {
+      setPanHeld(false);
+      endPointerGesture();
+    };
     window.addEventListener('keydown', onKeyDown);
     window.addEventListener('keyup', onKeyUp);
     window.addEventListener('blur', onBlur);
+    window.addEventListener('pointerdown', beginPointerGesture, true);
     // Capture, so the blur happens before the slider's own pointerup handling.
     window.addEventListener('pointerup', releaseRangeFocus, true);
     window.addEventListener('pointercancel', releaseRangeFocus, true);
+    window.addEventListener('pointerup', endPointerGesture, true);
+    window.addEventListener('pointercancel', endPointerGesture, true);
     window.addEventListener('click', releaseToolbarFocus);
     return () => {
       window.removeEventListener('keydown', onKeyDown);
       window.removeEventListener('keyup', onKeyUp);
       window.removeEventListener('blur', onBlur);
+      window.removeEventListener('pointerdown', beginPointerGesture, true);
       window.removeEventListener('pointerup', releaseRangeFocus, true);
       window.removeEventListener('pointercancel', releaseRangeFocus, true);
+      window.removeEventListener('pointerup', endPointerGesture, true);
+      window.removeEventListener('pointercancel', endPointerGesture, true);
       window.removeEventListener('click', releaseToolbarFocus);
       setPanHeld(false);
     };
