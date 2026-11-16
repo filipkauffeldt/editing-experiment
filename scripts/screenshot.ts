@@ -161,6 +161,18 @@ async function runMock(outDir: string): Promise<void> {
     );
     await shoot('02-film-strip-badges.png', '[data-testid="film-strip"]');
 
+    // Shift capture time: the photo context menu, the offset preview and the count.
+    await window
+      .locator('[data-testid="film-strip"] [role="option"][aria-selected="true"]')
+      .click({ button: 'right' });
+    await window.locator('[data-testid="photo-menu"]').waitFor();
+    await window.locator('[data-testid="photo-menu-shift-capture-time"]').click();
+    await window.locator('[data-testid="shift-capture-time-dialog"]').waitFor();
+    await window.locator('[data-testid="shift-capture-time-minutes"]').fill('2');
+    await window.locator('[data-testid="shift-capture-time-seconds"]').fill('13');
+    await shoot('02a-shift-capture-time.png');
+    await window.keyboard.press('Escape');
+
     // Crop mode: full image dimmed outside a 1:1 crop with a 3 degree straighten.
     await window.locator('[data-testid="toggle-crop"]').click();
     await window.locator('[data-testid="crop-toolbar"]').waitFor();

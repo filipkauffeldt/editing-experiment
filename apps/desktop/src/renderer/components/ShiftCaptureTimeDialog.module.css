@@ -1,0 +1,63 @@
+.spacer {
+  flex: 1;
+}
+
+.form {
+  display: grid;
+  gap: 14px;
+}
+
+.offsetRow {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.label {
+  width: 52px;
+  color: var(--muted);
+  font-size: var(--fs-small);
+}
+
+.number {
+  width: 44px;
+  text-align: right;
+}
+
+.sign {
+  width: 48px;
+}
+
+.unit {
+  color: var(--muted);
+  font-size: var(--fs-small);
+}
+
+.preview {
+  display: grid;
+  grid-template-columns: 44px 1fr;
+  row-gap: 4px;
+  padding-top: 10px;
+  border-top: 1px solid var(--line);
+}
+
+.previewLabel {
+  color: var(--dim);
+  font-size: var(--fs-label);
+  letter-spacing: var(--tracking-label);
+  text-transform: uppercase;
+}
+
+.summary {
+  margin: 0;
+  color: var(--text);
+  font-size: var(--fs-base);
+  line-height: 1.5;
+}
+
+.note {
+  margin: 0;
+  color: var(--muted);
+  font-size: var(--fs-small);
+  line-height: 1.5;
+}

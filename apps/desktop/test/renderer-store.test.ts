@@ -103,6 +103,32 @@ describe('photo list', () => {
     ]);
   });
 
+  it('shifts a photo from its own time, updates the metadata date and the order', async () => {
+    const base = mockPhotos().slice(0, 3);
+    const photos: Photo[] = base.map((photo, index) => ({
+      ...photo,
+      fileName: ['_DSC10000.NEF', '_DSC999.NEF', '_DSC2000.NEF'][index] ?? photo.fileName,
+      captureTime: ['2026-10-24T14:10:00', '2026-10-24T14:30:00', '2026-10-24T14:20:00'][index],
+    }));
+    const { store } = await setup({ photos });
+    const first = visible(store)[0]!;
+    await store.ensureMetadata([first.id]);
+    expect(store.getState().metadata[first.id]?.dateCreated).toBeDefined();
+
+    store.requestShiftCaptureTime();
+    await store.confirmCaptureTimeShift(1800);
+
+    expect(store.getState().photos.find((photo) => photo.id === first.id)?.captureTime).toBe(
+      '2026-10-24T14:40:00',
+    );
+    expect(store.getState().metadata[first.id]?.dateCreated).toBe('2026-10-24T14:40:00');
+    expect(visible(store).map((photo) => photo.fileName)).toEqual([
+      '_DSC2000.NEF',
+      '_DSC999.NEF',
+      '_DSC10000.NEF',
+    ]);
+  });
+
   it('keeps a same-second burst in camera file-name order and sorts photos without a time last', async () => {
     const base = mockPhotos().slice(0, 4);
     const photos: Photo[] = base.map((photo, index) => ({

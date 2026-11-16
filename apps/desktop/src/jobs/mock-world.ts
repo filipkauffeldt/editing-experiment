@@ -28,6 +28,7 @@ import {
   type VersionId,
 } from '@ee/contracts';
 import { matchesSearch, searchTerms, searchTextOf } from '@ee/metadata';
+import { formatCaptureDateTime, parseCaptureDateTime, shiftCaptureDateTime } from '@ee/metadata';
 import {
   expandMockCaption,
   mockCodeReplacementFiles,
@@ -641,6 +642,23 @@ export function createMockHandlers(world: MockWorld, emit: Emit): Partial<IpcHan
         updated.push(photo);
       }
       return updated;
+    },
+    'photos:shiftCaptureTime': async ({ photoIds, offsetSeconds }) => {
+      const updated: { photo: Photo; dateCreated: string }[] = [];
+      const noCaptureTime: PhotoId[] = [];
+      for (const photoId of new Set(photoIds)) {
+        const photo = findPhoto(photoId);
+        const parts = photo.captureTime ? parseCaptureDateTime(photo.captureTime) : undefined;
+        if (parts === undefined) {
+          noCaptureTime.push(photoId);
+          continue;
+        }
+        const shifted = formatCaptureDateTime(shiftCaptureDateTime(parts, offsetSeconds));
+        photo.captureTime = shifted;
+        emitPhoto(world, emit, photo);
+        updated.push({ photo, dateCreated: shifted });
+      }
+      return { updated, noCaptureTime, failed: [] };
     },
     // Mock images are generated SVGs, so there is nothing to cache; accept and ignore.
     'photos:setEditedPreview': async ({ photoId }) => findPhoto(photoId),

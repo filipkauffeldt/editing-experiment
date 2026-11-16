@@ -5,8 +5,8 @@ import styles from './PhotoMenu.module.css';
 
 /**
  * The right-click menu of a photo in the grid or film strip: Tag, a rating row and a colour row
- * (which act on the Library's selection, or the open photo in Develop), then Delete… and
- * Remove from Library….
+ * (which act on the Library's selection, or the open photo in Develop), Shift capture time…,
+ * then Delete… and Remove from Library….
  */
 export function PhotoMenu() {
   const store = useAppStore();
@@ -142,6 +142,15 @@ export function PhotoMenu() {
         </button>
       </div>
       <hr className={styles.separator} />
+      <button
+        type="button"
+        role="menuitem"
+        className={styles.item}
+        data-testid="photo-menu-shift-capture-time"
+        onClick={() => store.requestShiftCaptureTime()}
+      >
+        Shift capture time…
+      </button>
       <button
         type="button"
         role="menuitem"
