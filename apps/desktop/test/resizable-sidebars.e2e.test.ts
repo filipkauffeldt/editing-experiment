@@ -342,9 +342,23 @@ describe.skipIf(!haveDisplay)(
       await openModule('Library');
       expect(await widthOf('library-sidebar')).toBe(220);
       expect(await widthOf('library-inspector')).toBe(300);
-      await dragBy('library-sidebar', 60);
+      const inspectorBox = await window.getByTestId('library-inspector').boundingBox();
+      const folderBox = await window.getByTestId('library-sidebar').boundingBox();
+      if (!inspectorBox || !folderBox) throw new Error('no Library side panels');
+      expect(inspectorBox.x + inspectorBox.width).toBeLessThanOrEqual(folderBox.x);
+      // A right-hand panel grows to the left, so a negative drag widens it.
+      await dragBy('library-sidebar', -60);
       expect(await widthOf('library-sidebar')).toBe(280);
       await waitForSavedWidth('library-sidebar', 280);
+
+      // The loupe keeps the same sides: metadata left, folders right.
+      await window.keyboard.press('e');
+      await window.locator('[data-testid="library-loupe"]').waitFor();
+      const loupeInspector = await window.getByTestId('library-inspector').boundingBox();
+      const loupeFolders = await window.getByTestId('library-sidebar').boundingBox();
+      if (!loupeInspector || !loupeFolders) throw new Error('no loupe side panels');
+      expect(loupeInspector.x + loupeInspector.width).toBeLessThanOrEqual(loupeFolders.x);
+      await window.keyboard.press('g');
 
       await openModule('Ingest');
       await window.getByTestId('ingest-sources').waitFor();
