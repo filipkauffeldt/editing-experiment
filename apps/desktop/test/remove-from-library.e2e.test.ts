@@ -184,6 +184,9 @@ describe.skipIf(nefs.length < 3 || !haveDisplay)(
       // fingerprint, so a later difference can only come from the removal.
       let last = '';
       await until('the sidecar to settle', async () => {
+        // ensureSidecar writes the minimal packet first, ExifTool writes the tags after it.
+        const text = readFileSync(join(dir('ingest'), 'game_2.xmp'), 'utf8');
+        if (!text.includes('Prefs')) return false;
         const now = JSON.stringify(fingerprint(dir('ingest')));
         const stable = now === last;
         last = now;

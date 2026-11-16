@@ -71,17 +71,25 @@ const placeholders = (count: number): string => Array.from({ length: count }, ()
 
 function columnsOf(photo: Photo): PhotoColumns {
   const camera = photo.camera;
+  // Rows written by an older app can lack status and versions; they are still indexed.
+  const status = photo.status ?? {
+    ingest: 'done',
+    edited: false,
+    metadataDiffersFromTemplate: false,
+    export: 'none',
+    upload: 'none',
+  };
+  const versions = photo.versions ?? [];
   return {
     folder: dirname(photo.path),
     fileName: photo.fileName,
     captureTime: photo.captureTime ?? null,
-    tagged: photo.tagged ? 1 : 0,
-    rating: photo.rating,
-    colorClass: photo.colorClass,
-    edited:
-      photo.status.edited || photo.versions.some((version) => version.kind === 'retouch') ? 1 : 0,
-    upload: photo.status.upload,
-    metadataDiffers: photo.status.metadataDiffersFromTemplate ? 1 : 0,
+    tagged: photo.tagged === true ? 1 : 0,
+    rating: Number.isInteger(photo.rating) ? photo.rating : 0,
+    colorClass: Number.isInteger(photo.colorClass) ? photo.colorClass : 0,
+    edited: status.edited || versions.some((version) => version.kind === 'retouch') ? 1 : 0,
+    upload: status.upload ?? 'none',
+    metadataDiffers: status.metadataDiffersFromTemplate ? 1 : 0,
     cameraKey: camera
       ? `${camera.model ?? camera.make ?? 'Unknown'}|${camera.serialNumber ?? ''}`
       : '',

@@ -61,13 +61,6 @@ const PLACEHOLDER_NAME = '_placeholder.jpg';
  * cannot collide with photo ids, which never contain a dot.
  */
 export class PreviewCache {
-  /**
-   * The edited marker of recently served photos. A grid scroll asks for the same small set
-   * again and again; reading the marker file each time would be one file read per thumbnail.
-   */
-  private readonly metaCache = new Map<PhotoId, EditedPreviewMeta | undefined>();
-  private static readonly META_CACHE_ENTRIES = 5_000;
-
   constructor(
     private readonly thumbDir: string,
     private readonly previewDir: string,
@@ -142,8 +135,6 @@ export class PreviewCache {
     await writeAtomic(previewFile, preview);
     await writeAtomic(thumbFile, thumb);
     await writeAtomic(this.metaPath(photoId), Buffer.from(JSON.stringify(stored)));
-    this.metaCache.delete(photoId);
-    this.metaCache.set(photoId, stored);
     await Promise.all([
       this.cache?.added(previewFile, 'preview'),
       this.cache?.added(thumbFile, 'thumb'),
@@ -151,28 +142,13 @@ export class PreviewCache {
   }
 
   async readEditedMeta(photoId: PhotoId): Promise<EditedPreviewMeta | undefined> {
-    if (this.metaCache.has(photoId)) {
-      const known = this.metaCache.get(photoId);
-      // Re-insert as the newest entry; Map iteration order is the eviction order.
-      this.metaCache.delete(photoId);
-      this.metaCache.set(photoId, known);
-      return known;
-    }
-    const remember = (meta: EditedPreviewMeta | undefined): EditedPreviewMeta | undefined => {
-      this.metaCache.set(photoId, meta);
-      if (this.metaCache.size > PreviewCache.META_CACHE_ENTRIES) {
-        const oldest = this.metaCache.keys().next().value;
-        if (oldest !== undefined) this.metaCache.delete(oldest);
-      }
-      return meta;
-    };
     try {
       const parsed = JSON.parse(await readFile(this.metaPath(photoId), 'utf8')) as unknown;
       const meta = parsed as Partial<EditedPreviewMeta>;
       if (typeof meta.revision !== 'number' || typeof meta.retouchKey !== 'string') {
-        return remember(undefined);
+        return undefined;
       }
-      return remember({
+      return {
         revision: meta.revision,
         retouchKey: meta.retouchKey,
         ...(typeof meta.defaultProfile === 'string' && meta.defaultProfile !== ''
@@ -181,10 +157,10 @@ export class PreviewCache {
         ...(typeof meta.defaultsVersion === 'number'
           ? { defaultsVersion: meta.defaultsVersion }
           : {}),
-      });
+      };
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code === 'ENOENT' || error instanceof SyntaxError) {
-        return remember(undefined);
+        return undefined;
       }
       throw error;
     }
@@ -192,8 +168,6 @@ export class PreviewCache {
 
   /** Drop the edited JPEGs so the original embedded previews are served again. */
   async removeEdited(photoId: PhotoId): Promise<void> {
-    this.metaCache.delete(photoId);
-    this.metaCache.set(photoId, undefined);
     const files = [
       this.metaPath(photoId),
       this.editedPath('thumb', photoId),
