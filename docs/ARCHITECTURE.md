@@ -93,7 +93,7 @@ The default settings folder is `userData`, so both files sit there until the use
 
 ```
 machine.json         settings folder choice, ingest destination and backup folder, export root, folder and card sources, folder destinations, profile folders, preset folders, panel widths, and every metadata template or code replacement path outside the settings folder
-index.sqlite         photo index, the search text of each photo and the paths removed from the Library (cache; sidecars are the source of truth)
+index.sqlite         photo index, the search text of each photo, the folders added to the Library in place and the paths removed from the Library (cache; sidecars are the source of truth)
 seen.sqlite          files already ingested per source
 uploads.sqlite       upload queue
 export-jobs.json     resumable export batches (queued photos survive a restart)
@@ -164,6 +164,36 @@ settings.json.pre-settings-folder   the old one-file settings, kept after the fi
   Windows and network drives. A source whose later scan fails (a network share that went away)
   keeps watching and reports the error once. When the folder returns, copying resumes and the run
   keeps its first error on the row, as every ingest run does.
+- Added folders in place: **Add folder…** in the Library sidebar indexes every supported image
+  below a folder, subfolders included, without copying, moving or renaming anything. Each file goes
+  through the same per-file work as an ingest copy after the copy (`createOnFileIngested`: camera
+  data, cached 2560 px preview and 320 px thumbnail, labels, existing `crs:` develop settings and
+  `ee:` retouch versions, then the index and `photos:added`) with no metadata template and no
+  develop preset, so existing metadata is read rather than replaced and a file that arrives with
+  edits is marked edited and `previewStale`. The index row has `inPlace: true`, no `source_path`,
+  and `sourceId` `in-place`. The run is in the jobs process and reports `library.progress` /
+  `library.state`; the sidebar shows its count and a Stop button. An unreadable file is counted as
+  skipped and the rest go on. Folders the app exported into are skipped by the existing `.ee-export`
+  marker, `export` name and `exported-files.json` rules, and a file whose path is already indexed is
+  skipped, so adding a folder twice or adding a parent of an added folder is safe. Added roots live
+  in the `added_folders` table of `index.sqlite` (created if missing, so an older index opens), not
+  in `settings.json`. Nothing rescans an added folder by itself, at startup or on a timer:
+  **Rescan folder** in its right-click menu indexes what appeared since, and a folder that is not
+  available is reported without changing anything. Photos in an added folder stay listed when its
+  drive is disconnected; opening one fails with the existing preview error. The startup scan of the
+  ingest destination skips added roots, so a folder added below the destination is only looked
+  through when asked.
+- Added-folder safety: a folder is refused when it is inside or contains a configured card or
+  folder source, is on a memory card (`CardScanner`'s volume with a `DCIM` folder), or is the app's
+  data or cache folder or contains it. Every comparison uses the written and the real path, so a
+  symlink cannot lead into one, and is case-folded on macOS and Windows. The message says why and
+  points to Ingest. Working in place writes only what an edit writes: raws never change and their
+  metadata goes to the sibling XMP sidecar, JPEG metadata is embedded in the JPEG. Exports follow
+  the preset, by default into an `export` folder next to the photo, which a later rescan skips.
+  **Remove folder from Library…** on any sidebar folder removes the exact folder's photos the
+  `photos:removeFromLibrary` way (paths recorded in `removed_paths`, no disk access) and forgets
+  the added root; photos in subfolders stay. Delete of an in-place photo is the explicit trash
+  action through `PhotoDeleter`, with every source and sidecar check unchanged.
 - Card discovery: `CardScanner` (`@ee/ingest`, `cards.ts`) runs in the jobs process behind
   `sources:detectCards`. It imports no native module and runs no platform tool; the one thing Node
   cannot see, a Windows volume label, comes through the injected `readDriveInfo` option, which
@@ -281,13 +311,16 @@ settings.json.pre-settings-folder   the old one-file settings, kept after the fi
   index loss either. `ifExists: 'overwrite'` and the originals check are unchanged: the target is
   compared with every indexed photo and sidecar, also those inside an export folder.
 - Delete: `photos:delete` takes photo ids only. `PhotoDeleter` (jobs process) resolves the paths from
-  the index. Every indexed photo is a copy under an ingest destination, and the destination changes
-  from job to job, so the current destination setting is not consulted. It refuses a path inside any
-  configured card or folder source (written and real path, so a symlink cannot lead into one) and a
-  photo whose path is the file it was ingested from (the index records each ingested photo's source
-  file in a `source_path` column, not part of `Photo`; photos found by the startup scan name
-  themselves as their source, are copies by construction, and have none recorded; a row made before
-  the column existed has none either and is only covered by the source-folder rule). The sidecar
+  the index. Every indexed photo is a copy under an ingest destination, except a photo in a folder
+  the user added in place. The destination changes from job to job, so the current destination
+  setting is not consulted. It refuses a path inside any configured card or folder source (written
+  and real path, so a symlink cannot lead into one) and a photo whose path is the file it was
+  ingested from (the index records each ingested photo's source file in a `source_path` column, not
+  part of `Photo`; photos found by the startup scan name themselves as their source, are copies by
+  construction, and have none recorded; a row made before the column existed has none either and is
+  only covered by the source-folder rule). An in-place photo has `inPlace: true`, no source file
+  recorded, and is deliberately allowed: Delete is the explicit trash action the user asked for,
+  and every check above still applies. The sidecar
   must be the photo itself or its sibling `<name>.xmp`, and nothing may be a folder. The files go to the system trash through
   `shell.trashItem`, which only exists in main, so the jobs process sends a `trash-request` message and
   main answers by id (`shared/trash-bridge.ts`, `main/trash.ts`). There is no fallback to a permanent
@@ -320,6 +353,9 @@ settings.json.pre-settings-folder   the old one-file settings, kept after the fi
   skips those paths. When ingest indexes a new file at exactly such a path (`PhotoLibrary.add`), the
   path is dropped from the table, so the new photo is not hidden. `photos:delete` does not record a path:
   its files are in the trash, and a file that turns up there later is a new one.
+  `photos:removeFolder` is the folder version for a sidebar row: it takes the exact folder path,
+  removes that folder's photos through the same `removeOne` road (so their paths are recorded), and
+  forgets the folder's added root when nothing failed. Photos in subfolders stay.
 - On quit, main asks the jobs process to shut down (stop ingest, close the upload queue, ExifTool and
   the databases) and kills it only after a timeout.
 
@@ -411,7 +447,7 @@ Key types (names are binding, fields can grow):
 
 - `PhotoId` (string, UUID minted at ingest), `Photo { id, path, sidecarPath,
   fileName, captureTime?, camera?, sourceId, status, versions, previewRevision?,
-  previewStale? }`
+  previewStale?, inPlace? }` (`inPlace` marks a file in a folder added in place, not an ingest copy)
 - `PhotoStatus { ingest, edited, metadataDiffersFromTemplate, export, upload }`
 - `SourceConfig` = `FolderSource | CardSource | FtpSource | SftpSource`
   (`FtpSource` covers FTP and FTPS; remote sources have `pollIntervalMs`,
@@ -444,6 +480,10 @@ Key types (names are binding, fields can grow):
   saved before `areas` existed, which loads as adds),
   `Shape = Rect | Polygon` in normalized image coordinates (0..1)
 - `PhotoVersion { id, kind: 'develop' | 'retouch', ops }`
+- `FolderImportInfo { jobId, root, mode: 'add' | 'rescan', state, filesTotal, filesDone,
+  filesImported, filesSkipped, currentFile?, error? }`, sent as `library.progress` and
+  `library.state`; `photos:addFolder`, `photos:rescanFolder`, `photos:stopFolderImport`,
+  `photos:removeFolder` and `photos:listAddedFolders` are the added-folder channels.
 - `ExportPreset { id, name, folderTemplate, fileNaming, fileNameTemplate, ifExists, format,
   quality, colorSpace, resize, outputSharpening, metadata, stripGps, version, sendTo }`;
   `fileNaming` is `keep` (the photo's current base name plus `.jpg`) or `rename`
@@ -1188,7 +1228,13 @@ Design tokens and component rules are in `docs/DESIGN.md`.
   (`selection-summary.ts`), read-only, with Edit… buttons into the batch caption dialog (`ensureMetadata`
   reads the fields of up to 100 selected photos for the comparison).
 - **Folders** come from `libraryFolders(photos)`: the directory of each photo's `path`, which is
-  always the ingest copy. Sources are not consulted.
+  the ingest copy or a file in a folder added in place. Sources are not consulted. Two folders with
+  the same name in different roots show the shortest parent suffix that tells them apart.
+  **Add folder…** opens the picker and starts an added-folder run; a folder row's right-click menu
+  has **Rescan folder** when it is an added root and **Remove folder from Library…** always. The
+  latter asks first, states the row's count and that files on disk are not touched. Running runs
+  show their count and a Stop button under the list. An added folder is worked on where it is:
+  edits write XMP sidecars and JPEG metadata in that folder.
 - **Delete** (`AppState.deleteRequest`): the Delete key (and Backspace on macOS, where the "delete" key
   reports it) and a right-click menu on the grid and the film strip with Tag, a rating row and a class row
   (the same `toggleTag`, `setRating` and `setColorClass` as the keys, so they act on the whole Library

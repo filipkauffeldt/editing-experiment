@@ -45,8 +45,10 @@ Export / Export & send.
   (with label syncing on, the default) and the rating is written to
   `xmp:Rating` and `Prefs`.
 - Library: virtualised grid and loupe, multi-select (click, Shift range,
-  Ctrl/⌘ toggle, Ctrl/⌘+A). Folders are derived from the local ingest copies
-  only; cards and servers are intentionally not shown there.
+  Ctrl/⌘ toggle, Ctrl/⌘+A). Folders come from the photos themselves: ingest
+  copies and folders added in place in the sidebar. Cards and servers are
+  intentionally not shown there. An added folder is read where it is, scanned
+  again only when asked, and removed from the Library without touching a file.
 - Culling a burst: the loupe zooms with the keys of Develop, into the camera's
   full-size JPEG (a raw's embedded preview, or the JPEG file), so a 100% focus
   check needs no raw decode. It shows the whole frame, not developed and not
@@ -364,6 +366,17 @@ Set things up in this order:
    See [Camera profiles](docs/camera-profiles.md) for the platform details.
 8. Press **Ingest** in the bar at the bottom of the Ingest view, then **Library** → **Develop** →
    **Export…** or **Export & send** (or **Next & send**, Ctrl/⌘+Enter).
+
+### Open an existing folder in place
+
+**Library → Add folder…** in the Folders sidebar adds an existing folder without copying it.
+Supported images below it, subfolders included, appear in the Library with their existing XMP
+sidecars and embedded metadata. Raws are never written: their edits go to the XMP sidecar next to
+the raw. JPEG edits are written into the JPEG. Both happen in the added folder.
+
+**Rescan folder** in the folder's right-click menu looks for files that appeared since. It does
+not run by itself. **Remove folder from Library…** drops the folder's photos from the Library and
+leaves every file on disk untouched. Delete still moves a photo to the system trash.
 
 ## Keyboard shortcuts
 
