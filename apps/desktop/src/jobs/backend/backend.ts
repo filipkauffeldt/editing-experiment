@@ -26,6 +26,7 @@ import { PresetLibrary } from './preset-library';
 import { PresetStore } from './presets';
 import { ProfileLibrary } from './profiles';
 import { PreviewCache } from './previews';
+import { DEFAULT_CACHE_LIMIT_BYTES, DiskCache } from './disk-cache';
 import { ExportQueue } from './export-queue';
 import { ExportService, clearInterruptedExportStates } from './export-service';
 import { ExportedFileStore, normalizeExportPath } from './exported-files';
@@ -111,7 +112,13 @@ export async function createBackend(options: BackendOptions): Promise<Backend> {
   const photos: PhotoLibrary = new PhotoLibrary(index, emit, search);
   // Reads the captions of photos that have none in the search index yet, in the background.
   search.start();
-  const previews = new PreviewCache(layout.thumbDir, layout.previewDir);
+  const cache = new DiskCache(
+    { thumb: layout.thumbDir, preview: layout.previewDir },
+    settings.cacheLimitBytes() ?? DEFAULT_CACHE_LIMIT_BYTES,
+    (message) => console.warn(message),
+  );
+  cache.init();
+  const previews = new PreviewCache(layout.thumbDir, layout.previewDir, cache);
   const metadata = new MetadataService(photos, exiftool, settings);
   const profiles = new ProfileLibrary({
     folders: () => settings.get().profileFolders ?? [],
@@ -125,8 +132,11 @@ export async function createBackend(options: BackendOptions): Promise<Backend> {
     profiles.defaultKeyForPhoto(photo, params),
   );
   const edits = new EditService(photos, exiftool, editedPreviews);
-  // Before anything is served: a raw preview drawn with older raw defaults is out of date.
-  await editedPreviews.invalidateOutdatedDefaults();
+  // After the first paint: a raw preview drawn with older raw defaults is out of date. Reading
+  // the marker of every edited photo must not delay a large index becoming usable.
+  void editedPreviews
+    .invalidateOutdatedDefaults()
+    .catch((error: unknown) => console.warn('edited preview check failed', error));
   const labels = new LabelService(photos, exiftool);
   const seenStore = new SqliteSeenStore(layout.seenDb);
   const presets = new PresetStore(() => settings.presetsDir());
@@ -147,6 +157,7 @@ export async function createBackend(options: BackendOptions): Promise<Backend> {
     previews,
     linearDir: layout.linearDir,
     fullDir: layout.fullDir,
+    cache,
     lensShot: (path, frame) => readLensShot(path, frame, exiftool),
   });
   await apps.init();
@@ -323,6 +334,7 @@ export async function createBackend(options: BackendOptions): Promise<Backend> {
       queue,
       exports,
       exporter,
+      cache,
     }),
   );
 
@@ -344,6 +356,7 @@ export async function createBackend(options: BackendOptions): Promise<Backend> {
         { name: 'export queue', run: async () => exports.close() },
         { name: 'upload queue', run: () => queue.close() },
         { name: 'search index', run: () => search.close() },
+        { name: 'cache', run: () => cache.close() },
         { name: 'exiftool', run: () => exiftool.close() },
         { name: 'seen files', run: () => seenStore.close() },
         { name: 'photo index', run: () => index.close() },

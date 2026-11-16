@@ -381,6 +381,11 @@ export class SettingsStore {
     return mergeSettings(this.shared, this.machine, this.folder).sources;
   }
 
+  /** This computer's shared thumbnail/preview cache limit, or undefined for the default. */
+  cacheLimitBytes(): number | undefined {
+    return this.machine.cacheLimitBytes;
+  }
+
   listDestinations(): Destination[] {
     return mergeSettings(this.shared, this.machine, this.folder).destinations;
   }
@@ -681,6 +686,7 @@ export class SettingsStore {
       ...(patch.panelWidths === undefined
         ? {}
         : { panelWidths: sanitizePanelWidths(patch.panelWidths) ?? {} }),
+      ...(patch.cacheLimitBytes === undefined ? {} : { cacheLimitBytes: patch.cacheLimitBytes }),
       paths,
     });
 

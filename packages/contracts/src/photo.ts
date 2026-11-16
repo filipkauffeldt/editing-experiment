@@ -59,6 +59,23 @@ export interface RetouchVersion {
 /** An edit version of a photo, persisted in the sidecar (`crs:` for develop, `ee:` for retouch). */
 export type PhotoVersion = DevelopVersion | RetouchVersion;
 
+/** A folder row in the Library sidebar. */
+export interface LibraryFolderInfo {
+  path: string;
+  /** Name shown in the sidebar; the renderer fills in the shortest suffix that tells it apart. */
+  name?: string;
+  /** Photos directly in the folder, or below an added root. */
+  count: number;
+  /** True for a folder the user added in place. */
+  root?: boolean;
+}
+
+/** The folder tree and photo count of the whole index, without the photos themselves. */
+export interface LibraryOverview {
+  total: number;
+  folders: LibraryFolderInfo[];
+}
+
 /** One ingested photo. The index is a cache; the sidecar is the source of truth. */
 export interface Photo {
   id: PhotoId;

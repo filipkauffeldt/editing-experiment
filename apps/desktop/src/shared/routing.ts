@@ -30,6 +30,7 @@ export const NAMESPACE_HOST: Record<IpcNamespace, ChannelHost> = {
   export: 'jobs',
   exportPresets: 'jobs',
   upload: 'jobs',
+  cache: 'jobs',
   settings: 'main',
   dialog: 'main',
 };

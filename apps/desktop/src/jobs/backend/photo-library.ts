@@ -1,11 +1,13 @@
 import {
   IpcError,
   type EventChannel,
+  type LibraryFolderInfo,
+  type LibraryOverview,
   type Photo,
   type PhotoId,
   type SourceId,
 } from '@ee/contracts';
-import type { PhotoIndex, PhotoRecord } from './photo-index';
+import type { PhotoIndex, PhotoQueryResult, PhotoRecord } from './photo-index';
 import { normalizeExportPath } from './exported-files';
 import type { SearchIndex } from './search-index';
 
@@ -27,6 +29,34 @@ export class PhotoLibrary {
 
   list(sourceId?: SourceId): Photo[] {
     return this.index.list(sourceId);
+  }
+
+  /** The photos directly in a folder. */
+  listFolder(folder: string): Photo[] {
+    return this.index.listFolder(folder);
+  }
+
+  /** The photos whose status says edited. */
+  listEdited(): Photo[] {
+    return this.index.listEdited();
+  }
+
+  /** Ids of the photos in a folder, or below it too. */
+  idsInFolder(folder: string, subfolders: boolean): PhotoId[] {
+    return this.index.idsInFolder(folder, subfolders);
+  }
+
+  /** The folder tree with counts, without loading the photos. */
+  overview(): LibraryOverview {
+    return { total: this.index.count(), folders: this.folders() };
+  }
+
+  folders(): LibraryFolderInfo[] {
+    return this.index.folders(this.index.addedFolders());
+  }
+
+  query(options: Parameters<PhotoIndex['query']>[0]): PhotoQueryResult {
+    return this.index.query(options);
   }
 
   record(photoId: PhotoId): PhotoRecord {
@@ -110,6 +140,17 @@ export class PhotoLibrary {
       this.search?.forget(photoId);
       this.emit('photos:removed', { photoId });
     }
+    return removed;
+  }
+
+  /**
+   * Like {@link removeAndExclude} for many photos, in one index transaction and with one event.
+   * Used by Remove folder from Library, where 3,000 single events would flood the renderer.
+   */
+  removeManyAndExclude(photoIds: readonly PhotoId[]): PhotoId[] {
+    const removed = this.index.removeManyAndExclude(photoIds);
+    for (const photoId of removed) this.search?.forget(photoId);
+    if (removed.length > 0) this.emit('photos:removedMany', { photoIds: removed });
     return removed;
   }
 

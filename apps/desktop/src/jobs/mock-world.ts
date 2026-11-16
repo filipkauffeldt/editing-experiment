@@ -619,6 +619,24 @@ export function createMockHandlers(world: MockWorld, emit: Emit): Partial<IpcHan
     'export:render': async () => {},
     'export:rendererReady': async () => {},
     'upload:list': async () => world.uploads,
+    'cache:stats': async () => ({
+      bytes: 0,
+      thumbBytes: 0,
+      previewBytes: 0,
+      limitBytes: 20 * 1024 ** 3,
+    }),
+    'cache:setLimit': async ({ limitBytes }) => ({
+      bytes: 0,
+      thumbBytes: 0,
+      previewBytes: 0,
+      limitBytes,
+    }),
+    'cache:clear': async () => ({
+      bytes: 0,
+      thumbBytes: 0,
+      previewBytes: 0,
+      limitBytes: 20 * 1024 ** 3,
+    }),
     'upload:retry': async ({ uploadId }) => {
       const item = world.uploads.find((candidate) => candidate.id === uploadId);
       if (!item) return;

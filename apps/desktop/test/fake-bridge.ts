@@ -123,7 +123,41 @@ export function createFakeBridge(
       const { message } = args[0] as { message: string };
       return { echo: message, jobsPid: 1, jobsTime: 0 };
     },
-    'photos:list': async () => photos,
+    'photos:list': async (...args) => {
+      const folder = (args[0] as { folder?: string } | undefined)?.folder;
+      return folder === undefined
+        ? photos
+        : photos.filter((photo) => dirname(photo.path) === folder);
+    },
+    'photos:folders': async () => {
+      const counts = new Map<string, number>();
+      for (const photo of photos) {
+        const folder = dirname(photo.path);
+        counts.set(folder, (counts.get(folder) ?? 0) + 1);
+      }
+      return {
+        total: photos.length,
+        folders: [...counts].map(([path, count]) => ({ path, count })),
+      };
+    },
+    'photos:query': async (...args) => {
+      const {
+        folder,
+        offset = 0,
+        limit = 1000,
+      } = (args[0] ?? {}) as {
+        folder?: string;
+        offset?: number;
+        limit?: number;
+      };
+      const scoped =
+        folder === undefined ? photos : photos.filter((photo) => dirname(photo.path) === folder);
+      return {
+        photos: scoped.slice(offset, offset + limit),
+        total: scoped.length,
+        scopeTotal: scoped.length,
+      };
+    },
     'photos:listAddedFolders': async () => [],
     'photos:search': async (...args) => {
       const terms = searchTerms((args[0] as { query: string }).query);
@@ -206,6 +240,41 @@ export function createFakeBridge(
       }
       return { updated, noCaptureTime, failed: [] };
     },
+    'photos:removeFolder': async (...args) => {
+      const { path, subfolders } = args[0] as { path: string; subfolders?: boolean };
+      const prefix = `${path.replace(/[\\/]+$/, '')}/`;
+      const removed = photos
+        .filter(
+          (photo) =>
+            dirname(photo.path) === path ||
+            (subfolders === true && dirname(photo.path).startsWith(prefix)),
+        )
+        .map((photo) => photo.id);
+      for (const photoId of removed) {
+        const index = photos.findIndex((candidate) => candidate.id === photoId);
+        if (index >= 0) photos.splice(index, 1);
+      }
+      if (removed.length > 0) emit('photos:removedMany', { photoIds: removed });
+      return { deleted: removed, failed: [] };
+    },
+    'cache:stats': async () => ({
+      bytes: 0,
+      thumbBytes: 0,
+      previewBytes: 0,
+      limitBytes: 20 * 1024 ** 3,
+    }),
+    'cache:setLimit': async (...args) => ({
+      bytes: 0,
+      thumbBytes: 0,
+      previewBytes: 0,
+      limitBytes: (args[0] as { limitBytes: number }).limitBytes,
+    }),
+    'cache:clear': async () => ({
+      bytes: 0,
+      thumbBytes: 0,
+      previewBytes: 0,
+      limitBytes: 20 * 1024 ** 3,
+    }),
     'photos:deleteVersion': async (...args) => {
       const { photoId, versionId } = args[0] as { photoId: PhotoId; versionId: VersionId };
       const photo = findPhoto(photoId);

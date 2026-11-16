@@ -84,6 +84,8 @@ export interface MachineSettings {
   profileFolders?: string[];
   presetFolders?: string[];
   panelWidths?: PanelWidths;
+  /** Shared limit for `cache/thumb` and `cache/preview`; this computer's disk only. */
+  cacheLimitBytes?: number;
   /** `SettingsPathRef.machine` id → absolute path on this computer. */
   paths: Record<string, string>;
   /** Folder and card sources. */
@@ -176,6 +178,9 @@ export function splitSettings(
         ...(state.settings.panelWidths === undefined
           ? {}
           : { panelWidths: state.settings.panelWidths }),
+        ...(state.settings.cacheLimitBytes === undefined
+          ? {}
+          : { cacheLimitBytes: state.settings.cacheLimitBytes }),
         paths: {},
         sources: state.sources.filter(isLocalSource),
         destinations: state.destinations.filter(isLocalDestination),
@@ -296,6 +301,7 @@ export function mergeSettings(
       : { copySettingGroups: shared.copySettingGroups }),
     ...(shared.autoAdvance === true ? { autoAdvance: true } : {}),
     ...(machine.panelWidths === undefined ? {} : { panelWidths: machine.panelWidths }),
+    ...(machine.cacheLimitBytes === undefined ? {} : { cacheLimitBytes: machine.cacheLimitBytes }),
   };
   return {
     settings,
@@ -427,6 +433,7 @@ export function normalizeMachineFile(
     'profileFolders',
     'presetFolders',
     'panelWidths',
+    'cacheLimitBytes',
     'paths',
     'sources',
     'destinations',
@@ -471,6 +478,11 @@ export function normalizeMachineFile(
       const widths = sanitizePanelWidths(raw.panelWidths) ?? defaults.panelWidths;
       return widths === undefined ? {} : { panelWidths: widths };
     })(),
+    ...(Number.isInteger(raw.cacheLimitBytes) && (raw.cacheLimitBytes as number) >= 0
+      ? { cacheLimitBytes: raw.cacheLimitBytes as number }
+      : defaults.cacheLimitBytes === undefined
+        ? {}
+        : { cacheLimitBytes: defaults.cacheLimitBytes }),
     paths,
     sources: (Array.isArray(raw.sources) ? raw.sources : [])
       .map(migrateSource)
