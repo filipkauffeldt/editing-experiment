@@ -88,6 +88,10 @@ export interface IngestHooks {
   retryBaseDelayMs?: number;
   /** Maximum retry delay for remote connections. Defaults to 5 s. */
   retryMaxDelayMs?: number;
+  /** Delay between the scans of a folder source that watches for new files. Defaults to 1 s. */
+  watchIntervalMs?: number;
+  /** How long a watched file must stay unchanged before it is copied. Defaults to 3 s. */
+  watchQuietPeriodMs?: number;
   /** Test seam for the read-only volume probe used by the lock filter. */
   isDirectoryWritable?: (directory: string) => Promise<boolean>;
 }

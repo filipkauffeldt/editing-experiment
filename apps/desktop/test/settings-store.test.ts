@@ -516,12 +516,19 @@ describe('SettingsStore', () => {
       fileTypes: 'jpeg',
       lockFilter: 'unlocked',
       incremental: true,
+      watchForNewFiles: true,
     });
 
     const reopened = new SettingsStore(file, defaults);
     expect(reopened.listSources()).toMatchObject([
       { id: 'card', fileTypes: 'raw', lockFilter: 'locked', incremental: false },
-      { id: 'folder', fileTypes: 'jpeg', lockFilter: 'unlocked', incremental: true },
+      {
+        id: 'folder',
+        fileTypes: 'jpeg',
+        lockFilter: 'unlocked',
+        incremental: true,
+        watchForNewFiles: true,
+      },
     ]);
   });
 

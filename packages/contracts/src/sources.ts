@@ -43,6 +43,11 @@ export interface FolderSource extends SourceBase, LocalSourceFilters {
   path: string;
   /** Descend into subfolders (default false). */
   recursive?: boolean;
+  /**
+   * Keep scanning this folder during an ingest run and copy files that appear,
+   * until the run is stopped. Defaults to `false`; cards have no such option.
+   */
+  watchForNewFiles?: boolean;
 }
 
 /** A memory card (removable volume). Detection is platform specific; see `sources:detectCards`. */

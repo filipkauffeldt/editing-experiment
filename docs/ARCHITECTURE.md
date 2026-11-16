@@ -14,7 +14,8 @@ The proof of concept covers one end-to-end workflow:
    verification, an optional backup destination, a Photo Mechanic metadata template
    (Replace by default, or Fill empty) and an optional develop preset. Local sources
    filter by file type (RAW / JPEG / All), lock state (Locked / Unlocked / All) and
-   skipping what was already ingested (on by default). XMP sidecars are written and thumbnails appear
+   skipping what was already ingested (on by default). A folder source can also keep
+   watching for new files while its run goes. XMP sidecars are written and thumbnails appear
    live in the film strip.
 2. **Library.** A virtualised grid and loupe, multi-selection, the shared filter bar,
    ratings, colour classes, tagging and batch captioning.
@@ -135,6 +136,25 @@ exports/             default exportRoot (only a relative folder template uses it
   numeric suffixes; ingest never overwrites. Keeping original names uses the source's own base
   name and the same suffix rule; the suffix is decided once per source and base, so a raw/JPEG
   pair and its XMP sidecar keep matching names while two sources race for the same shot.
+- Watched folder sources: `FolderSource.watchForNewFiles` (default false) keeps a folder source's
+  run going after the first pass. During the run the source rescans its folder (and subfolders when
+  `recursive`) every second and copies files that appear through the same filters, rename, template,
+  preset, verification and seen-store path as an ordinary pass. The row reports `watching` with the
+  files copied so far, like a polled server, and its Stop ends the watch. Only a running ingest run
+  watches: nothing resumes at launch and a card has no such option. A file is copied only after its
+  size and modified time stayed the same for a three-second quiet period. A modified time already
+  older than that counts as quiet time when its clock is usable, so files already in the folder are
+  not held for the whole period. The period is three seconds because FAT and exFAT keep modified
+  times in two-second steps. A file that changes is left for a later look and never fails the run.
+  An empty file is not taken. One path with one size and modified time is copied at most once per
+  run, also with incremental off. `filesSkipped` counts only files the seen store had before the
+  run started,
+  so a file this run copied is not reported as already ingested. A file that disappears between the
+  look and the copy is skipped without failing the run. The scan is `readdir` and `stat` on an
+  interval, not `fs.watch`, because recursive watching is not dependable across Linux, macOS,
+  Windows and network drives. A source whose later scan fails (a network share that went away)
+  keeps watching and reports the error once. When the folder returns, copying resumes and the run
+  keeps its first error on the row, as every ingest run does.
 - Card discovery: `CardScanner` (`@ee/ingest`, `cards.ts`) runs in the jobs process behind
   `sources:detectCards`. It imports no native module and runs no platform tool; the one thing Node
   cannot see, a Windows volume label, comes through the injected `readDriveInfo` option, which
@@ -344,7 +364,8 @@ Key types (names are binding, fields can grow):
   `CardSource.discovered` marks a source created by picking a discovered card.
   `FolderSource` and `CardSource` also have optional `fileTypes` (`both` default),
   `lockFilter` (`all` default) and `incremental` (`true` default); remote sources
-  have none of them.
+  have none of them. `FolderSource.watchForNewFiles` (default `false`) keeps that
+  source's run scanning the folder until it is stopped; cards have no such field.
 - `IngestConfig { sources, destination, backupDestination?, fileNaming,
   renameTemplate, metadataTemplatePath?, metadataTemplateMode?, developPresetId? }`;
   `fileNaming` is `keep` (the source's own file names) or `rename`; settings
@@ -1043,8 +1064,9 @@ gone); Settings keeps Sources, Destinations, Metadata, Profiles and Presets.
   as one list. Every row has a tickbox, a name, the card's image count or the source kind on the right and
   one detail line (location, then the filters that are not the default, or `all files`). The detail line of
   a folder or card opens that source's filters inline (`SourceFilters`: file types RAW / JPEG / All, lock
-  Locked / Unlocked / All, Skip already ingested); each click saves the source. A run adds its progress,
-  Stop, warning and error under the row. Cards are scanned when the view opens and by Rescan, never on a
+  Locked / Unlocked / All, Skip already ingested, and for a folder Watch for new files); each click saves
+  the source. A run adds its progress, Stop, warning and error under the row. A watching folder reports
+  `watching` with its count there, like a polled server. Cards are scanned when the view opens and by Rescan, never on a
   timer; ticks are in memory only (`pickedCards` for discovered cards, which start unticked and are
   dropped when the card leaves; `unpickedSources` for folders and servers, which start ticked, as they
   were always ingested). A removed card whose run is going or failed stays until dismissed.

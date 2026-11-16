@@ -2,11 +2,12 @@ import { stat, mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, posix } from 'node:path';
 import type { CredentialSecret, IngestConfig, IngestJobState, JobId } from '@ee/contracts';
-import { IngestAbortError, IngestError, isAbortError, throwIfAborted } from '../errors';
+import { IngestError, isAbortError, throwIfAborted } from '../errors';
 import { isImageFileName, isRawFileName } from '../formats';
 import { ingestFile } from '../ingest-file';
 import { isTemporaryName, naturalCompare, safeLocalFileName, splitName } from '../naming';
 import type { SeenStore } from '../seen-store';
+import { sleep } from '../sleep';
 import type { ExpandTemplate } from '../template';
 import type { FileCopier, IngestHooks } from '../types';
 import type { RemoteConnection, RemoteConnectionFactory, RemoteEntry, RemoteSource } from './types';
@@ -44,21 +45,6 @@ export interface RemotePollerDeps {
   callbacks: RemotePollerCallbacks;
   retryBaseDelayMs: number;
   retryMaxDelayMs: number;
-}
-
-function sleep(milliseconds: number, signal: AbortSignal): Promise<void> {
-  throwIfAborted(signal);
-  return new Promise((resolve, reject) => {
-    const timer = setTimeout(() => {
-      signal.removeEventListener('abort', onAbort);
-      resolve();
-    }, milliseconds);
-    const onAbort = (): void => {
-      clearTimeout(timer);
-      reject(new IngestAbortError());
-    };
-    signal.addEventListener('abort', onAbort, { once: true });
-  });
 }
 
 function sidecarFor(

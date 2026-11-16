@@ -1,4 +1,4 @@
-import type { SourceConfig } from '@ee/contracts';
+import type { FolderSource, SourceConfig } from '@ee/contracts';
 import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -24,12 +24,12 @@ afterEach(async () => {
   for (const store of stores.splice(0)) await store.dispose();
 });
 
-const localSource = (store: AppStore): Extract<SourceConfig, { kind: 'folder' | 'card' }> => {
+const localSource = (store: AppStore): FolderSource => {
   const source = store
     .getState()
-    .sources.find((candidate) => candidate.kind === 'folder' || candidate.kind === 'card');
-  if (!source || (source.kind !== 'folder' && source.kind !== 'card')) {
-    throw new Error('no local source');
+    .sources.find((candidate): candidate is FolderSource => candidate.kind === 'folder');
+  if (!source) {
+    throw new Error('no folder source');
   }
   return source;
 };
@@ -56,6 +56,8 @@ describe('ingest filters', () => {
     expect(allOf(/File types/).getAttribute('aria-pressed')).toBe('true');
     expect(allOf(/^Lock/).getAttribute('aria-pressed')).toBe('true');
     expect((row.getByLabelText('Skip already ingested') as HTMLInputElement).checked).toBe(true);
+    const watch = row.getByLabelText('Watch for new files') as HTMLInputElement;
+    expect(watch.checked).toBe(false);
 
     await user.click(row.getByRole('button', { name: 'JPEG' }));
     await waitFor(() => expect(localSource(store).fileTypes).toBe('jpeg'));
@@ -63,13 +65,22 @@ describe('ingest filters', () => {
     await waitFor(() => expect(localSource(store).lockFilter).toBe('locked'));
     await user.click(row.getByLabelText('Skip already ingested'));
     await waitFor(() => expect(localSource(store).incremental).toBe(false));
-    expect(line.textContent).toContain('JPEG only · locked only · including already ingested');
+    await user.click(watch);
+    await waitFor(() => expect(localSource(store).watchForNewFiles).toBe(true));
+    expect(line.textContent).toContain(
+      'JPEG only · locked only · including already ingested · watching for new files',
+    );
 
     const saved = fake.calls
       .filter((call) => call.channel === 'sources:save')
       .map((call) => (call.args[0] as { source: SourceConfig }).source);
     const last = saved.at(-1);
-    expect(last).toMatchObject({ fileTypes: 'jpeg', lockFilter: 'locked', incremental: false });
+    expect(last).toMatchObject({
+      fileTypes: 'jpeg',
+      lockFilter: 'locked',
+      incremental: false,
+      watchForNewFiles: true,
+    });
   });
 
   it('shows the filtered and incremental counts for a running source', async () => {
@@ -125,6 +136,9 @@ describe('ingest filters', () => {
     const incremental = within(dialog).getByLabelText('Skip already ingested') as HTMLInputElement;
     expect(incremental.checked).toBe(true);
     await user.click(incremental);
+    const watch = within(dialog).getByLabelText('Watch for new files') as HTMLInputElement;
+    expect(watch.checked).toBe(false);
+    await user.click(watch);
     await user.click(within(dialog).getByRole('button', { name: 'Save source' }));
 
     await waitFor(() => {
@@ -133,12 +147,26 @@ describe('ingest filters', () => {
         fileTypes: 'raw',
         lockFilter: 'unlocked',
         incremental: false,
+        watchForNewFiles: true,
       });
     });
     expect(localSource(store)).toMatchObject({
       fileTypes: 'raw',
       lockFilter: 'unlocked',
       incremental: false,
+      watchForNewFiles: true,
     });
+  });
+
+  it('offers the watch option on a folder source only', async () => {
+    const user = userEvent.setup();
+    await renderApp();
+    await user.click(screen.getByTestId('open-settings'));
+    const dialog = await screen.findByTestId('settings-dialog');
+    expect(within(dialog).getByLabelText('Watch for new files')).toBeTruthy();
+
+    await user.click(within(dialog).getByTestId('add-source'));
+    await user.click(within(dialog).getByTestId('add-source-card'));
+    expect(within(dialog).queryByLabelText('Watch for new files')).toBeNull();
   });
 });

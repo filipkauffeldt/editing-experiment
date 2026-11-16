@@ -1,13 +1,15 @@
 import { readdir, stat } from 'node:fs/promises';
 import { dirname, join, sep } from 'node:path';
 import type { CardSource, FolderSource } from '@ee/contracts';
-import { IngestError } from './errors';
+import { IngestError, throwIfAborted } from './errors';
 import { isImageFileName, isRawFileName } from './formats';
 import { hasExportMarker, isTemporaryName, naturalCompare, splitName } from './naming';
 import type { SourceFile } from './types';
 
 export interface ListImagesOptions {
   recursive?: boolean;
+  /** Checked at every folder and file, so Stop does not wait for a large tree. */
+  signal?: AbortSignal;
 }
 
 async function safeReadDirectory(
@@ -38,7 +40,9 @@ async function walk(
   relativeFolder: string,
   recursive: boolean,
   files: SourceFile[],
+  signal?: AbortSignal,
 ): Promise<void> {
+  throwIfAborted(signal);
   const entries = await safeReadDirectory(directory);
   // A folder the app exported into is not a source of photos, even when a folder source is
   // the parent of the ingest destination. The folder picked as the source itself is the
@@ -52,6 +56,7 @@ async function walk(
     .sort((a, b) => naturalCompare(a.name, b.name));
 
   for (const entry of images) {
+    throwIfAborted(signal);
     const path = join(directory, entry.name);
     try {
       const info = await stat(path);
@@ -77,7 +82,7 @@ async function walk(
   }
   for (const entry of subdirectories) {
     const nextFolder = relativeFolder ? join(relativeFolder, entry.name) : entry.name;
-    await walk(join(directory, entry.name), nextFolder, true, files);
+    await walk(join(directory, entry.name), nextFolder, true, files, signal);
   }
 }
 
@@ -90,14 +95,17 @@ export async function listImageFiles(
   options: ListImagesOptions = {},
 ): Promise<SourceFile[]> {
   const files: SourceFile[] = [];
-  await walk(root, '', options.recursive ?? false, files);
+  await walk(root, '', options.recursive ?? false, files, options.signal);
   return files.sort(
     (a, b) => naturalCompare(a.relativeFolder, b.relativeFolder) || naturalCompare(a.name, b.name),
   );
 }
 
 /** Lists the files one local source will ingest, in copy order. */
-export async function listSourceFiles(source: FolderSource | CardSource): Promise<SourceFile[]> {
+export async function listSourceFiles(
+  source: FolderSource | CardSource,
+  options: Pick<ListImagesOptions, 'signal'> = {},
+): Promise<SourceFile[]> {
   if (source.kind === 'folder') {
     try {
       const info = await stat(source.path);
@@ -113,7 +121,10 @@ export async function listSourceFiles(source: FolderSource | CardSource): Promis
       }
       throw error;
     }
-    return listImageFiles(source.path, { recursive: source.recursive ?? false });
+    return listImageFiles(source.path, {
+      recursive: source.recursive ?? false,
+      ...(options.signal ? { signal: options.signal } : {}),
+    });
   }
   const dcim = join(source.mountPath, 'DCIM');
   // A card can be pulled between the last scan and the click on Ingest. Name the card in
@@ -138,7 +149,10 @@ export async function listSourceFiles(source: FolderSource | CardSource): Promis
     }
     throw missing(error instanceof Error ? error.message : String(error));
   }
-  return listImageFiles(dcim, { recursive: true });
+  return listImageFiles(dcim, {
+    recursive: true,
+    ...(options.signal ? { signal: options.signal } : {}),
+  });
 }
 
 /**

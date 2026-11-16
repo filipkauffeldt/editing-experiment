@@ -37,11 +37,14 @@ export function sourceFilterValues(
 export function SourceFilters({
   value,
   onChange,
+  watch,
   name,
   className,
 }: {
   value: SourceFilterValues;
   onChange(value: SourceFilterValues): void;
+  /** Folder sources can keep watching; cards do not offer it. */
+  watch?: { value: boolean; onChange(value: boolean): void };
   /** Source name for accessible labels when several rows are on screen. */
   name?: string;
   className?: string;
@@ -85,6 +88,16 @@ export function SourceFilters({
         />
         Skip already ingested
       </label>
+      {watch && (
+        <label className={styles.checkbox}>
+          <input
+            type="checkbox"
+            checked={watch.value}
+            onChange={(event) => watch.onChange(event.target.checked)}
+          />
+          Watch for new files
+        </label>
+      )}
     </div>
   );
 }
