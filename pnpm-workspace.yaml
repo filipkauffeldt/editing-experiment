@@ -15,6 +15,8 @@ allowBuilds:
   cpu-features: false
   dtrace-provider: false
   ssh2: false
+  # Squirrel.Windows installer builder, pulled in by electron-builder. The app builds NSIS instead.
+  electron-winstaller: false
 
 # pnpm refuses very fresh releases by default; electron 45.1.0 was pinned before
 # the cool-down elapsed.

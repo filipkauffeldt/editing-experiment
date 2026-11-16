@@ -35,6 +35,8 @@ export interface JobsClientOptions {
    * it every request is answered with an error, so a photo is never deleted permanently.
    */
   trashItem?: (path: string) => Promise<void>;
+  /** A warning or error the jobs process wrote with `console.warn` or `console.error`. */
+  onLog?: (level: 'warn' | 'error', message: string) => void;
 }
 
 /**
@@ -176,6 +178,10 @@ export class JobsClient {
   private receive(message: JobsOutgoingMessage): void {
     if (message.kind === 'event') {
       this.onEvent(message.channel, message.payload);
+      return;
+    }
+    if (message.kind === 'log') {
+      this.options.onLog?.(message.level, message.message);
       return;
     }
     if (message.kind === 'trash-request') {

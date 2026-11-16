@@ -8,13 +8,18 @@ import { decodeOrientedRgba } from './image-ops';
 import type { PhotoLibrary } from './photo-library';
 
 /**
- * Where the YuNet model is: `EE_YUNET_MODEL_PATH`, else `fixtures/models` found by
- * walking up from this file (works from source and from the electron-vite output).
- * Packaging must ship the model and set the variable; see the PR notes.
+ * Where the YuNet model is: `EE_YUNET_MODEL_PATH`, else `models/` in a packaged app's
+ * `resources`, else `fixtures/models` found by walking up from this file (works from source and
+ * from the electron-vite output).
  */
 export function findYuNetModel(from: string): string | undefined {
   const configured = process.env['EE_YUNET_MODEL_PATH'];
   if (configured) return configured;
+  const resources = (process as { resourcesPath?: string }).resourcesPath;
+  if (resources) {
+    const packaged = join(resources, 'models', YUNET_MODEL_FILE);
+    if (existsSync(packaged)) return packaged;
+  }
   for (let dir = from; ; dir = dirname(dir)) {
     const candidate = join(dir, 'fixtures', 'models', YUNET_MODEL_FILE);
     if (existsSync(candidate)) return candidate;

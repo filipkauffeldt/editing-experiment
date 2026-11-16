@@ -125,6 +125,15 @@ Export / Export & send.
   settings into an empty one, or adopts a folder that already has settings.
 - Anonymous FTP for sources and destinations when no credentials are set.
 
+- Daily use: a second launch focuses the running window instead of opening a second app on the
+  same databases. The window comes back with the size, position and maximised state it was closed
+  with (`window-state.json`, kept apart from `settings.json`, and a position on no display falls
+  back to the default). Warnings and errors from the main process, the jobs process and the
+  renderer, and uncaught exceptions and unhandled rejections in all three, go to a rotating log in
+  `userData/logs` (2 MB per file, 5 files) as well as the console. Passwords, keys and the user
+  information of URLs are removed before a line is written. Help → Open log folder opens it, and
+  Help → About shows the version.
+
 ## Known gaps
 
 - Without Adobe's camera profiles, colour comes from LibRaw's camera matrix
@@ -161,7 +170,75 @@ Export / Export & send.
   absolute template may not exist on the other computer. Presets found in
   preset folders and camera profiles are per computer. Only imported develop
   presets live in the settings folder.
-- There is no installer or packaging; run the app from source.
+- The installable builds carry the version `0.1.0` and nothing else of a release: no icon of their
+  own (Electron's is used), no brand name beyond the working title "Editing Experiment", no code
+  signing (Windows SmartScreen warns about an unknown publisher and the AppImage is unsigned) and
+  no auto-update. A new version is a new download, and settings and the Library are kept between
+  them. The Windows installer is built and started only in the Windows workflow, not tried on a
+  real machine yet. macOS is not packaged. The AppImage is built against the glibc of its CI image
+  (Ubuntu 24.04) and needs a distribution at least that recent, such as Fedora 40 or later.
+- The AppImage runs with Chromium's sandbox where the system allows unprivileged user namespaces and
+  without it where the system blocks them, such as Ubuntu 24.04 with its default AppArmor policy
+  (see "Install" below). The app only loads its own local pages.
+
+## Install
+
+Version 0.1.0. There is no auto-update and no signing. Builds are made from the repository, and the
+Linux AppImage and the Windows installer come from CI as workflow artifacts too (the `package-linux`
+job in `ci.yml`, the `Windows` workflow on `main` and by hand).
+
+### Linux (AppImage)
+
+Fedora, Ubuntu 24.04 or another x64 distribution with a recent glibc.
+
+```sh
+chmod +x editing-experiment-0.1.0-linux-x64.AppImage
+./editing-experiment-0.1.0-linux-x64.AppImage
+```
+
+- The AppImage needs FUSE 2 to mount itself: `sudo dnf install fuse-libs` on Fedora,
+  `sudo apt install libfuse2t64` on Ubuntu 24.04. Without it, run
+  `./editing-experiment-0.1.0-linux-x64.AppImage --appimage-extract-and-run` (or set
+  `APPIMAGE_EXTRACT_AND_RUN=1`), which unpacks to a temporary folder first.
+- **Sandbox.** The app code never turns Chromium's sandbox off, and the launcher entry carries no
+  flag. The AppImage's own start script adds `--no-sandbox` only when the system refuses unprivileged
+  user namespaces. So the sandbox is on where user namespaces work (Fedora) and off where the system
+  blocks them (Ubuntu 24.04 and later, because of AppArmor), and the app starts on a double-click in
+  both. To keep the sandbox on under Ubuntu, allow user namespaces: either
+  `sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0` (persist it in `/etc/sysctl.d/`) or
+  an AppArmor profile for the AppImage that grants `userns`. Then start it as usual.
+- Data lives in `~/.config/Editing Experiment` (`$XDG_CONFIG_HOME`), apart from the folder a
+  development run uses. The log is in its `logs` folder.
+- A keyring (Secret Service) is needed to store FTP/SFTP credentials, see "Credentials".
+
+### Windows (installer)
+
+Run `editing-experiment-0.1.0-win-x64-setup.exe`. It installs for the current user, without
+administrator rights, below `%LOCALAPPDATA%\Programs\editing-experiment` and starts the app.
+SmartScreen warns about an unknown publisher because the installer is not signed: choose More info,
+then Run anyway. Data lives in `%APPDATA%\Editing Experiment`. Uninstalling removes the program and
+leaves that folder.
+
+### Build it yourself
+
+The Linux package is built on Linux and the Windows installer on Windows. Both need the build
+prerequisites of the matching section under "Getting started" and nothing more: electron-builder
+downloads Electron, the AppImage tools and NSIS itself.
+
+```sh
+pnpm install --frozen-lockfile
+pnpm dist:linux        # apps/desktop/release/editing-experiment-0.1.0-linux-x64.AppImage
+pnpm dist:win          # apps/desktop/release/editing-experiment-0.1.0-win-x64-setup.exe
+```
+
+Each builds the Rust core, fetches the YuNet model, builds the app and runs `electron-builder`
+(`apps/desktop/electron-builder.yml`). `--skip-native` (for example `pnpm dist:linux --skip-native`)
+uses the addon that is already built. The package holds the Rust core and the YuNet model in
+`resources`, ExifTool and onnxruntime unpacked from the asar, the Lensfun data and the fonts inside
+the bundle, and the licences of those parts in `resources/licenses`. `pnpm test:e2e:packaged` starts
+the built package against a temporary `EE_USER_DATA_DIR`, ingests a raw and checks previews, ExifTool
+and face detection (under `xvfb-run` where there is no display). On Windows set `EE_PACKAGED_APP` to
+the installed `Editing Experiment.exe`.
 
 ## Getting started
 
@@ -190,6 +267,8 @@ These are for Linux. On Windows the list is the table under "Windows" below.
   `pnpm --filter @ee/develop-gl exec playwright install --with-deps chromium`
   (the `--with-deps` part needs sudo).
 - Xvfb and xauth for headless Electron runs: `sudo apt install xvfb xauth`.
+- To run an AppImage without `--appimage-extract-and-run`, FUSE 2: `sudo apt install libfuse2t64`
+  or `sudo dnf install fuse-libs`. Building one needs no system package.
 - An OS keyring (Secret Service, e.g. GNOME Keyring, or KWallet) if you want to
   store FTP/SFTP credentials. See "Credentials" below.
 
@@ -257,7 +336,8 @@ the variable are absent.
 
 ### Windows
 
-Windows 10 or 11, 64-bit. The Windows workflow runs on the `windows-2025-vs2026` runner image
+Windows 10 or 11, 64-bit. This section is for building and developing. To only install the app, see
+"Install". The Windows workflow runs on the `windows-2025-vs2026` runner image
 (Windows Server 2025) and the steps below are the ones it runs.
 
 Prerequisites, all installed for your user or machine; nothing else is needed (no Python, CMake,
@@ -300,11 +380,14 @@ pnpm fetch-retouch
 pnpm test:unit:windows        # ingest, export, metadata, retouch, contracts, core and the jobs-backend tests
 pnpm --filter "@ee/desktop" run build
 pnpm test:e2e:launch          # starts the built app against a temporary EE_USER_DATA_DIR
+pnpm test:e2e:lifecycle       # the instance lock, window state (also maximised) and the log file
 pnpm test:e2e:crop            # main only: the real-mode smoke test (ingests a NEF) and the crop overlay tests
 pnpm dev                      # main only: until it prints "starting electron app", then checks Electron is running
+pnpm dist:win --skip-native   # main only: the NSIS installer, kept as the `windows-installer` artifact
+# installs it for the current user with /S, then runs pnpm test:e2e:packaged against the installed app
 ```
 
-The workflow builds with `CARGO_PROFILE_RELEASE_LTO=off` to save link time. The two `main only` steps
+The workflow builds with `CARGO_PROFILE_RELEASE_LTO=off` to save link time. The `main only` steps
 also run when the workflow is started by hand, and pull requests skip them.
 
 Not run on Windows: `pnpm lint` and `pnpm typecheck` (Linux CI covers the same files), the rest of
@@ -451,7 +534,7 @@ entered there.
 - `packages/develop-gl` — WebGL2 develop pipeline, `crs:` model, Lightroom preset parser.
 - `packages/retouch` — selections, mosaic, YuNet face detection.
 - `packages/export` — JPEG encode, embedded-preview checks, upload queue.
-- `scripts` — fixture fetchers and the screenshot runner.
+- `scripts` — fixture fetchers, the screenshot runner and the packaging script.
 
 ## Licence
 
@@ -459,6 +542,8 @@ GPL-3.0-or-later; see `LICENSE`.
 
 - Vendored LibRaw is dual LGPL-2.1/CDDL-1.0 (used under LGPL-2.1) — see
   `crates/core/vendor/libraw/LICENSE.LGPL` and `LICENSE.CDDL`.
+- The installable builds carry these licences in `resources/licenses` (this repository's, LibRaw's,
+  YuNet's and Lensfun's).
 - The YuNet face detection model is MIT (Shiqi Yu) — see
   `packages/retouch/third_party/yunet/LICENSE`.
 - The embedded sRGB ICC profile is CC0 — see

@@ -69,7 +69,7 @@ export function TopBar({ className, loadError }: { className?: string; loadError
         className={styles.mark}
         title={
           backend
-            ? `jobs pid ${backend.ping.jobsPid} · core ${backend.info.coreVersion} · round trip ${backend.roundTripMs} ms`
+            ? `version ${backend.info.appVersion} · jobs pid ${backend.ping.jobsPid} · core ${backend.info.coreVersion} · round trip ${backend.roundTripMs} ms`
             : (healthError ?? 'connecting to jobs process…')
         }
         data-health={healthError ? 'error' : backend ? 'ok' : 'connecting'}

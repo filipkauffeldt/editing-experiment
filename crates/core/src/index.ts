@@ -1,3 +1,4 @@
+import { existsSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { dirname, join } from 'node:path';
 import type { LinearImageHeader } from '@ee/contracts';
@@ -11,9 +12,22 @@ export type { NativeDriveInfo, RawInfo, RawPreview } from '../index.cjs';
 let cached: NativeBinding | undefined;
 
 /**
+ * The addon's folder in a packaged app: `native/` next to the app's `resources` (Electron sets
+ * `process.resourcesPath`; plain Node does not). A development run under Electron has the property
+ * too, but no such folder, so it falls through to the workspace package.
+ */
+function packagedAddonDir(): string | undefined {
+  const resources = (process as { resourcesPath?: string }).resourcesPath;
+  if (!resources) return undefined;
+  const dir = join(resources, 'native');
+  return existsSync(join(dir, 'index.cjs')) ? dir : undefined;
+}
+
+/**
  * Load the compiled addon (once).
  *
- * The addon path is derived from this package's location via module resolution
+ * In a packaged app the addon is in `resources/native`. Otherwise the addon path is derived from
+ * this package's location via module resolution
  * rather than from `import.meta.url`, so it keeps working when this file is
  * bundled into another output directory (electron-vite bundles it into the
  * utility process bundle).
@@ -23,7 +37,7 @@ let cached: NativeBinding | undefined;
 export function loadCore(): NativeBinding {
   if (cached) return cached;
   const require = createRequire(import.meta.url);
-  const packageDir = dirname(require.resolve('@ee/core/package.json'));
+  const packageDir = packagedAddonDir() ?? dirname(require.resolve('@ee/core/package.json'));
   try {
     cached = require(join(packageDir, 'index.cjs')) as NativeBinding;
   } catch (cause) {

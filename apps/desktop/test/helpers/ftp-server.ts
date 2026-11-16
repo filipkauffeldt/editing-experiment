@@ -26,6 +26,8 @@ export async function startFtpServer(options: {
   password?: string;
   /** Accept any login (used by the anonymous-FTP demo). */
   anonymous?: boolean;
+  /** Put the rejected login's user and password in the 530 reply, as a careless server might. */
+  echoRejectedLogin?: boolean;
 }): Promise<TestFtpServer> {
   // ftp-srv adds a process-level signal handler per server and never removes it.
   process.setMaxListeners(Math.max(process.getMaxListeners(), 50));
@@ -45,7 +47,13 @@ export async function startFtpServer(options: {
     ) {
       resolve({ root: options.root });
     } else {
-      reject(new Error('login failed'));
+      reject(
+        new Error(
+          options.echoRejectedLogin
+            ? `login failed for ${data.username} with password ${data.password}`
+            : 'login failed',
+        ),
+      );
     }
   });
   await server.listen();

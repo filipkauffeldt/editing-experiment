@@ -375,3 +375,52 @@ jobs:
         with:
           name: screenshots
           path: screenshots/
+
+  # Builds the AppImage and starts it under Xvfb (extract-and-run, so no FUSE): the window opens, a
+  # raw is ingested through the Rust core and ExifTool, previews are served and a face is found.
+  package-linux:
+    needs: native
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+      # Version comes from "packageManager" in package.json.
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - uses: actions/download-artifact@v8
+        with:
+          name: native-addon
+          path: crates/core
+      - uses: actions/cache@v6
+        with:
+          path: fixtures/raw
+          key: fixtures-raw-${{ hashFiles('scripts/fetch-fixtures.ts') }}
+      - run: pnpm fetch-fixtures
+      - uses: actions/cache@v6
+        with:
+          path: |
+            fixtures/models
+            fixtures/retouch
+          key: fixtures-retouch-${{ hashFiles('scripts/fetch-retouch.ts') }}
+      - name: Install Xvfb
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends xvfb xauth
+      # Electron downloads its binary on first use, which the test's launcher needs too.
+      - name: Install Electron binary
+        run: node scripts/ensure-electron.mjs
+      - name: Build the AppImage
+        # The native addon came from the artifact; only the app is built here.
+        run: pnpm dist:linux --skip-native
+      - name: Launch the AppImage
+        run: xvfb-run -a --server-args='-screen 0 1920x1080x24' pnpm test:e2e:packaged
+      - uses: actions/upload-artifact@v7
+        with:
+          name: appimage
+          path: apps/desktop/release/*.AppImage
+          if-no-files-found: error
+          retention-days: 7

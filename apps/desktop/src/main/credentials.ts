@@ -36,11 +36,13 @@ export class CredentialStore {
   /**
    * @param onWarning told when an unreadable file was set aside; the message never
    *   contains file contents
+   * @param onSecret told of every secret that is stored or read, so the log can be kept free of it
    */
   constructor(
     private readonly file: string,
     private readonly safeStorage: SafeStorageLike,
     onWarning: (message: string) => void = () => {},
+    private readonly onSecret: (secret: CredentialSecret) => void = () => {},
   ) {
     this.entries = {};
     if (!existsSync(file)) return;
@@ -79,6 +81,7 @@ export class CredentialStore {
     if (!secret.password && !secret.privateKey) {
       throw new IpcError('invalid_argument', 'a credential needs a password or a private key');
     }
+    this.onSecret(secret);
     const key = ref || `cred-${randomUUID()}`;
     if (!REF_PATTERN.test(key)) {
       throw new IpcError('invalid_argument', 'credential reference has invalid characters');
@@ -96,9 +99,11 @@ export class CredentialStore {
       throw new IpcError('not_found', `no credential stored for "${ref}"`);
     }
     try {
-      return JSON.parse(
+      const secret = JSON.parse(
         this.safeStorage.decryptString(Buffer.from(encoded, 'base64')),
       ) as CredentialSecret;
+      this.onSecret(secret);
+      return secret;
     } catch {
       // The keyring may have been reset; never echo anything from the ciphertext.
       throw new IpcError('auth', `the credential "${ref}" could not be decrypted; enter it again`);

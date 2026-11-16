@@ -17,6 +17,7 @@ on:
       - 'apps/desktop/src/main/**'
       - 'apps/desktop/src/jobs/**'
       - 'apps/desktop/package.json'
+      - 'apps/desktop/electron-builder.yml'
       - 'apps/desktop/electron.vite.config.ts'
       - 'scripts/**'
       - 'package.json'
@@ -94,7 +95,44 @@ jobs:
       - name: Launch the built app
         if: ${{ !cancelled() }}
         run: pnpm test:e2e:launch
-      # The three steps below take about 6 minutes, so they run on main and by hand, not on PRs.
+      # The main process, the instance lock, the window state and the log file. Maximising a window
+      # needs a real desktop, which this runner has, so this is where that test runs.
+      - name: Instance lock, window state and log file (pnpm test:e2e:lifecycle)
+        if: ${{ !cancelled() }}
+        run: pnpm test:e2e:lifecycle
+      # The steps below take several minutes, so they run on main and by hand, not on PRs.
+      # The installer: built, installed for this user without a prompt, and the installed app is
+      # started by the same test the AppImage gets (a raw is ingested, previews are served, ExifTool
+      # and the face model are used). The installer is kept as a workflow artifact.
+      - name: Build the installer
+        if: ${{ !cancelled() && github.event_name != 'pull_request' }}
+        run: pnpm dist:win --skip-native
+      - uses: actions/upload-artifact@v7
+        if: ${{ !cancelled() && github.event_name != 'pull_request' }}
+        with:
+          name: windows-installer
+          path: apps/desktop/release/*-setup.exe
+          if-no-files-found: error
+          retention-days: 7
+      - name: Install the app for the current user
+        if: ${{ !cancelled() && github.event_name != 'pull_request' }}
+        run: |
+          $setup = Get-ChildItem apps/desktop/release -Filter '*-setup.exe' | Select-Object -First 1
+          if (-not $setup) { throw 'no installer was built' }
+          Start-Process -FilePath $setup.FullName -ArgumentList '/S' -Wait
+          # The installer hands over to a copy of itself, so Wait can return before the files are there.
+          $programs = Join-Path $env:LOCALAPPDATA 'Programs'
+          $exe = $null
+          for ($i = 0; $i -lt 60 -and -not $exe; $i++) {
+            $exe = Get-ChildItem $programs -Recurse -Depth 2 -Filter 'Editing Experiment.exe' -ErrorAction SilentlyContinue | Select-Object -First 1 -ExpandProperty FullName
+            if (-not $exe) { Start-Sleep -Seconds 2 }
+          }
+          if (-not $exe) { throw "the installer did not put the app below $programs" }
+          "installed at $exe"
+          "EE_PACKAGED_APP=$exe" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+      - name: Launch the installed app (pnpm test:e2e:packaged)
+        if: ${{ !cancelled() && github.event_name != 'pull_request' }}
+        run: pnpm test:e2e:packaged
       - name: Display size and scaling
         if: ${{ !cancelled() && github.event_name != 'pull_request' }}
         run: |
@@ -124,5 +162,7 @@ jobs:
           $electron = @(Get-Process -Name electron -ErrorAction SilentlyContinue).Count
           Get-Content $out, $err -ErrorAction SilentlyContinue | Select-Object -Last 60
           taskkill /PID $dev.Id /T /F | Out-Null
+          # taskkill fails when a child has just exited on its own, which is fine here.
+          $global:LASTEXITCODE = 0
           if (-not $started) { throw 'pnpm dev never reached "starting electron app"' }
           if ($electron -eq 0) { throw 'pnpm dev started but no Electron process is running' }

@@ -1,0 +1,90 @@
+# Builds the installable app: an AppImage on Linux and a per-user NSIS installer on Windows.
+# Run through `pnpm dist:linux` / `pnpm dist:win` (scripts/package-app.ts), which build the native
+# core, fetch the face model and build the app first. No signing, no auto-update, no icon of its
+# own: the Electron icon is used.
+appId: io.github.filipkauffeldt.editing-experiment
+productName: Editing Experiment
+copyright: GPL-3.0-or-later
+directories:
+  output: release
+
+# The bundle in `out/` holds the app and the workspace packages. Only what electron-vite leaves
+# external is installed: basic-ftp, exiftool-vendored, fast-xml-parser, onnxruntime-node and
+# ssh2-sftp-client with their dependencies (see "Dependency declarations" in docs/ARCHITECTURE.md).
+files:
+  - out/**
+  - package.json
+  - '!**/*.map'
+  # Workspace packages are source that the bundle already contains.
+  - '!node_modules/@ee/**'
+
+# The packaged app gets its own userData folder (~/.config/Editing Experiment, %APPDATA%\Editing
+# Experiment), apart from the one a development run uses, and a plain install folder: the installer
+# names it after the package name, which is the workspace's "@ee/desktop" otherwise.
+extraMetadata:
+  name: editing-experiment
+  productName: Editing Experiment
+
+asar: true
+# Programs and libraries that are started or loaded by the operating system cannot run from inside
+# the archive: ExifTool's perl or exe, the ONNX Runtime libraries and any other native addon.
+asarUnpack:
+  - '**/*.node'
+  - node_modules/exiftool-vendored/**
+  - node_modules/exiftool-vendored.pl/**
+  - node_modules/exiftool-vendored.exe/**
+  - node_modules/onnxruntime-node/**
+npmRebuild: false
+
+extraResources:
+  # The Rust core. `loadCore` looks for `resources/native/index.cjs` first.
+  - from: ../../crates/core/index.cjs
+    to: native/index.cjs
+  - from: ../../crates/core
+    to: native
+    filter: ['*.node']
+  # YuNet face detection model, found by `findYuNetModel` in `resources/models`.
+  - from: ../../fixtures/models/face_detection_yunet_2026may.onnx
+    to: models/face_detection_yunet_2026may.onnx
+  # Licences of the parts that ask for one to travel with them.
+  - from: ../../LICENSE
+    to: licenses/LICENSE-editing-experiment.txt
+  - from: ../../packages/retouch/third_party/yunet/LICENSE
+    to: licenses/LICENSE-yunet.txt
+  - from: ../../packages/develop-gl/data/LICENSE-lensfun-CC-BY-SA-3.0.txt
+    to: licenses/LICENSE-lensfun-CC-BY-SA-3.0.txt
+  - from: ../../crates/core/vendor/libraw/LICENSE.LGPL
+    to: licenses/LICENSE-libraw-LGPL.txt
+  - from: ../../crates/core/vendor/libraw/LICENSE.CDDL
+    to: licenses/LICENSE-libraw-CDDL.txt
+
+linux:
+  target:
+    - target: AppImage
+      arch: [x64]
+  category: Graphics
+  executableName: editing-experiment
+  # electron-builder adds `--no-sandbox` to the launcher's Exec line unless this is set.
+  executableArgs: []
+  artifactName: editing-experiment-${version}-linux-x64.${ext}
+  files:
+    # One ONNX Runtime build per platform is enough.
+    - '!node_modules/onnxruntime-node/bin/napi-v6/{darwin,win32}/**'
+    - '!node_modules/onnxruntime-node/bin/napi-v6/linux/arm64/**'
+
+win:
+  target:
+    - target: nsis
+      arch: [x64]
+  artifactName: editing-experiment-${version}-win-x64-setup.${ext}
+  files:
+    - '!node_modules/onnxruntime-node/bin/napi-v6/{darwin,linux}/**'
+    - '!node_modules/onnxruntime-node/bin/napi-v6/win32/arm64/**'
+
+nsis:
+  # Per user, no administrator rights: installs below %LOCALAPPDATA%\Programs.
+  oneClick: true
+  perMachine: false
+  allowElevation: false
+  # Uninstalling the app leaves the photos index, settings and credentials alone.
+  deleteAppDataOnUninstall: false
