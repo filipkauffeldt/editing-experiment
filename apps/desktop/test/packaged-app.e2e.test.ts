@@ -86,6 +86,8 @@ describe.skipIf(!packaged || !nef || !haveDisplay)('packaged app', () => {
 
     app = await electron.launch({
       executablePath: packaged!,
+      // Playwright adds --no-sandbox itself unless asked not to. The AppImage decides instead.
+      chromiumSandbox: true,
       env: appEnv({ EE_USER_DATA_DIR: userData }),
     });
     window = await app.firstWindow();
@@ -182,7 +184,7 @@ describe.skipIf(!packaged || !nef || !haveDisplay)('packaged app', () => {
   });
 
   it('hands a second launch over to the running instance and exits', async () => {
-    const second = spawn(packaged!, process.platform === 'linux' ? ['--no-sandbox'] : [], {
+    const second = spawn(packaged!, [], {
       env: appEnv({ EE_USER_DATA_DIR: userData }),
       stdio: 'ignore',
     });
@@ -209,6 +211,7 @@ describe.skipIf(!packaged || !nef || !haveDisplay)('packaged app', () => {
       mkdirSync(home);
       const other = await electron.launch({
         executablePath: packaged!,
+        chromiumSandbox: true,
         env: appEnv({
           XDG_CONFIG_HOME: home,
           EE_USER_DATA_DIR: '',
@@ -226,20 +229,14 @@ describe.skipIf(!packaged || !nef || !haveDisplay)('packaged app', () => {
     90_000,
   );
 
-  it.skipIf(!isAppImage)(
-    'does not turn the sandbox off in the launcher or the desktop entry',
-    () => {
-      const extracted = join(root, 'extracted');
-      mkdirSync(extracted);
-      execFileSync(packaged!, ['--appimage-extract'], { cwd: extracted });
-      const appRun = readFileSync(join(extracted, 'squashfs-root', 'AppRun'), 'utf8');
-      const desktop = readFileSync(
-        join(extracted, 'squashfs-root', 'editing-experiment.desktop'),
-        'utf8',
-      );
-      expect(desktop).not.toContain('--no-sandbox');
-      expect(appRun).not.toMatch(/NO_SANDBOX=\(--no-sandbox\)/);
-      expect(appRun).toContain('NO_SANDBOX=()');
-    },
-  );
+  it.skipIf(!isAppImage)('has no sandbox flag in the desktop entry', () => {
+    const extracted = join(root, 'extracted');
+    mkdirSync(extracted);
+    execFileSync(packaged!, ['--appimage-extract'], { cwd: extracted });
+    const desktop = readFileSync(
+      join(extracted, 'squashfs-root', 'editing-experiment.desktop'),
+      'utf8',
+    );
+    expect(desktop).not.toContain('--no-sandbox');
+  });
 });

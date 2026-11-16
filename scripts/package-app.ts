@@ -7,7 +7,6 @@ import { spawnSync } from 'node:child_process';
 import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { removeSandboxFallback } from './appimage-sandbox.ts';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const desktop = join(root, 'apps', 'desktop');
@@ -77,10 +76,5 @@ const built = readdirSync(release).filter(
 if (built.length === 0) {
   console.error(`electron-builder produced no ${target} package in ${release}`);
   process.exit(1);
-}
-if (target === 'linux') {
-  for (const name of built) {
-    await removeSandboxFallback(join(release, name), join(desktop, 'package.json'));
-  }
 }
 for (const name of built) console.log(`\nBuilt ${join(release, name)}`);

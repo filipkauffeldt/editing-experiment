@@ -177,8 +177,9 @@ Export / Export & send.
   them. The Windows installer is built and started only in the Windows workflow, not tried on a
   real machine yet. macOS is not packaged. The AppImage is built against the glibc of its CI image
   (Ubuntu 24.04) and needs a distribution at least that recent, such as Fedora 40 or later.
-- The AppImage keeps Chromium's sandbox. On Ubuntu 24.04 and later it does not start without
-  `--no-sandbox` (see "Install" below), because AppArmor blocks the user namespace the sandbox needs.
+- The AppImage runs with Chromium's sandbox where the system allows unprivileged user namespaces and
+  without it where the system blocks them, such as Ubuntu 24.04 with its default AppArmor policy
+  (see "Install" below). The app only loads its own local pages.
 
 ## Install
 
@@ -199,12 +200,13 @@ chmod +x editing-experiment-0.1.0-linux-x64.AppImage
   `sudo apt install libfuse2t64` on Ubuntu 24.04. Without it, run
   `./editing-experiment-0.1.0-linux-x64.AppImage --appimage-extract-and-run` (or set
   `APPIMAGE_EXTRACT_AND_RUN=1`), which unpacks to a temporary folder first.
-- Fedora needs nothing else. On **Ubuntu 24.04 and later** AppArmor blocks the user namespace that
-  Chromium's sandbox uses, and the app stops at start with "The SUID sandbox helper binary was
-  found, but is not configured correctly". Start it with `--no-sandbox`
-  (`./editing-experiment-0.1.0-linux-x64.AppImage --no-sandbox`), or allow the user namespace with
-  an AppArmor profile. The AppImage never adds the flag itself and the app code never disables the
-  sandbox.
+- **Sandbox.** The app code never turns Chromium's sandbox off, and the launcher entry carries no
+  flag. The AppImage's own start script adds `--no-sandbox` only when the system refuses unprivileged
+  user namespaces. So the sandbox is on where user namespaces work (Fedora) and off where the system
+  blocks them (Ubuntu 24.04 and later, because of AppArmor), and the app starts on a double-click in
+  both. To keep the sandbox on under Ubuntu, allow user namespaces: either
+  `sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0` (persist it in `/etc/sysctl.d/`) or
+  an AppArmor profile for the AppImage that grants `userns`. Then start it as usual.
 - Data lives in `~/.config/Editing Experiment` (`$XDG_CONFIG_HOME`), apart from the folder a
   development run uses. The log is in its `logs` folder.
 - A keyring (Secret Service) is needed to store FTP/SFTP credentials, see "Credentials".

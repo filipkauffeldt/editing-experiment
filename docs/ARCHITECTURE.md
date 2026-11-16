@@ -42,7 +42,7 @@ packages/ingest       Sources (folder/card, FTP/SFTP poller), copy workers, rena
 packages/export       JPEG encode (@ee/core), thumbnail stripping, upload queue (FTP/FTPS/SFTP)
 packages/develop-gl   WebGL2 develop pipeline, crs: parameter model, LR preset parser
 packages/retouch      Selections, mosaic op, YuNet face detection (onnxruntime)
-scripts/              fetch-fixtures, screenshot helpers, packaging (package-app, appimage-sandbox)
+scripts/              fetch-fixtures, screenshot helpers, packaging (package-app)
 ```
 
 ## Decision records
@@ -441,11 +441,10 @@ signing, no auto-update and no icon of its own (Electron's is used).
   `~/.config/Editing Experiment` or `%APPDATA%\Editing Experiment`. A development run reads the
   workspace package name, so its data is elsewhere and the two never share databases or an instance lock.
 - **Sandbox.** The app never disables it. electron-builder writes `--no-sandbox` into the
-  AppImage's desktop entry (`executableArgs: []` stops that) and its `AppRun` adds the flag by itself
-  when `unshare -Ur true` fails, which it does on Ubuntu 24.04. `scripts/appimage-sandbox.ts` opens the
-  built AppImage, removes that block from `AppRun` (it fails if the script's text changed) and packs
-  the image again with electron-builder's own `mksquashfs` and runtime. On such a system the user passes
-  `--no-sandbox` (README, "Install"). The packaged test reads `AppRun` and the desktop entry.
+  AppImage's desktop entry unless `executableArgs: []` is set, which it is. The stock `AppRun` adds
+  the flag itself only when `unshare -Ur true` fails, that is where the system refuses unprivileged
+  user namespaces (Ubuntu 24.04's AppArmor policy). Elsewhere the sandbox stays on. The packaged
+  test starts the AppImage without passing the flag and reads the desktop entry.
 - **Test.** `packaged-app.e2e.test.ts` starts the AppImage (or the executable named by
   `EE_PACKAGED_APP`) with `EE_USER_DATA_DIR` set to a temporary folder. The AppImage runs with
   `APPIMAGE_EXTRACT_AND_RUN=1`, the runtime's switch for `--appimage-extract-and-run`, so no FUSE is
