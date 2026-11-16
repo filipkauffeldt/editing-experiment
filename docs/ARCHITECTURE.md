@@ -97,7 +97,7 @@ The default settings folder is `userData`, so both files sit there until the use
 machine.json         settings folder choice, ingest destination and backup folder, export root, folder and card sources, folder destinations, profile folders, preset folders, panel widths, and every metadata template or code replacement path outside the settings folder
 window-state.json    size, position and maximised state of the main window (this machine only, so it is not in settings.json)
 logs/                ee.log and ee.1.log … ee.4.log, see "Logging"
-index.sqlite         photo index, the search text of each photo, the folders added to the Library in place and the paths removed from the Library (cache; sidecars are the source of truth)
+index.sqlite         photo index, the search text of each photo, the folders added to the Library in place and the paths removed from the Library (cache; sidecars are the source of truth); flat folder, label, status and camera columns answer the Library queries from indexes
 seen.sqlite          files already ingested per source
 uploads.sqlite       upload queue
 export-jobs.json     resumable export batches (queued photos survive a restart)
@@ -202,11 +202,14 @@ settings.json.pre-settings-folder   the old one-file settings, kept after the fi
   metadata goes to the sibling XMP sidecar, JPEG metadata is embedded in the JPEG. Exports follow
   the preset, by default into an `export` folder next to the photo, which a later rescan skips.
   **Remove folder from Library…** on a sidebar folder removes its photos the
-  `photos:removeFromLibrary` way (paths recorded in `removed_paths`, no disk access). On an added
-  root it removes every photo below it, subfolders included, and forgets that root and any added
-  root below it. On a folder that is not an added root it removes only that exact folder's photos;
-  subfolders stay. Delete of an in-place photo is the explicit trash action through `PhotoDeleter`,
-  with every source and sidecar check unchanged.
+  `photos:removeFromLibrary` way (paths recorded in `removed_paths`, no disk access). The dialog
+  has **Include subfolders**; an added root starts with it ticked and a folder that is not a root
+  starts with it clear. With it the whole tree goes, the folder's added root is forgotten with any
+  added root below it, and a root without subfolders still forgets itself. Without it only the
+  exact folder's photos go and subfolders stay. The removal is one index transaction and one
+  `photos:removedMany` event, so a 3,000 photo folder does not send 3,000 events. Delete of an
+  in-place photo is the explicit trash action through `PhotoDeleter`, with every source and
+  sidecar check unchanged.
 - Card discovery: `CardScanner` (`@ee/ingest`, `cards.ts`) runs in the jobs process behind
   `sources:detectCards`. It imports no native module and runs no platform tool; the one thing Node
   cannot see, a Windows volume label, comes through the injected `readDriveInfo` option, which
@@ -548,6 +551,52 @@ embedded preview is only made once, at ingest.
 - **Cache busting.** `appUrl.thumb|preview(id, previewRevision)` adds `?v=<n>`. The canvas does not
   show the cached image under a crop or retouch session, where the stage is the uncropped image.
 
+## Thumbnail and preview cache
+
+`cache/thumb` and `cache/preview` share one size limit, 20 GB by default. Settings → Cache shows
+the current use and the limit, and has **Clear cache**. The number belongs to one computer and is
+kept in `machine.json` as `AppSettings.cacheLimitBytes`; it is not in the synced settings folder.
+
+- **Reading.** Serving a cached file touches it in an in-memory map. The map is written to
+  `cache/cache-usage.json` in batches, never once per read. A directory scan adds files the map
+  does not know yet; it runs after the first Library paint and in small batches, so a 100,000 file
+  cache does not delay startup or a folder switch.
+- **Eviction.** When the total is over the limit, previews go first, oldest first, and thumbnails
+  only after every preview is gone. Files written in the last ten seconds are kept, so a render
+  being handed to the browser is not deleted underneath it. Every file here is disposable.
+- **On demand.** A missing thumbnail or preview is made again from the photo on disk: the camera's
+  embedded preview for a raw, the file for a JPEG. A thumbnail request decodes only the 320 px
+  image. A photo with retouch ops is never served its camera preview; it gets a grey placeholder
+  and is marked `previewStale` until the renderer stores the edited render.
+- **Removal.** Delete and Remove from Library still drop every cached file of the photo.
+
+## Library scale
+
+The index is the source of truth for what the Library holds, not the renderer's memory.
+
+- `photos:folders` returns the whole folder tree with counts, as stored in the index. The sidebar
+  reads it, so counting 100,000 photos does not put them in the renderer.
+- An index up to 2,000 photos is loaded whole, as before. A larger one opens one folder:
+  `photos:list { folder }` returns that folder's photos and the grid keeps filtering, sorting and
+  selecting them locally. **All photos** loads the first 5,000 of the filtered, sorted list.
+- Develop on a large index gets a bounded page from `photos:query` (1,000 around the open photo),
+  with tag, rating, colour, status, camera, source and text search applied and the order decided
+  in the jobs process. Photo events from a running ingest or folder import still update what is
+  on screen; folder counts follow.
+- A photo loaded as part of a page is replaced by the full row (`photos:get`) when it is opened.
+- The grid stays virtualised by rows. Scroll updates are coalesced to one per animation frame, and
+  images decode asynchronously.
+- `PhotoIndex` fills flat columns (`folder`, `file_name`, `capture_time`, labels, status, camera)
+  from the photo on every save. Indexes: `photos_folder`, `photos_capture`, `photos_labels`,
+  `photos_upload`, `photos_source` and `photos_path`. `EXPLAIN QUERY PLAN` for a folder's list uses
+  `photos_folder`. An older `index.sqlite` gets the columns and indexes in place: one transaction
+  fills the missing flat columns and no row is dropped.
+- Measurement: `pnpm tsx scripts/measure-library-scale.ts` builds a throwaway `userData` with
+  100 folders and 60,000 photos, a handful of reused generated JPEGs and search text, then launches
+  the built app. It reports launch and folder times, renderer and jobs memory, scroll frames over
+  50 ms, and the rows and bytes of the IPC answers. `--photos` and `--folders` change the size;
+  `--keep` keeps the generated folder. Nothing in it is shipped or committed.
+
 ## Contracts (`packages/contracts`)
 
 Key types (names are binding, fields can grow):
@@ -609,7 +658,10 @@ Key types (names are binding, fields can grow):
 - `ExportJob { id, photoIds, presetId, send[], state, photos[] }` (per-photo progress)
 - `JobEvent` stream (ingest progress, upload progress, errors)
 - IPC: one typed map `IpcApi` of `channel -> (args) => Promise<result>` plus
-  typed event channels. Preload exposes it as `window.ee`.
+  typed event channels. Preload exposes it as `window.ee`. `LibraryFolderInfo` / `LibraryOverview`
+  are the folder tree and count (`photos:folders`); `QueryPhotosArgs` / `QueryPhotosResult` are a
+  filtered, sorted page (`photos:query`). `CacheStats` is the size and limit of the thumbnail and
+  preview caches (`cache:stats`, `cache:setLimit`, `cache:clear`).
 - `exportPresets:list/save/remove`, `export:previewTarget`, `export:start/cancel/list`, `export:render` and
   `export:rendererReady`; progress arrives as `export.progress` / `export.state`
   job events. `export:previewTarget` expands the folder and file templates exactly as the export does,
@@ -1369,9 +1421,10 @@ Design tokens and component rules are in `docs/DESIGN.md`.
   and keywords; several show the count, the values they share and `Differs` where they do not
   (`selection-summary.ts`), read-only, with Edit… buttons into the batch caption dialog (`ensureMetadata`
   reads the fields of up to 100 selected photos for the comparison).
-- **Folders** come from `libraryFolders(photos, addedFolders)`: the directory of each photo's
-  `path`, which is the ingest copy or a file in a folder added in place, plus every added root even
-  when all its photos are in subfolders. An added root's count is every photo below it. Sources are
+- **Folders** come from the index's `photos:folders` (`libraryFoldersFromInfos`): the folder of
+  each photo's `path`, which is the ingest copy or a file in a folder added in place, plus every
+  added root even when all its photos are in subfolders. A small index still derives them from the
+  loaded photos (`libraryFolders`). An added root's count is every photo below it. Sources are
   not consulted. Two folders with the same name in different roots show the shortest parent suffix
   that tells them apart. **Add folder…** opens the picker and starts an added-folder run; a folder
   row's right-click menu has **Rescan folder** when it is an added root and **Remove folder from
