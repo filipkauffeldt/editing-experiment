@@ -64,6 +64,12 @@ Export / Export & send.
   keywords (`Ctrl/⌘+F`), plus the sort order.
 - Batch caption for the selection: replace or append selected IPTC fields,
   with codes and `{variables}` expanded per photo.
+- Shift capture time for the Library selection or the open photo, from the photo
+  right-click menu. The offset is a sign, hours, minutes and seconds, previewed
+  on the active photo. Each photo moves from its own time. Raws keep their bytes
+  and get the new time in the XMP sidecar. JPEG/TIFF get their EXIF, XMP and
+  IPTC dates moved, with sub-seconds and the UTC offset kept. Photos without a
+  capture time are left alone.
 - Star ratings `1`-`5` (`0` clears), colour labels `Ctrl/⌘`+`1`-`8`
   (`Ctrl/⌘`+`0` clears) and tag `T`, applied to the Library selection or the
   open photo.
