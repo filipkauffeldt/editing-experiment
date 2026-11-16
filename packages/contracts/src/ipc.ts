@@ -244,6 +244,29 @@ export interface DeletePhotosResult {
  */
 export type RemoveFromLibraryResult = DeletePhotosResult;
 
+/** Arguments of `photos:shiftCaptureTime`. */
+export interface ShiftCaptureTimeArgs {
+  photoIds: PhotoId[];
+  /** Whole seconds, signed; each photo moves from its own current time. */
+  offsetSeconds: number;
+}
+
+/** One photo whose capture time was shifted, with the new IPTC/XMP creation date. */
+export interface ShiftedCaptureTime {
+  photo: Photo;
+  dateCreated: string;
+}
+
+/**
+ * Outcome of `photos:shiftCaptureTime`; partial failure does not reject. `noCaptureTime`
+ * holds the photos that were left alone because they have no clock time.
+ */
+export interface ShiftCaptureTimeResult {
+  updated: ShiftedCaptureTime[];
+  noCaptureTime: PhotoId[];
+  failed: { photoId: PhotoId; message: string }[];
+}
+
 /** Arguments of `photos:setEditedPreview`. */
 export interface SetEditedPreviewArgs {
   photoId: PhotoId;
@@ -453,6 +476,14 @@ export interface IpcApi {
    * because the edits changed meanwhile.
    */
   'photos:setEditedPreview': (args: SetEditedPreviewArgs) => Promise<Photo>;
+  /**
+   * Move each photo's capture time by the same whole-second offset, from that photo's own
+   * time. A raw's time goes to its XMP sidecar and the raw is never written; embedded
+   * formats get their EXIF, XMP and IIM/IPTC dates moved. Photos without a clock time are
+   * left alone. Each photo is written under its own lock and its failures do not stop the
+   * others.
+   */
+  'photos:shiftCaptureTime': (args: ShiftCaptureTimeArgs) => Promise<ShiftCaptureTimeResult>;
 
   // --- ingest ---
   /** Start ingesting every source in the config, in parallel. Returns one job per source. */
@@ -623,6 +654,7 @@ export const INVOKE_CHANNELS = [
   'photos:removeFolder',
   'photos:listAddedFolders',
   'photos:setEditedPreview',
+  'photos:shiftCaptureTime',
   'ingest:start',
   'ingest:stop',
   'ingest:status',

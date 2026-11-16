@@ -23,6 +23,9 @@ import { EXPORT_MARKER_NAME, EXPORT_MARKER_TEXT } from '@ee/ingest';
 import {
   asString,
   expandVariables,
+  formatCaptureDateTime,
+  formatExifDateTime,
+  parseCaptureDateTime,
   readIptc,
   writeIptc,
   type ExifToolService,
@@ -351,6 +354,9 @@ export class ExportService {
       if (preset.metadata === 'all') {
         const tags = preset.stripGps ? EXIF_TAGS : [...EXIF_TAGS, ...GPS_TAGS];
         await this.deps.exiftool.copyTags(named, sourcePath, tags);
+        // A raw's sidecar may hold a shifted time while its EXIF still has the camera's. The
+        // index's time wins; the copied sub-second and offset tags stay.
+        await this.writeCaptureDates(named, captureTime);
       }
       const written =
         preset.metadata === 'copyright'
@@ -367,6 +373,22 @@ export class ExportService {
     if (preset.metadata === 'all' || preset.metadata === 'iptc') {
       await this.stampCaptureTime(tempPath, sourcePath, captureTime);
     }
+  }
+
+  /**
+   * Put the photo's current capture time into the exported JPEG's EXIF and XMP dates. The
+   * original's `SubSecTime*` and `OffsetTime*` tags were copied above and are left alone.
+   */
+  private async writeCaptureDates(file: string, captureTime: string | undefined): Promise<void> {
+    if (captureTime === undefined) return;
+    const parts = parseCaptureDateTime(captureTime);
+    if (parts === undefined) return;
+    await this.deps.exiftool.write(file, {
+      'EXIF:DateTimeOriginal': formatExifDateTime(parts),
+      'EXIF:CreateDate': formatExifDateTime(parts),
+      'XMP-exif:DateTimeOriginal': formatCaptureDateTime(parts),
+      'XMP-xmp:CreateDate': formatCaptureDateTime(parts),
+    });
   }
 
   /** Makes the file's modified time the camera's capture time, as a file manager would sort by. */

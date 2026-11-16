@@ -13,6 +13,7 @@ import {
   asString,
   isRawPath,
   readPhotoLabels,
+  readSidecarCaptureTime,
   sidecarPathFor,
   toIsoDate,
   type ExifToolService,
@@ -57,7 +58,7 @@ interface Basics {
 const validOrientation = (value: number | undefined): number | undefined =>
   value !== undefined && Number.isInteger(value) && value >= 1 && value <= 8 ? value : undefined;
 
-async function readRaw(path: string): Promise<Basics> {
+async function readRaw(path: string, sidecarCaptureTime: string | undefined): Promise<Basics> {
   const [info, preview] = await Promise.allSettled([readRawInfo(path), extractPreview(path)]);
   const basics: Basics = {};
   if (preview.status === 'fulfilled') {
@@ -75,7 +76,8 @@ async function readRaw(path: string): Promise<Basics> {
     ...(raw.aperture === undefined ? {} : { aperture: raw.aperture }),
     ...(raw.shutter === undefined ? {} : { shutter: raw.shutter }),
   };
-  if (raw.captureTime !== undefined) basics.captureTime = raw.captureTime;
+  if (sidecarCaptureTime !== undefined) basics.captureTime = sidecarCaptureTime;
+  else if (raw.captureTime !== undefined) basics.captureTime = raw.captureTime;
   basics.width = raw.width;
   basics.height = raw.height;
   const orientation = validOrientation(raw.orientation);
@@ -186,7 +188,20 @@ export function createOnFileIngested(
 
     let basics: Basics;
     try {
-      basics = raw ? await readRaw(info.path) : await readImage(info.path, exiftool);
+      // A raw that came with a sidecar (Lightroom, Photo Mechanic) has its capture time there;
+      // the sidecar wins over the camera's EXIF from then on.
+      let sidecarCaptureTime: string | undefined;
+      if (raw) {
+        sidecarCaptureTime = await readSidecarCaptureTime(info.path, exiftool).catch(
+          (error: unknown) => {
+            problem('metadata', error);
+            return undefined;
+          },
+        );
+      }
+      basics = raw
+        ? await readRaw(info.path, sidecarCaptureTime)
+        : await readImage(info.path, exiftool);
     } catch (error) {
       if (error instanceof PreviewError) {
         basics = error.basics;

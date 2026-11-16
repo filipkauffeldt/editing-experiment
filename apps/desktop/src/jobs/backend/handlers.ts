@@ -73,6 +73,7 @@ export function createBackendHandlers(deps: HandlerDeps): IpcHandlers {
     'photos:removeFolder': (args) => deps.deleter.removeFolder(args),
     'photos:listAddedFolders': async () => photos.addedFolders(),
     'photos:setEditedPreview': async (args) => editedPreviews.set(args),
+    'photos:shiftCaptureTime': (args) => metadata.shiftCaptureTime(args),
 
     'ingest:start': ({ config }) => ingest.start(config),
     'ingest:stop': async (args) => ingest.stop(args?.sourceId),

@@ -8,6 +8,9 @@ import type {
   IptcFields,
   Photo,
   PhotoId,
+  ShiftCaptureTimeArgs,
+  ShiftCaptureTimeResult,
+  ShiftedCaptureTime,
   WriteMetadataArgs,
   WriteMetadataFieldsArgs,
   WriteMetadataFieldsResult,
@@ -19,6 +22,7 @@ import {
   loadCodeReplacements,
   readIptc,
   readTemplate,
+  shiftCaptureTime as shiftCaptureTimeOnDisk,
   writeIptc,
   applyTemplate,
   type ExifToolService,
@@ -68,6 +72,49 @@ export class MetadataService {
         result.failed.push({
           photoId,
           message: error instanceof Error ? error.message : String(error),
+        });
+      }
+    }
+    return result;
+  }
+
+  /**
+   * Shift each photo's capture time from that photo's own current time. The sidecar (raw) or
+   * embedded metadata is written under the photo's lock, then the index's `captureTime` is
+   * updated and announced. A photo with no clock time is reported and left untouched, and a
+   * failure on one photo does not stop the others.
+   */
+  async shiftCaptureTime({
+    photoIds,
+    offsetSeconds,
+  }: ShiftCaptureTimeArgs): Promise<ShiftCaptureTimeResult> {
+    const result: ShiftCaptureTimeResult = { updated: [], noCaptureTime: [], failed: [] };
+    for (const photoId of new Set(photoIds)) {
+      try {
+        const shifted = await this.photos.withLock(photoId, async () => {
+          const photo = this.photos.get(photoId);
+          const change = await shiftCaptureTimeOnDisk(photo.path, offsetSeconds, {
+            service: this.exiftool,
+          });
+          if (change === undefined) return undefined;
+          const updated = this.photos.update(photoId, (current) => ({
+            ...current,
+            captureTime: change.after,
+          }));
+          return { photo: updated, dateCreated: change.dateCreated } satisfies ShiftedCaptureTime;
+        });
+        if (shifted === undefined) result.noCaptureTime.push(photoId);
+        else result.updated.push(shifted);
+      } catch (error) {
+        let name: string = photoId;
+        try {
+          name = this.photos.get(photoId).fileName;
+        } catch {
+          // The photo left the index while its turn was running; the id still names it.
+        }
+        result.failed.push({
+          photoId,
+          message: `${name}: ${error instanceof Error ? error.message : String(error)}`,
         });
       }
     }
