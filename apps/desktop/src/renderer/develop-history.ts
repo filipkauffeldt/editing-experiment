@@ -118,6 +118,11 @@ export class DevelopHistory {
     return this.typedGesture ?? this.pointerGesture;
   }
 
+  /** A pointer drag or a typed value is open: the open photo must not move under it. */
+  get editing(): boolean {
+    return this.activeGesture() !== undefined;
+  }
+
   /**
    * Record one change of `photoId`. Returns false when the snapshots are the same. A new step
    * clears the redo steps, as any change after an undo does.

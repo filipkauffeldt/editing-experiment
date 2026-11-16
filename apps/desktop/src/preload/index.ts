@@ -22,4 +22,8 @@ contextBridge.exposeInMainWorld('eeTransport', transport);
 
 contextBridge.exposeInMainWorld('eeEnvironment', {
   screenshots: process.argv.includes('--ee-screenshots'),
+  // Test only: an index with more photos than this uses the lazy Library paths.
+  ...(process.env.EE_LAZY_LIBRARY_PHOTOS === undefined
+    ? {}
+    : { lazyLibraryPhotos: Number(process.env.EE_LAZY_LIBRARY_PHOTOS) }),
 });

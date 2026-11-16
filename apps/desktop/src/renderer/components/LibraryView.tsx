@@ -43,7 +43,8 @@ export function LibraryView() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [state.photos, state.library.folder],
   );
-  const hiddenByFilter = photos.length === 0 && scope.length > 0 && isFiltering(state.filter);
+  const scopeTotal = state.lazy ? (state.facets?.scopeTotal ?? scope.length) : scope.length;
+  const hiddenByFilter = photos.length === 0 && scopeTotal > 0 && isFiltering(state.filter);
   const selected = state.selection;
   const mod = modKeyLabel();
   const none = selected.length === 0;
@@ -97,7 +98,7 @@ export function LibraryView() {
           )}
         </FilterBar>
         {hiddenByFilter ? (
-          <FilterEmpty hidden={scope.length} />
+          <FilterEmpty hidden={scopeTotal} />
         ) : library.view === 'loupe' ? (
           <LibraryLoupe photos={photos} />
         ) : (

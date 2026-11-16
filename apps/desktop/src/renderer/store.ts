@@ -58,6 +58,7 @@ import {
   type LensShotInfo,
   type LibraryFolderInfo,
   type Photo,
+  type PhotoFacets,
   type PhotoId,
   type PhotoProfiles,
   type PhotoQueryFilter,
@@ -366,6 +367,10 @@ export interface AppState {
   totalPhotos: number;
   /** The index is too large to keep in memory; folders and pages load on demand. */
   lazy: boolean;
+  /** The loaded Develop page's position and size in the filtered list. */
+  developWindow?: { offset: number; total: number };
+  /** Filter option counts and the camera menu for the current scope, from the index. */
+  facets?: PhotoFacets;
   /** Folders the user added to the Library in place, from the index database. */
   addedFolders: string[];
   /** Added-folder runs by job id; terminal ones keep their last counts until the next run. */
@@ -841,6 +846,12 @@ export class AppStore {
   private photoFlush: ReturnType<typeof setTimeout> | number | null = null;
   private foldersTimer: ReturnType<typeof setTimeout> | undefined;
   private developTimer: ReturnType<typeof setTimeout> | undefined;
+  private facetsTimer: ReturnType<typeof setTimeout> | undefined;
+  private developLoading = false;
+  private developReloadPending = false;
+  private readonly developWaiters: (() => void)[] = [];
+  private facetsLoading = false;
+  private lastDevelopReloadAt = 0;
   private visibleCache: VisibleCache | undefined;
   private searchRun = 0;
   private searchTimer: ReturnType<typeof setTimeout> | undefined;
@@ -864,14 +875,18 @@ export class AppStore {
   private sendChain: Promise<void> = Promise.resolve();
 
   private readonly confirm: (message: string) => boolean;
+  /** Above this many photos the Library loads one folder at a time. Test seam. */
+  private readonly lazyLibraryPhotos: number;
 
   constructor(
     private readonly bridge: EeBridge,
     private readonly renderForExport: typeof renderFullResolution = renderFullResolution,
     renderEditedPreview?: EditedPreviewRenderer,
     confirm?: (message: string) => boolean,
+    lazyLibraryPhotos: number = LAZY_LIBRARY_PHOTOS,
   ) {
     this.confirm = confirm ?? defaultConfirm;
+    this.lazyLibraryPhotos = lazyLibraryPhotos;
     this.renderEditedPreview = renderEditedPreview;
     this.editedPreviews = this.createEditedPreviews();
   }
@@ -1077,8 +1092,10 @@ export class AppStore {
 
     const tree = value(overview);
     const total = tree?.total ?? 0;
-    const lazy = tree !== undefined && total > LAZY_LIBRARY_PHOTOS;
+    const lazy = tree !== undefined && total > this.lazyLibraryPhotos;
     let loadedPhotos: Photo[] = [];
+    let selectNewest = false;
+    let developWindow: AppState['developWindow'];
     let folder = this.state.library.folder;
     if (!lazy) {
       try {
@@ -1095,11 +1112,17 @@ export class AppStore {
           .catch(() => [] as Photo[]);
       }
     } else {
-      // The default view is Develop: load a bounded window of the film strip.
+      // The default view is Develop: a bounded page of the newest photos.
       const result = await this.bridge
-        .invoke('photos:query', { limit: LAZY_DEVELOP_WINDOW, sort: 'capture-time' })
+        .invoke('photos:query', {
+          limit: LAZY_DEVELOP_WINDOW,
+          sort: 'capture-time',
+          fromEnd: true,
+        })
         .catch(() => undefined);
       loadedPhotos = result?.photos ?? [];
+      if (result) developWindow = { offset: result.offset, total: result.total };
+      selectNewest = true;
     }
     const queued = [...this.pendingPhotos.values()];
     this.pendingPhotos.clear();
@@ -1108,9 +1131,8 @@ export class AppStore {
       if (position >= 0) loadedPhotos[position] = photo;
       else if (
         !lazy ||
-        (this.state.module === 'library'
-          ? folder === undefined || folderOf(photo.path) === folder
-          : loadedPhotos.length < LAZY_DEVELOP_WINDOW)
+        (this.state.module === 'library' &&
+          (folder === undefined || folderOf(photo.path) === folder))
       ) {
         loadedPhotos.push(photo);
       }
@@ -1143,6 +1165,7 @@ export class AppStore {
       folders: tree?.folders ?? [],
       totalPhotos: total || loadedPhotos.length,
       lazy,
+      ...(developWindow === undefined ? {} : { developWindow }),
       library: { ...this.state.library, folder },
       sources: value(sources) ?? [],
       destinations: value(destinations) ?? [],
@@ -1158,12 +1181,15 @@ export class AppStore {
       error: overview.status === 'rejected' ? messageOf(overview.reason) : this.state.error,
     });
 
+    if (lazy) void this.loadFacets();
+
     const loadedSettings = value(settings);
     const path =
       loadedSettings?.ingest.metadataTemplatePath ?? loadedSettings?.metadataTemplates?.[0];
     if (path) void this.loadTemplate(path);
 
-    const first = this.getVisiblePhotos()[0];
+    const visible = this.getVisiblePhotos();
+    const first = selectNewest ? visible[visible.length - 1] : visible[0];
     if (first) this.select(first.id);
   }
 
@@ -1214,6 +1240,7 @@ export class AppStore {
       return;
     }
     const run = ++this.photosRun;
+    this.set({ facets: undefined });
     try {
       const photos =
         folder === undefined
@@ -1229,6 +1256,7 @@ export class AppStore {
       this.setLibrary({ folder });
       this.replacePhotos(photos);
       this.ensureSelectionVisible();
+      this.refreshFacetsSoon();
     } catch (cause) {
       if (run !== this.photosRun) return;
       this.toast('error', `Could not open the folder: ${messageOf(cause)}`);
@@ -1237,25 +1265,119 @@ export class AppStore {
 
   /**
    * A page of Develop's film strip from the jobs process. A large index never puts every
-   * photo in memory: the page follows the filters, the sort and the open photo.
+   * photo in memory: the page is scoped to the Library folder, follows the filters and sort,
+   * and stays around the open photo. With nothing selected it starts at the newest photos.
    */
-  private async loadDevelopPhotos(): Promise<void> {
+  private async loadDevelopPhotos(anchor = this.state.selectedId, select?: PhotoId): Promise<void> {
     if (!this.state.lazy) return;
+    if (this.developLoading) {
+      this.developReloadPending = true;
+      return;
+    }
+    this.developLoading = true;
     const run = ++this.photosRun;
     try {
+      const folder = this.state.library.folder;
+      const anchorId = anchor;
       const result = await this.bridge.invoke('photos:query', {
+        ...(folder === undefined ? {} : { folder }),
         filter: queryFilter(this.state.filter),
         sort: this.state.sort === 'capture-time' ? 'capture-time' : 'filename',
         limit: LAZY_DEVELOP_WINDOW,
-        ...(this.state.selectedId === undefined ? {} : { anchorId: this.state.selectedId }),
+        ...(anchorId === undefined ? { fromEnd: true } : { anchorId }),
       });
       if (run !== this.photosRun) return;
+      this.lastDevelopReloadAt = Date.now();
+      this.set({ developWindow: { offset: result.offset, total: result.total } });
       this.replacePhotos(result.photos);
-      this.ensureSelectionVisible();
+      this.refreshFacetsSoon();
+      if (select !== undefined && result.photos.some((photo) => photo.id === select)) {
+        this.select(select);
+      } else if (!this.state.selectedId && result.photos.length > 0) {
+        this.select(result.photos[result.photos.length - 1]!.id);
+      } else {
+        this.ensureSelectionVisible();
+      }
     } catch (cause) {
       if (run !== this.photosRun) return;
       this.toast('error', `Could not load the film strip: ${messageOf(cause)}`);
+    } finally {
+      this.developLoading = false;
+      for (const resolve of this.developWaiters.splice(0)) resolve();
+      if (this.developReloadPending) {
+        this.developReloadPending = false;
+        void this.loadDevelopPhotos();
+      }
     }
+  }
+
+  /**
+   * Keep the page around the open photo: when it comes within 100 photos of an edge that has
+   * more behind it, ask for a page around it again. Selection, edits and sessions are untouched.
+   */
+  private maybeMoveDevelopWindow(): void {
+    if (!this.state.lazy || this.state.module !== 'develop') return;
+    const window = this.state.developWindow;
+    const photoId = this.state.selectedId;
+    if (!window || photoId === undefined) return;
+    const index = this.state.photos.findIndex((photo) => photo.id === photoId);
+    if (index < 0) return;
+    const edge = 100;
+    const hasBefore = window.offset > 0;
+    const hasAfter = window.offset + this.state.photos.length < window.total;
+    if ((index < edge && hasBefore) || (index >= this.state.photos.length - edge && hasAfter)) {
+      void this.loadDevelopPhotos();
+    }
+  }
+
+  /** Counts and the camera menu for the filter bar, from the index's grouped query. */
+  private async loadFacets(): Promise<void> {
+    if (!this.state.lazy || this.facetsLoading) return;
+    this.facetsLoading = true;
+    try {
+      const folder = this.state.library.folder;
+      const facets = await this.bridge.invoke('photos:facets', {
+        ...(folder === undefined ? {} : { folder }),
+        filter: queryFilter(this.state.filter),
+        sort: this.state.sort === 'capture-time' ? 'capture-time' : 'filename',
+      });
+      this.set({ facets });
+    } catch {
+      // The loaded page still gives counts; the next filter or photo event asks again.
+    } finally {
+      this.facetsLoading = false;
+    }
+  }
+
+  private refreshFacetsSoon(): void {
+    if (!this.state.lazy) return;
+    clearTimeout(this.facetsTimer);
+    this.facetsTimer = setTimeout(() => void this.loadFacets(), 200);
+  }
+
+  /** An edit on the open photo is in progress; moving its page would be a surprise. */
+  private editInProgress(): boolean {
+    const open = this.state.selectedId;
+    if (this.developHistory.editing || this.cropGesture !== undefined) return true;
+    if (open === undefined) return false;
+    return this.metadataTimers.has(open) || this.pendingMetadata.has(open);
+  }
+
+  /**
+   * Look at the index again while photos arrive, at most once a second. A reload waits until
+   * an edit on the open photo is finished.
+   */
+  private scheduleDevelopReload(): void {
+    if (this.developTimer !== undefined || this.developLoading) return;
+    const delay = Math.max(0, 1_000 - (Date.now() - this.lastDevelopReloadAt));
+    this.developTimer = setTimeout(() => {
+      this.developTimer = undefined;
+      if (this.editInProgress()) {
+        this.scheduleDevelopReload();
+        return;
+      }
+      void this.loadDevelopPhotos();
+    }, delay);
   }
 
   /** Counts in the sidebar can change without the open folder's photos changing. */
@@ -1269,17 +1391,6 @@ export class AppStore {
       if (removedFolder) await this.loadLibraryFolder(undefined);
     } catch {
       // The next photo event or folder click asks again.
-    }
-  }
-
-  /** Make sure a photo loaded as a summary has its versions and facts before it is opened. */
-  private async ensureFullPhoto(photoId: PhotoId): Promise<void> {
-    const photo = this.photoById.get(photoId);
-    if (!this.state.lazy || !photo || photo.versions.length > 0) return;
-    try {
-      this.upsertPhoto(await this.bridge.invoke('photos:get', { photoId }));
-    } catch {
-      // Gone meanwhile: the selection rule will move on.
     }
   }
 
@@ -1313,12 +1424,17 @@ export class AppStore {
     return photos;
   }
 
-  /** Internal status updates (metadata writes, upload events) apply at once. */
+  /**
+   * Internal status updates (metadata writes, upload events) apply at once. A photo that is
+   * outside the loaded page is not added by them: only the index decides what the page holds.
+   */
   private upsertPhoto(photo: Photo): void {
     if (this.removed.has(photo.id)) return;
+    if (!this.photoById.has(photo.id)) return;
     // Keep a not-yet-flushed event from overwriting this newer object next frame.
     if (this.pendingPhotos.has(photo.id)) this.pendingPhotos.set(photo.id, photo);
     this.set({ photos: this.applyPhoto(photo) });
+    this.refreshFacetsSoon();
   }
 
   /**
@@ -1390,15 +1506,13 @@ export class AppStore {
     if (photos.length !== before || queued.some((photo) => this.photoById.has(photo.id))) {
       this.set({ photos });
     }
-    if (skipped || photos.length !== before) this.refreshFoldersSoon();
-    if (
-      this.state.lazy &&
-      this.state.module === 'develop' &&
-      (skipped || photos.length !== before)
-    ) {
+    if (skipped || photos.length !== before) {
+      this.refreshFoldersSoon();
+      this.refreshFacetsSoon();
+    }
+    if (this.state.lazy && this.state.module === 'develop' && skipped) {
       // Ingest reaches a bounded film strip through the index again, not by growing it.
-      clearTimeout(this.developTimer);
-      this.developTimer = setTimeout(() => void this.loadDevelopPhotos(), SEARCH_REFRESH_MS);
+      this.scheduleDevelopReload();
     }
     // A new photo is not in the last search's answer.
     if (photos.length > before) this.refreshSearch(SEARCH_REFRESH_MS);
@@ -1466,11 +1580,10 @@ export class AppStore {
       this.editedPreviews?.setSelected(undefined);
       return;
     }
-    void this.ensureFullPhoto(selectedId).then(() => {
-      void this.loadMetadata(selectedId);
-      void this.loadParams(selectedId);
-      this.editedPreviews?.setSelected(selectedId);
-    });
+    void this.loadMetadata(selectedId);
+    void this.loadParams(selectedId);
+    this.editedPreviews?.setSelected(selectedId);
+    this.maybeMoveDevelopWindow();
   }
 
   /** Snapshot a photo the user leaves when it has edits, so Previous can reuse them. */
@@ -1549,9 +1662,45 @@ export class AppStore {
     const photos = this.getVisiblePhotos();
     if (photos.length === 0) return;
     const index = photos.findIndex((photo) => photo.id === this.state.selectedId);
-    const next = photos[Math.max(0, Math.min(photos.length - 1, index + delta))];
+    const target = Math.max(0, Math.min(photos.length - 1, (index < 0 ? 0 : index) + delta));
+    const atEdge = (delta > 0 && index === photos.length - 1) || (delta < 0 && index === 0);
+    if (atEdge && this.state.lazy && this.state.module === 'develop') {
+      void this.moveDevelopSelection(delta);
+      return;
+    }
+    const next = photos[target];
     if (next) this.select(next.id);
   };
+
+  /**
+   * An arrow key at a page edge: ask the index which photo comes next, load the page around it,
+   * then select it. The selection and the edit session are not replaced on the way.
+   */
+  private async moveDevelopSelection(delta: number): Promise<void> {
+    while (this.developLoading) {
+      await new Promise<void>((resolve) => this.developWaiters.push(resolve));
+    }
+    const window = this.state.developWindow;
+    const index = this.state.photos.findIndex((photo) => photo.id === this.state.selectedId);
+    if (!window || index < 0) return;
+    const target =
+      delta > 0 ? window.offset + this.state.photos.length : Math.max(0, window.offset - 1);
+    if (target < 0 || target >= window.total) return;
+    const folder = this.state.library.folder;
+    try {
+      const result = await this.bridge.invoke('photos:query', {
+        ...(folder === undefined ? {} : { folder }),
+        filter: queryFilter(this.state.filter),
+        sort: this.state.sort === 'capture-time' ? 'capture-time' : 'filename',
+        offset: target,
+        limit: 1,
+      });
+      const next = result.photos[0];
+      if (next) await this.loadDevelopPhotos(next.id, next.id);
+    } catch (cause) {
+      this.toast('error', `Could not move to the next photo: ${messageOf(cause)}`);
+    }
+  }
 
   /**
    * The rule when a filter (or a label change) hides the active photo: the selection keeps only
@@ -1562,9 +1711,14 @@ export class AppStore {
   private ensureSelectionVisible(): void {
     const visible = this.selectionOrder();
     const visibleIds = new Set(visible.map((photo) => photo.id));
-    if (visible.some((photo) => photo.id === this.state.selectedId)) {
-      const selection = this.state.selection.filter((id) => visibleIds.has(id));
-      if (selection.length !== this.state.selection.length) this.set({ selection });
+    const open = this.state.selectedId;
+    if (open !== undefined && visibleIds.has(open)) {
+      // A large index keeps selected ids whose photos are not in the loaded page. The page
+      // moves around the open photo, so an open photo that is visible keeps the selection.
+      if (!this.state.lazy) {
+        const selection = this.state.selection.filter((id) => visibleIds.has(id));
+        if (selection.length !== this.state.selection.length) this.set({ selection });
+      }
       return;
     }
     const next = visible[0];
@@ -1577,13 +1731,18 @@ export class AppStore {
   private applyFilter(patch: Partial<FilterState>): void {
     const filter = { ...this.state.filter, ...patch };
     if (hasSearch(filter)) {
-      this.set({ filter });
+      this.set({ filter, ...(this.state.lazy ? { facets: undefined } : {}) });
     } else {
       this.searchRun += 1;
       clearTimeout(this.searchTimer);
-      this.set({ filter, searchResult: undefined });
+      this.set({
+        filter,
+        searchResult: undefined,
+        ...(this.state.lazy ? { facets: undefined } : {}),
+      });
     }
     this.ensureSelectionVisible();
+    this.refreshFacetsSoon();
     if (this.state.lazy) {
       if (this.state.module === 'develop') void this.loadDevelopPhotos();
       else if (this.state.library.folder === undefined) void this.loadLibraryFolder(undefined);
@@ -1610,8 +1769,14 @@ export class AppStore {
   readonly clearFilters = (): void => {
     this.searchRun += 1;
     clearTimeout(this.searchTimer);
-    this.set({ filter: initialFilter(), searchResult: undefined });
+    this.set({
+      filter: initialFilter(),
+      searchResult: undefined,
+      ...(this.state.lazy ? { facets: undefined } : {}),
+    });
     this.ensureSelectionVisible();
+    this.refreshFacetsSoon();
+    if (this.state.lazy && this.state.module === 'develop') void this.loadDevelopPhotos();
   };
 
   /**
@@ -1637,6 +1802,7 @@ export class AppStore {
           searchResult: { query, ids: new Set(result.photoIds), pending: result.pending },
         });
         this.ensureSelectionVisible();
+        this.refreshFacetsSoon();
         if (this.state.lazy && this.state.module === 'develop') void this.loadDevelopPhotos();
         // Captions still being read: ask again, so the list catches up without a new keystroke.
         if (result.pending > 0) this.refreshSearch(SEARCH_POLL_MS);
@@ -1657,7 +1823,8 @@ export class AppStore {
   }
 
   readonly setSort = (sort: SortMode): void => {
-    this.set({ sort });
+    this.set({ sort, ...(this.state.lazy ? { facets: undefined } : {}) });
+    this.refreshFacetsSoon();
     if (!this.state.lazy) return;
     if (this.state.module === 'develop') void this.loadDevelopPhotos();
     else if (this.state.library.folder === undefined) void this.loadLibraryFolder(undefined);
@@ -1674,7 +1841,10 @@ export class AppStore {
     this.set({ photos });
   }
 
-  private persistLabels(photoIds: PhotoId[], patch: Partial<PhotoFlags>): void {
+  private persistLabels(
+    photoIds: PhotoId[],
+    patch: Partial<PhotoFlags> & { toggleTagged?: boolean },
+  ): void {
     const previous = Promise.all(
       photoIds.map((id) => this.labelWrites.get(id) ?? Promise.resolve()),
     );
@@ -1683,6 +1853,7 @@ export class AppStore {
       .then(() => this.bridge.invoke('photos:setLabels', { photoIds, ...patch }))
       .then((photos) => {
         for (const photo of photos) this.upsertPhoto(photo);
+        this.refreshFacetsSoon();
       })
       .catch((cause: unknown) => {
         if (photoIds.every((id) => this.isGoing(id))) return;
@@ -1705,33 +1876,36 @@ export class AppStore {
 
   /** Tags every target; if all are tagged already, untags them (Photo Mechanic's behaviour). */
   readonly toggleTag = (photoId?: PhotoId): void => {
-    const ids = this.labelTargets(photoId).filter((id) => this.photoById.has(id));
+    const ids = this.labelTargets(photoId);
     if (ids.length === 0) return;
-    const tagged = !ids.every((id) => this.photoById.get(id)?.tagged);
-    const next = this.nextToAdvanceTo(ids);
-    this.applyLabelPatch(ids, { tagged });
-    this.persistLabels(ids, { tagged });
-    this.afterLabel(next);
+    const advance = this.nextToAdvanceTo(ids);
+    const loaded = ids.map((id) => this.photoById.get(id));
+    const tagged = loaded.every((photo) => photo !== undefined)
+      ? !loaded.every((photo) => photo?.tagged === true)
+      : undefined;
+    if (tagged !== undefined) this.applyLabelPatch(ids, { tagged });
+    this.persistLabels(ids, tagged === undefined ? { toggleTagged: true } : { tagged });
+    this.afterLabel(advance);
   };
 
   readonly setColorClass = (colorClass: number, photoId?: PhotoId): void => {
     if (!Number.isInteger(colorClass) || colorClass < 0 || colorClass > 8) return;
-    const ids = this.labelTargets(photoId).filter((id) => this.photoById.has(id));
+    const ids = this.labelTargets(photoId);
     if (ids.length === 0) return;
-    const next = this.nextToAdvanceTo(ids);
+    const advance = this.nextToAdvanceTo(ids);
     this.applyLabelPatch(ids, { colorClass });
     this.persistLabels(ids, { colorClass });
-    this.afterLabel(next);
+    this.afterLabel(advance);
   };
 
   readonly setRating = (rating: number, photoId?: PhotoId): void => {
     if (!Number.isInteger(rating) || rating < 0 || rating > 5) return;
-    const ids = this.labelTargets(photoId).filter((id) => this.photoById.has(id));
+    const ids = this.labelTargets(photoId);
     if (ids.length === 0) return;
-    const next = this.nextToAdvanceTo(ids);
+    const advance = this.nextToAdvanceTo(ids);
     this.applyLabelPatch(ids, { rating });
     this.persistLabels(ids, { rating });
-    this.afterLabel(next);
+    this.afterLabel(advance);
   };
 
   /**
@@ -1739,20 +1913,32 @@ export class AppStore {
    * filter the photo out of the list). Only for a single photo in the loupe or in Develop, never
    * for a multi-selection or in the grid, and not while a crop or retouch session is open.
    */
-  private nextToAdvanceTo(changed: PhotoId[]): PhotoId | undefined {
+  private nextToAdvanceTo(changed: PhotoId[]): { auto: boolean; next?: PhotoId } {
     const { settings, module, library, selection, selectedId, crop, retouch } = this.state;
-    if (settings?.autoAdvance !== true || crop || retouch) return undefined;
+    if (settings?.autoAdvance !== true || crop || retouch) return { auto: false };
     const loupe = module === 'library' && library.view === 'loupe';
-    if (!loupe && module !== 'develop') return undefined;
-    if (changed.length !== 1 || changed[0] !== selectedId || selection.length > 1) return undefined;
+    if (!loupe && module !== 'develop') return { auto: false };
+    if (changed.length !== 1 || changed[0] !== selectedId || selection.length > 1) {
+      return { auto: false };
+    }
     const photos = loupe ? this.getLibraryPhotos() : this.getVisiblePhotos();
     const index = photos.findIndex((photo) => photo.id === selectedId);
-    return index < 0 ? undefined : photos[index + 1]?.id;
+    return index < 0 ? { auto: false } : { auto: true, next: photos[index + 1]?.id };
   }
 
-  private afterLabel(next: PhotoId | undefined): void {
-    if (next) this.select(next);
-    else if (this.state.module !== 'library') this.ensureSelectionVisible();
+  private afterLabel(advance: { auto: boolean; next?: PhotoId }): void {
+    if (advance.next) {
+      this.select(advance.next);
+      return;
+    }
+    if (advance.auto && this.state.lazy && this.state.module === 'develop') {
+      // The next photo is on the next page: fetch it, load the page around it, then show it.
+      void this.nextDevelopPhotoId().then((next) =>
+        next === undefined ? undefined : this.revealDevelopPhoto(next),
+      );
+      return;
+    }
+    if (this.state.module !== 'library') this.ensureSelectionVisible();
   }
 
   /** Auto-advance on or off, saved in the settings. */
@@ -2663,7 +2849,7 @@ export class AppStore {
    */
   readonly ensureMetadata = async (photoIds: readonly PhotoId[]): Promise<void> => {
     const missing = photoIds.filter(
-      (id) => !this.state.metadata[id] && !this.metadataLoading.has(id) && this.photoById.has(id),
+      (id) => !this.state.metadata[id] && !this.metadataLoading.has(id),
     );
     for (const id of missing) this.metadataLoading.add(id);
     let failures = 0;
@@ -2674,7 +2860,7 @@ export class AppStore {
         missing.slice(start, start + CONCURRENCY).map(async (id) => {
           try {
             const fields = await this.bridge.invoke('metadata:read', { photoId: id });
-            if (!this.state.metadata[id] && this.photoById.has(id)) {
+            if (!this.state.metadata[id]) {
               this.set({ metadata: { ...this.state.metadata, [id]: fields } });
             }
           } catch (cause) {
@@ -2789,9 +2975,7 @@ export class AppStore {
 
   /** Photos the Metadata panel's template and paste actions apply to. */
   private metadataTargets(photoIds?: readonly PhotoId[]): PhotoId[] {
-    if (photoIds !== undefined) {
-      return [...new Set(photoIds)].filter((id) => this.photoById.has(id));
-    }
+    if (photoIds !== undefined) return [...new Set(photoIds)];
     const { selection, selectedId } = this.state;
     if (selection.length > 1) return [...new Set(selection)];
     return selectedId ? [selectedId] : [];
@@ -3856,7 +4040,7 @@ export class AppStore {
     groups: readonly DevelopSettingGroupId[],
     verb: 'Pasted' | 'Synced',
   ): Promise<number> {
-    const ids = [...new Set(photoIds)].filter((id) => this.photoById.has(id));
+    const ids = [...new Set(photoIds)];
     if (ids.length === 0) {
       this.toast('error', 'Select at least one photo');
       return 0;
@@ -4144,8 +4328,10 @@ export class AppStore {
     request: Extract<JobEvent, { type: 'export.render' }>,
   ): Promise<void> {
     try {
-      const photo = this.photoById.get(request.photoId);
-      if (!photo) throw new Error(`no photo ${request.photoId}`);
+      // A batch export can include photos outside the loaded page; the render still needs the row.
+      const photo =
+        this.photoById.get(request.photoId) ??
+        (await this.bridge.invoke('photos:get', { photoId: request.photoId }));
       // No crop or retouch session is settled here: the export was settled when it was started, and
       // a session the user has opened on this photo since is not what they asked to send.
       const latest = this.photoById.get(photo.id) ?? photo;
@@ -4214,12 +4400,45 @@ export class AppStore {
     const index = order.findIndex((candidate) => candidate.id === photo.id);
     const next = index >= 0 ? order[index + 1] : undefined;
     this.pendingSends.set(photo.id, undefined);
-    // Applies a draft crop and saves unsaved mosaic shapes first; it waits for those.
-    if (next) this.select(next.id);
-    const start = this.sendChain.then(() => this.startSend(photo, plan.presetId));
-    this.sendChain = start;
-    return start;
+    return (async () => {
+      // At the edge of a large page the next photo is on the next page; ask the index for it.
+      const nextId = next?.id ?? (await this.nextDevelopPhotoId());
+      // Applies a draft crop and saves unsaved mosaic shapes first; it waits for those.
+      if (nextId) await this.revealDevelopPhoto(nextId);
+      const start = this.sendChain.then(() => this.startSend(photo, plan.presetId));
+      this.sendChain = start;
+      return start;
+    })();
   };
+
+  /** Show a photo in Develop, loading the page around it when it is not loaded yet. */
+  private async revealDevelopPhoto(photoId: PhotoId): Promise<void> {
+    if (this.state.photos.some((photo) => photo.id === photoId)) this.select(photoId);
+    else await this.loadDevelopPhotos(photoId, photoId);
+  }
+
+  /** The photo after the open one, across a Develop page boundary too. */
+  private async nextDevelopPhotoId(): Promise<PhotoId | undefined> {
+    if (!this.state.lazy || this.state.module !== 'develop') return undefined;
+    const window = this.state.developWindow;
+    const open = this.state.selectedId;
+    if (!window || open === undefined) return undefined;
+    const index = this.state.photos.findIndex((photo) => photo.id === open);
+    if (index < 0) return undefined;
+    const afterPage = this.state.photos[index + 1]?.id;
+    if (afterPage !== undefined) return afterPage;
+    const loadedTo = window.offset + this.state.photos.length;
+    if (loadedTo >= window.total) return undefined;
+    const folder = this.state.library.folder;
+    const result = await this.bridge.invoke('photos:query', {
+      ...(folder === undefined ? {} : { folder }),
+      filter: queryFilter(this.state.filter),
+      sort: this.state.sort === 'capture-time' ? 'capture-time' : 'filename',
+      offset: loadedTo,
+      limit: 1,
+    });
+    return result.photos[0]?.id;
+  }
 
   /** Never rejects: a failure is a toast, and the chain behind it must carry on. */
   private async startSend(photo: Photo, presetId: PresetId): Promise<void> {
@@ -4918,7 +5137,7 @@ export class AppStore {
     const { module, selection, selectedId } = this.state;
     const ids =
       module === 'library' && selection.length > 0 ? selection : selectedId ? [selectedId] : [];
-    return [...new Set(ids)].filter((id) => this.photoById.has(id));
+    return [...new Set(ids)];
   }
 
   /** Whether a delete may start now: not while a crop or retouch session is open, nor in Ingest. */
@@ -5110,7 +5329,7 @@ export class AppStore {
       this.pendingPhotos.delete(id);
       this.dropPhotoWork(id);
     }
-    const gone = new Set(photoIds.filter((id) => this.photoById.has(id)));
+    const gone = new Set(photoIds);
     if (gone.size === 0) return;
 
     const { selectedId, module } = this.state;
@@ -5125,6 +5344,7 @@ export class AppStore {
       : undefined;
 
     this.refreshFoldersSoon();
+    this.refreshFacetsSoon();
     const photos = this.state.photos.filter((photo) => !gone.has(photo.id));
     for (const id of gone) this.photoById.delete(id);
     this.photoPositions.clear();
@@ -5190,6 +5410,8 @@ export interface CreateAppStoreOptions {
    * rendered and the film strip keeps showing what the backend cached.
    */
   renderEditedPreview?: EditedPreviewRenderer;
+  /** Test seam: more photos than this use the lazy Library paths. */
+  lazyLibraryPhotos?: number;
 }
 
 /** Build a store against a bridge; the app uses the preload bridge, tests a fake. */
@@ -5199,5 +5421,7 @@ export function createAppStore(bridge: EeBridge, options: CreateAppStoreOptions 
     options.renderForExport,
     options.renderEditedPreview,
     options.confirm,
+    options.lazyLibraryPhotos ??
+      (typeof window === 'undefined' ? undefined : window.eeEnvironment?.lazyLibraryPhotos),
   );
 }

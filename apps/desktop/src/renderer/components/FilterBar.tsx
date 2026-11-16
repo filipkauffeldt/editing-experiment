@@ -47,8 +47,34 @@ export function FilterBar({
   const state = useAppState();
   const { filter } = state;
   const searchIds = state.searchResult?.ids;
-  const counts = useMemo(() => filterCounts(scope, filter, searchIds), [scope, filter, searchIds]);
-  const cameras = useMemo(() => cameraOptions(state.photos), [state.photos]);
+  const facets = state.lazy ? state.facets : undefined;
+  const counts = useMemo(
+    () =>
+      facets
+        ? { tag: facets.tag, status: facets.status, shown: facets.shown }
+        : filterCounts(scope, filter, searchIds),
+    [facets, scope, filter, searchIds],
+  );
+  const cameras = useMemo(
+    () =>
+      facets
+        ? facets.cameras.map((camera) => ({
+            key: camera.key,
+            label: camera.label,
+            count: camera.count,
+          }))
+        : cameraOptions(state.photos).map((camera) => ({ ...camera, count: undefined })),
+    [facets, state.photos],
+  );
+  const scopeFallback =
+    state.lazy && state.library.folder !== undefined
+      ? (state.folders.find((folder) => folder.path === state.library.folder)?.count ??
+        scope.length)
+      : state.lazy
+        ? state.totalPhotos
+        : scope.length;
+  const scopeTotal = facets?.scopeTotal ?? scopeFallback;
+  const shownTotal = facets?.shown ?? shown;
   const filtering = isFiltering(filter);
   const sort = SORTS.find((candidate) => candidate.id === state.sort) ?? SORTS[0];
 
@@ -149,6 +175,7 @@ export function FilterBar({
             key={camera.key}
             kind="radio"
             checked={filter.camera === camera.key}
+            count={camera.count}
             onSelect={() => store.setCameraFilter(camera.key)}
           >
             {camera.label}
@@ -189,7 +216,7 @@ export function FilterBar({
         </button>
       )}
       <span className={`${styles.count} mono`} data-testid="filter-count" aria-live="polite">
-        {filtering ? `${shown} of ${scope.length}` : scope.length}
+        {filtering ? `${shownTotal} of ${scopeTotal}` : scopeTotal}
       </span>
 
       <span className={styles.spacer} />
