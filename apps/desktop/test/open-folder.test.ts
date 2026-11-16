@@ -18,6 +18,7 @@ import {
   writeRetouchVersions,
 } from '@ee/metadata';
 import {
+  access,
   chmod,
   mkdir,
   mkdtemp,
@@ -57,6 +58,12 @@ afterAll(() => {
 });
 
 const sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
+
+const exists = (path: string): Promise<boolean> =>
+  access(path).then(
+    () => true,
+    () => false,
+  );
 
 const jpeg = (path: string, colour = '#468'): Promise<unknown> =>
   sharp({ create: { width: 80, height: 60, channels: 3, background: colour } })
@@ -295,18 +302,44 @@ describe.skipIf(nefs.length === 0)(
       });
       expect(await readIptc(photoJpeg, exiftool)).toMatchObject({ caption: 'JPEG-bild' });
 
-      // In place: not one byte, not one modified time changed in the folder.
+      // In place: not one byte, not one modified time changed in the folder, and the raw that had
+      // no sidecar still has none.
+      expect(Object.keys(await snapshot(library)).sort()).toEqual(Object.keys(before).sort());
       expect(await snapshot(library)).toEqual(before);
+      expect(await exists(join(sub, 'game_2.xmp'))).toBe(false);
       expect(await harness.handlers['photos:listAddedFolders']()).toEqual([library]);
       // The roots live in the index, not in settings.json or machine.json.
       expect(await readFile(join(harness.userData, 'machine.json'), 'utf8')).toBe(settingsBefore);
       expect(await readFile(join(harness.userData, 'machine.json'), 'utf8')).not.toContain(library);
+
+      // A rescan of the same folder writes nothing either.
+      const rescan = await rescanFolder(harness, library);
+      expect(rescan).toMatchObject({ state: 'finished', filesTotal: 0, filesImported: 0 });
+      expect(await snapshot(library)).toEqual(before);
+      expect(await exists(join(sub, 'game_2.xmp'))).toBe(false);
 
       // Add the same folder again: every path is already in the Library.
       const again = await addFolder(harness, library);
       expect(again).toMatchObject({ state: 'finished', filesTotal: 0, filesImported: 0 });
       expect(await photos(harness)).toHaveLength(3);
       expect(await snapshot(library)).toEqual(before);
+      await harness.backend.dispose();
+    });
+
+    it('announces photos:added in file-name order while reading several files at once', async () => {
+      const root = await tempDir();
+      const harness = await start(root);
+      const library = join(root, 'library');
+      await mkdir(library, { recursive: true });
+      for (const name of ['delta.jpg', 'alpha.jpg', 'echo.jpg', 'bravo.jpg', 'charlie.jpg']) {
+        await jpeg(join(library, name));
+      }
+      const info = await addFolder(harness, library);
+      expect(info.filesImported).toBe(5);
+      const added = harness.events
+        .filter((event) => event.channel === 'photos:added')
+        .map((event) => (event.payload as Photo).fileName);
+      expect(added).toEqual(['alpha.jpg', 'bravo.jpg', 'charlie.jpg', 'delta.jpg', 'echo.jpg']);
       await harness.backend.dispose();
     });
 
@@ -390,6 +423,71 @@ describe.skipIf(nefs.length === 0)(
       const rescan = await rescanFolder(harness, child);
       expect(rescan).toMatchObject({ mode: 'rescan', filesImported: 1 });
       expect(await photos(harness)).toHaveLength(3);
+
+      // Removing the parent removes the child's photos too and forgets both roots.
+      const before = await snapshot(parent);
+      const result = await harness.handlers['photos:removeFolder']({ path: parent });
+      expect(result.failed).toEqual([]);
+      expect(result.deleted).toHaveLength(3);
+      expect(await photos(harness)).toEqual([]);
+      expect(await harness.handlers['photos:listAddedFolders']()).toEqual([]);
+      expect(await snapshot(parent)).toEqual(before);
+      await harness.backend.dispose();
+    });
+
+    it('removes an exact subfolder from the Library but a root with its whole tree', async () => {
+      const root = await tempDir();
+      const harness = await start(root);
+      const base = join(root, 'base');
+      const sub = join(base, 'sub');
+      await mkdir(sub, { recursive: true });
+      await jpeg(join(base, 'top.jpg'));
+      await jpeg(join(sub, 'deep.jpg'));
+      await addFolder(harness, base);
+      expect(await photos(harness)).toHaveLength(2);
+
+      // `sub` is not an added root: only its own photos go, the root above it stays.
+      const before = await snapshot(base);
+      const exact = await harness.handlers['photos:removeFolder']({ path: sub });
+      expect(exact.deleted).toHaveLength(1);
+      expect((await photos(harness)).map((photo) => photo.fileName)).toEqual(['top.jpg']);
+      expect(await harness.handlers['photos:listAddedFolders']()).toEqual([base]);
+      expect(await snapshot(base)).toEqual(before);
+
+      // The root takes the rest.
+      const whole = await harness.handlers['photos:removeFolder']({ path: base });
+      expect(whole.deleted).toHaveLength(1);
+      expect(await photos(harness)).toEqual([]);
+      expect(await harness.handlers['photos:listAddedFolders']()).toEqual([]);
+      expect(await snapshot(base)).toEqual(before);
+      await harness.backend.dispose();
+    });
+
+    it('refuses a second run on the same root until the first is stopped', async () => {
+      const root = await tempDir();
+      const harness = await start(root);
+      const library = join(root, 'library');
+      await mkdir(library, { recursive: true });
+      for (let index = 0; index < 40; index += 1) {
+        await jpeg(join(library, `frame_${String(index).padStart(2, '0')}.jpg`));
+      }
+
+      const first = await harness.handlers['photos:addFolder']({ path: library });
+      expect(await messageOf(harness.handlers['photos:addFolder']({ path: library }))).toMatch(
+        /already being added.*Stop that run first/,
+      );
+      expect(await messageOf(harness.handlers['photos:rescanFolder']({ path: library }))).toMatch(
+        /already being added.*Stop that run first/,
+      );
+      await harness.handlers['photos:stopFolderImport']({ jobId: first.jobId });
+      expect((await waitForFolder(harness.events, first.jobId)).state).toBe('stopped');
+
+      const rescan = await harness.handlers['photos:rescanFolder']({ path: library });
+      expect(await messageOf(harness.handlers['photos:rescanFolder']({ path: library }))).toMatch(
+        /already being rescanned.*Stop that run first/,
+      );
+      await harness.handlers['photos:stopFolderImport']({ jobId: rescan.jobId });
+      expect((await waitForFolder(harness.events, rescan.jobId)).state).toBe('stopped');
       await harness.backend.dispose();
     });
 

@@ -99,10 +99,10 @@ describe.skipIf(nefs.length < 2 || !haveDisplay)(
 
       root = mkdtempSync(join(tmpdir(), 'ee-open-folder-e2e-'));
       mkdirSync(dir('library'));
+      mkdirSync(join(dir('library'), 'day'));
       mkdirSync(dir('media'));
-      nefs.forEach((nef, index) =>
-        copyInto(nef, join(dir('library'), `existing_${index + 1}.NEF`)),
-      );
+      copyInto(nefs[0]!, join(dir('library'), 'existing_1.NEF'));
+      copyInto(nefs[1]!, join(dir('library'), 'day', 'existing_2.NEF'));
 
       display = await ensureDisplay();
       const electronPath = createRequire(join(desktopDir, 'package.json'))('electron') as string;
@@ -130,21 +130,31 @@ describe.skipIf(nefs.length < 2 || !haveDisplay)(
       if (root) rmSync(root, { recursive: true, force: true });
     }, 60_000);
 
-    it('adds a folder where it is, rescans it, and removes it without touching a file', async () => {
+    it('adds a folder where it is, rescans it, and removes it with its subfolders without touching a file', async () => {
       await window.keyboard.press('g');
       await window.getByTestId('library-view').waitFor();
       await window.getByTestId('library-add-folder').waitFor();
-      const original = nefs.map((_, index) => ({
-        bytes: readFileSync(join(dir('library'), `existing_${index + 1}.NEF`)).toString('base64'),
-        mtimeMs: statSync(join(dir('library'), `existing_${index + 1}.NEF`)).mtimeMs,
+      const files = [
+        join(dir('library'), 'existing_1.NEF'),
+        join(dir('library'), 'day', 'existing_2.NEF'),
+        join(dir('library'), 'day', 'existing_3.NEF'),
+      ];
+      const original = files.slice(0, 2).map((path) => ({
+        bytes: readFileSync(path).toString('base64'),
+        mtimeMs: statSync(path).mtimeMs,
       }));
 
       await window.getByTestId('library-add-folder').click();
-      await until('the first photo', async () => (await cells().count()) === 1);
+      await until('both photos', async () => (await cells().count()) === 2);
       expect(await folderRow('library').count()).toBe(1);
+      expect(await folderRow('library').textContent()).toContain('2');
 
-      // Rescan folder picks up a file that appeared since; nothing else changes.
-      copyInto(nefs[1]!, join(dir('library'), 'existing_3.NEF'));
+      // Rescan folder on the root finds a file that appeared in a subfolder.
+      copyInto(nefs[1]!, files[2]!);
+      original.push({
+        bytes: readFileSync(files[2]!).toString('base64'),
+        mtimeMs: statSync(files[2]!).mtimeMs,
+      });
       await folderRow('library').click({ button: 'right' });
       const menu = window.getByTestId('folder-menu');
       await menu.waitFor();
@@ -161,12 +171,14 @@ describe.skipIf(nefs.length < 2 || !haveDisplay)(
         'existing_3.NEF',
       ]);
 
-      // Remove folder from Library: the count, the promise that no file is touched, a dialog.
+      // Remove folder from Library: the whole root, its count, and no file touched.
       await folderRow('library').click({ button: 'right' });
       await window.getByTestId('folder-menu-remove').click();
       const dialog = window.getByTestId('folder-remove-dialog');
       await dialog.waitFor();
-      expect(await dialog.textContent()).toContain('3 photos in this folder will be removed');
+      expect(await dialog.textContent()).toContain(
+        '3 photos in this folder and its subfolders will be removed',
+      );
       expect(await dialog.textContent()).toContain('Files on disk are not touched');
       await shot('open-folder-remove-dialog.png');
       await window.getByTestId('folder-remove-confirm').click();
@@ -175,12 +187,10 @@ describe.skipIf(nefs.length < 2 || !haveDisplay)(
       expect(await folderRow('library').count()).toBe(0);
       expect(await invoke<Photo[]>('photos:list')).toEqual([]);
 
-      for (let index = 0; index < 3; index += 1) {
-        const path = join(dir('library'), `existing_${index + 1}.NEF`);
-        expect(readFileSync(path).toString('base64')).toBe(
-          index < 2 ? original[index]!.bytes : readFileSync(nefs[1]!).toString('base64'),
-        );
-        if (index < 2) expect(statSync(path).mtimeMs).toBe(original[index]!.mtimeMs);
+      for (const [index, path] of files.entries()) {
+        const before = original[index]!;
+        expect(readFileSync(path).toString('base64')).toBe(before.bytes);
+        expect(statSync(path).mtimeMs).toBe(before.mtimeMs);
       }
     }, 240_000);
   },

@@ -172,12 +172,17 @@ settings.json.pre-settings-folder   the old one-file settings, kept after the fi
   develop preset, so existing metadata is read rather than replaced and a file that arrives with
   edits is marked edited and `previewStale`. The index row has `inPlace: true`, no `source_path`,
   and `sourceId` `in-place`. The run is in the jobs process and reports `library.progress` /
-  `library.state`; the sidebar shows its count and a Stop button. An unreadable file is counted as
+  `library.state`; the sidebar shows its count and a Stop button. Files are read, previewed and
+  indexed four at a time; the index writes and `photos:added` stay in file-name order per folder.
+  A second add or rescan of the same root is refused while one is running, with a message to stop
+  it first. An unreadable file is counted as
   skipped and the rest go on. Folders the app exported into are skipped by the existing `.ee-export`
   marker, `export` name and `exported-files.json` rules, and a file whose path is already indexed is
   skipped, so adding a folder twice or adding a parent of an added folder is safe. Added roots live
   in the `added_folders` table of `index.sqlite` (created if missing, so an older index opens), not
-  in `settings.json`. Nothing rescans an added folder by itself, at startup or on a timer:
+  in `settings.json`. Every added root has a sidebar row even when all its photos are in subfolders,
+  with its whole-tree count; adding never creates or rewrites a sidecar or any other file in it.
+  Nothing rescans an added folder by itself, at startup or on a timer:
   **Rescan folder** in its right-click menu indexes what appeared since, and a folder that is not
   available is reported without changing anything. Photos in an added folder stay listed when its
   drive is disconnected; opening one fails with the existing preview error. The startup scan of the
@@ -190,10 +195,12 @@ settings.json.pre-settings-folder   the old one-file settings, kept after the fi
   points to Ingest. Working in place writes only what an edit writes: raws never change and their
   metadata goes to the sibling XMP sidecar, JPEG metadata is embedded in the JPEG. Exports follow
   the preset, by default into an `export` folder next to the photo, which a later rescan skips.
-  **Remove folder from Library…** on any sidebar folder removes the exact folder's photos the
-  `photos:removeFromLibrary` way (paths recorded in `removed_paths`, no disk access) and forgets
-  the added root; photos in subfolders stay. Delete of an in-place photo is the explicit trash
-  action through `PhotoDeleter`, with every source and sidecar check unchanged.
+  **Remove folder from Library…** on a sidebar folder removes its photos the
+  `photos:removeFromLibrary` way (paths recorded in `removed_paths`, no disk access). On an added
+  root it removes every photo below it, subfolders included, and forgets that root and any added
+  root below it. On a folder that is not an added root it removes only that exact folder's photos;
+  subfolders stay. Delete of an in-place photo is the explicit trash action through `PhotoDeleter`,
+  with every source and sidecar check unchanged.
 - Card discovery: `CardScanner` (`@ee/ingest`, `cards.ts`) runs in the jobs process behind
   `sources:detectCards`. It imports no native module and runs no platform tool; the one thing Node
   cannot see, a Windows volume label, comes through the injected `readDriveInfo` option, which
@@ -353,9 +360,10 @@ settings.json.pre-settings-folder   the old one-file settings, kept after the fi
   skips those paths. When ingest indexes a new file at exactly such a path (`PhotoLibrary.add`), the
   path is dropped from the table, so the new photo is not hidden. `photos:delete` does not record a path:
   its files are in the trash, and a file that turns up there later is a new one.
-  `photos:removeFolder` is the folder version for a sidebar row: it takes the exact folder path,
-  removes that folder's photos through the same `removeOne` road (so their paths are recorded), and
-  forgets the folder's added root when nothing failed. Photos in subfolders stay.
+  `photos:removeFolder` is the folder version for a sidebar row: an added root takes every photo
+  below it and forgets itself and any added root below it; any other folder takes only its exact
+  photos. Both go through the same `removeOne` road (so their paths are recorded), and the added
+  root is forgotten only when nothing failed.
 - On quit, main asks the jobs process to shut down (stop ingest, close the upload queue, ExifTool and
   the databases) and kills it only after a timeout.
 
@@ -1227,14 +1235,17 @@ Design tokens and component rules are in `docs/DESIGN.md`.
   and keywords; several show the count, the values they share and `Differs` where they do not
   (`selection-summary.ts`), read-only, with Edit… buttons into the batch caption dialog (`ensureMetadata`
   reads the fields of up to 100 selected photos for the comparison).
-- **Folders** come from `libraryFolders(photos)`: the directory of each photo's `path`, which is
-  the ingest copy or a file in a folder added in place. Sources are not consulted. Two folders with
-  the same name in different roots show the shortest parent suffix that tells them apart.
-  **Add folder…** opens the picker and starts an added-folder run; a folder row's right-click menu
-  has **Rescan folder** when it is an added root and **Remove folder from Library…** always. The
-  latter asks first, states the row's count and that files on disk are not touched. Running runs
-  show their count and a Stop button under the list. An added folder is worked on where it is:
-  edits write XMP sidecars and JPEG metadata in that folder.
+- **Folders** come from `libraryFolders(photos, addedFolders)`: the directory of each photo's
+  `path`, which is the ingest copy or a file in a folder added in place, plus every added root even
+  when all its photos are in subfolders. An added root's count is every photo below it. Sources are
+  not consulted. Two folders with the same name in different roots show the shortest parent suffix
+  that tells them apart. **Add folder…** opens the picker and starts an added-folder run; a folder
+  row's right-click menu has **Rescan folder** when it is an added root and **Remove folder from
+  Library…** always. The latter asks first, states the row's count and that files on disk are not
+  touched; on an added root it removes the whole tree and forgets the root and any added root below
+  it, while on any other folder it removes that folder only. Running runs show their count and a
+  Stop button under the list. An added folder is worked on where it is: edits write XMP sidecars and
+  JPEG metadata in that folder.
 - **Delete** (`AppState.deleteRequest`): the Delete key (and Backspace on macOS, where the "delete" key
   reports it) and a right-click menu on the grid and the film strip with Tag, a rating row and a class row
   (the same `toggleTag`, `setRating` and `setColorClass` as the keys, so they act on the whole Library

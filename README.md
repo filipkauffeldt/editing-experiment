@@ -371,12 +371,15 @@ Set things up in this order:
 
 **Library → Add folder…** in the Folders sidebar adds an existing folder without copying it.
 Supported images below it, subfolders included, appear in the Library with their existing XMP
-sidecars and embedded metadata. Raws are never written: their edits go to the XMP sidecar next to
-the raw. JPEG edits are written into the JPEG. Both happen in the added folder.
+sidecars and embedded metadata. Adding writes nothing into the folder. Raws are never written:
+their edits go to the XMP sidecar next to the raw. JPEG edits are written into the JPEG. Both
+happen in the added folder. Every added folder has a sidebar row, also when all its photos are in
+subfolders.
 
 **Rescan folder** in the folder's right-click menu looks for files that appeared since. It does
-not run by itself. **Remove folder from Library…** drops the folder's photos from the Library and
-leaves every file on disk untouched. Delete still moves a photo to the system trash.
+not run by itself. **Remove folder from Library…** on an added folder removes every photo below it,
+subfolders included, and forgets the folder. On any other folder it removes only that folder's
+photos. Either way every file on disk is untouched. Delete still moves a photo to the system trash.
 
 ## Keyboard shortcuts
 
