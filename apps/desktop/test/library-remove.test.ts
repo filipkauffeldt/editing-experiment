@@ -325,6 +325,40 @@ describe(
       }
     });
 
+    it('removes a whole folder with one Library event and without looking at the disk', async () => {
+      const root = await tempDir();
+      const harness = await start(root);
+      try {
+        for (const name of ['a.jpg', 'b.jpg', 'c.jpg']) await jpeg(join(harness.source, name));
+        const photos = await ingestCard(harness, 3);
+        await rm(harness.destination, { recursive: true, force: true });
+        harness.events.length = 0;
+
+        const result = await harness.handlers['photos:removeFolder']({
+          path: harness.destination,
+          subfolders: true,
+        });
+
+        expect(result.failed).toEqual([]);
+        expect(result.deleted.sort()).toEqual(photos.map((photo) => photo.id).sort());
+        expect(await names(harness)).toEqual([]);
+        expect(harness.events.filter((event) => event.channel === 'photos:removed')).toEqual([]);
+        const batches = harness.events.filter(
+          (event) => event.channel === 'photos:removedMany',
+        ) as { payload: { photoIds: string[] } }[];
+        expect(batches).toHaveLength(1);
+        expect(batches[0]!.payload.photoIds.sort()).toEqual(result.deleted.sort());
+        const index = new PhotoIndex(harness.backend.layout.indexDb);
+        try {
+          expect(index.excludedPaths().size).toBe(3);
+        } finally {
+          index.close();
+        }
+      } finally {
+        await harness.backend.dispose();
+      }
+    });
+
     it('works with the destination drive unplugged', async () => {
       const root = await tempDir();
       const harness = await start(root);

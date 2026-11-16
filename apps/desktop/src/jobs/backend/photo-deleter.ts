@@ -152,27 +152,44 @@ export class PhotoDeleter {
       const path = normalizeExportPath(child);
       return path === parent || isBelow(parent, path);
     };
-    const photoIds = this.deps.photos
-      .list()
-      .filter((photo) =>
-        addedRoot === undefined
-          ? normalizeExportPath(dirname(photo.path)) === folder
-          : sameOrBelow(folder, photo.path),
-      )
-      .map((photo) => photo.id);
-    const result = await this.each('photos:removeFolder', { photoIds }, (photoId) =>
-      this.removeOne(photoId),
-    );
+    // An added root always takes its tree, as before; any other folder follows the dialog's
+    // "Include subfolders" choice. The default keeps the old exact-folder behaviour.
+    const subfolders = args.subfolders ?? addedRoot !== undefined;
+    const photoIds = this.deps.photos.idsInFolder(args.path, subfolders);
+    const result = await this.removeMany(photoIds);
     // A folder that could not be emptied stays added, so the user can try again.
     if (result.failed.length === 0) {
-      if (addedRoot === undefined) {
-        this.deps.photos.removeAddedFolder(args.path);
-      } else {
-        // Roots nested inside the removed one would otherwise stay behind with no way to reach them.
+      if (subfolders) {
+        // Roots nested inside the removed tree would otherwise stay behind with no photos.
         for (const candidate of this.deps.photos.addedFolders()) {
           if (sameOrBelow(folder, candidate)) this.deps.photos.removeAddedFolder(candidate);
         }
+      } else if (addedRoot !== undefined) {
+        // Only this folder's photos left; a nested added root keeps its own.
+        this.deps.photos.removeAddedFolder(args.path);
       }
+    }
+    return result;
+  }
+
+  /**
+   * Remove a whole folder's ids in one index transaction and with one `photos:removedMany`
+   * event. Clearing each photo's cached data still happens per photo, but it never crosses IPC.
+   */
+  private async removeMany(photoIds: readonly PhotoId[]): Promise<DeletePhotosResult> {
+    const unique = [...new Set(photoIds)];
+    if (unique.length === 0) return { deleted: [], failed: [] };
+    const removed = this.deps.photos.removeManyAndExclude(unique);
+    const removedSet = new Set(removed);
+    const result: DeletePhotosResult = { deleted: [], failed: [] };
+    for (const photoId of unique) {
+      if (!removedSet.has(photoId)) {
+        // Not in the index any more (a repeated request, another window): already removed.
+        result.deleted.push(photoId);
+        continue;
+      }
+      result.deleted.push(photoId);
+      await this.cleanUp(photoId, photoId);
     }
     return result;
   }
