@@ -179,6 +179,22 @@ describe.skipIf(!packaged || !nef || !haveDisplay)('packaged app', () => {
     expect(faces.length).toBeGreaterThan(0);
   });
 
+  it('keeps its settings in the default settings folder below the user data folder', async () => {
+    const folder = await invoke<{
+      path: string;
+      isDefault: boolean;
+      problem?: string;
+    }>('settings:folder');
+    expect(folder.problem).toBeUndefined();
+    expect(folder.isDefault).toBe(true);
+    expect(folder.path.startsWith(userData)).toBe(true);
+    await invoke('settings:set', { exportRoot: join(root, 'exports') });
+    expect(await invoke<{ exportRoot: string }>('settings:get')).toMatchObject({
+      exportRoot: join(root, 'exports'),
+    });
+    expect(existsSync(join(userData, 'machine.json'))).toBe(true);
+  });
+
   it('keeps its log under the user data folder', () => {
     expect(existsSync(join(userData, 'logs'))).toBe(true);
   });
