@@ -6,6 +6,7 @@ import {
   type SourceId,
 } from '@ee/contracts';
 import type { PhotoIndex, PhotoRecord } from './photo-index';
+import { normalizeExportPath } from './exported-files';
 import type { SearchIndex } from './search-index';
 
 export type Emit = (channel: EventChannel, payload: unknown) => void;
@@ -45,6 +46,23 @@ export class PhotoLibrary {
   /** Paths removed from the Library by the user (`removeFromLibrary`). */
   excludedPaths(): Set<string> {
     return this.index.excludedPaths();
+  }
+
+  /** Folders the user added to the Library in place, in the order they were added. */
+  addedFolders(): string[] {
+    return this.index.addedFolders();
+  }
+
+  addAddedFolder(path: string): void {
+    this.index.addAddedFolder(path);
+  }
+
+  /** Forget a folder added in place; paths compare without regard to case on macOS and Windows. */
+  removeAddedFolder(path: string): void {
+    const stored = this.index
+      .addedFolders()
+      .find((folder) => normalizeExportPath(folder) === normalizeExportPath(path));
+    if (stored !== undefined) this.index.removeAddedFolder(stored);
   }
 
   /** Index a newly ingested photo and announce it. */

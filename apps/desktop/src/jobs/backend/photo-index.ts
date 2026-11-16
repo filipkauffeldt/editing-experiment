@@ -41,6 +41,9 @@ export class PhotoIndex {
   private readonly excludeStatement: StatementSync;
   private readonly includeStatement: StatementSync;
   private readonly excludedStatement: StatementSync;
+  private readonly addFolderStatement: StatementSync;
+  private readonly removeFolderStatement: StatementSync;
+  private readonly foldersStatement: StatementSync;
   private readonly searchRowsStatement: StatementSync;
   private readonly setSearchStatement: StatementSync;
 
@@ -62,6 +65,8 @@ export class PhotoIndex {
       CREATE INDEX IF NOT EXISTS photos_path ON photos (path);
       -- Paths the user removed from the Library while the file may still be on disk.
       CREATE TABLE IF NOT EXISTS removed_paths (path TEXT PRIMARY KEY);
+      -- Folders the user added to the Library in place; nothing rescans them by itself.
+      CREATE TABLE IF NOT EXISTS added_folders (path TEXT PRIMARY KEY);
     `);
     // An index made before `source_path` existed gets the column; its rows have none.
     const columns = this.db.prepare('PRAGMA table_info(photos)').all() as unknown as {
@@ -98,6 +103,11 @@ export class PhotoIndex {
     );
     this.includeStatement = this.db.prepare('DELETE FROM removed_paths WHERE path = ?');
     this.excludedStatement = this.db.prepare('SELECT path FROM removed_paths');
+    this.addFolderStatement = this.db.prepare(
+      'INSERT OR IGNORE INTO added_folders (path) VALUES (?)',
+    );
+    this.removeFolderStatement = this.db.prepare('DELETE FROM added_folders WHERE path = ?');
+    this.foldersStatement = this.db.prepare('SELECT path FROM added_folders ORDER BY rowid');
     this.searchRowsStatement = this.db.prepare(
       "SELECT id, json_extract(json, '$.fileName') AS file_name, search_text FROM photos ORDER BY seq",
     );
@@ -196,6 +206,21 @@ export class PhotoIndex {
   paths(): Set<string> {
     const rows = this.pathsStatement.all() as unknown as { path: string }[];
     return new Set(rows.map((row) => row.path));
+  }
+
+  /** Remember a folder added to the Library in place. */
+  addAddedFolder(path: string): void {
+    this.addFolderStatement.run(path);
+  }
+
+  removeAddedFolder(path: string): void {
+    this.removeFolderStatement.run(path);
+  }
+
+  /** Folders added in place, in the order they were added. */
+  addedFolders(): string[] {
+    const rows = this.foldersStatement.all() as unknown as { path: string }[];
+    return rows.map((row) => row.path);
   }
 
   close(): void {
