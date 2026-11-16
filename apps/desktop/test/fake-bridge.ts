@@ -69,6 +69,11 @@ export function createFakeBridge(
     params.set(versionKey(photo.id, develop?.id), develop?.kind === 'develop' ? develop.ops : {});
   }
   let settings = mockSettings();
+  let settingsFolder = {
+    path: '/mock/settings',
+    defaultPath: '/mock/settings',
+    hasSettings: true,
+  };
   const uploads = mockUploads();
   const sources = mockSources();
   const destinations = mockDestinations();
@@ -493,11 +498,38 @@ export function createFakeBridge(
       settings = { ...settings, ...patch };
       return settings;
     },
+    'settings:folder': async () => ({
+      ...settingsFolder,
+      isDefault: settingsFolder.path === settingsFolder.defaultPath,
+    }),
+    'settings:inspectFolder': async (...args) => ({
+      path: (args[0] as { path: string }).path,
+      hasSettings: (args[0] as { path: string }).path === '/mock/existing-settings',
+    }),
+    'settings:useFolder': async (...args) => {
+      settingsFolder = { ...settingsFolder, path: (args[0] as { path: string }).path };
+      return {
+        ...settingsFolder,
+        isDefault: settingsFolder.path === settingsFolder.defaultPath,
+      };
+    },
+    'settings:copyToFolder': async (...args) => {
+      settingsFolder = {
+        ...settingsFolder,
+        path: (args[0] as { path: string }).path,
+        hasSettings: true,
+      };
+      return {
+        ...settingsFolder,
+        isDefault: settingsFolder.path === settingsFolder.defaultPath,
+      };
+    },
     'credentials:set': async (...args) => {
       const { ref } = args[0] as { ref?: string };
       return { ref: ref || 'test-credential' };
     },
     'credentials:remove': async () => {},
+    'credentials:present': async (...args) => (args[0] as { refs: string[] }).refs,
     'dialog:pick': async () => ['/mock/preset.xmp'],
     'retouch:get': async (...args) => {
       const { photoId, versionId } = args[0] as { photoId: PhotoId; versionId?: VersionId };

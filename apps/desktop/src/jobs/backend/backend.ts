@@ -90,7 +90,10 @@ export async function createBackend(options: BackendOptions): Promise<Backend> {
   const settings = new SettingsStore(
     layout.settingsFile,
     defaultSettings(options.homeDir ?? homedir()),
-    (message) => console.warn(message),
+    (message) => {
+      console.warn(message);
+      emitJob({ type: 'job.error', at: Date.now(), scope: 'settings', message });
+    },
   );
   const index = new PhotoIndex(layout.indexDb);
   const search = new SearchIndex(
@@ -121,7 +124,7 @@ export async function createBackend(options: BackendOptions): Promise<Backend> {
   await editedPreviews.invalidateOutdatedDefaults();
   const labels = new LabelService(photos, exiftool);
   const seenStore = new SqliteSeenStore(layout.seenDb);
-  const presets = new PresetStore(layout.presetsDir);
+  const presets = new PresetStore(() => settings.presetsDir());
   const presetLibrary = new PresetLibrary(
     presets,
     new PresetFolders({ folders: () => settings.get().presetFolders ?? [] }),

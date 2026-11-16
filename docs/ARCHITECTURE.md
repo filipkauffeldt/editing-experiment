@@ -87,19 +87,28 @@ from `renderer/fonts.css` and are bundler inputs, not runtime externals.
 
 `apps/desktop/src/jobs/backend` implements every `IpcApi` channel outside mock mode. It has no
 Electron dependency (`createBackend({ userDataDir, emit, getSecret })`), so integration tests run it
-in plain Node. Files under Electron's `userData`:
+in plain Node. Settings live in two files. `settings.json` in the settings folder is shared between
+computers; `machine.json` under Electron's `userData` holds the paths that belong to this computer.
+The default settings folder is `userData`, so both files sit there until the user picks another.
 
 ```
-settings.json        sources, destinations, ingest options, metadata templates, code replacements, export presets, active preset, profile folders, preset folders, last copy selections
+machine.json         settings folder choice, ingest destination and backup folder, export root, folder and card sources, folder destinations, profile folders, preset folders, panel widths, and every metadata template or code replacement path outside the settings folder
 index.sqlite         photo index, the search text of each photo and the paths removed from the Library (cache; sidecars are the source of truth)
 seen.sqlite          files already ingested per source
 uploads.sqlite       upload queue
 export-jobs.json     resumable export batches (queued photos survive a restart)
 exported-files.json  paths the app exported; the only targets `overwrite` may replace
-presets/*.json       develop presets imported by hand (presets found in preset folders are not copied here)
 credentials.json     written by main only: ciphertext from safeStorage
 cache/{thumb,preview,linear}   disposable (see "Edited thumbnails and previews")
 exports/             default exportRoot (only a relative folder template uses it; the default template exports next to the photo)
+```
+
+The settings folder holds:
+
+```
+settings.json        FTP/SFTP sources and destinations (credentialRef only, never a secret), export presets and the active one, ingest naming and templates, template mode, develop preset, metadata template and code replacement references, copy/paste selections
+presets/*.json       develop presets imported by hand (presets found in preset folders are not copied here)
+settings.json.pre-settings-folder   the old one-file settings, kept after the first split
 ```
 
 - Ingest: `@ee/ingest` with the `{variable}` expander from `@ee/metadata` and a per-file hook that reads
@@ -209,10 +218,13 @@ exports/             default exportRoot (only a relative folder template uses it
   (f16 for raws, f32 for JPEGs), written to `cache/linear` (small LRU) and streamed from
   there by main, with the `LinearImageHeader` in `x-ee-linear-image`. Main only streams
   files below `cache/`.
-- Secrets: `credentials:set/remove` run in main (`safeStorage`, no plaintext fallback). The jobs process asks
-  for a secret by `credentialRef` over a private `MessagePort` (`shared/secret-port.ts`) when it connects;
-  there is no channel that returns a secret to the renderer. An absent/empty `credentialRef` on an FTP
-  source or destination means anonymous FTP (user `anonymous`), so demos and tests need no keyring.
+- Secrets: `credentials:set/remove` run in main (`safeStorage`, no plaintext fallback), and
+  `credentials:present` answers which references have a secret on this computer without decrypting
+  or returning one. The jobs process asks for a secret by `credentialRef` over a private `MessagePort`
+  (`shared/secret-port.ts`) when it connects; there is no channel that returns a secret to the
+  renderer. An absent/empty `credentialRef` on an FTP source or destination means anonymous FTP
+  (user `anonymous`), so demos and tests need no keyring. A reference with no secret on this
+  computer is not anonymous: the connection fails and the lists say "Password needed".
 - Edits: develop params are the `crs:` block of the sidecar (one develop version per photo), retouch
   versions are `ee:RetouchVersions`. Writes to one photo's sidecar are serialised.
 - Exports: an export job owns a list of photos and a preset. The jobs process asks the renderer for
@@ -309,6 +321,48 @@ exports/             default exportRoot (only a relative folder template uses it
   its files are in the trash, and a file that turns up there later is a new one.
 - On quit, main asks the jobs process to shut down (stop ingest, close the upload queue, ExifTool and
   the databases) and kills it only after a timeout.
+
+## Settings folder
+
+The settings a photographer wants on both computers are one folder that a sync tool can keep in
+step. Each computer still keeps its own paths.
+
+- **Two files, one `AppSettings`.** `settings.json` in the settings folder holds what every computer
+  has in common. `userData/machine.json` holds the choice of settings folder and the paths of this
+  computer: ingest destination, backup folder, export root, folder and card sources, folder
+  destinations, profile and preset folders, panel widths. `settings:get` and `settings:set` merge
+  and split them, so the renderer and every service still see one object.
+- **Template paths.** A metadata template or code replacement file at or below the settings folder
+  is stored relative to it with forward slashes, so it resolves on both computers. Any other path is
+  stored in `machine.json` under an id and is not shown on the other computer. A `C:\…` path is
+  never resolved on Linux and a POSIX path is never resolved on Windows. `settings-paths.ts` takes
+  the path API, so both rules are tested on every host. `ingest.metadataTemplatePath` uses the same
+  rule. A file outside the settings folder is listed only on the computer that added it. When a
+  computer edits a list, references it cannot resolve (another computer's files) stay in the shared
+  file.
+- **Choosing the folder.** Settings → Settings folder shows the folder in use. The default is
+  `userData`, so an existing install does not change. Picking an empty folder offers to copy the
+  current settings and imported presets there, or to use it empty. Picking a folder that already
+  holds settings adopts them, which is how a second computer joins. Nothing in the old folder is
+  moved or deleted.
+- **Writes.** Every write is a temp file and a rename in the same folder. Before writing, the app
+  reads `settings.json` when it differs from what it last read and applies only the one change being
+  made, then writes, so a change from the other computer is not overwritten. The app reads the
+  folder at start. There is no watcher. Only `settings.json`, `machine.json` and the imported
+  presets named `<24 hex>.json` are read, so sync conflict copies and temp files are ignored. A file
+  whose `version` is newer than this app is read but never written. An unreadable file in a synced
+  folder is reported and left alone rather than replaced with defaults.
+- **Migration.** First run after an older version splits the old `userData/settings.json`: the
+  machine file is written first, then the shared file through `settings.json.migrating` and a
+  rename, and the old file is kept as `settings.json.pre-settings-folder`. A crash between the
+  steps is recovered from the temp file or the backup. A missing or not writable settings folder is
+  reported in Settings → Settings folder and the app writes nothing there, rather than putting
+  defaults over a sync folder that is not mounted.
+- **Credentials.** `credentials.json` never leaves `userData`. A synced source or destination keeps
+  its `credentialRef`, but the secret behind it does not travel. Where this computer has no secret,
+  the source and destination lists say "Password needed" and the form takes the password. A
+  reference with no secret is a failed connection, never anonymous FTP. Only an absent
+  `credentialRef` is anonymous FTP.
 
 ## Edited thumbnails and previews
 
@@ -410,6 +464,10 @@ Key types (names are binding, fields can grow):
   without writing anything, so the dialog can show where the first photo would be saved. `export:render` sends the RGBA render over IPC (full-resolution only
   for `resize: none`: about 180 MB for a 45 MP Z9 frame). That is fine for the PoC
   but a known cost to optimise later (e.g. MessagePort transfer or a shared temp file).
+- `settings:folder`, `settings:inspectFolder`, `settings:useFolder` and `settings:copyToFolder`
+  describe, inspect, adopt and copy the settings folder. `SettingsFolderInfo` carries the path, the
+  default, whether it holds settings and a `problem` when it is missing or not writable.
+  `credentials:present` lists the given references that have a secret on this computer.
 
 ## Image operations (no sharp)
 
@@ -599,7 +657,7 @@ two places: files found in preset folders, and files imported by hand.
   The folder names come from Adobe's preset FAQ (as search results quote it) and Lightroom Queen's
   file-location guide; they have not been compared with a real install.
 - **Read only.** The module makes `readdir`, `stat` and `readFile` calls and nothing else, and nothing found
-  is copied into userData. A parse is cached by the file's modified time and size (an entry read within 2.5 s of its
+  is copied. Imported presets are a separate copy in `<settings folder>/presets`. A parse is cached by the file's modified time and size (an entry read within 2.5 s of its
   modified time is read again next time, as timestamps are coarse), so a changed file is read again and a
   removed file is gone from the next scan.
 - **When it scans.** Once in the background when the backend starts, and when the renderer asks with

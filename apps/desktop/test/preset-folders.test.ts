@@ -526,7 +526,12 @@ describe('PresetLibrary', () => {
   it('keeps listing when a stored import cannot be read', async () => {
     const { presetFolder, root, library } = await setup();
     await put(presetFolder, 'A.xmp', xmpPreset({ uuid: UUID(1), name: 'A' }));
-    const broken = await put(join(root, 'userdata'), 'presets/broken.json', '{ not json');
+    // The file name `PresetStore.import` writes; other JSON is a sync tool's copy.
+    const broken = await put(
+      join(root, 'userdata'),
+      `presets/${'a'.repeat(24)}.json`,
+      '{ not json',
+    );
     const { presets, problems } = await library.index();
     expect(presets.map((p) => p.name)).toEqual(['A']);
     expect(problems.map((p) => p.path)).toEqual([broken]);

@@ -95,6 +95,10 @@
   cursor: pointer;
 }
 
+.passwordNeeded {
+  color: var(--error);
+}
+
 .detail:hover,
 .detail[aria-expanded='true'] {
   color: var(--muted);

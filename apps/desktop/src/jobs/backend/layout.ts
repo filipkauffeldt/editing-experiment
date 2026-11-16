@@ -3,7 +3,7 @@ import { join } from 'node:path';
 /** Where the backend keeps its files under the Electron `userData` directory. */
 export interface UserDataLayout {
   root: string;
-  /** Sources, destinations, ingest, export presets and active preset (JSON). */
+  /** The default, one-file settings path; the settings store splits it into two files. */
   settingsFile: string;
   /** Photo index (`node:sqlite`); a cache, sidecars are the source of truth. */
   indexDb: string;
@@ -15,7 +15,7 @@ export interface UserDataLayout {
   exportJobsFile: string;
   /** Paths the app has exported; the only files `overwrite` may replace. */
   exportedFilesFile: string;
-  /** Imported develop presets (one JSON file each). */
+  /** The default imported develop presets folder (`<settings folder>/presets` by default). */
   presetsDir: string;
   /** Everything below is disposable cache. */
   cacheDir: string;

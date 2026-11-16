@@ -96,7 +96,14 @@ describe('Ingest view layout', () => {
     const tabs = within(dialog)
       .getAllByRole('tab')
       .map((tab) => tab.textContent);
-    expect(tabs).toEqual(['Sources', 'Destinations', 'Metadata', 'Profiles', 'Presets']);
+    expect(tabs).toEqual([
+      'Sources',
+      'Destinations',
+      'Metadata',
+      'Profiles',
+      'Presets',
+      'Settings folder',
+    ]);
   });
 
   it('opens Settings → Sources from the add entry', async () => {

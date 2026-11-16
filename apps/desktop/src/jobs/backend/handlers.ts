@@ -102,6 +102,7 @@ export function createBackendHandlers(deps: HandlerDeps): IpcHandlers {
     // Served by the main process (`safeStorage`, native dialogs); present to satisfy the type.
     'credentials:set': servedByMain('credentials:set'),
     'credentials:remove': servedByMain('credentials:remove'),
+    'credentials:present': servedByMain('credentials:present'),
 
     'metadata:read': ({ photoId }) => metadata.read(photoId),
     'metadata:write': (args) => metadata.write(args),
@@ -155,6 +156,18 @@ export function createBackendHandlers(deps: HandlerDeps): IpcHandlers {
 
     'settings:get': async () => settings.get(),
     'settings:set': async (patch) => settings.set(patch),
+    'settings:folder': async () => settings.folderInfo(),
+    'settings:inspectFolder': async ({ path }) => settings.inspectFolder(path),
+    'settings:useFolder': async ({ path }) => {
+      const info = settings.useFolder(path);
+      await presetLibrary.index(true).catch(() => undefined);
+      return info;
+    },
+    'settings:copyToFolder': async ({ path }) => {
+      const info = settings.copyToFolder(path);
+      await presetLibrary.index(true).catch(() => undefined);
+      return info;
+    },
 
     'dialog:pick': servedByMain('dialog:pick'),
   };

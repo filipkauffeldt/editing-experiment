@@ -27,7 +27,7 @@ import {
 } from '@ee/metadata';
 import { mkdir, mkdtemp, readFile, readdir, rm, stat } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join, sep } from 'node:path';
+import { dirname, join, sep } from 'node:path';
 import sharp from 'sharp';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { createBackend, type Backend } from '../src/jobs/backend/backend';
@@ -953,12 +953,17 @@ describe.skipIf(nefs.length === 0)(
         source: { id: asSourceId('x'), name: 'X', kind: 'folder', path: root },
       });
       expect((await handlers['sources:list']()).map((s) => s.id)).toContain(saved.id);
-      const file = JSON.parse(await readFile(backend.layout.settingsFile, 'utf8'));
-      expect(file.sources.map((s: SourceConfig) => s.id)).toContain('x');
-      expect(file.destinations.map((d: FtpDestination) => d.id)).toContain('desk');
-      expect(file.exportPresets.length).toBeGreaterThan(0);
-      expect(file.exportRoot).toBeTruthy();
-      expect(JSON.stringify(file)).not.toContain('secret');
+      const shared = JSON.parse(await readFile(backend.layout.settingsFile, 'utf8'));
+      const machine = JSON.parse(
+        await readFile(join(dirname(backend.layout.settingsFile), 'machine.json'), 'utf8'),
+      );
+      // Local sources are this computer's; remote destinations are shared.
+      expect(machine.sources.map((s: SourceConfig) => s.id)).toContain('x');
+      expect(shared.destinations.map((d: FtpDestination) => d.id)).toContain('desk');
+      expect(shared.exportPresets.length).toBeGreaterThan(0);
+      expect(machine.exportRoot).toBeTruthy();
+      expect(JSON.stringify(shared)).not.toContain('secret');
+      expect(JSON.stringify(machine)).not.toContain('secret');
       await handlers['sources:remove']({ sourceId: saved.id });
       await expect(
         handlers['settings:set']({ ingest: { bogus: true } as never }),

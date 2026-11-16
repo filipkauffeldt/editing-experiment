@@ -4,7 +4,7 @@ import type { PresetStore, StoredPreset } from './presets';
 
 /**
  * Every develop preset the app offers: the ones found in the preset folders (read where they are) and
- * the ones imported by hand (a copy under userData), one entry each.
+ * the ones imported by hand (a copy in the settings folder), one entry each.
  *
  * **Identity.** A preset's id is the UUID its file carries (`crs:UUID`, or `id` in a `.lrtemplate`),
  * else a hash of the file's path; ids are compared without regard to case. Two files with the same

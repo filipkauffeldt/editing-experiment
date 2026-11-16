@@ -113,12 +113,21 @@ describe('CredentialStore', () => {
     expect(() => store.set({ password: 'x' }, '../escape')).toThrowError(/invalid characters/);
   });
 
-  it('exposes only set and remove to the renderer', async () => {
+  it('exposes set, remove and presence to the renderer, never a secret', async () => {
     const store = new CredentialStore(join(await tempDir(), 'c.json'), fakeSafeStorage());
     const handlers = credentialHandlers(store);
-    expect(Object.keys(handlers).sort()).toEqual(['credentials:remove', 'credentials:set']);
+    expect(Object.keys(handlers).sort()).toEqual([
+      'credentials:present',
+      'credentials:remove',
+      'credentials:set',
+    ]);
     const { ref } = await handlers['credentials:set']({ secret: { privateKey: 'PEM' } });
     expect(store.get(ref)).toEqual({ privateKey: 'PEM' });
+    await expect(
+      handlers['credentials:present']({ refs: [ref, 'other', ref, ''] }),
+    ).resolves.toEqual([ref]);
+    await handlers['credentials:remove']({ ref });
+    await expect(handlers['credentials:present']({ refs: [ref] })).resolves.toEqual([]);
   });
 });
 
