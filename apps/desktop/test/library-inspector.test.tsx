@@ -93,6 +93,153 @@ describe('Library inspector with one photo', () => {
   });
 });
 
+describe('Library inspector layout', () => {
+  it('puts the inspector on the left and the folders on the right', async () => {
+    await openLibrary();
+    const view = screen.getByTestId('library-view');
+    const inspectorPanel = screen.getByTestId('library-inspector');
+    const sidebar = screen.getByTestId('library-sidebar');
+    expect(
+      inspectorPanel.compareDocumentPosition(sidebar) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+    expect(screen.getByTestId('panel-resize-library-inspector').getAttribute('data-side')).toBe(
+      'left',
+    );
+    expect(screen.getByTestId('panel-resize-library-sidebar').getAttribute('data-side')).toBe(
+      'right',
+    );
+    expect(view.style.gridTemplateColumns).toBe('300px minmax(0, 1fr) 220px');
+  });
+
+  it('keeps the inspector on the left and the folders on the right in the loupe', async () => {
+    const { store } = await openLibrary();
+    act(() => store.openLibrary('loupe'));
+    await screen.findByTestId('library-loupe');
+    expect(
+      screen
+        .getByTestId('library-inspector')
+        .compareDocumentPosition(screen.getByTestId('library-sidebar')) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+    expect(screen.getByTestId('library-view').style.gridTemplateColumns).toBe(
+      '300px minmax(0, 1fr) 220px',
+    );
+  });
+});
+
+describe('Library metadata shortcuts', () => {
+  it('focuses the caption with Ctrl+I and the keywords with Ctrl+K, and writes what is typed', async () => {
+    const { store, fake } = await openLibrary();
+    fireEvent.click(cell('_DSC8330.NEF'));
+    const id = store.getState().selectedId!;
+    const user = userEvent.setup();
+
+    fireEvent.keyDown(window, { key: 'i', ctrlKey: true });
+    const caption = within(inspector()).getByRole('textbox', { name: 'Caption' });
+    await waitFor(() => expect(document.activeElement).toBe(caption));
+    await user.clear(caption);
+    await user.type(caption, 'Kick-off');
+    expect(store.getState().metadata[id]?.caption).toBe('Kick-off');
+    await waitFor(() => {
+      const write = fake.calls.filter((call) => call.channel === 'metadata:write').at(-1);
+      expect(write?.args[0]).toMatchObject({ photoId: id, fields: { caption: 'Kick-off' } });
+    });
+
+    // Escape leaves the field, as it does in Develop.
+    fireEvent.keyDown(caption, { key: 'Escape' });
+    expect(document.activeElement).toBe(document.body);
+
+    fireEvent.keyDown(window, { key: 'k', ctrlKey: true });
+    const keywords = within(inspector()).getByPlaceholderText('Add keyword…');
+    await waitFor(() => expect(document.activeElement).toBe(keywords));
+    await user.type(keywords, 'derby{Enter}');
+    expect(store.getState().metadata[id]?.keywords).toContain('derby');
+    await waitFor(() => {
+      const write = fake.calls.filter((call) => call.channel === 'metadata:write').at(-1);
+      expect(write?.args[0]).toMatchObject({
+        photoId: id,
+        fields: { keywords: expect.arrayContaining(['derby']) },
+      });
+    });
+  });
+
+  it('expands a known code in the inspector as its closing delimiter is typed', async () => {
+    const { store } = await openLibrary();
+    await act(async () => {
+      await store.refreshCodeReplacements();
+    });
+    fireEvent.click(cell('_DSC8330.NEF'));
+    fireEvent.keyDown(window, { key: 'i', ctrlKey: true });
+    const caption = within(inspector()).getByRole('textbox', { name: 'Caption' });
+    await waitFor(() => expect(document.activeElement).toBe(caption));
+    const user = userEvent.setup();
+    await user.clear(caption);
+    await user.keyboard('=t1=');
+    expect((caption as HTMLTextAreaElement).value).toBe('Manchester City');
+  });
+
+  it('shows the panels before it focuses a field when Tab hid them', async () => {
+    const { store } = await openLibrary();
+    fireEvent.click(cell('_DSC8330.NEF'));
+    const view = (): HTMLElement => screen.getByTestId('library-view');
+
+    fireEvent.keyDown(window, { key: 'Tab' });
+    expect(view().dataset.panels).toBe('hidden');
+    fireEvent.keyDown(window, { key: 'i', ctrlKey: true });
+    await waitFor(() => expect(view().dataset.panels).toBe('shown'));
+    const caption = within(inspector()).getByRole('textbox', { name: 'Caption' });
+    await waitFor(() => expect(document.activeElement).toBe(caption));
+
+    act(() => store.togglePanels());
+    expect(view().dataset.panels).toBe('hidden');
+    fireEvent.keyDown(window, { key: 'k', ctrlKey: true });
+    await waitFor(() => expect(view().dataset.panels).toBe('shown'));
+    const keywords = within(inspector()).getByPlaceholderText('Add keyword…');
+    await waitFor(() => expect(document.activeElement).toBe(keywords));
+  });
+
+  it('opens the batch caption dialog when several photos are selected', async () => {
+    const { store } = await openLibrary();
+    selectNames('_DSC8330.NEF', '_DSC8331.NEF');
+    const user = userEvent.setup();
+
+    fireEvent.keyDown(window, { key: 'i', ctrlKey: true });
+    expect(store.getState().batchCaptionOpen).toBe(true);
+    expect(await screen.findByTestId('batch-caption-dialog')).toBeTruthy();
+    await user.click(screen.getByRole('button', { name: 'Cancel' }));
+
+    fireEvent.keyDown(window, { key: 'k', ctrlKey: true });
+    const dialog = await screen.findByTestId('batch-caption-dialog');
+    await waitFor(() =>
+      expect(document.activeElement).toBe(dialog.querySelector('[data-keywords-input]')),
+    );
+  });
+
+  it('does nothing when no photo is selected', async () => {
+    const { store } = await openLibrary();
+    act(() => store.select(undefined));
+    fireEvent.keyDown(window, { key: 'i', ctrlKey: true });
+    fireEvent.keyDown(window, { key: 'k', ctrlKey: true });
+    expect(store.getState().batchCaptionOpen).toBe(false);
+    expect(screen.queryByTestId('batch-caption-dialog')).toBeNull();
+    expect(document.querySelector('[data-caption-input]')).toBeNull();
+    expect(document.querySelector('[data-keywords-input]')).toBeNull();
+  });
+
+  it('leaves the grid selection alone while the user moves in a focused field', async () => {
+    const { store } = await openLibrary();
+    fireEvent.click(cell('_DSC8330.NEF'));
+    const id = store.getState().selectedId!;
+    fireEvent.keyDown(window, { key: 'i', ctrlKey: true });
+    const caption = within(inspector()).getByRole('textbox', { name: 'Caption' });
+    await waitFor(() => expect(document.activeElement).toBe(caption));
+    fireEvent.keyDown(caption, { key: 'ArrowRight' });
+    fireEvent.keyDown(caption, { key: 'ArrowDown' });
+    expect(store.getState().selectedId).toBe(id);
+    expect(store.getState().selection).toEqual([id]);
+  });
+});
+
 describe('Library inspector with several photos', () => {
   it('says how many are selected and shows the values they share', async () => {
     await openLibrary();

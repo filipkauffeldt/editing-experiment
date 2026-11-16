@@ -1397,7 +1397,10 @@ Design tokens and component rules are in `docs/DESIGN.md`.
   (also used by the film strip and the export actions); a grid click is `select(id, mode)` with
   `replace`, `toggle` (Ctrl/Cmd) or `range` (Shift), where a range follows the grid's order in the
   Library and the film strip's elsewhere. The last clicked photo is `selectedId`, the one the
-  inspector and Develop show. Tag (`T`), rating (`1`-`5`, `0` clears) and class
+  inspector and Develop show. The Library puts the inspector on the left and the folder sidebar
+  on the right, as Develop has metadata on the left. With one photo selected, Ctrl/Cmd+I and
+  Ctrl/Cmd+K focus its caption and keywords in the inspector and show the panels when they are
+  hidden. With several selected they open the batch caption dialog. Tag (`T`), rating (`1`-`5`, `0` clears) and class
   (Ctrl/Cmd+`1`-`8`, `0` clears) act on the selection in the Library and on the open photo
   elsewhere, in one `photos:setLabels` call. Export… and Export & send
   use `openExportDialog` and `exportSelected(true)`.

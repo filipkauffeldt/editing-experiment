@@ -20,17 +20,17 @@ import { PanelResizeHandle } from './ui/PanelResizeHandle';
 import styles from './LibraryView.module.css';
 
 const PANELS = [
-  { id: 'library-sidebar', side: 'left' },
-  { id: 'library-inspector', side: 'right' },
+  { id: 'library-inspector', side: 'left' },
+  { id: 'library-sidebar', side: 'right' },
 ] as const satisfies readonly ResizablePanelDefinition[];
 
-/** Library: folders and collections, the contact sheet, and the inspector. */
+/** Library: the inspector, the contact sheet, and folders, with metadata where Develop has it. */
 export function LibraryView() {
   const store = useAppStore();
   const state = useAppState();
   const { containerRef, panels } = usePanelLayout(PANELS);
-  const sidebar = panels['library-sidebar'];
   const inspector = panels['library-inspector'];
+  const sidebar = panels['library-sidebar'];
   const { library } = state;
   // The grid follows every photo event; sorting is only redone when something it shows changes.
   const photos = useMemo(
@@ -59,18 +59,18 @@ export function LibraryView() {
       style={{
         gridTemplateColumns: hidden
           ? '0px minmax(0, 1fr) 0px'
-          : `${sidebar.width}px minmax(0, 1fr) ${inspector.width}px`,
+          : `${inspector.width}px minmax(0, 1fr) ${sidebar.width}px`,
       }}
       data-panels={hidden ? 'hidden' : 'shown'}
     >
       <div className={styles.panels} hidden={hidden} data-testid="library-left-panels">
-        <LibrarySidebar className={styles.side} />
+        <LibraryInspector className={styles.inspector} />
         <PanelResizeHandle
-          panel="library-sidebar"
-          label="Library sidebar"
+          panel="library-inspector"
+          label="Library inspector"
           side="left"
-          controller={sidebar}
-          className={styles.sideHandle}
+          controller={inspector}
+          className={styles.inspectorHandle}
         />
       </div>
       <div className={styles.centre}>
@@ -107,13 +107,13 @@ export function LibraryView() {
       </div>
       <div className={styles.panels} hidden={hidden} data-testid="library-right-panels">
         <PanelResizeHandle
-          panel="library-inspector"
-          label="Library inspector"
+          panel="library-sidebar"
+          label="Library sidebar"
           side="right"
-          controller={inspector}
-          className={styles.inspectorHandle}
+          controller={sidebar}
+          className={styles.sideHandle}
         />
-        <LibraryInspector className={styles.inspector} />
+        <LibrarySidebar className={styles.side} />
       </div>
       <div className={styles.bar}>
         <ActionBar

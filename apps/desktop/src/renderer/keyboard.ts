@@ -8,7 +8,7 @@ import {
   toggleWbPicker,
 } from './develop-view';
 import { colorClassFromKey, isMacPlatform, ratingFromKey } from './rating-keys';
-import type { AppStore } from './store';
+import { panelsAreHidden, type AppStore } from './store';
 import { setPanHeld, zoomCommands, zoomStore } from './zoom-view';
 import { zoomKeyAction } from './zoom-keys';
 
@@ -37,6 +37,19 @@ export function focusKeywordsField(): void {
   field.focus({ preventScroll: true });
   const end = field.value.length;
   field.setSelectionRange(end, end);
+}
+
+/**
+ * Focus a metadata field in the Library inspector, showing the panels first when Tab hid them.
+ * A field inside a `display: none` panel cannot take focus, so the focus waits for the render.
+ */
+function focusLibraryInspector(store: AppStore, focus: () => void): void {
+  if (!panelsAreHidden(store.getState())) {
+    focus();
+    return;
+  }
+  store.togglePanels();
+  window.setTimeout(focus, 0);
 }
 
 /** Focus the filter bar's search box with its text selected, ready to be replaced. */
@@ -280,14 +293,19 @@ export function useKeyboardShortcuts(store: AppStore): void {
       }
       if (command && (event.key === 'i' || event.key === 'I')) {
         event.preventDefault();
-        if (library) store.toggleBatchCaption(true);
-        else if (state.module === 'develop') focusCaptionField();
+        if (library) {
+          // One field cannot hold several captions, so several photos keep the batch dialog.
+          if (state.selection.length > 1) store.toggleBatchCaption(true);
+          else if (state.selection.length === 1) focusLibraryInspector(store, focusCaptionField);
+        } else if (state.module === 'develop') focusCaptionField();
         return;
       }
       if (command && (event.key === 'k' || event.key === 'K')) {
         event.preventDefault();
-        if (library) store.toggleBatchCaption(true, 'keywords');
-        else if (state.module === 'develop') focusKeywordsField();
+        if (library) {
+          if (state.selection.length > 1) store.toggleBatchCaption(true, 'keywords');
+          else if (state.selection.length === 1) focusLibraryInspector(store, focusKeywordsField);
+        } else if (state.module === 'develop') focusKeywordsField();
         return;
       }
       if (library && !typing && command && (event.key === 'a' || event.key === 'A')) {

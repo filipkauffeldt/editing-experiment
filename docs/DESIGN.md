@@ -114,7 +114,7 @@ Built in `components/ui/`:
   short hint line instead, and has no second way out. Outside those modes the footer has `Crop`,
   `Retouch`, `Before`, `Split` and, when the photo has a retouch version, a small delete icon whose
   tooltip and accessible label read `Delete retouch…`.
-- **Side panels**: the Library sidebar and inspector, the Develop metadata and develop panels,
+- **Side panels**: the Library inspector and the folder sidebar, the Develop metadata and develop panels,
   and the Ingest sources panel have a 1 px hairline on their inner edge that is a drag handle.
   It sits on the centre side of the edge, so a panel's scrollbar stays clear, and its invisible
   hit area reaches a few pixels into the centre. The line turns white on hover and while dragging, the
@@ -131,14 +131,15 @@ Built in `components/ui/`:
 | Module  | Key | What it is                                                                         |
 | ------- | --- | ---------------------------------------------------------------------------------- |
 | Ingest  |     | From (sources, progress) and To (folder, names, preview), one action bar           |
-| Library | `G` | folders, virtualised grid, inspector; `E` opens the loupe (zoom, Auto-advance)      |
+| Library | `G` | inspector, virtualised grid, folders; `E` opens the loupe (zoom, Auto-advance)      |
 | Develop | `D` | metadata, photo with one info line, develop sliders, filter row and film strip     |
 | Retouch | `R` | the retouch session on the Develop layout (`R`, or the Retouch button); leaving it saves first |
 
 The Library's **Folders** are the local ingest copies only. They are derived from each photo's
 own path (always its copy in the ingest destination), never from the configured sources, so a
 card or a remote server can not appear there. Ingest always copies; editing only ever happens
-on the copies. The sidebar is the folder list and nothing else.
+on the copies. The sidebar is the folder list and nothing else. It sits on the right, with the
+inspector on the left where Develop keeps its metadata.
 
 ### Filter bar
 
@@ -158,7 +159,10 @@ line saying photos are hidden, not lost, and a *Clear filters* button.
 
 Library keys: click, Shift-range, Ctrl/Cmd-toggle, Ctrl/Cmd+A, arrows (Shift extends), `T` tag,
 `1`-`5` rating (`0` clears), Ctrl/Cmd+`1`-`8` colour label (Ctrl/Cmd+`0` clears), Ctrl/Cmd+I caption, Ctrl/Cmd+K keywords, Shift+Ctrl/Cmd+C copy settings, Shift+Ctrl/Cmd+V paste
-settings, Shift+Ctrl/Cmd+E export, Shift+Ctrl/Cmd+Enter export and send. The bottom bar has the
+settings, Shift+Ctrl/Cmd+E export, Shift+Ctrl/Cmd+Enter export and send. The Library has the
+inspector on the left and folders on the right, so metadata sits where Develop has it. With one
+photo selected Ctrl/Cmd+I and Ctrl/Cmd+K focus its caption and keywords in the inspector, opening
+the panels first when they are hidden. With several selected they open the batch caption dialog. The bottom bar has the
 selection count on the left and **Caption…**, **Sync settings…** (the same group dialog for the
 whole selection), **Export…** and the primary **Export & send** on the right; Tag, rating and colour
 label are the keys above and the right-click menu, not buttons. In Develop Ctrl/Cmd+Enter is Next & send, and the button's tooltip names the active export

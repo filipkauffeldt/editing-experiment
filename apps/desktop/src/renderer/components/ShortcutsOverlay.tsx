@@ -92,8 +92,14 @@ const GROUPS: { title: string; rows: [string, string][] }[] = [
   {
     title: 'Caption',
     rows: [
-      ['Ctrl/⌘ + I', 'Focus the caption field'],
-      ['Ctrl/⌘ + K', 'Focus the keywords field'],
+      [
+        'Ctrl/⌘ + I',
+        'Focus the caption field (Library and Develop). Several photos in the Library: batch caption',
+      ],
+      [
+        'Ctrl/⌘ + K',
+        'Focus the keywords field (Library and Develop). Several photos in the Library: batch caption',
+      ],
       [
         'Ctrl + Space',
         'Expand all codes and {variables} now (a known code is replaced as you type it)',

@@ -49,7 +49,8 @@ Export / Export & send.
   copies and folders added in place in the sidebar. Cards and servers are
   intentionally not shown there. An added folder is read where it is, scanned
   again only when asked, and removed from the Library without touching a file.
-  The sidebar holds the folder tree with counts. A large index loads one folder
+  The inspector is on the left and the folder sidebar on the right, so metadata
+  sits where Develop has it. A large index loads one folder
   at a time instead of every photo; Develop opens that folder around the open
   photo, moves its bounded page with the arrows, and asks the index for filters,
   counts and order. **Remove folder from Library…** works
@@ -71,6 +72,10 @@ Export / Export & send.
   stars (N and up), colour labels, status (Not sent, Failed, Edited, Differs
   from template), camera and source, and a text search over file name, caption and
   keywords (`Ctrl/⌘+F`), plus the sort order.
+- The Library inspector edits one photo's caption and keywords in place, with
+  the same code replacement and save behaviour as Develop. `Ctrl/⌘+I` and
+  `Ctrl/⌘+K` focus those fields and show the panels if they are hidden. With
+  several photos selected they open the batch caption dialog instead.
 - Batch caption for the selection: replace or append selected IPTC fields,
   with codes and `{variables}` expanded per photo.
 - Shift capture time for the Library selection or the open photo, from the photo
@@ -511,8 +516,8 @@ modules.
 | `Space`+drag                       | Pan the zoomed photo in any mode and in the loupe; the active tool is paused while Space is held                    |
 | `Ctrl/⌘`+`Z`                       | Undo the last develop change (Develop); undo the last retouch shape (Retouch)                                       |
 | `Shift`+`Ctrl/⌘`+`Z`, `Ctrl/⌘`+`Y` | Redo the last develop change (Develop)                                                                              |
-| `Ctrl/⌘`+`I`                       | Batch caption (Library); focus the caption field (Develop)                                                          |
-| `Ctrl/⌘`+`K`                       | Batch caption at Keywords (Library); focus the keywords field (Develop)                                             |
+| `Ctrl/⌘`+`I`                       | Focus the caption field (Library and Develop). Several photos in the Library: batch caption                         |
+| `Ctrl/⌘`+`K`                       | Focus the keywords field (Library and Develop). Several photos in the Library: batch caption                        |
 | `Ctrl/⌘`+`A`                       | Select all in the Library                                                                                           |
 | `Shift`+`Ctrl/⌘`+`C`               | Copy settings…                                                                                                      |
 | `Shift`+`Ctrl/⌘`+`V`               | Paste settings to the selection                                                                                     |

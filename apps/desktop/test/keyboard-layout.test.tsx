@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { App } from '../src/renderer/App';
@@ -290,10 +290,10 @@ describe('keywords shortcut', () => {
     expect(keywords.value.slice(keywords.selectionStart ?? 0, keywords.selectionEnd ?? 0)).toBe('');
   });
 
-  it('opens the Library batch dialog at Keywords and scrolls to it', async () => {
+  it('focuses the Library inspector keywords and scrolls to them', async () => {
     const { store } = await renderApp();
     store.openLibrary('loupe');
-    await waitFor(() => expect(store.getState().module).toBe('library'));
+    const inspector = await screen.findByTestId('library-inspector');
 
     const original = HTMLElement.prototype.scrollIntoView;
     const scrollIntoView = vi.fn();
@@ -301,17 +301,43 @@ describe('keywords shortcut', () => {
     try {
       key({ key: 'k', ctrlKey: true });
 
-      const dialog = screen.getByTestId('batch-caption-dialog');
-      const keywords = keywordsField(dialog);
+      const keywords = keywordsField(inspector);
       expect(document.activeElement).toBe(keywords);
       expect(keywords.value).toBe('');
       expect(keywords.selectionStart).toBe(0);
       expect(keywords.selectionEnd).toBe(0);
       expect(scrollIntoView).toHaveBeenCalledWith({ block: 'nearest' });
+      expect(store.getState().batchCaptionOpen).toBe(false);
     } finally {
       if (original) HTMLElement.prototype.scrollIntoView = original;
       else delete (HTMLElement.prototype as { scrollIntoView?: unknown }).scrollIntoView;
     }
+  });
+
+  it('does not fire for AltGr, a dead key or behind a dialog in the Library', async () => {
+    const { store } = await renderApp();
+    store.openLibrary('grid');
+    const inspector = await screen.findByTestId('library-inspector');
+    const keywords = keywordsField(inspector);
+    const selection = [...store.getState().selection];
+
+    const altGraph = new KeyboardEvent('keydown', {
+      key: 'k',
+      code: 'KeyK',
+      ctrlKey: true,
+      altKey: true,
+      bubbles: true,
+    });
+    Object.defineProperty(altGraph, 'getModifierState', { value: () => true });
+    fireEvent(window, altGraph);
+    expect(document.activeElement).not.toBe(keywords);
+    expect(store.getState().batchCaptionOpen).toBe(false);
+
+    const caption = captionField();
+    caption.focus();
+    fireEvent.keyDown(caption, { key: 'Dead', code: 'Quote' });
+    fireEvent.keyDown(caption, { key: 'u', code: 'KeyU' });
+    expect(store.getState().selection).toEqual(selection);
   });
 
   it('does not fire for AltGr or behind a dialog', async () => {
