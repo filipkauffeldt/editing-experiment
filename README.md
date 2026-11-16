@@ -68,6 +68,11 @@ Export / Export & send.
   ahead too). With Auto-advance on (off by default, in the filter row of the
   loupe and Develop), tagging, rating or colouring a single photo moves to the
   next one.
+- Resizable panels and film strip: the Library inspector and folder sidebar, the
+  Develop metadata and develop panel, the Ingest sources panel, and the film
+  strip below Develop and the Library loupe. Each has a hairline drag handle, a
+  double-click reset and a size saved on this computer. The strip's thumbnails
+  scale with its height and stop at a third of the window.
 - One filter bar in Library and Develop, kept when you switch between them: tag,
   stars (N and up), colour labels, status (Not sent, Failed, Edited, Differs
   from template), camera and source, and a text search over file name, caption and
