@@ -723,12 +723,15 @@ function CanvasForPhoto({ photo, host }: { photo: Photo; host: DevelopCanvasHost
   useLayoutEffect(() => {
     const canvas = canvasRef.current;
     const mosaic = mosaicRef.current;
+    // Not before the area is measured: its stand-in size would resize a canvas that already has a
+    // context (the shared one), which stalls on the GPU, and then size it back a moment later.
+    if (container.width <= 0) return;
     for (const element of [canvas, mosaic]) {
       if (!element) continue;
       if (element.width !== bufferWidth) element.width = bufferWidth;
       if (element.height !== bufferHeight) element.height = bufferHeight;
     }
-  }, [bufferWidth, bufferHeight]);
+  }, [bufferWidth, bufferHeight, container.width]);
 
   // Load the linear image at the size the canvas needs.
   useEffect(() => {
