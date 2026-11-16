@@ -442,7 +442,9 @@ describe('tiles', () => {
     // Not vacuous: the picture differs a lot from the unedited one.
     const plain = renderCpu(scene.header, scene.data, {});
     expect(meanAbsDiff(r.expected, plain)).toBeGreaterThan(2);
-  });
+    // Three tiled renders through three neighbourhood pyramids are seconds of software-GL
+    // work, and a busy CI runner can need twice the time a normal run takes; 15 s cut it off.
+  }, 60_000);
 
   it('noise reduction and sharpening: tile seams cannot appear', () => {
     const params: EditParams = {
