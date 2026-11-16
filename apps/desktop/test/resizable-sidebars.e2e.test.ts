@@ -181,6 +181,24 @@ describe.skipIf(!haveDisplay)(
       return live;
     };
 
+    /** A positive delta drags the strip's top edge up, making it taller. */
+    const dragStripBy = async (delta: number): Promise<number> => {
+      const box = await handle('film-strip').boundingBox();
+      if (!box) throw new Error('no film strip handle');
+      const x = box.x + box.width / 2;
+      const y = box.y + box.height / 2;
+      const before = await widthOf('film-strip');
+      await window.mouse.move(x, y);
+      await window.mouse.down();
+      await window.mouse.move(x, y - delta, { steps: 8 });
+      await nextFrames();
+      const live = await widthOf('film-strip');
+      await window.mouse.up();
+      await waitForWidth('film-strip', live);
+      expect(live).not.toBe(before);
+      return live;
+    };
+
     const waitForSavedWidth = async (panel: string, expected: number): Promise<void> => {
       await waitFor(`${panel} width in settings`, async () => {
         const settings = await invoke<{ panelWidths?: Record<string, number> }>('settings:get');
@@ -338,6 +356,38 @@ describe.skipIf(!haveDisplay)(
       await waitForWidth('develop-panel', wide);
     });
 
+    it('drags the film strip taller, gives the photo the room, and shares it with the loupe', async () => {
+      expect(await widthOf('film-strip')).toBe(92);
+      const photoBefore = await window.getByTestId('photo-view').boundingBox();
+      if (!photoBefore) throw new Error('no photo view');
+
+      const height = await dragStripBy(120);
+      expect(height).toBe(212);
+      await waitForWidth('film-strip', 212);
+      await waitForSavedWidth('film-strip', 212);
+      await settle();
+      const photoAfter = await window.getByTestId('photo-view').boundingBox();
+      const strip = await window.getByTestId('film-strip').boundingBox();
+      if (!photoAfter || !strip) throw new Error('no film strip');
+      expect(photoAfter.height).toBeLessThan(photoBefore.height - 100);
+      expect(strip.height).toBe(212);
+      await expectCanvasFits();
+
+      // The Library loupe has the same strip and the same saved height.
+      await openModule('Library');
+      await window.keyboard.press('e');
+      await window.locator('[data-testid="library-loupe"]').waitFor();
+      expect(await widthOf('film-strip')).toBe(212);
+      expect((await window.getByTestId('film-strip').boundingBox())?.height).toBe(212);
+
+      expect(await dragStripBy(40)).toBe(252);
+      await waitForSavedWidth('film-strip', 252);
+
+      await openModule('Develop');
+      await settle();
+      expect(await widthOf('film-strip')).toBe(252);
+    });
+
     it('resizes the Library and Ingest panels too, and keeps a zoomed view sensible', async () => {
       await openModule('Library');
       expect(await widthOf('library-sidebar')).toBe(220);
@@ -438,8 +488,10 @@ describe.skipIf(!haveDisplay)(
 
       expect(await widthOf('develop-panel')).toBe(400);
       expect(await widthOf('develop-metadata')).toBe(320);
+      expect(await widthOf('film-strip')).toBe(252);
       const developPanel = await window.getByTestId('develop-panel').boundingBox();
       expect(developPanel?.width).toBe(400);
+      expect((await window.getByTestId('film-strip').boundingBox())?.height).toBe(252);
 
       await openModule('Library');
       expect(await widthOf('library-sidebar')).toBe(280);
