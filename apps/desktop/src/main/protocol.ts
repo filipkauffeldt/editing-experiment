@@ -69,10 +69,14 @@ export function handleAppProtocol(options: AppProtocolOptions): void {
   protocol.handle(APP_PROTOCOL, async (request) => {
     if (options.mock || !options.resolveInJobs) {
       const { status, headers, body } = resolveAppRequest(request.url, { mock: options.mock });
-      return new Response(body as ConstructorParameters<typeof Response>[0], {
-        status,
-        headers: { ...headers, ...CORS_HEADERS },
-      });
+      // A 204 (a warm request) has no body, and Response refuses one.
+      return new Response(
+        status === 204 ? null : (body as ConstructorParameters<typeof Response>[0]),
+        {
+          status,
+          headers: { ...headers, ...CORS_HEADERS },
+        },
+      );
     }
     try {
       return toResponse(await options.resolveInJobs(request.url), options.cacheDir);

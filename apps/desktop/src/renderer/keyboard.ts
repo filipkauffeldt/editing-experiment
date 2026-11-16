@@ -236,6 +236,8 @@ export function useKeyboardShortcuts(store: AppStore): void {
         return;
 
       const library = state.module === 'library';
+      // The photo that zooms: Develop's, and the Library's when it is the loupe.
+      const zoomable = state.module === 'develop' || (library && state.library.view === 'loupe');
       // The physical slash key, so the shortcut does not depend on where `/` sits. Not where that
       // key prints `-` (Swedish, German, ...): there Ctrl/Cmd+`-` zooms out, and F1 or `?` open the list.
       if (command && event.code === 'Slash' && event.key !== '-') {
@@ -368,7 +370,7 @@ export function useKeyboardShortcuts(store: AppStore): void {
       }
 
       // Space held: a drag pans the photo, whatever the tool. Never in a text field, where it types.
-      if (event.key === ' ' && state.module === 'develop' && !command && !event.altKey) {
+      if (event.key === ' ' && zoomable && !command && !event.altKey) {
         if (textEntry) return;
         event.preventDefault();
         setPanHeld(true);
@@ -378,7 +380,7 @@ export function useKeyboardShortcuts(store: AppStore): void {
       if (typing) return;
 
       // Z and Ctrl/Cmd + - zoom the photo. Ctrl/Cmd+0 stays the colour class clear.
-      const zoom = state.module === 'develop' ? zoomKeyAction(event) : undefined;
+      const zoom = zoomable ? zoomKeyAction(event) : undefined;
       if (zoom !== undefined) {
         event.preventDefault();
         if (zoom === 'toggle') {

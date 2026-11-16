@@ -2,13 +2,16 @@ import { useMemo } from 'react';
 import { panelsAreHidden, selectLibraryPhotos, selectLibraryScope } from '../store';
 import { isFiltering } from '../filters';
 import { THUMB_SIZE_RANGE } from '../library';
+import { LOUPE_ZOOM_KEY } from '../loupe-view';
 import { modKeyLabel } from '../platform';
 import { usePanelLayout, type ResizablePanelDefinition } from '../panel-resize';
 import { useAppState, useAppStore } from '../store-context';
 import { ActionBar, barStyles } from './ActionBar';
 import { LibraryGrid } from './LibraryGrid';
 import { LibraryInspector } from './LibraryInspector';
+import { AutoAdvanceToggle } from './AutoAdvanceToggle';
 import { LibraryLoupe } from './LibraryLoupe';
+import { ZoomLevels } from './ZoomLevels';
 import { LibrarySidebar } from './LibrarySidebar';
 import { FilterBar, FilterEmpty } from './FilterBar';
 import { Button } from './ui/Button';
@@ -71,20 +74,27 @@ export function LibraryView() {
       </div>
       <div className={styles.centre}>
         <FilterBar scope={scope} shown={photos.length}>
-          <div className={styles.size}>
-            <Slider
-              label="Size"
-              value={library.thumbSize}
-              min={THUMB_SIZE_RANGE.min}
-              max={THUMB_SIZE_RANGE.max}
-              step={4}
-              neutral={THUMB_SIZE_RANGE.min}
-              display={library.thumbSize}
-              onRange={(value) => store.setThumbSize(value)}
-              onNumber={(value) => store.setThumbSize(value ?? THUMB_SIZE_RANGE.default)}
-              onReset={() => store.setThumbSize(THUMB_SIZE_RANGE.default)}
-            />
-          </div>
+          {library.view === 'loupe' ? (
+            <>
+              <AutoAdvanceToggle />
+              <ZoomLevels viewKey={LOUPE_ZOOM_KEY} />
+            </>
+          ) : (
+            <div className={styles.size}>
+              <Slider
+                label="Size"
+                value={library.thumbSize}
+                min={THUMB_SIZE_RANGE.min}
+                max={THUMB_SIZE_RANGE.max}
+                step={4}
+                neutral={THUMB_SIZE_RANGE.min}
+                display={library.thumbSize}
+                onRange={(value) => store.setThumbSize(value)}
+                onNumber={(value) => store.setThumbSize(value ?? THUMB_SIZE_RANGE.default)}
+                onReset={() => store.setThumbSize(THUMB_SIZE_RANGE.default)}
+              />
+            </div>
+          )}
         </FilterBar>
         {hiddenByFilter ? (
           <FilterEmpty hidden={scope.length} />

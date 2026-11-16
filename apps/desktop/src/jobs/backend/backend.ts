@@ -141,6 +141,7 @@ export async function createBackend(options: BackendOptions): Promise<Backend> {
     photos,
     previews,
     linearDir: layout.linearDir,
+    fullDir: layout.fullDir,
     lensShot: (path, frame) => readLensShot(path, frame, exiftool),
   });
   await apps.init();

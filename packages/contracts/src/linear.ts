@@ -117,9 +117,28 @@ export const appUrl = {
   /** Larger cached JPEG preview (embedded or rendered). `revision` is `Photo.previewRevision`. */
   preview: (photoId: PhotoId, revision?: number): string =>
     `${APP_PROTOCOL}://preview/${encodeURIComponent(photoId)}${revisionQuery(revision)}`,
+  /**
+   * The camera's full-size JPEG, upright, for zooming in the Library loupe. A photo with retouching
+   * gets its edited preview here instead. For a retouched photo pass `Photo.previewRevision` (0 when
+   * absent): the URL then differs from the camera image's, and from every older render's, so no
+   * cache can answer it with camera pixels. A photo without retouching passes nothing.
+   */
+  full: (photoId: PhotoId, revision?: number): string =>
+    `${APP_PROTOCOL}://full/${encodeURIComponent(photoId)}${
+      revision === undefined ? '' : `?v=${Math.round(revision)}`
+    }`,
   /** Decoded linear image, see {@link LinearImageHeader}. */
   linear: (photoId: PhotoId, maxEdge?: number): string =>
     `${APP_PROTOCOL}://linear/${encodeURIComponent(photoId)}${
       maxEdge === undefined ? '' : `?maxEdge=${Math.round(maxEdge)}`
     }`,
+  /**
+   * Asks for the same decode ahead of time: it answers 204 with no body once the image is in the
+   * cache (or `x-ee-warm: dropped` when a newer request pushed it out of the waiting line), so the
+   * next {@link appUrl.linear} request for it is quick.
+   */
+  warmLinear: (photoId: PhotoId, maxEdge?: number): string =>
+    `${APP_PROTOCOL}://linear/${encodeURIComponent(photoId)}?${
+      maxEdge === undefined ? '' : `maxEdge=${Math.round(maxEdge)}&`
+    }warm=1`,
 } as const;

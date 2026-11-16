@@ -5,6 +5,7 @@ import {
   asPhotoId,
   type LensShotInfo,
   type LinearImageHeader,
+  type Photo,
 } from '@ee/contracts';
 import {
   decodeJpeg,
@@ -16,9 +17,10 @@ import {
 import { isRawPath } from '@ee/metadata';
 import { randomUUID } from 'node:crypto';
 import { mkdir, readFile, rename, rm, stat, writeFile } from 'node:fs/promises';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import type { AppBackendResponse } from '../../shared/jobs-protocol';
 import { retouchKey } from './edited-previews';
+import { FullImageCache, NoFullImageError } from './full-images';
 import type { PhotoLibrary } from './photo-library';
 import { SAFE_PHOTO_ID, type PreviewCache, type PreviewKind, type ServedFile } from './previews';
 
@@ -26,6 +28,21 @@ const text = (status: number, body: string): AppBackendResponse => ({
   status,
   headers: { 'content-type': 'text/plain; charset=utf-8' },
   body,
+});
+
+/** Most decodes waiting ahead of time: the next photo and the previous one. */
+const WARM_PENDING = 2;
+
+interface WarmRequest {
+  key: string;
+  path: string;
+  maxEdge: number | undefined;
+  answer: (response: AppBackendResponse) => void;
+}
+
+const warmAnswer = (state: 'ready' | 'dropped' | 'failed'): AppBackendResponse => ({
+  status: 204,
+  headers: { 'x-ee-warm': state },
 });
 
 interface LinearEntry {
@@ -39,7 +56,9 @@ export interface AppResourcesOptions {
   previews: PreviewCache;
   /** Directory for decoded linear images; emptied on {@link AppResources.init}. */
   linearDir: string;
-  /** Most decoded images kept. Default 4. */
+  /** Directory for the camera's full-size JPEGs; defaults to `full` next to `linearDir`. */
+  fullDir?: string;
+  /** Most decoded images kept. Default 6: the open photo's two sizes and its neighbours'. */
   maxEntries?: number;
   /** Most bytes of decoded images kept. Default 1.5 GiB. */
   maxBytes?: number;
@@ -54,10 +73,12 @@ export interface AppResourcesOptions {
   ) => Promise<LensShotInfo | undefined>;
   /** Test seam. */
   decode?: (path: string, options: DecodeLinearOptions) => Promise<LinearImage>;
+  /** Test seam: the embedded preview of a raw. */
+  extract?: ConstructorParameters<typeof FullImageCache>[0]['extract'];
 }
 
 /**
- * Answers `app://thumb|preview|linear/<photoId>` for the main process.
+ * Answers `app://thumb|preview|full|linear/<photoId>` for the main process.
  *
  * Decoded linear images are written to files under the cache directory (a small
  * LRU of them) and returned by path: main streams the file to the renderer, so
@@ -73,9 +94,19 @@ export class AppResources {
   private readonly maxEntries: number;
   private readonly maxBytes: number;
   private readonly decode: NonNullable<AppResourcesOptions['decode']>;
+  private readonly fullImages: FullImageCache;
+  /** Decodes asked for by the photo on screen that are still running. */
+  private liveDecodes = 0;
+  /** Decodes asked for ahead of time, waiting for the photo on screen to be served first. */
+  private readonly warmQueue: WarmRequest[] = [];
+  private warming = false;
 
   constructor(private readonly options: AppResourcesOptions) {
-    this.maxEntries = options.maxEntries ?? 4;
+    this.fullImages = new FullImageCache({
+      dir: options.fullDir ?? join(dirname(options.linearDir), 'full'),
+      ...(options.extract === undefined ? {} : { extract: options.extract }),
+    });
+    this.maxEntries = options.maxEntries ?? 6;
     this.maxBytes = options.maxBytes ?? 1.5 * 1024 ** 3;
     this.decode = options.decode ?? decodeLinear;
   }
@@ -84,6 +115,7 @@ export class AppResources {
   async init(): Promise<void> {
     await rm(this.options.linearDir, { recursive: true, force: true });
     await mkdir(this.options.linearDir, { recursive: true });
+    await this.fullImages.init();
   }
 
   /**
@@ -91,6 +123,7 @@ export class AppResources {
    * one cannot leave a cache file (or an entry) behind for a photo that no longer exists.
    */
   async forget(photoId: string): Promise<void> {
+    await this.fullImages.forget(asPhotoId(photoId));
     const prefix = `${photoId}|`;
     for (const key of this.inFlight.keys()) if (key.startsWith(prefix)) this.discarded.add(key);
     for (const [key, entry] of [...this.entries]) {
@@ -120,7 +153,14 @@ export class AppResources {
     const photoId = asPhotoId(rawId);
 
     if (kind === 'thumb' || kind === 'preview') return this.cachedJpeg(kind, photoId);
-    if (kind === 'linear') return this.linear(photoId, url.searchParams.get('maxEdge'));
+    if (kind === 'full') return this.full(photoId);
+    if (kind === 'linear') {
+      return this.linear(
+        photoId,
+        url.searchParams.get('maxEdge'),
+        url.searchParams.get('warm') === '1',
+      );
+    }
     return text(404, `unknown app:// resource "${kind}"`);
   }
 
@@ -164,9 +204,46 @@ export class AppResources {
     }
   }
 
+  /**
+   * The camera's full-size JPEG, for zooming. The camera's pixels show what a retouch hides, so a
+   * photo whose newest retouch version has ops gets exactly what `app://preview` gives it (the
+   * edited render, or the grey placeholder until it exists) and never the camera JPEG.
+   */
+  private async full(photoId: ReturnType<typeof asPhotoId>): Promise<AppBackendResponse> {
+    let photo: Photo;
+    try {
+      photo = this.options.photos.get(photoId);
+    } catch (error) {
+      if (error instanceof IpcError && error.code === 'not_found') {
+        return text(404, `no such photo "${photoId}"`);
+      }
+      throw error;
+    }
+    if (retouchKey(photo.versions) !== '') return this.cachedJpeg('preview', photoId);
+    try {
+      const entry = await this.fullImages.ensure(photo);
+      return {
+        status: 200,
+        headers: {
+          'content-type': 'image/jpeg',
+          'content-length': String(entry.bytes),
+          'cache-control': 'private, max-age=300',
+        },
+        file: entry.file,
+      };
+    } catch (error) {
+      if (error instanceof NoFullImageError) return text(404, error.message);
+      return text(
+        500,
+        `could not read the full-size image of ${photoId}: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
+  }
+
   private async linear(
     photoId: ReturnType<typeof asPhotoId>,
     maxEdgeParam: string | null,
+    warm: boolean,
   ): Promise<AppBackendResponse> {
     let maxEdge: number | undefined;
     if (maxEdgeParam !== null) {
@@ -184,8 +261,11 @@ export class AppResources {
       }
       throw error;
     }
+    const key = `${photoId}|${maxEdge ?? 'full'}`;
+    if (warm) return this.warmLinear(key, path, maxEdge);
+    this.liveDecodes += 1;
     try {
-      const entry = await this.linearEntry(`${photoId}|${maxEdge ?? 'full'}`, path, maxEdge);
+      const entry = await this.linearEntry(key, path, maxEdge);
       return {
         status: 200,
         headers: {
@@ -201,7 +281,46 @@ export class AppResources {
         500,
         `could not decode ${photoId}: ${error instanceof Error ? error.message : String(error)}`,
       );
+    } finally {
+      this.liveDecodes -= 1;
+      this.pumpWarm();
     }
+  }
+
+  /**
+   * `?warm=1`: decode ahead of time so the next request for the same image is a cache hit, and
+   * answer 204 without a body. Never at the expense of the photo on screen: a warm decode starts
+   * only while no other decode is running, one at a time, and at most {@link WARM_PENDING} wait.
+   * A newer request pushes the oldest waiting one out (answered `x-ee-warm: dropped`), so what
+   * belonged to a selection the user has moved on from is dropped, not decoded. A decode that has
+   * started finishes into the bounded cache.
+   */
+  private warmLinear(
+    key: string,
+    path: string,
+    maxEdge: number | undefined,
+  ): Promise<AppBackendResponse> {
+    if (this.entries.has(key)) return Promise.resolve(warmAnswer('ready'));
+    return new Promise((answer) => {
+      this.warmQueue.push({ key, path, maxEdge, answer });
+      while (this.warmQueue.length > WARM_PENDING)
+        this.warmQueue.shift()?.answer(warmAnswer('dropped'));
+      this.pumpWarm();
+    });
+  }
+
+  private pumpWarm(): void {
+    if (this.warming || this.liveDecodes > 0) return;
+    const next = this.warmQueue.shift();
+    if (!next) return;
+    this.warming = true;
+    this.linearEntry(next.key, next.path, next.maxEdge)
+      .then(() => next.answer(warmAnswer('ready')))
+      .catch(() => next.answer(warmAnswer('failed')))
+      .finally(() => {
+        this.warming = false;
+        this.pumpWarm();
+      });
   }
 
   private linearEntry(

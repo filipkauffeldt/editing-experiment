@@ -130,3 +130,59 @@ export function orientRgba(image: RgbaImage, orientation: number): RgbaImage {
   }
   return { width, height, rgba: Buffer.from(target.buffer) };
 }
+
+/**
+ * The EXIF orientation (1..8) a JPEG carries, read from the APP1 segment at its start; `undefined`
+ * when it has none. Only the segments before the image data are looked at.
+ */
+export function jpegExifOrientation(jpeg: Uint8Array): number | undefined {
+  if (jpeg[0] !== 0xff || jpeg[1] !== 0xd8) return undefined;
+  const view = new DataView(jpeg.buffer, jpeg.byteOffset, jpeg.byteLength);
+  let at = 2;
+  while (at + 4 <= jpeg.length && jpeg[at] === 0xff) {
+    const marker = jpeg[at + 1]!;
+    if (marker === 0xff) {
+      at += 1;
+      continue;
+    }
+    // Start of scan, end of image, or a standalone marker: no segment can follow that is EXIF.
+    if (
+      marker === 0xda ||
+      marker === 0xd9 ||
+      marker === 0x01 ||
+      (marker >= 0xd0 && marker <= 0xd8)
+    ) {
+      return undefined;
+    }
+    const length = view.getUint16(at + 2);
+    const start = at + 4;
+    const isExif =
+      marker === 0xe1 &&
+      length >= 16 &&
+      jpeg[start] === 0x45 && // E
+      jpeg[start + 1] === 0x78 && // x
+      jpeg[start + 2] === 0x69 && // i
+      jpeg[start + 3] === 0x66 && // f
+      jpeg[start + 4] === 0 &&
+      jpeg[start + 5] === 0;
+    if (isExif && start + length - 2 <= jpeg.length) {
+      const tiff = start + 6;
+      const little = jpeg[tiff] === 0x49;
+      const u16 = (offset: number): number => view.getUint16(offset, little);
+      const u32 = (offset: number): number => view.getUint32(offset, little);
+      const ifd = tiff + u32(tiff + 4);
+      if (ifd + 2 > jpeg.length) return undefined;
+      const count = u16(ifd);
+      for (let i = 0; i < count; i++) {
+        const entry = ifd + 2 + i * 12;
+        if (entry + 12 > jpeg.length) return undefined;
+        if (u16(entry) !== 0x0112) continue;
+        const value = u16(entry + 8);
+        return value >= 1 && value <= 8 ? value : undefined;
+      }
+      return undefined;
+    }
+    at += 2 + length;
+  }
+  return undefined;
+}

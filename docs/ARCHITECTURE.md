@@ -99,7 +99,7 @@ uploads.sqlite       upload queue
 export-jobs.json     resumable export batches (queued photos survive a restart)
 exported-files.json  paths the app exported; the only targets `overwrite` may replace
 credentials.json     written by main only: ciphertext from safeStorage
-cache/{thumb,preview,linear}   disposable (see "Edited thumbnails and previews")
+cache/{thumb,preview,full,linear}   disposable (see "Edited thumbnails and previews" and "Culling a burst")
 exports/             default exportRoot (only a relative folder template uses it; the default template exports next to the photo)
 ```
 
@@ -214,8 +214,9 @@ settings.json.pre-settings-folder   the old one-file settings, kept after the fi
   row, and the other sources carry on. The seen-store remembers a card's files by path below the
   mount point, so a different drive letter or mount path does not make everything new again
   (older absolute entries still count).
-- `app://thumb|preview` are cached JPEGs. `app://linear/<id>?maxEdge=N` is decoded in the jobs process
-  (f16 for raws, f32 for JPEGs), written to `cache/linear` (small LRU) and streamed from
+- `app://thumb|preview` are cached JPEGs. `app://full/<id>` is the camera's full-size JPEG (see
+  "Culling a burst"). `app://linear/<id>?maxEdge=N` is decoded in the jobs process
+  (f16 for raws, f32 for JPEGs), written to `cache/linear` (an LRU of 6 files and 1.5 GiB) and streamed from
   there by main, with the `LinearImageHeader` in `x-ee-linear-image`. Main only streams
   files below `cache/`.
 - Secrets: `credentials:set/remove` run in main (`safeStorage`, no plaintext fallback), and
@@ -852,6 +853,58 @@ edited previews or the export, and the develop shader is the same one.
 - **Electron.** `main/menu-template.ts` is Electron's default menu minus the View menu's zoom roles
   (they bind Ctrl/Cmd+0, `+` and `-` to page zoom), and `setVisualZoomLevelLimits(1, 1)` turns
   off pinch page zoom.
+
+## Culling a burst
+
+The Library loupe (`E`) and Develop are made to move through a burst quickly. What changes with
+the photo on screen is bounded and never delays it.
+
+- **Zoom in the loupe.** The loupe uses the model of "Zoom and pan" (`zoom-view.ts`,
+  `view-transform.ts`, `zoom-keys.ts`): `Z`, Ctrl/Cmd `+` and `-`, Ctrl/Cmd+wheel and pinch, a plain
+  wheel, Space+drag and the Fit and level buttons, which sit in the filter row's slot because the
+  loupe has no footer. Fit shows `app://preview` exactly as before. Zoomed, the picture is the
+  camera's full-size JPEG (`LibraryLoupe`, `loupe-view.ts`), drawn by an `<img>` placed by the same
+  layout maths, so no raw is decoded and no WebGL is used. 100% is one JPEG pixel per device pixel
+  and sits on the pixel grid (`viewLayout(…, dpr)`, `image-orientation: none`, a stage of whole
+  device pixels), checked at device pixel ratios 1 and 1.25. A photo without retouching zooms into
+  the whole camera frame, not developed and not cropped, so a develop crop is not seen once zoomed.
+  Until the JPEG has loaded the edited preview is stretched into its place, unless its shape is
+  another one (a crop).
+- **`app://full/<id>`** (`FullImageCache` in `jobs/backend/full-images.ts`). A raw gives its largest
+  embedded preview (`extractPreview`, read by LibRaw), a JPEG gives the file. Upright bytes are
+  written to `cache/full/<id>.jpg` as they are, a turned one is decoded, turned and encoded once
+  (quality 92). A JPEG's orientation is the tag in the file (`jpegExifOrientation`), never the index's. A format with no JPEG (TIFF, PNG, HEIF) answers 404 and the loupe keeps the preview.
+  The cache holds at most 32 files and 512 MiB, least recently used first, is emptied at start and
+  forgets a deleted photo. Nothing is written beside the photo.
+- **Privacy.** The camera JPEG shows what a retouch hides. A photo whose newest retouch version has
+  ops gets exactly what `app://preview` gives it from `PreviewCache.resolve`: the edited preview
+  drawn with the current ops, and a grey placeholder (`no-store`) until it exists. The camera file
+  is neither built nor served for it, also when it was cached before the retouch was made. Its URL
+  is `app://full/<id>?v=<previewRevision>` (0 when absent), which a retouch change bumps, so the
+  `<img>`, the preloader's images and the browser cache never answer it with the camera image. The
+  preloader drops what it held for a neighbour whose URL changed. The loupe
+  then zooms into that image at the resolution it has, in a frame of the camera's size so the zoom
+  levels mean the same part of the frame.
+- **The zoom carries.** The loupe's zoom belongs to the loupe, not to a photo (`LOUPE_ZOOM_KEY`), so
+  an arrow key keeps the level and the position. Leaving the loupe returns to Fit. Develop is
+  unchanged: a new photo starts at Fit.
+- **Loupe preload** (`image-preloader.ts`). Once the photo on screen has its image, the next and the
+  previous photo's image at the current need (the preview at Fit, `app://full` zoomed) is fetched
+  and decoded ahead with `Image.decode()`. At most two such images are held, and one that is no
+  longer wanted is dropped at once, cancelling its request if it has not finished. A request already
+  in the jobs process cannot be recalled, but it only fills the bounded cache above.
+- **Develop preload.** With the photo on screen loaded, `PhotoCanvas` asks for the next and the
+  previous photo's linear image at Fit size with `app://linear/<id>?maxEdge=N&warm=1`. The jobs
+  process decodes it into `cache/linear` and answers 204 with no body (`x-ee-warm: ready`, or
+  `dropped`). A warm decode starts only while no decode for the photo on screen is running, one at a
+  time, and at most two wait: a newer request pushes the oldest waiting one out, so what belongs to
+  a selection the user has left is dropped, not decoded. A decode that has started finishes into
+  the cache. That cache keeps at most 6 decoded images and 1.5 GiB.
+- **Auto-advance** (`AppSettings.autoAdvance`, off by default). With it on, `T`, `1`-`5`, `0` and the
+  colour keys on a single photo in the loupe or in Develop move to the next photo of that view's
+  list, worked out before the change so a filter that hides the photo cannot skip one. It does not
+  apply to a multi-selection, in the grid, on the last photo or while a crop or retouch session is
+  open. The switch is in the filter row of the loupe and of Develop.
 
 ## Copy, paste and sync develop settings
 

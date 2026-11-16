@@ -4,6 +4,7 @@ import { isFiltering } from '../filters';
 import { modKeyLabel } from '../platform';
 import { usePanelLayout, type ResizablePanelDefinition } from '../panel-resize';
 import { describeFolderTemplate } from '../../shared/export-folder';
+import { AutoAdvanceToggle } from './AutoAdvanceToggle';
 import { DevelopPanel } from './DevelopPanel';
 import { FilmStrip } from './FilmStrip';
 import { FilterBar, FilterEmpty } from './FilterBar';
@@ -88,6 +89,7 @@ export function DevelopView() {
       </div>
       <div className={styles.strips} hidden={hidden} data-testid="develop-strips">
         <FilterBar scope={state.photos} shown={photos.length}>
+          <AutoAdvanceToggle />
           <Button
             size="small"
             data-testid="open-export"

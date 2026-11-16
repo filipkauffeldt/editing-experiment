@@ -129,3 +129,127 @@ describe('AppResources.forget', () => {
     expect((await apps.resolve('app://linear/p2?maxEdge=32')).file).toBe(other.file);
   });
 });
+
+describe('AppResources warm decodes', () => {
+  let root: string;
+  afterEach(() => rm(root, { recursive: true, force: true }));
+
+  /** Photos p1..p6 and an app whose decode of each (by maxEdge) can be held back and counted. */
+  async function setup() {
+    root = await mkdtemp(join(tmpdir(), 'ee-apps-warm-'));
+    const cache = join(root, 'cache');
+    const library = new PhotoLibrary(new PhotoIndex(':memory:'), () => {});
+    const file = join(root, 'a.NEF');
+    await writeFile(file, 'raw');
+    for (let i = 1; i <= 6; i++) {
+      library.add({
+        id: asPhotoId(`p${i}`),
+        path: file,
+        sidecarPath: join(root, 'a.xmp'),
+        fileName: 'a.NEF',
+        sourceId: asSourceId('s'),
+        tagged: false,
+        colorClass: 0,
+        rating: 0,
+        status: {
+          ingest: 'done' as const,
+          edited: false,
+          metadataDiffersFromTemplate: false,
+          export: 'none' as const,
+          upload: 'none' as const,
+        },
+        versions: [],
+      });
+    }
+    const started: number[] = [];
+    let hold: Promise<void> | undefined;
+    const apps = new AppResources({
+      photos: library,
+      previews: new PreviewCache(join(cache, 'thumb'), join(cache, 'preview')),
+      linearDir: join(cache, 'linear'),
+      decode: async (_path, options) => {
+        started.push(options.maxEdge ?? 0);
+        await hold;
+        return {
+          data: new Uint8Array(16),
+          header: { width: 1, height: 1, sourceWidth: 1, sourceHeight: 1 } as never,
+        } as never;
+      },
+    });
+    await apps.init();
+    return {
+      apps,
+      started,
+      holdDecodes() {
+        let release: () => void = () => {};
+        hold = new Promise<void>((resolve) => (release = resolve));
+        return () => {
+          release();
+          hold = undefined;
+        };
+      },
+    };
+  }
+
+  it('decodes ahead, answers without a body, and leaves the next real request a cache hit', async () => {
+    const { apps, started } = await setup();
+    const warm = await apps.resolve(appUrl.warmLinear(asPhotoId('p1'), 2560));
+    expect(warm.status).toBe(204);
+    expect(warm.file).toBeUndefined();
+    expect(warm.headers['x-ee-warm']).toBe('ready');
+    const real = await apps.resolve(appUrl.linear(asPhotoId('p1'), 2560));
+    expect(real.status).toBe(200);
+    expect(started).toEqual([2560]);
+    // Warming what is already cached decodes nothing.
+    expect((await apps.resolve(appUrl.warmLinear(asPhotoId('p1'), 2560))).status).toBe(204);
+    expect(started).toEqual([2560]);
+  });
+
+  it('never starts before the photo on screen has been decoded', async () => {
+    const { apps, started, holdDecodes } = await setup();
+    const release = holdDecodes();
+    const live = apps.resolve(appUrl.linear(asPhotoId('p1'), 2560));
+    const warm = apps.resolve(appUrl.warmLinear(asPhotoId('p2'), 2560));
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(started).toEqual([2560]);
+    release();
+    expect((await live).status).toBe(200);
+    expect((await warm).status).toBe(204);
+    expect(started).toEqual([2560, 2560]);
+  });
+
+  it('holds at most two waiting decodes and drops the oldest for a newer one', async () => {
+    const { apps, started, holdDecodes } = await setup();
+    const release = holdDecodes();
+    const live = apps.resolve(appUrl.linear(asPhotoId('p1'), 2560));
+    const answers = ['p2', 'p3', 'p4'].map((id) =>
+      apps.resolve(appUrl.warmLinear(asPhotoId(id), 2560)),
+    );
+    // p2 is pushed out at once, without ever being decoded.
+    expect((await answers[0]!).headers['x-ee-warm']).toBe('dropped');
+    release();
+    await live;
+    expect((await answers[1]!).headers['x-ee-warm']).toBe('ready');
+    expect((await answers[2]!).headers['x-ee-warm']).toBe('ready');
+    expect(started).toHaveLength(3);
+  });
+
+  it('warms one decode at a time', async () => {
+    const { apps, started, holdDecodes } = await setup();
+    const release = holdDecodes();
+    const first = apps.resolve(appUrl.warmLinear(asPhotoId('p1'), 2560));
+    const second = apps.resolve(appUrl.warmLinear(asPhotoId('p2'), 2560));
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(started).toHaveLength(1);
+    release();
+    await Promise.all([first, second]);
+    expect(started).toHaveLength(2);
+  });
+
+  it('keeps at most six decoded images on disk, least recently used first', async () => {
+    const { apps } = await setup();
+    for (let i = 1; i <= 6; i++) await apps.resolve(appUrl.linear(asPhotoId(`p${i}`), 2560));
+    await apps.resolve(appUrl.linear(asPhotoId('p1'), 4096));
+    expect(await readdir(join(root, 'cache', 'linear'))).toHaveLength(6);
+  });
+});

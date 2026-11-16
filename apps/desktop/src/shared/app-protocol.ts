@@ -9,7 +9,7 @@ export interface AppResponse {
 }
 
 /** Pixel widths of the generated mock images per kind. */
-const MOCK_WIDTH = { thumb: 240, preview: 1200 } as const;
+const MOCK_WIDTH = { thumb: 240, preview: 1200, full: 2400 } as const;
 
 const text = (status: number, body: string): AppResponse => ({
   status,
@@ -29,11 +29,14 @@ export function resolveAppRequest(rawUrl: string, options: { mock: boolean }): A
   if (url.protocol !== `${APP_PROTOCOL}:`) return text(400, 'not an app:// URL');
   const kind = url.hostname;
   const photoId = decodeURIComponent(url.pathname.replace(/^\//, ''));
-  if (kind !== 'thumb' && kind !== 'preview' && kind !== 'linear') {
+  if (kind !== 'thumb' && kind !== 'preview' && kind !== 'full' && kind !== 'linear') {
     return text(404, `unknown app:// resource "${kind}"`);
   }
   if (options.mock) {
     if (kind === 'linear') {
+      if (url.searchParams.get('warm') === '1') {
+        return { status: 204, headers: { 'x-ee-warm': 'ready' }, body: '' };
+      }
       const requested = Number(url.searchParams.get('maxEdge') ?? 960);
       const maxEdge = Number.isFinite(requested) ? Math.min(2560, Math.max(64, requested)) : 960;
       const image = mockLinearImage(photoId, maxEdge);
