@@ -99,12 +99,32 @@ describe('capture time on disk', () => {
       'XMP-photoshop:DateCreated': '2026-10-03T20:00:00',
     });
     const rawTime = toIsoDate((await service.read(raw))['ExifIFD:DateTimeOriginal']);
+    expect(rawTime).toBeDefined();
+    expect(rawTime).not.toBe('2026-10-03T20:00:00');
     expect(await readCaptureTime(raw, service)).toBe('2026-10-03T20:00:00');
 
     const shift = await shiftCaptureTime(raw, -60, { service });
 
     expect(shift).toMatchObject({ before: '2026-10-03T20:00:00', after: '2026-10-03T19:59:00' });
     expect(toIsoDate((await service.read(raw))['ExifIFD:DateTimeOriginal'])).toBe(rawTime);
+  });
+
+  it('moves a raw twice from the sidecar time it wrote each time', async () => {
+    const dir = await makeTempDir();
+    const raw = await rawCopy(dir);
+    if (raw === undefined) return;
+    const beforeHash = await sha256File(raw);
+    const before = await readCaptureTime(raw, service);
+    expect(before).toBeDefined();
+
+    const first = await shiftCaptureTime(raw, 120, { service });
+    const second = await shiftCaptureTime(raw, 120, { service });
+
+    expect(first!.after).toBe(shiftCaptureTimeValue(before!, 120));
+    expect(second!.before).toBe(first!.after);
+    expect(second!.after).toBe(shiftCaptureTimeValue(before!, 240));
+    expect(await readCaptureTime(raw, service)).toBe(second!.after);
+    expect(await sha256File(raw)).toBe(beforeHash);
   });
 
   it('moves embedded EXIF, XMP and IPTC dates across a month end and puts the file time back', async () => {

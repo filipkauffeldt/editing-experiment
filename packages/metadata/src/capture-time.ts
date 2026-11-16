@@ -42,8 +42,12 @@ const SIDECAR_CAPTURE_TAGS = [
   'XMP-xmp:CreateDate',
 ] as const;
 
-/** Where a raw's time may live, sidecar first. ModifyDate is never a capture time. */
-const RAW_TAGS = [
+/**
+ * The file's own capture tags, in preference order. These are only read when the sidecar has no
+ * time: `readSidecarCaptureTime` runs first for raws and sidecar formats, and its answer wins.
+ * ModifyDate is never a capture time.
+ */
+const FILE_CAPTURE_TAGS = [
   'ExifIFD:DateTimeOriginal',
   'IFD0:DateTimeOriginal',
   'XMP-exif:DateTimeOriginal',
@@ -124,7 +128,7 @@ export async function readCaptureTime(
       }
     }
     if (!(await fileExists(path))) return undefined;
-    return firstTime(await service.read(path), RAW_TAGS)?.iso;
+    return firstTime(await service.read(path), FILE_CAPTURE_TAGS)?.iso;
   }
   const target = metadataTargetFor(path);
   if (!(await fileExists(target))) {
@@ -170,7 +174,7 @@ async function shiftSidecar(
   const fromSidecar = firstTime(sidecarTags, SIDECAR_CAPTURE_TAGS);
   const base =
     fromSidecar ??
-    ((await fileExists(path)) ? firstTime(await service.read(path), RAW_TAGS) : undefined);
+    ((await fileExists(path)) ? firstTime(await service.read(path), FILE_CAPTURE_TAGS) : undefined);
   if (base === undefined) return undefined;
 
   const tags: Record<string, string> = {};
