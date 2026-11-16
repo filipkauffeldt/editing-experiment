@@ -1,6 +1,12 @@
 import { CodeReplacementTables } from './code-replacements';
 import type { InstantReplacement } from '@ee/metadata/code-replacement-tokens';
 import {
+  DevelopHistory,
+  cloneDevelopSnapshot,
+  sameDevelopSnapshot,
+  type DevelopSettingsSnapshot,
+} from './develop-history';
+import {
   applyPreset as mergePreset,
   constrainCrop,
   cropFromGeometry,
@@ -752,6 +758,10 @@ export class AppStore {
   private retouchCommit: Promise<Photo | undefined> | undefined;
   /** Photos whose develop settings were changed in this session (for Previous). */
   private readonly editedPhotoIds = new Set<PhotoId>();
+  /** Per-photo undo and redo of develop settings, for this session only. */
+  private readonly developHistory = new DevelopHistory();
+  /** Batch settings calls (Paste, Sync, Previous) still running, by affected photo. */
+  private readonly pendingDevelopApplies = new Map<PhotoId, Promise<void>>();
   private readonly photoById = new Map<PhotoId, Photo>();
   private readonly photoPositions = new Map<PhotoId, number>();
   private readonly pendingPhotos = new Map<PhotoId, Photo>();
@@ -837,11 +847,24 @@ export class AppStore {
     return () => this.listeners.delete(listener);
   };
 
-  private set(patch: Partial<AppState>): void {
+  /**
+   * Publish a state patch. The develop parameters are not part of it: they only change through
+   * {@link writeDevelopSnapshot}, which also records the undo step and saves.
+   */
+  private set(patch: Partial<Omit<AppState, 'editParams'>>): void {
     this.state = { ...this.state, ...patch };
     if (patch.settings !== undefined) {
       this.followCodeReplacementPaths(patch.settings.codeReplacementPaths ?? []);
     }
+    for (const listener of this.listeners) listener();
+  }
+
+  /** Publish the parameters and parked section values in one state update. */
+  private publishEditParams(
+    editParams: Record<string, EditParams>,
+    sectionStash: Record<string, EditParams> = this.state.sectionStash,
+  ): void {
+    this.state = { ...this.state, editParams, sectionStash };
     for (const listener of this.listeners) listener();
   }
 
@@ -1139,6 +1162,8 @@ export class AppStore {
   }
 
   private applySelection(photoId: PhotoId | undefined, mode: SelectionMode = 'replace'): void {
+    // A sweep or typed value belongs to the photo it started on, never to the next one.
+    this.endDevelopGestures();
     if (
       photoId === this.state.selectedId &&
       mode === 'replace' &&
@@ -1489,6 +1514,7 @@ export class AppStore {
    */
   readonly setModule = (module: AppModule): void => {
     if (module === this.state.module) return;
+    this.endDevelopGestures();
     if (this.state.module === 'develop') {
       if (this.state.crop) this.applyCrop();
       if (this.state.retouch) void this.requestExitRetouch();
@@ -2641,10 +2667,16 @@ export class AppStore {
       if ((this.paramEditVersion.get(key) ?? 0) !== startedAt && this.state.editParams[key]) {
         return;
       }
-      this.set({
-        editParams: { ...this.state.editParams, [key]: params },
-        editDefaults: { ...this.state.editDefaults, [photoId]: defaults },
-      });
+      const loaded = this.snapshotDevelop(photoId, params);
+      const expected = this.developHistory.current(photoId);
+      if (expected && !sameDevelopSnapshot(expected, loaded)) {
+        // A local write, or a batch change, that has not reached the sidecar yet.
+        if (this.hasPendingDevelopSave(key) || this.pendingDevelopApplies.has(photoId)) return;
+        // The sidecar was changed outside the history: its old steps no longer describe it.
+        this.developHistory.forget(photoId);
+      }
+      this.publishEditParams({ ...this.state.editParams, [key]: params });
+      this.set({ editDefaults: { ...this.state.editDefaults, [photoId]: defaults } });
     } catch (cause) {
       this.toast('error', `Could not read develop settings: ${messageOf(cause)}`);
     }
@@ -2756,18 +2788,177 @@ export class AppStore {
     }
   };
 
-  private patchParams(updater: (current: EditParams) => EditParams): void {
+  /** The settings of a photo as the store has them, with its parked section values. */
+  private snapshotDevelop(photoId: PhotoId, params?: EditParams): DevelopSettingsSnapshot {
+    const versionId = activeDevelopVersion(this.photoById.get(photoId))?.id;
+    const current = params ?? this.state.editParams[editParamsKey(photoId, versionId)] ?? {};
+    const parked: Record<string, EditParams> = {};
+    const prefix = `${photoId}:`;
+    for (const [key, value] of Object.entries(this.state.sectionStash)) {
+      if (key.startsWith(prefix)) parked[key.slice(prefix.length)] = value;
+    }
+    return cloneDevelopSnapshot({ params: current, parked });
+  }
+
+  /**
+   * The one writer of develop parameters. It publishes the settings and their parked section
+   * values, saves through the normal throttle and schedules the edited preview; when a `history`
+   * snapshot is given (the default, the current settings) the change becomes one undo step.
+   */
+  private writeDevelopSnapshot(
+    photoId: PhotoId,
+    versionId: VersionId | undefined,
+    snapshot: DevelopSettingsSnapshot,
+    options: {
+      /** False for a batch change the backend already wrote. */
+      save?: boolean;
+      schedulePreview?: boolean;
+      nudgeKey?: string;
+      /** The settings before the change; `false` when this is an undo, redo or another restore. */
+      history?: DevelopSettingsSnapshot | false;
+    } = {},
+  ): void {
+    const before =
+      options.history === false ? undefined : (options.history ?? this.snapshotDevelop(photoId));
+    const key = editParamsKey(photoId, versionId);
+    this.editedPhotoIds.add(photoId);
+    this.paramEditVersion.set(key, (this.paramEditVersion.get(key) ?? 0) + 1);
+
+    const editParams = { ...this.state.editParams, [key]: snapshot.params };
+    const prefix = `${photoId}:`;
+    const sectionStash: Record<string, EditParams> = {};
+    for (const [entryKey, value] of Object.entries(this.state.sectionStash)) {
+      if (!entryKey.startsWith(prefix)) sectionStash[entryKey] = value;
+    }
+    for (const [section, parked] of Object.entries(snapshot.parked)) {
+      sectionStash[`${prefix}${section}`] = parked;
+    }
+    this.publishEditParams(editParams, sectionStash);
+
+    if (options.save !== false) this.scheduleDevelopSave(photoId, versionId, snapshot.params);
+    if (options.schedulePreview !== false) this.editedPreviews?.schedule(photoId);
+    if (before) {
+      this.developHistory.record(
+        photoId,
+        before,
+        snapshot,
+        options.nudgeKey === undefined ? {} : { nudgeKey: options.nudgeKey },
+      );
+    }
+  }
+
+  private patchParams(
+    updater: (current: EditParams) => EditParams,
+    options: { nudgeKey?: string } = {},
+  ): void {
     const photo = activePhoto(this.state);
     if (!photo) return;
     const versionId = activeDevelopVersion(photo)?.id;
-    const key = editParamsKey(photo.id, versionId);
-    const next = updater(this.state.editParams[key] ?? {});
-    this.editedPhotoIds.add(photo.id);
-    this.paramEditVersion.set(key, (this.paramEditVersion.get(key) ?? 0) + 1);
-    this.set({ editParams: { ...this.state.editParams, [key]: next } });
-    this.scheduleDevelopSave(photo.id, versionId, next);
-    this.editedPreviews?.schedule(photo.id);
+    const before = this.snapshotDevelop(photo.id);
+    this.writeDevelopSnapshot(
+      photo.id,
+      versionId,
+      { ...before, params: updater(before.params) },
+      options,
+    );
   }
+
+  /** Open a pointer gesture: its changes are one undo step. */
+  readonly beginDevelopGesture = (): void => this.developHistory.beginGesture();
+
+  readonly endDevelopGesture = (): void => this.developHistory.endGesture();
+
+  /** Open a typed value: its live applies and the commit on blur are one undo step. */
+  readonly beginDevelopTypedEdit = (): void => this.developHistory.beginTypedEdit();
+
+  readonly endDevelopTypedEdit = (): void => this.developHistory.endTypedEdit();
+
+  /** End any open develop gesture, for a photo change, a lost pointer or a cancelled drag. */
+  readonly endDevelopGestures = (): void => this.developHistory.endAllGestures();
+
+  /** Whether the open photo (or `photoId`) has a develop change to undo. */
+  readonly canUndoDevelop = (photoId?: PhotoId): boolean => {
+    const id = photoId ?? this.state.selectedId;
+    return id !== undefined && this.developHistory.canUndo(id);
+  };
+
+  readonly canRedoDevelop = (photoId?: PhotoId): boolean => {
+    const id = photoId ?? this.state.selectedId;
+    return id !== undefined && this.developHistory.canRedo(id);
+  };
+
+  private hasPendingDevelopSave(key: string): boolean {
+    const entry = this.developThrottles.get(key);
+    return (
+      this.paramWrites.has(key) ||
+      (entry !== undefined && (entry.pending !== undefined || entry.timer !== null))
+    );
+  }
+
+  private cancelDevelopSave(photoId: PhotoId, versionId: VersionId | undefined): void {
+    const key = editParamsKey(photoId, versionId);
+    const entry = this.developThrottles.get(key);
+    if (!entry) return;
+    if (entry.timer !== null) clearTimeout(entry.timer);
+    this.developThrottles.delete(key);
+  }
+
+  private restoreDevelopSnapshot(photoId: PhotoId, snapshot: DevelopSettingsSnapshot): void {
+    const versionId = activeDevelopVersion(this.photoById.get(photoId))?.id;
+    // A change that is still waiting for its throttle must not be written after the undo.
+    this.cancelDevelopSave(photoId, versionId);
+    this.writeDevelopSnapshot(photoId, versionId, snapshot, { history: false });
+  }
+
+  private performUndo(photoId: PhotoId): boolean {
+    const snapshot = this.developHistory.undo(photoId);
+    if (!snapshot) return false;
+    this.restoreDevelopSnapshot(photoId, snapshot);
+    return true;
+  }
+
+  private performRedo(photoId: PhotoId): boolean {
+    const snapshot = this.developHistory.redo(photoId);
+    if (!snapshot) return false;
+    this.restoreDevelopSnapshot(photoId, snapshot);
+    return true;
+  }
+
+  /**
+   * Run an undo or redo once every Paste, Sync or Previous that touches this photo has settled.
+   * A step is recorded only after the backend answered, so undoing before that would restore an
+   * older step and then be overwritten by the batch result.
+   */
+  private whenDevelopApplySettles(photoId: PhotoId, action: () => boolean): void {
+    const pending = this.pendingDevelopApplies.get(photoId);
+    if (!pending) {
+      action();
+      return;
+    }
+    void pending.then(() => this.whenDevelopApplySettles(photoId, action));
+  }
+
+  /** Undo the last develop change of the open photo; returns whether there was one. */
+  readonly undoDevelop = (): boolean => {
+    const photo = activePhoto(this.state);
+    if (!photo) return false;
+    if (this.pendingDevelopApplies.has(photo.id)) {
+      this.whenDevelopApplySettles(photo.id, () => this.performUndo(photo.id));
+      return true;
+    }
+    return this.performUndo(photo.id);
+  };
+
+  /** Redo the change the last undo took back; returns whether there was one. */
+  readonly redoDevelop = (): boolean => {
+    const photo = activePhoto(this.state);
+    if (!photo) return false;
+    if (this.pendingDevelopApplies.has(photo.id)) {
+      this.whenDevelopApplySettles(photo.id, () => this.performRedo(photo.id));
+      return true;
+    }
+    return this.performRedo(photo.id);
+  };
 
   /** The develop params of any photo as saved or edited (without raw defaults), including edits that have not reached the sidecar yet. */
   private async currentParams(photoId: PhotoId): Promise<EditParams> {
@@ -2778,22 +2969,36 @@ export class AppStore {
     );
   }
 
-  readonly setSlider = (name: keyof typeof SLIDER_SPECS, rawValue: number | undefined): void => {
+  private applySlider(
+    name: keyof typeof SLIDER_SPECS,
+    rawValue: number | undefined,
+    nudgeKey?: string,
+  ): void {
     const spec = SLIDER_SPECS[name];
     const photo = activePhoto(this.state);
     // The value the slider starts at: the raw default where the photo has one, else neutral.
     // Sitting on it means "not touched" (key removed); anything else, 0 included, is written.
     const start = (photo && this.state.editDefaults[photo.id]?.[name]) ?? spec.neutral;
-    this.patchParams((current) => {
-      const next = { ...current };
-      if (rawValue === undefined || (start !== null && rawValue === start)) {
-        delete next[name];
-      } else {
-        next[name] = Math.max(spec.min, Math.min(spec.max, rawValue));
-      }
-      return next;
-    });
-  };
+    this.patchParams(
+      (current) => {
+        const next = { ...current };
+        if (rawValue === undefined || (start !== null && rawValue === start)) {
+          delete next[name];
+        } else {
+          next[name] = Math.max(spec.min, Math.min(spec.max, rawValue));
+        }
+        return next;
+      },
+      nudgeKey === undefined ? {} : { nudgeKey },
+    );
+  }
+
+  readonly setSlider = (name: keyof typeof SLIDER_SPECS, rawValue: number | undefined): void =>
+    this.applySlider(name, rawValue);
+
+  /** An arrow-key step on one slider: a burst within a quiet period is one undo step. */
+  readonly nudgeSlider = (name: keyof typeof SLIDER_SPECS, rawValue: number | undefined): void =>
+    this.applySlider(name, rawValue, `nudge:${name}`);
 
   /** White balance picker / Auto WB: Temperature and Tint as one normal, saved edit. */
   readonly setWhiteBalance = (temperature: number, tint: number): void => {
@@ -2821,6 +3026,18 @@ export class AppStore {
     });
   };
 
+  /**
+   * Every develop setting of the open photo back to its default, the crop included: the sidecar
+   * holds no `crs:` settings again and raw defaults apply as on a freshly ingested photo. Retouch
+   * and metadata are not touched. One undo step.
+   */
+  readonly resetAllDevelop = (): void => {
+    const photo = activePhoto(this.state);
+    if (!photo) return;
+    const versionId = activeDevelopVersion(photo)?.id;
+    this.writeDevelopSnapshot(photo.id, versionId, { params: {}, parked: {} });
+  };
+
   /** Replace one point curve; `undefined` restores Lightroom's linear curve. */
   readonly setCurvePoints = (
     name: 'ToneCurvePV2012' | 'ToneCurvePV2012Red' | 'ToneCurvePV2012Green' | 'ToneCurvePV2012Blue',
@@ -2845,31 +3062,24 @@ export class AppStore {
   ): void => {
     const photo = activePhoto(this.state);
     if (!photo) return;
-    const key = `${photo.id}:${section}`;
-    const stash = { ...this.state.sectionStash };
+    const versionId = activeDevelopVersion(photo)?.id;
+    const before = this.snapshotDevelop(photo.id);
+    const parked = { ...before.parked };
+    const next = { ...before.params };
     if (enabled) {
-      const parked = stash[key];
-      delete stash[key];
-      this.set({ sectionStash: stash });
-      this.patchParams((current) => {
-        const next = { ...current };
-        for (const name of params) delete next[name];
-        return { ...next, ...parked };
-      });
-      return;
-    }
-    // Park only what the user set; raw defaults come back by themselves when the key is gone.
-    const current = editedParamsForPhoto(this.state, photo);
-    const defaults = this.state.editDefaults[photo.id] ?? {};
-    const parked: EditParams = {};
-    for (const name of params) {
-      const value = current[name];
-      if (value !== undefined) Object.assign(parked, { [name]: value });
-    }
-    stash[key] = parked;
-    this.set({ sectionStash: stash });
-    this.patchParams((existing) => {
-      const next = { ...existing };
+      const restored = parked[section];
+      delete parked[section];
+      for (const name of params) delete next[name];
+      Object.assign(next, restored);
+    } else {
+      // Park only what the user set; raw defaults come back by themselves when the key is gone.
+      const defaults = this.state.editDefaults[photo.id] ?? {};
+      const values: EditParams = {};
+      for (const name of params) {
+        const value = next[name];
+        if (value !== undefined) Object.assign(values, { [name]: value });
+      }
+      parked[section] = values;
       for (const name of params) {
         delete next[name];
         // A raw default (say, sharpening 40) would come back, so "off" writes the neutral value.
@@ -2877,8 +3087,8 @@ export class AppStore {
         if (defaults[name] !== undefined && spec && spec.neutral !== null)
           Object.assign(next, { [name]: spec.neutral });
       }
-      return next;
-    });
+    }
+    this.writeDevelopSnapshot(photo.id, versionId, { params: next, parked }, { history: before });
   };
 
   /** Remembers the lens facts of a photo for the Lens Corrections panel. */
@@ -3047,15 +3257,24 @@ export class AppStore {
     });
   };
 
+  private applyLookAmount(amount: number | undefined, nudgeKey?: string): void {
+    this.patchParams(
+      (current) => {
+        const next = { ...current };
+        if (amount === undefined || amount === 1) delete next.LookAmount;
+        else next.LookAmount = Math.min(2, Math.max(0, amount));
+        return next;
+      },
+      nudgeKey === undefined ? {} : { nudgeKey },
+    );
+  }
+
   /** The look's Amount, as a fraction (1 = 100 %). */
-  readonly setLookAmount = (amount: number | undefined): void => {
-    this.patchParams((current) => {
-      const next = { ...current };
-      if (amount === undefined || amount === 1) delete next.LookAmount;
-      else next.LookAmount = Math.min(2, Math.max(0, amount));
-      return next;
-    });
-  };
+  readonly setLookAmount = (amount: number | undefined): void => this.applyLookAmount(amount);
+
+  /** An arrow-key step on the look's Amount. */
+  readonly nudgeLookAmount = (amount: number | undefined): void =>
+    this.applyLookAmount(amount, 'nudge:LookAmount');
 
   /** What the profile folders hold; `rescan` reads them again (and every open photo's profile with them). */
   readonly loadProfileIndex = async (rescan = false): Promise<void> => {
@@ -3229,27 +3448,45 @@ export class AppStore {
       this.toast('error', 'Select at least one photo');
       return 0;
     }
+    let settle!: () => void;
+    const settled = new Promise<void>((resolve) => {
+      settle = resolve;
+    });
+    for (const id of ids) this.pendingDevelopApplies.set(id, settled);
     try {
       await this.flushPendingEdits();
+      // What each photo had before, for one undo step per affected photo.
+      const before = new Map(
+        await Promise.all(
+          ids.map(
+            async (photoId) =>
+              [photoId, this.snapshotDevelop(photoId, await this.currentParams(photoId))] as const,
+          ),
+        ),
+      );
       const photos = await this.bridge.invoke('develop:applySettings', {
         photoIds: ids,
         params,
         groups: [...groups],
       });
-      const editParams = { ...this.state.editParams };
       for (const photo of photos) {
         const develop = photo.versions.find((version) => version.kind === 'develop');
         if (develop?.kind === 'develop') {
-          const key = editParamsKey(photo.id, develop.id);
-          this.paramEditVersion.set(key, (this.paramEditVersion.get(key) ?? 0) + 1);
-          editParams[key] = develop.ops;
+          this.writeDevelopSnapshot(
+            photo.id,
+            develop.id,
+            { params: develop.ops, parked: before.get(photo.id)?.parked ?? {} },
+            {
+              save: false,
+              schedulePreview: false,
+              ...(before.get(photo.id) === undefined ? {} : { history: before.get(photo.id) }),
+            },
+          );
         }
-        this.editedPhotoIds.add(photo.id);
         this.upsertPhoto(photo);
         // A paste is a deliberate batch action: draw the new thumbnails ahead of the debounce.
         this.editedPreviews?.scheduleNow(photo.id);
       }
-      this.set({ editParams });
       this.toast(
         'success',
         `${verb} settings to ${photos.length} photo${photos.length === 1 ? '' : 's'}`,
@@ -3258,6 +3495,11 @@ export class AppStore {
     } catch (cause) {
       this.toast('error', `Could not ${verb.toLowerCase()} settings: ${messageOf(cause)}`);
       return 0;
+    } finally {
+      for (const id of ids) {
+        if (this.pendingDevelopApplies.get(id) === settled) this.pendingDevelopApplies.delete(id);
+      }
+      settle();
     }
   }
 
@@ -4354,12 +4596,13 @@ export class AppStore {
     this.photoPositions.clear();
     photos.forEach((photo, index) => this.photoPositions.set(photo.id, index));
     this.visibleCache = undefined;
+    for (const id of gone) this.developHistory.forget(id);
+    this.publishEditParams(withoutPhotos(this.state.editParams, gone));
     const { retouch, crop, previousEdit } = this.state;
     this.set({
       photos,
       metadata: withoutPhotos(this.state.metadata, gone),
       metadataUnresolved: withoutPhotos(this.state.metadataUnresolved, gone),
-      editParams: withoutPhotos(this.state.editParams, gone),
       editDefaults: withoutPhotos(this.state.editDefaults, gone),
       photoLens: withoutPhotos(this.state.photoLens, gone),
       photoWhiteBalance: withoutPhotos(this.state.photoWhiteBalance, gone),

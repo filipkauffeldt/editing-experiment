@@ -86,9 +86,21 @@ interface WheelProps {
   sourceKey?: string;
   disabled?: boolean;
   onChange(name: SliderParam, value: number | undefined): void;
+  onNudge?(name: SliderParam, value: number | undefined): void;
+  onEditStart?(): void;
+  onEditEnd?(): void;
 }
 
-function Wheel({ region, params, sourceKey, disabled = false, onChange }: WheelProps) {
+function Wheel({
+  region,
+  params,
+  sourceKey,
+  disabled = false,
+  onChange,
+  onNudge,
+  onEditStart,
+  onEditEnd,
+}: WheelProps) {
   const dragRef = useRef<DragState | null>(null);
   const hue = normalizeHue(value(params, hueParam(region)));
   const sat = clampSaturation(value(params, satParam(region)));
@@ -148,12 +160,12 @@ function Wheel({ region, params, sourceKey, disabled = false, onChange }: WheelP
       event.preventDefault();
       event.stopPropagation();
       const direction = event.key === 'ArrowRight' ? 1 : -1;
-      onChange(hueParam(region), normalizeHue(hue + direction * step));
+      (onNudge ?? onChange)(hueParam(region), normalizeHue(hue + direction * step));
     } else if (event.key === 'ArrowUp' || event.key === 'ArrowDown') {
       event.preventDefault();
       event.stopPropagation();
       const direction = event.key === 'ArrowUp' ? 1 : -1;
-      onChange(satParam(region), clampSaturation(sat + direction * step));
+      (onNudge ?? onChange)(satParam(region), clampSaturation(sat + direction * step));
     }
   };
 
@@ -235,6 +247,9 @@ function Wheel({ region, params, sourceKey, disabled = false, onChange }: WheelP
         sourceKey={sourceKey}
         onRange={(next) => onChange(lumParam(region), next)}
         onNumber={(next) => onChange(lumParam(region), next)}
+        onNudge={(next) => (onNudge ?? onChange)(lumParam(region), next)}
+        onEditStart={onEditStart}
+        onEditEnd={onEditEnd}
         onReset={() => onChange(lumParam(region), undefined)}
       />
     </div>
@@ -248,6 +263,9 @@ export interface ColorGradingWheelsProps {
   sourceKey?: string;
   disabled?: boolean;
   onChange(name: SliderParam, value: number | undefined): void;
+  onNudge?(name: SliderParam, value: number | undefined): void;
+  onEditStart?(): void;
+  onEditEnd?(): void;
 }
 
 /** 3-way shows Shadows/Midtones/Highlights; the other views show one larger wheel. */
@@ -257,6 +275,9 @@ export function ColorGradingWheels({
   sourceKey,
   disabled,
   onChange,
+  onNudge,
+  onEditStart,
+  onEditEnd,
 }: ColorGradingWheelsProps) {
   const regions: readonly GradingRegion[] =
     view === '3-way' ? ['Shadows', 'Midtones', 'Highlights'] : [view];
@@ -273,6 +294,9 @@ export function ColorGradingWheels({
           sourceKey={sourceKey}
           disabled={disabled}
           onChange={onChange}
+          onNudge={onNudge}
+          onEditStart={onEditStart}
+          onEditEnd={onEditEnd}
         />
       ))}
     </div>

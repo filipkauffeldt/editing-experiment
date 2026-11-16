@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { clampNumber, parseNumberDraft } from '../../number-draft';
 import styles from './Slider.module.css';
 
@@ -36,6 +36,11 @@ export interface SliderProps {
   onRange(position: number): void;
   /** `undefined` when the typed field is cleared. */
   onNumber(value: number | undefined): void;
+  /** Arrow-key steps; a burst within a quiet period is one undo step when the caller coalesces. */
+  onNudge?(value: number | undefined): void;
+  /** A typed edit starts here and ends on blur, so the whole edit is one undo step. */
+  onEditStart?(): void;
+  onEditEnd?(): void;
   onReset(): void;
 }
 
@@ -66,6 +71,9 @@ export function Slider({
   sourceKey,
   onRange,
   onNumber,
+  onNudge,
+  onEditStart,
+  onEditEnd,
   onReset,
 }: SliderProps) {
   // A draft belongs to the source it was typed against: `null` means "show the
@@ -84,6 +92,13 @@ export function Slider({
   const appliedInEdit = useRef(false);
   // Escape leaves through blur, which must not commit the discarded draft.
   const skipBlurCommit = useRef(false);
+  // An unmounted slider (the photo changed, the panel closed) may not get a blur event.
+  useEffect(
+    () => () => {
+      if (focused.current !== null) onEditEnd?.();
+    },
+    [onEditEnd],
+  );
 
   const activeDraft = draft !== null && draft.source === sourceKey ? draft.text : null;
   const neutralAt = percent(neutral ?? (min + max) / 2, min, max);
@@ -95,9 +110,10 @@ export function Slider({
     compact ? styles.compact : '',
   ];
 
-  const apply = (next: number): void => {
+  const apply = (next: number, nudge = false): void => {
     appliedInEdit.current = true;
-    onNumber(next);
+    if (nudge && onNudge) onNudge(next);
+    else onNumber(next);
   };
 
   const commit = (text: string): void => {
@@ -133,7 +149,7 @@ export function Slider({
     const text = String(next);
     draftRef.current = { text, source: sourceKey };
     setDraft({ text, source: sourceKey });
-    apply(next);
+    apply(next, true);
   };
 
   return (
@@ -178,6 +194,7 @@ export function Slider({
           draftRef.current = null;
           appliedInEdit.current = false;
           skipBlurCommit.current = false;
+          onEditStart?.();
         }}
         onBlur={() => {
           const pending = draftRef.current;
@@ -187,8 +204,9 @@ export function Slider({
           focused.current = null;
           appliedInEdit.current = false;
           setDraft(null);
-          if (skip || pending === null || pending.source !== sourceKey) return;
-          commit(pending.text);
+          if (!skip && pending !== null && pending.source === sourceKey) commit(pending.text);
+          // The commit belongs to the same gesture as the typing it finishes.
+          onEditEnd?.();
         }}
         onKeyDown={(event) => {
           if (event.key === 'Escape') {

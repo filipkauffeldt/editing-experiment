@@ -248,6 +248,14 @@ function Slider({ name }: { name: SliderParam }) {
     : relative
       ? RELATIVE_WB_MAX
       : spec.max;
+  const fromRange = (next: number): number =>
+    isTemperature && !relative
+      ? trackToTemperature(next)
+      : isTemperature
+        ? relativeToTemperature(next)
+        : next;
+  const fromNumber = (next: number | undefined): number | undefined =>
+    isTemperature && relative && next !== undefined ? relativeToTemperature(next) : next;
 
   return (
     <SliderControl
@@ -267,22 +275,11 @@ function Slider({ name }: { name: SliderParam }) {
       tone={isTemperature ? 'temperature' : isTint ? 'tint' : undefined}
       disabled={!photo}
       sourceKey={photo?.id}
-      onRange={(next) =>
-        store.setSlider(
-          name,
-          isTemperature && !relative
-            ? trackToTemperature(next)
-            : isTemperature
-              ? relativeToTemperature(next)
-              : next,
-        )
-      }
-      onNumber={(next) =>
-        store.setSlider(
-          name,
-          isTemperature && relative && next !== undefined ? relativeToTemperature(next) : next,
-        )
-      }
+      onRange={(next) => store.setSlider(name, fromRange(next))}
+      onNumber={(next) => store.setSlider(name, fromNumber(next))}
+      onNudge={(next) => store.nudgeSlider(name, fromNumber(next))}
+      onEditStart={store.beginDevelopTypedEdit}
+      onEditEnd={store.endDevelopTypedEdit}
       onReset={() => store.resetSlider(name)}
     />
   );
@@ -515,6 +512,7 @@ function ToneCurveSection() {
           if (param) store.setCurvePoints(param, next);
         }}
         onChangeParam={(name, value) => store.setSlider(name, value)}
+        onNudgeParam={(name, value) => store.nudgeSlider(name, value)}
         onReset={reset}
       />
       {channel === 'Parametric' ? (
@@ -565,6 +563,9 @@ function ColorGradingSection() {
         disabled={!photo}
         sourceKey={photo?.id}
         onChange={(name, value) => store.setSlider(name, value)}
+        onNudge={(name, value) => store.nudgeSlider(name, value)}
+        onEditStart={store.beginDevelopTypedEdit}
+        onEditEnd={store.endDevelopTypedEdit}
       />
       <Slider name="ColorGradeBlending" />
       <Slider name="ColorGradeBalance" />
@@ -751,6 +752,16 @@ export function DevelopPanel({ className }: { className?: string }) {
   return (
     <Panel className={className} testId="develop-panel">
       <div className={styles.topRow}>
+        <Button
+          variant="ghost"
+          size="small"
+          disabled={!photo}
+          data-testid="reset-all"
+          title="Reset all develop settings and the crop (undo: Ctrl/⌘+Z)"
+          onClick={() => store.resetAllDevelop()}
+        >
+          Reset all
+        </Button>
         <Button
           variant="ghost"
           size="small"

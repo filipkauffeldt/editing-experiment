@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { App } from '../src/renderer/App';
@@ -9,7 +9,13 @@ import {
   setClipping,
   setWbPicker,
 } from '../src/renderer/develop-view';
-import { activePhoto, createAppStore, photoFlags, type AppStore } from '../src/renderer/store';
+import {
+  activePhoto,
+  createAppStore,
+  paramsForPhoto,
+  photoFlags,
+  type AppStore,
+} from '../src/renderer/store';
 import { createFakeBridge, type FakeBridge } from './fake-bridge';
 
 const stores: AppStore[] = [];
@@ -140,6 +146,32 @@ describe('develop shortcuts on non-US layouts', () => {
     // A real Ctrl+Alt+R still resets the crop.
     key({ key: 'r', code: 'KeyR', ctrlKey: true, altKey: true });
     expect(store.getState().crop?.crop.angle).toBe(0);
+  });
+
+  it('undoes and redoes develop settings with Ctrl+Z, Ctrl+Y and Shift+Ctrl+Z, but not in a text field', async () => {
+    const { store } = await renderApp();
+    const photo = activePhoto(store.getState());
+    if (!photo) throw new Error('no selection');
+
+    act(() => store.setSlider('Exposure2012', 0.5));
+    key({ key: 'z', code: 'KeyZ', ctrlKey: true });
+    expect(paramsForPhoto(store.getState(), photo).Exposure2012).toBeUndefined();
+    key({ key: 'y', code: 'KeyY', ctrlKey: true });
+    expect(paramsForPhoto(store.getState(), photo).Exposure2012).toBe(0.5);
+
+    key({ key: 'z', code: 'KeyZ', ctrlKey: true });
+    key({ key: 'Z', code: 'KeyZ', ctrlKey: true, shiftKey: true });
+    expect(paramsForPhoto(store.getState(), photo).Exposure2012).toBe(0.5);
+
+    // The caption field keeps its own undo: the develop settings do not move.
+    act(() => store.setSlider('Contrast2012', 12));
+    fireEvent.keyDown(captionField(), { key: 'z', code: 'KeyZ', ctrlKey: true });
+    expect(paramsForPhoto(store.getState(), photo).Contrast2012).toBe(12);
+
+    // Crop mode ignores both rather than mixing the draft crop with the develop history.
+    store.toggleCrop();
+    key({ key: 'z', code: 'KeyZ', ctrlKey: true });
+    expect(paramsForPhoto(store.getState(), photo).Contrast2012).toBe(12);
   });
 
   it('lets å, ä, ö and dead keys type without firing shortcuts', async () => {

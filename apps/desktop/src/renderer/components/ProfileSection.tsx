@@ -127,6 +127,9 @@ export function ProfileSection() {
           sourceKey={photo?.id}
           onRange={(v) => store.setLookAmount(v / 100)}
           onNumber={(v) => store.setLookAmount(v === undefined ? undefined : v / 100)}
+          onNudge={(v) => store.nudgeLookAmount(v === undefined ? undefined : v / 100)}
+          onEditStart={store.beginDevelopTypedEdit}
+          onEditEnd={store.endDevelopTypedEdit}
           onReset={() => store.setLookAmount(undefined)}
         />
       )}
