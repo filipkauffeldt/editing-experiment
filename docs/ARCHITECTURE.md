@@ -1061,6 +1061,24 @@ the photo on screen is bounded and never delays it.
   time, and at most two wait: a newer request pushes the oldest waiting one out, so what belongs to
   a selection the user has left is dropped, not decoded. A decode that has started finishes into
   the cache. That cache keeps at most 6 decoded images and 1.5 GiB.
+- **One canvas for Develop** (`develop-canvas-host.ts`). The store's host makes one `<canvas>`, one
+  WebGL2 context and one `DevelopRenderer` on first use and keeps them for the life of the window,
+  also while the module is left. `PhotoCanvas` still mounts a tree per photo, but it puts the host's
+  canvas into a `display: contents` slot of that tree (the node is not React's), gives the renderer
+  the photo's grain seed and context-loss callback (`DevelopRenderer.configure`), and calls
+  `release()` when the photo goes. `release()` deletes the source textures, the neighbourhood
+  stages and every pooled float texture (`ImagePool.trim`, also called by `setImage`), and the
+  histogram target, and clears the drawing buffer. The context, the compiled programs and the
+  curve and profile tables stay. The canvas is hidden until the new photo's first frame is drawn,
+  as before, and the preview image shows meanwhile, so nothing of the last photo is on screen.
+  The textures and framebuffers alive are the same after any number of photos (a browser test
+  counts them over photos of many sizes), and a photo drawn after others is byte for byte the
+  photo a fresh canvas draws (an e2e compares the compositor's pixels). Context loss is as before:
+  the renderer rebuilds its resources when the context is restored, the photo on screen clears its
+  lost flag from the `webglcontextrestored` event, and a photo that mounts while the context is
+  lost starts in that state. A resize of a canvas that has a context stalls on software GL (about
+  0.3 s), so the canvas is not sized before its area is measured, and a photo whose stage differs
+  in size from the last one pays that once.
 - **Auto-advance** (`AppSettings.autoAdvance`, off by default). With it on, `T`, `1`-`5`, `0` and the
   colour keys on a single photo in the loupe or in Develop move to the next photo of that view's
   list, worked out before the change so a filter that hides the photo cannot skip one. It does not
