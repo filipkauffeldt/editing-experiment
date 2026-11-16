@@ -1,4 +1,4 @@
-import type { DetectedCard } from '@ee/contracts';
+import type { DetectedCard, SourceConfig } from '@ee/contracts';
 import { act, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -8,13 +8,22 @@ import { createFakeBridge } from './fake-bridge';
 
 const stores: AppStore[] = [];
 
-async function renderIngest(initial: DetectedCard[]) {
+async function renderIngest(initial: DetectedCard[], options: { saveGate?: Promise<void> } = {}) {
   // Like the real scanner: a scan lists the cards, the counts come on a second call.
   const mounted: { cards: DetectedCard[]; gate?: Promise<void>; scanGate?: Promise<void> } = {
     cards: initial,
   };
   const fake = createFakeBridge({
     handlers: {
+      ...(options.saveGate === undefined
+        ? {}
+        : {
+            'sources:save': async (...args) => {
+              const { source } = args[0] as { source: SourceConfig };
+              await options.saveGate;
+              return source;
+            },
+          }),
       'sources:detectCards': async (args) => {
         const { recount, waitForCounts } = (args ?? {}) as {
           recount?: boolean;
@@ -155,6 +164,37 @@ describe('Ingest view cards', () => {
 
     await user.click(line);
     expect(within(row).queryByTestId('source-filters')).toBeNull();
+  });
+
+  it('keeps a card ticked when a scan answers before its source is saved', async () => {
+    let releaseSave: () => void = () => undefined;
+    const saveGate = new Promise<void>((resolve) => {
+      releaseSave = resolve;
+    });
+    const { fake, mounted, poll, user } = await renderIngest([z9], { saveGate });
+    const row = await screen.findByTestId('ingest-card');
+    await screen.findByText('412 photos');
+
+    await user.click(within(row).getByRole('checkbox', { name: 'NIKON_Z9' }));
+    // The click's save is still in flight when a rescan's count lands. The row must keep the
+    // tick the user just made instead of drawing itself from the state before the save.
+    mounted.cards = [{ ...z9, imageCount: 500 }];
+    await poll();
+    expect(await screen.findByText('500 photos')).toBeTruthy();
+    const checkbox = within(screen.getByTestId('ingest-card')).getByRole('checkbox', {
+      name: 'NIKON_Z9',
+    }) as HTMLInputElement;
+    expect(checkbox.checked).toBe(true);
+    // The card's filters are already there too, so the row is ready to be used.
+    expect(
+      within(screen.getByTestId('ingest-card')).getByRole('button', {
+        name: 'Filters for NIKON_Z9',
+      }),
+    ).toBeTruthy();
+    expect(fake.calls.some((call) => call.channel === 'sources:save')).toBe(true);
+
+    releaseSave();
+    await waitFor(() => expect(checkbox.checked).toBe(true));
   });
 
   it('lists two cards with the same label as separate rows with their own mount paths', async () => {
