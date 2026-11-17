@@ -8,6 +8,7 @@ export * from './capture-time-value';
 export * from './capture-time';
 export * from './iptc';
 export * from './labels';
+export * from './orientation';
 export * from './develop';
 export * from './lens';
 export * from './retouch';
