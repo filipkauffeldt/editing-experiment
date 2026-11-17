@@ -127,10 +127,18 @@ describe('Copy settings and the develop tools sit with what they act on', () => 
     await renderApp();
     const footer = within(screen.getByTestId('photo-view')).getByTestId('photo-info')
       .parentElement as HTMLElement;
-    const labels = [...footer.querySelectorAll('button')].map((button) =>
-      button.textContent?.trim(),
+    // The rotate buttons are icons, named by their aria label.
+    const labels = [...footer.querySelectorAll('button')].map(
+      (button) => button.textContent?.trim() || button.getAttribute('aria-label'),
     );
-    expect(labels.slice(0, 4)).toEqual(['Crop', 'Retouch', 'Before', 'Split']);
+    expect(labels.slice(0, 6)).toEqual([
+      'Crop',
+      'Rotate left',
+      'Rotate right',
+      'Retouch',
+      'Before',
+      'Split',
+    ]);
 
     fireEvent.click(within(footer).getByTestId('before-after'));
     expect(developViewStore.get().beforeAfter).toBe('before');

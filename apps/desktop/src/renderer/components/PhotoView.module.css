@@ -150,3 +150,30 @@
   padding: 0;
   justify-content: center;
 }
+
+/*
+ * Rotate left and right: two icons close together. The footer is full at the narrowest supported
+ * window, where the photo's details need the room, so the pair collapses there. The shortcut and
+ * the photo menu still turn the photo.
+ */
+.rotate {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 2px;
+  height: 100%;
+}
+
+.rotate .toolIcon {
+  width: 16px;
+}
+
+/* Collapsed, not removed: zero width (and the gap beside it taken back), out of sight and of the Tab order. */
+@media (max-width: 1100px) {
+  .rotate {
+    width: 0;
+    margin-left: -10px;
+    overflow: hidden;
+    visibility: hidden;
+  }
+}

@@ -90,26 +90,28 @@ export function PhotoView({ className, photo }: PhotoViewProps) {
                   >
                     <CropIcon size={11} /> Crop
                   </button>
-                  <button
-                    type="button"
-                    className={styles.tool}
-                    onClick={() => void store.rotatePhotos(-1)}
-                    title="Rotate left (Ctrl/⌘ ←)"
-                    aria-label="Rotate left"
-                    data-testid="rotate-left"
-                  >
-                    <RotateLeftIcon size={11} />
-                  </button>
-                  <button
-                    type="button"
-                    className={styles.tool}
-                    onClick={() => void store.rotatePhotos(1)}
-                    title="Rotate right (Ctrl/⌘ →)"
-                    aria-label="Rotate right"
-                    data-testid="rotate-right"
-                  >
-                    <RotateRightIcon size={11} />
-                  </button>
+                  <span className={styles.rotate} role="group" aria-label="Rotate">
+                    <button
+                      type="button"
+                      className={`${styles.tool} ${styles.toolIcon}`}
+                      onClick={() => void store.rotatePhotos(-1)}
+                      title="Rotate left (Ctrl/⌘ ←)"
+                      aria-label="Rotate left"
+                      data-testid="rotate-left"
+                    >
+                      <RotateLeftIcon size={11} />
+                    </button>
+                    <button
+                      type="button"
+                      className={`${styles.tool} ${styles.toolIcon}`}
+                      onClick={() => void store.rotatePhotos(1)}
+                      title="Rotate right (Ctrl/⌘ →)"
+                      aria-label="Rotate right"
+                      data-testid="rotate-right"
+                    >
+                      <RotateRightIcon size={11} />
+                    </button>
+                  </span>
                   <button
                     type="button"
                     className={styles.tool}
