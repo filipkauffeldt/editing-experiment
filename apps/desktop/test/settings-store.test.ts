@@ -1,5 +1,12 @@
 // @vitest-environment node
-import { asDestinationId, asPresetId, asSourceId, type FolderDestination } from '@ee/contracts';
+import {
+  asDestinationId,
+  asPresetId,
+  asSourceId,
+  type FolderDestination,
+  type SavedFilter,
+  type StoredFilter,
+} from '@ee/contracts';
 import { mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -866,5 +873,181 @@ describe('SettingsStore auto-advance', () => {
   it('rejects a value that is not a boolean', () => {
     const store = new SettingsStore(undefined, defaults);
     expect(() => store.set({ autoAdvance: 'yes' as never })).toThrow(/autoAdvance/);
+  });
+});
+
+describe('SettingsStore saved and remembered filters', () => {
+  const stored = (patch: Partial<StoredFilter> = {}): StoredFilter => ({
+    tag: 'all',
+    ratingStars: 3,
+    ratingMode: 'exact',
+    colorClasses: [2],
+    excludedColors: [1, 3],
+    statuses: ['not-exported', 'not-sent'],
+    search: 'åkerlund',
+    ...patch,
+  });
+  const readJson = async (path: string): Promise<Record<string, unknown>> =>
+    JSON.parse(await readFile(path, 'utf8')) as Record<string, unknown>;
+
+  it('has neither until they are set, and an old file with neither still loads', async () => {
+    const file = join(await tempDir(), 'settings.json');
+    await writeFile(
+      file,
+      JSON.stringify({
+        version: 2,
+        ingest: {
+          destination: { path: '/ingest' },
+          renameTemplate: '{date}',
+          metadataTemplateMode: 'replace',
+          fileNaming: 'rename',
+        },
+        exportRoot: '/exports',
+        exportPresets: defaults.exportPresets,
+        activePresetId: defaults.activePresetId,
+        metadataTemplates: [],
+        codeReplacementPaths: [],
+        sources: [],
+        destinations: [],
+      }),
+    );
+    const settings = new SettingsStore(file, defaults).get();
+    expect(settings.savedFilters).toBeUndefined();
+    expect(settings.currentFilter).toBeUndefined();
+    expect(settings.exportRoot).toBe('/exports');
+  });
+
+  it('round-trips saved filters through a restart, in order, search text included', async () => {
+    const file = join(await tempDir(), 'settings.json');
+    const store = new SettingsStore(file, defaults);
+    const saved: SavedFilter[] = [
+      { id: 'one', name: 'Keepers not sent', filter: stored() },
+      {
+        id: 'two',
+        name: 'Z 9 only',
+        filter: stored({
+          ratingStars: 0,
+          ratingMode: 'unrated',
+          camera: 'NIKON Z 9|1',
+          search: '',
+        }),
+      },
+    ];
+    store.set({ savedFilters: saved });
+    expect(store.get().savedFilters).toEqual(saved);
+    expect(new SettingsStore(file, defaults).get().savedFilters).toEqual(saved);
+    // Renaming and deleting go through the same call: the whole list is the setting.
+    store.set({ savedFilters: [{ ...saved[1]!, name: 'Bodies' }] });
+    expect(
+      new SettingsStore(file, defaults).get().savedFilters?.map((entry) => entry.name),
+    ).toEqual(['Bodies']);
+    store.set({ savedFilters: [] });
+    expect(new SettingsStore(file, defaults).get().savedFilters).toBeUndefined();
+  });
+
+  it('keeps saved filters in the shared file and the current filter on this computer', async () => {
+    const dir = await tempDir();
+    const file = join(dir, 'settings.json');
+    const store = new SettingsStore(file, defaults);
+    store.set({
+      savedFilters: [{ id: 'one', name: 'Keepers', filter: stored() }],
+      currentFilter: stored({ camera: 'NIKON Z 9|1' }),
+    });
+    const shared = await readJson(file);
+    const machine = await readJson(join(dir, 'machine.json'));
+    expect(shared['savedFilters']).toBeDefined();
+    expect(shared['currentFilter']).toBeUndefined();
+    expect(machine['currentFilter']).toBeDefined();
+    expect(machine['savedFilters']).toBeUndefined();
+
+    const reopened = new SettingsStore(file, defaults).get();
+    expect(reopened.currentFilter).toEqual(stored({ camera: 'NIKON Z 9|1' }));
+    expect(reopened.savedFilters).toHaveLength(1);
+  });
+
+  it('keeps them through other settings being saved', async () => {
+    const file = join(await tempDir(), 'settings.json');
+    const store = new SettingsStore(file, defaults);
+    store.set({
+      savedFilters: [{ id: 'one', name: 'Keepers', filter: stored() }],
+      currentFilter: stored(),
+    });
+    store.set({ exportRoot: '/elsewhere', autoAdvance: true });
+    const reopened = new SettingsStore(file, defaults).get();
+    expect(reopened.savedFilters).toHaveLength(1);
+    expect(reopened.currentFilter).toEqual(stored());
+  });
+
+  it('replaces the current filter as a whole, so clearing it sticks', async () => {
+    const file = join(await tempDir(), 'settings.json');
+    const store = new SettingsStore(file, defaults);
+    store.set({ currentFilter: stored() });
+    const cleared = stored({
+      ratingStars: 0,
+      ratingMode: 'min',
+      colorClasses: [],
+      excludedColors: [],
+      statuses: [],
+      search: '',
+    });
+    store.set({ currentFilter: cleared });
+    expect(new SettingsStore(file, defaults).get().currentFilter).toEqual(cleared);
+  });
+
+  it('reads damaged stored filters without failing and drops what is unusable', async () => {
+    const dir = await tempDir();
+    const file = join(dir, 'settings.json');
+    new SettingsStore(file, defaults).set({ autoAdvance: true, exportRoot: '/exports' });
+    const shared = await readJson(file);
+    await writeFile(
+      file,
+      JSON.stringify({
+        ...shared,
+        savedFilters: [
+          'nonsense',
+          { id: 'ok', name: '  Good  ', filter: { ...stored(), statuses: ['exported', 'bogus'] } },
+          { id: 'ok', name: 'Same id', filter: stored() },
+          { id: 'noname', name: '   ', filter: stored() },
+          { id: 'nofilter', name: 'No filter', filter: 4 },
+          {
+            id: 'odd',
+            name: 'Odd values',
+            filter: {
+              tag: 'sideways',
+              ratingStars: 9,
+              ratingMode: 'huge',
+              colorClasses: [1, 99, 'x'],
+              excludedColors: [1, 4],
+              statuses: 'not-sent',
+              search: 3,
+            },
+          },
+        ],
+      }),
+    );
+    const machinePath = join(dir, 'machine.json');
+    await writeFile(
+      machinePath,
+      JSON.stringify({ ...(await readJson(machinePath)), currentFilter: 'broken' }),
+    );
+    const settings = new SettingsStore(file, defaults).get();
+    expect(settings.currentFilter).toBeUndefined();
+    expect(settings.savedFilters?.map((entry) => entry.name)).toEqual(['Good', 'Odd values']);
+    expect(settings.savedFilters?.[0]?.filter.statuses).toEqual(['exported']);
+    expect(settings.savedFilters?.[1]?.filter).toEqual({
+      tag: 'all',
+      ratingStars: 0,
+      ratingMode: 'min',
+      colorClasses: [1],
+      excludedColors: [4],
+      statuses: [],
+      search: '',
+    });
+  });
+
+  it('refuses a malformed value from the renderer', async () => {
+    const store = new SettingsStore(join(await tempDir(), 'settings.json'), defaults);
+    expect(() => store.set({ savedFilters: 'x' as never })).toThrow(/savedFilters/);
+    expect(() => store.set({ currentFilter: [] as never })).toThrow(/currentFilter/);
   });
 });

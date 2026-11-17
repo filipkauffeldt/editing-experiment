@@ -13,6 +13,8 @@ import {
   DEFAULT_TEMPLATE_MODE,
   sanitizeCopyMetadataFields,
   sanitizeCopySettingGroups,
+  sanitizeSavedFilters,
+  sanitizeStoredFilter,
 } from '../../shared/settings';
 import {
   DEFAULT_FOLDER_TEMPLATE,
@@ -206,6 +208,12 @@ export function assertSettingsPatch(patch: Partial<AppSettings>): void {
   if (patch.panelWidths !== undefined && !isObject(patch.panelWidths)) {
     throw new IpcError('invalid_argument', 'panelWidths must be an object of panel widths');
   }
+  if (patch.savedFilters !== undefined && !Array.isArray(patch.savedFilters)) {
+    throw new IpcError('invalid_argument', 'savedFilters must be a list of saved filters');
+  }
+  if (patch.currentFilter !== undefined && !isObject(patch.currentFilter)) {
+    throw new IpcError('invalid_argument', 'currentFilter must be a filter');
+  }
   if (
     patch.cacheLimitBytes !== undefined &&
     (!Number.isInteger(patch.cacheLimitBytes) || patch.cacheLimitBytes < 0)
@@ -257,4 +265,6 @@ export {
   sanitizeCopyMetadataFields,
   sanitizeCopySettingGroups,
   sanitizePanelWidths,
+  sanitizeSavedFilters,
+  sanitizeStoredFilter,
 };

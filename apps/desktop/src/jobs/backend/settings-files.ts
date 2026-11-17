@@ -7,7 +7,9 @@ import type {
   IptcFields,
   PanelWidths,
   PresetId,
+  SavedFilter,
   SourceConfig,
+  StoredFilter,
   TemplateApplyMode,
 } from '@ee/contracts';
 import {
@@ -21,6 +23,8 @@ import {
   sanitizeCopyMetadataFields,
   sanitizeCopySettingGroups,
   sanitizePanelWidths,
+  sanitizeSavedFilters,
+  sanitizeStoredFilter,
 } from './settings-values';
 import {
   isAbsolutePathFromEitherSystem,
@@ -59,6 +63,8 @@ export interface SharedSettings {
   copySettingGroups?: DevelopSettingGroupId[];
   /** Tag, rating and colour on one photo move to the next (the loupe and Develop). */
   autoAdvance?: boolean;
+  /** Filters saved under a name in the filter bar. */
+  savedFilters?: SavedFilter[];
   /** FTP and SFTP sources, without secrets (only their opaque `credentialRef`). */
   sources: SourceConfig[];
   /** FTP and SFTP destinations, without secrets. */
@@ -86,6 +92,8 @@ export interface MachineSettings {
   panelWidths?: PanelWidths;
   /** Shared limit for `cache/thumb` and `cache/preview`; this computer's disk only. */
   cacheLimitBytes?: number;
+  /** The filter on screen at the last run. It can name this computer's cameras and sources. */
+  currentFilter?: StoredFilter;
   /** `SettingsPathRef.machine` id → absolute path on this computer. */
   paths: Record<string, string>;
   /** Folder and card sources. */
@@ -181,6 +189,9 @@ export function splitSettings(
         ...(state.settings.cacheLimitBytes === undefined
           ? {}
           : { cacheLimitBytes: state.settings.cacheLimitBytes }),
+        ...(state.settings.currentFilter === undefined
+          ? {}
+          : { currentFilter: state.settings.currentFilter }),
         paths: {},
         sources: state.sources.filter(isLocalSource),
         destinations: state.destinations.filter(isLocalDestination),
@@ -238,6 +249,9 @@ export function splitSettings(
       ? {}
       : { copySettingGroups: state.settings.copySettingGroups }),
     ...(state.settings.autoAdvance === true ? { autoAdvance: true } : {}),
+    ...(state.settings.savedFilters === undefined || state.settings.savedFilters.length === 0
+      ? {}
+      : { savedFilters: state.settings.savedFilters }),
     sources: state.sources.filter((source) => !isLocalSource(source)),
     destinations: state.destinations.filter((destination) => !isLocalDestination(destination)),
   };
@@ -300,6 +314,8 @@ export function mergeSettings(
       ? {}
       : { copySettingGroups: shared.copySettingGroups }),
     ...(shared.autoAdvance === true ? { autoAdvance: true } : {}),
+    ...(shared.savedFilters === undefined ? {} : { savedFilters: shared.savedFilters }),
+    ...(machine.currentFilter === undefined ? {} : { currentFilter: machine.currentFilter }),
     ...(machine.panelWidths === undefined ? {} : { panelWidths: machine.panelWidths }),
     ...(machine.cacheLimitBytes === undefined ? {} : { cacheLimitBytes: machine.cacheLimitBytes }),
   };
@@ -356,6 +372,7 @@ export function normalizeSharedFile(parsed: unknown, defaults: AppSettings): Sha
     'copyMetadataFields',
     'copySettingGroups',
     'autoAdvance',
+    'savedFilters',
     'sources',
     'destinations',
   ]);
@@ -400,6 +417,10 @@ export function normalizeSharedFile(parsed: unknown, defaults: AppSettings): Sha
     ...(copyMetadataFields === undefined ? {} : { copyMetadataFields }),
     ...(copySettingGroups === undefined ? {} : { copySettingGroups }),
     ...(parsed.autoAdvance === true ? { autoAdvance: true } : {}),
+    ...(() => {
+      const saved = sanitizeSavedFilters(parsed.savedFilters);
+      return saved === undefined || saved.length === 0 ? {} : { savedFilters: saved };
+    })(),
     sources: (Array.isArray(parsed.sources) ? parsed.sources : [])
       .map(migrateSource)
       .filter((source) => !isLocalSource(source)),
@@ -434,6 +455,7 @@ export function normalizeMachineFile(
     'presetFolders',
     'panelWidths',
     'cacheLimitBytes',
+    'currentFilter',
     'paths',
     'sources',
     'destinations',
@@ -483,6 +505,10 @@ export function normalizeMachineFile(
       : defaults.cacheLimitBytes === undefined
         ? {}
         : { cacheLimitBytes: defaults.cacheLimitBytes }),
+    ...(() => {
+      const current = sanitizeStoredFilter(raw.currentFilter);
+      return current === undefined ? {} : { currentFilter: current };
+    })(),
     paths,
     sources: (Array.isArray(raw.sources) ? raw.sources : [])
       .map(migrateSource)
