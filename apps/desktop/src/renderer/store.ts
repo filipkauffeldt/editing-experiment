@@ -851,6 +851,7 @@ export class AppStore {
   private developReloadPending = false;
   private readonly developWaiters: (() => void)[] = [];
   private facetsLoading = false;
+  private facetsPending = false;
   private lastDevelopReloadAt = 0;
   private visibleCache: VisibleCache | undefined;
   private searchRun = 0;
@@ -1276,17 +1277,27 @@ export class AppStore {
     }
     this.developLoading = true;
     const run = ++this.photosRun;
+    const folder = this.state.library.folder;
+    const filter = this.state.filter;
+    const sort = this.state.sort;
     try {
-      const folder = this.state.library.folder;
       const anchorId = anchor;
       const result = await this.bridge.invoke('photos:query', {
         ...(folder === undefined ? {} : { folder }),
-        filter: queryFilter(this.state.filter),
-        sort: this.state.sort === 'capture-time' ? 'capture-time' : 'filename',
+        filter: queryFilter(filter),
+        sort: sort === 'capture-time' ? 'capture-time' : 'filename',
         limit: LAZY_DEVELOP_WINDOW,
         ...(anchorId === undefined ? { fromEnd: true } : { anchorId }),
       });
-      if (run !== this.photosRun) return;
+      // A filter, sort or folder change since this request makes the page the old one.
+      if (
+        run !== this.photosRun ||
+        filter !== this.state.filter ||
+        sort !== this.state.sort ||
+        folder !== this.state.library.folder
+      ) {
+        return;
+      }
       this.lastDevelopReloadAt = Date.now();
       this.set({ developWindow: { offset: result.offset, total: result.total } });
       this.replacePhotos(result.photos);
@@ -1332,20 +1343,39 @@ export class AppStore {
 
   /** Counts and the camera menu for the filter bar, from the index's grouped query. */
   private async loadFacets(): Promise<void> {
-    if (!this.state.lazy || this.facetsLoading) return;
+    if (!this.state.lazy) return;
+    if (this.facetsLoading) {
+      // One answer at a time, and ask again when the open one is for an older filter.
+      this.facetsPending = true;
+      return;
+    }
     this.facetsLoading = true;
+    const folder = this.state.library.folder;
+    const filter = this.state.filter;
+    const sort = this.state.sort;
     try {
-      const folder = this.state.library.folder;
       const facets = await this.bridge.invoke('photos:facets', {
         ...(folder === undefined ? {} : { folder }),
-        filter: queryFilter(this.state.filter),
-        sort: this.state.sort === 'capture-time' ? 'capture-time' : 'filename',
+        filter: queryFilter(filter),
+        sort: sort === 'capture-time' ? 'capture-time' : 'filename',
       });
+      // An answer that was already on the wire when the filter changed is not this view's.
+      if (
+        filter !== this.state.filter ||
+        sort !== this.state.sort ||
+        folder !== this.state.library.folder
+      ) {
+        return;
+      }
       this.set({ facets });
     } catch {
       // The loaded page still gives counts; the next filter or photo event asks again.
     } finally {
       this.facetsLoading = false;
+      if (this.facetsPending) {
+        this.facetsPending = false;
+        void this.loadFacets();
+      }
     }
   }
 
