@@ -116,7 +116,13 @@ export function CaptionArea({
   const expandAll = async (area: HTMLTextAreaElement): Promise<void> => {
     const { selectionStart, selectionEnd, value: text } = area;
     const result = await store.requestCaptionExpansion(photoId);
-    if (!result || document.activeElement !== area || area.value !== text) return;
+    if (!result || area.value !== text) return;
+    if (document.activeElement !== area) {
+      // Focus left while the answer was on its way: nothing to keep undoable in the field.
+      store.updateMetadataField(photoId, 'caption', result.text);
+      store.setUnresolvedCodes(photoId, result.unresolved);
+      return;
+    }
     if (result.text !== text) {
       const change = changedRange(text, result.text);
       const caret = (position: number): number =>
