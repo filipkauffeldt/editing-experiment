@@ -366,6 +366,23 @@ export function createFakeBridge(
     'photos:delete': async (...args) => dropPhotos((args[0] as { photoIds: PhotoId[] }).photoIds),
     'photos:removeFromLibrary': async (...args) =>
       dropPhotos((args[0] as { photoIds: PhotoId[] }).photoIds),
+    'photos:rotate': async (...args) => {
+      const { photoIds, turns } = args[0] as { photoIds: PhotoId[]; turns: number };
+      const updated: Photo[] = [];
+      for (const photoId of new Set(photoIds)) {
+        const photo = findPhoto(photoId);
+        const rotation = ((((photo.rotation ?? 0) + turns) % 4) + 4) % 4;
+        if (rotation === 0) delete photo.rotation;
+        else photo.rotation = rotation;
+        if (turns % 2 !== 0 && photo.width !== undefined && photo.height !== undefined) {
+          [photo.width, photo.height] = [photo.height, photo.width];
+        }
+        photo.previewRevision = (photo.previewRevision ?? 0) + 1;
+        emit('photos:updated', photo);
+        updated.push(photo);
+      }
+      return { updated, failed: [] };
+    },
     'photos:shiftCaptureTime': async (...args) => {
       const { photoIds, offsetSeconds } = args[0] as {
         photoIds: PhotoId[];

@@ -75,6 +75,8 @@ import styles from './PhotoCanvas.module.css';
 interface LoadedImage {
   header: LinearImageHeader;
   data: ArrayBuffer;
+  /** The photo's rotation the image was decoded for: a turn makes the decode a different one. */
+  rotation: number;
 }
 
 const MIN_EDGE = 64;
@@ -401,7 +403,10 @@ function CanvasForPhoto({ photo, host }: { photo: Photo; host: DevelopCanvasHost
 
   const [container, setContainer] = useState({ width: 0, height: 0 });
   const renderer = host.renderer;
-  const [loaded, setLoaded] = useState<LoadedImage | null>(null);
+  const rotation = image.rotation ?? 0;
+  const [loadedImage, setLoaded] = useState<LoadedImage | null>(null);
+  // The image of an older rotation is not shown under the new geometry while the new one loads.
+  const loaded = loadedImage?.rotation === rotation ? loadedImage : null;
 
   // Auto and the picker turn camera gains into a temperature through the profile's ColorMatrix.
   const colorModel = useMemo(
@@ -413,7 +418,10 @@ function CanvasForPhoto({ photo, host }: { photo: Photo; host: DevelopCanvasHost
   const [contextLost, setContextLost] = useState(renderer?.contextLost ?? false);
   const [renderVersion, setRenderVersion] = useState(0);
   const [mosaicVersion, setMosaicVersion] = useState(0);
-  const [firstFrame, setFirstFrame] = useState(false);
+  // The rotation a frame was drawn for: a turned photo starts again without a frame, so the last
+  // one (of the old way up) is never shown.
+  const [framedRotation, setFramedRotation] = useState<number | null>(null);
+  const firstFrame = framedRotation === rotation;
   const [previewSource, setPreviewSource] = useState<'preview' | 'thumb' | 'none'>('preview');
   const [previewLoaded, setPreviewLoaded] = useState(false);
   const [draftRect, setDraftRect] = useState<Rect>();
@@ -707,7 +715,7 @@ function CanvasForPhoto({ photo, host }: { photo: Photo; host: DevelopCanvasHost
       grainSeed: grainSeedFromId(photo.id),
       onContextLost: () => {
         setContextLost(true);
-        setFirstFrame(false);
+        setFramedRotation(null);
       },
     });
     const onRestored = (): void => setContextLost(false);
@@ -736,6 +744,7 @@ function CanvasForPhoto({ photo, host }: { photo: Photo; host: DevelopCanvasHost
   // Load the linear image at the size the canvas needs.
   useEffect(() => {
     if (container.width <= 0) return;
+    const wantedRotation = rotation;
     const controller = new AbortController();
     let cancelled = false;
     void (async () => {
@@ -777,7 +786,7 @@ function CanvasForPhoto({ photo, host }: { photo: Photo; host: DevelopCanvasHost
         const header = JSON.parse(raw) as LinearImageHeader;
         const data = await response.arrayBuffer();
         if (!cancelled) {
-          setLoaded({ header, data });
+          setLoaded({ header, data, rotation: wantedRotation });
           // The Lens Corrections panel reads the lens facts, the white balance sliders the as-shot gains.
           store.setPhotoLens(photo.id, header.lens, header);
           store.setPhotoWhiteBalance(photo.id, header);
@@ -793,7 +802,7 @@ function CanvasForPhoto({ photo, host }: { photo: Photo; host: DevelopCanvasHost
       cancelled = true;
       controller.abort();
     };
-  }, [photo.id, requestedEdge, container.width, store]);
+  }, [photo.id, requestedEdge, container.width, rotation, store]);
 
   // With the photo on screen drawn, decode the next and the previous photo's linear image ahead,
   // at the size a new photo starts at (Fit), so an arrow key does not wait for the decode. The
@@ -853,7 +862,7 @@ function CanvasForPhoto({ photo, host }: { photo: Photo; host: DevelopCanvasHost
         };
         draw(options);
         setRenderVersion((version) => version + 1);
-        setFirstFrame(true);
+        setFramedRotation(rotation);
         // A zoomed view mosaics the pixels it just drew: the canvas is read back in this same task,
         // before the browser composites, with the clipping overlay left off.
         const mosaicCanvas = mosaicRef.current;
@@ -910,6 +919,7 @@ function CanvasForPhoto({ photo, host }: { photo: Photo; host: DevelopCanvasHost
     // The buffer size is a dependency: resizing a canvas clears it.
   }, [
     renderer,
+    rotation,
     loaded,
     contextLost,
     renderParams,

@@ -76,6 +76,7 @@ import {
   type SettingsFolderChoice,
   type SettingsFolderInfo,
   type Shape,
+  type RotatePhotosResult,
   type ShiftCaptureTimeResult,
   type SliderParam,
   type SourceConfig,
@@ -3884,12 +3885,14 @@ export class AppStore {
       nudgeKey?: string;
       /** The settings before the change; `false` when this is an undo, redo or another restore. */
       history?: DevelopSettingsSnapshot | false;
+      /** The change turned the photo by this many quarter turns clockwise (see `rotatePhotos`). */
+      turns?: number;
     } = {},
   ): void {
     const before =
       options.history === false ? undefined : (options.history ?? this.snapshotDevelop(photoId));
     const key = editParamsKey(photoId, versionId);
-    this.editedPhotoIds.add(photoId);
+    if (options.turns === undefined) this.editedPhotoIds.add(photoId);
     this.paramEditVersion.set(key, (this.paramEditVersion.get(key) ?? 0) + 1);
 
     const editParams = { ...this.state.editParams, [key]: snapshot.params };
@@ -3906,12 +3909,10 @@ export class AppStore {
     if (options.save !== false) this.scheduleDevelopSave(photoId, versionId, snapshot.params);
     if (options.schedulePreview !== false) this.editedPreviews?.schedule(photoId);
     if (before) {
-      this.developHistory.record(
-        photoId,
-        before,
-        snapshot,
-        options.nudgeKey === undefined ? {} : { nudgeKey: options.nudgeKey },
-      );
+      this.developHistory.record(photoId, before, snapshot, {
+        ...(options.nudgeKey === undefined ? {} : { nudgeKey: options.nudgeKey }),
+        ...(options.turns === undefined ? {} : { turns: options.turns }),
+      });
     }
   }
 
@@ -3979,6 +3980,10 @@ export class AppStore {
   }
 
   private performUndo(photoId: PhotoId): boolean {
+    if (!this.developHistory.canUndo(photoId)) return false;
+    const turns = this.developHistory.nextUndoTurns(photoId);
+    // A turn is taken back in the backend first: the picture's geometry is not a setting.
+    if (turns !== undefined) return this.stepRotation(photoId, -turns, 'undo');
     const snapshot = this.developHistory.undo(photoId);
     if (!snapshot) return false;
     this.restoreDevelopSnapshot(photoId, snapshot);
@@ -3986,10 +3991,132 @@ export class AppStore {
   }
 
   private performRedo(photoId: PhotoId): boolean {
+    if (!this.developHistory.canRedo(photoId)) return false;
+    const turns = this.developHistory.nextRedoTurns(photoId);
+    if (turns !== undefined) return this.stepRotation(photoId, turns, 'redo');
     const snapshot = this.developHistory.redo(photoId);
     if (!snapshot) return false;
     this.restoreDevelopSnapshot(photoId, snapshot);
     return true;
+  }
+
+  // ------------------------------------------------------------------ rotate
+
+  /** Photos with a turn that has not been answered yet; an undo or another turn waits its end. */
+  private readonly turning = new Set<PhotoId>();
+
+  /**
+   * Turn the Library's selection, or the open photo in Develop, by quarter turns (1 is right, -1
+   * left). The turn is an edit like any other: each photo's develop history gets a step for it,
+   * so Develop's undo and redo turn it back and forth. Not while a crop or a retouch is open: both
+   * are drawn on the picture the way it is now.
+   */
+  readonly rotatePhotos = async (turns: number): Promise<void> => {
+    const { crop, retouch, module } = this.state;
+    if (crop || retouch || module === 'ingest' || !Number.isInteger(turns) || turns % 4 === 0) {
+      return;
+    }
+    const ids = this.deleteTargets().filter((id) => !this.turning.has(id) && !this.isGoing(id));
+    if (ids.length === 0) return;
+    this.endDevelopGestures();
+    for (const id of ids) this.turning.add(id);
+    try {
+      // What the sidecar will be turned from has to be what the user sees.
+      await this.flushPendingEdits();
+      const before = new Map(
+        await Promise.all(
+          ids.map(
+            async (photoId) =>
+              [photoId, this.snapshotDevelop(photoId, await this.currentParams(photoId))] as const,
+          ),
+        ),
+      );
+      let result: RotatePhotosResult;
+      try {
+        result = await this.bridge.invoke('photos:rotate', { photoIds: ids, turns });
+      } catch (cause) {
+        this.toast('error', `Could not turn the photo: ${messageOf(cause)}`);
+        return;
+      }
+      for (const photo of result.updated) {
+        this.applyRotated(photo, {
+          turns,
+          ...(before.has(photo.id) ? { before: before.get(photo.id) } : {}),
+        });
+      }
+      if (result.failed.length > 0) {
+        const messages = result.failed.map((failure) => failure.message).join('; ');
+        this.toast(
+          'error',
+          `${result.failed.length} photo${result.failed.length === 1 ? '' : 's'} could not be turned: ${messages}`,
+        );
+      }
+    } finally {
+      for (const id of ids) this.turning.delete(id);
+    }
+  };
+
+  /** An undo or a redo that turns the open photo back or again. */
+  private stepRotation(photoId: PhotoId, turns: number, direction: 'undo' | 'redo'): boolean {
+    if (this.turning.has(photoId)) return true;
+    this.turning.add(photoId);
+    void (async () => {
+      try {
+        this.endDevelopGestures();
+        await this.flushPendingEdits();
+        let result: RotatePhotosResult;
+        try {
+          result = await this.bridge.invoke('photos:rotate', { photoIds: [photoId], turns });
+        } catch (cause) {
+          this.toast('error', `Could not turn the photo: ${messageOf(cause)}`);
+          return;
+        }
+        const photo = result.updated[0];
+        if (!photo) {
+          this.toast(
+            'error',
+            `Could not turn the photo: ${result.failed[0]?.message ?? 'unknown'}`,
+          );
+          return;
+        }
+        // The step moves between the undo and redo lists only once the backend has turned it.
+        if (direction === 'undo') this.developHistory.undo(photoId);
+        else this.developHistory.redo(photoId);
+        this.applyRotated(photo, {});
+      } finally {
+        this.turning.delete(photoId);
+      }
+    })();
+    return true;
+  }
+
+  /**
+   * A turned photo as the backend answered: the photo itself, and its develop settings, whose crop
+   * is now in the new picture's space. They are published without a save (the sidecar's crop did
+   * not change). With `before` the turn becomes a step of the photo's develop history.
+   */
+  private applyRotated(
+    photo: Photo,
+    options: { turns?: number; before?: DevelopSettingsSnapshot },
+  ): void {
+    const develop = photo.versions.find((version) => version.kind === 'develop');
+    if (develop?.kind === 'develop') {
+      const parked = (options.before ?? this.snapshotDevelop(photo.id)).parked;
+      this.writeDevelopSnapshot(
+        photo.id,
+        develop.id,
+        { params: develop.ops, parked },
+        {
+          save: false,
+          schedulePreview: false,
+          history: options.before ?? false,
+          ...(options.turns === undefined ? {} : { turns: options.turns }),
+        },
+      );
+    }
+    this.upsertPhoto(photo);
+    // The edited thumbnail shows the old way up until it is drawn again.
+    if (photo.status.edited) this.editedPreviews?.scheduleNow(photo.id);
   }
 
   /**

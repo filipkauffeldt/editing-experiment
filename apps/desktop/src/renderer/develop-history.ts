@@ -22,6 +22,12 @@ export const DEVELOP_NUDGE_QUIET_MS = 600;
 export interface RecordDevelopStepOptions {
   /** Changes to this parameter are one step while they keep coming. */
   nudgeKey?: string;
+  /**
+   * The step turned the photo by this many quarter turns clockwise. The settings are the same
+   * either side of it except for the crop, which follows the picture, so a turn is a step even
+   * when no setting changed. It never joins the steps around it.
+   */
+  turns?: number;
   /** Clock for tests; `Date.now()` otherwise. */
   now?: number;
 }
@@ -36,6 +42,8 @@ interface DevelopStep {
   /** The gesture the step belongs to, while a pointer or typed edit is open. */
   gesture?: number;
   nudgeKey?: string;
+  /** Quarter turns clockwise this step made; undoing it turns the other way. */
+  turns?: number;
 }
 
 interface PhotoHistory {
@@ -136,14 +144,19 @@ export class DevelopHistory {
     after: DevelopSettingsSnapshot,
     options: RecordDevelopStepOptions = {},
   ): boolean {
-    if (sameDevelopSnapshot(before, after)) return false;
+    const turns = options.turns;
+    if (turns === undefined && sameDevelopSnapshot(before, after)) return false;
     const history = this.histories.get(photoId) ?? { steps: [], redo: [] };
     const hadRedo = history.redo.length > 0;
     const now = options.now ?? Date.now();
-    const gesture = this.activeGesture();
-    const nudgeKey = gesture === undefined ? options.nudgeKey : undefined;
+    const gesture = turns === undefined ? this.activeGesture() : undefined;
+    const nudgeKey = gesture === undefined && turns === undefined ? options.nudgeKey : undefined;
     const top = history.steps.at(-1);
-    const sameGesture = top !== undefined && gesture !== undefined && top.gesture === gesture;
+    const sameGesture =
+      top !== undefined &&
+      gesture !== undefined &&
+      top.gesture === gesture &&
+      top.turns === undefined;
     const sameNudge =
       top !== undefined &&
       !hadRedo &&
@@ -151,6 +164,7 @@ export class DevelopHistory {
       top.gesture === undefined &&
       nudgeKey !== undefined &&
       top.nudgeKey === nudgeKey &&
+      top.turns === undefined &&
       now - top.at <= DEVELOP_NUDGE_QUIET_MS;
     if (top && (sameGesture || sameNudge)) {
       const merged = cloneDevelopSnapshot(after);
@@ -169,12 +183,23 @@ export class DevelopHistory {
         order: nextChangeOrder(),
         ...(gesture === undefined ? {} : { gesture }),
         ...(nudgeKey === undefined ? {} : { nudgeKey }),
+        ...(turns === undefined ? {} : { turns }),
       });
       if (history.steps.length > DEVELOP_HISTORY_STEP_LIMIT) history.steps.shift();
     }
     history.redo = [];
     this.touch(photoId, history);
     return true;
+  }
+
+  /** The quarter turns the step an undo would take back made, when it was a turn. */
+  nextUndoTurns(photoId: PhotoId): number | undefined {
+    return this.histories.get(photoId)?.steps.at(-1)?.turns;
+  }
+
+  /** The quarter turns the step a redo would make again made, when it was a turn. */
+  nextRedoTurns(photoId: PhotoId): number | undefined {
+    return this.histories.get(photoId)?.redo.at(-1)?.turns;
   }
 
   /** The settings to restore, or undefined when there is nothing to undo. */

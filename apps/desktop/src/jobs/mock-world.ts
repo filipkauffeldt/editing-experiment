@@ -688,6 +688,23 @@ export function createMockHandlers(world: MockWorld, emit: Emit): Partial<IpcHan
       }
       return { updated, noCaptureTime, failed: [] };
     },
+    // Mock images are generated SVGs: a turn only changes the numbers the app shows.
+    'photos:rotate': async ({ photoIds, turns }) => {
+      const updated: Photo[] = [];
+      for (const photoId of new Set(photoIds)) {
+        const photo = findPhoto(photoId);
+        const rotation = ((((photo.rotation ?? 0) + turns) % 4) + 4) % 4;
+        if (rotation === 0) delete photo.rotation;
+        else photo.rotation = rotation;
+        if (turns % 2 !== 0 && photo.width !== undefined && photo.height !== undefined) {
+          [photo.width, photo.height] = [photo.height, photo.width];
+        }
+        photo.previewRevision = (photo.previewRevision ?? 0) + 1;
+        emitPhoto(world, emit, photo);
+        updated.push(photo);
+      }
+      return { updated, failed: [] };
+    },
     // Mock images are generated SVGs, so there is nothing to cache; accept and ignore.
     'photos:setEditedPreview': async ({ photoId }) => findPhoto(photoId),
     // The mock photos have no files: deleting drops the in-memory photo and its data, like the
