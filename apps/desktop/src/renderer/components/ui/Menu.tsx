@@ -1,10 +1,15 @@
-import { useEffect, useId, useRef, useState, type ReactNode } from 'react';
+import { useEffect, useId, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import styles from './Menu.module.css';
+
+/** The space between the button and its list, as in the stylesheet. */
+const POPOVER_GAP = 8;
 
 /**
  * A text button that opens a hairline popover of items. Closes on an outside press, on Escape
  * (which goes no further, so it never also clears a selection) and after a pick when
- * `closeOnPick` is set.
+ * `closeOnPick` is set. It opens downwards, and upwards when the list would run past the bottom
+ * of the window and there is more room above (the filter bar sits above the film strip in
+ * Develop).
  */
 export function Menu({
   label,
@@ -35,9 +40,28 @@ export function Menu({
   children: ReactNode;
 }) {
   const [open, setOpen] = useState(false);
+  const [up, setUp] = useState(false);
   const root = useRef<HTMLDivElement>(null);
   const button = useRef<HTMLButtonElement>(null);
+  const popover = useRef<HTMLDivElement>(null);
   const id = useId();
+
+  // Measured after every render while open, so a list that grows (a new saved filter) is
+  // placed again. The list's own height does not depend on which side it opens on.
+  useLayoutEffect(() => {
+    if (!open || !root.current || !popover.current) return;
+    const place = (): void => {
+      if (!root.current || !popover.current) return;
+      const box = root.current.getBoundingClientRect();
+      const height = popover.current.offsetHeight;
+      const below = window.innerHeight - box.bottom - POPOVER_GAP;
+      const above = box.top - POPOVER_GAP;
+      setUp(height > below && above > below);
+    };
+    place();
+    window.addEventListener('resize', place);
+    return () => window.removeEventListener('resize', place);
+  });
 
   useEffect(() => {
     if (!open) return;
@@ -78,8 +102,10 @@ export function Menu({
       {open && (
         <div
           id={id}
+          ref={popover}
           role="menu"
-          className={`${styles.popover} ${align === 'right' ? styles.right : ''} ${compact ? styles.compact : ''}`}
+          data-placement={up ? 'up' : 'down'}
+          className={`${styles.popover} ${up ? styles.up : ''} ${align === 'right' ? styles.right : ''} ${compact ? styles.compact : ''}`}
           onClick={(event) => {
             if (closeOnPick && (event.target as HTMLElement).closest('[role^="menuitem"]'))
               setOpen(false);

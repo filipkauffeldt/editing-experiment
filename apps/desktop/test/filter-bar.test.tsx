@@ -1,6 +1,6 @@
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { App } from '../src/renderer/App';
 import {
   activePhoto,
@@ -311,6 +311,74 @@ describe('the filter bar in Develop and in the Library', () => {
     expect(store.getState().settings?.savedFilters ?? []).toEqual([]);
     // Deleting a saved filter does not touch the filter on screen.
     expect(store.getState().filter.tag).toBe('tagged');
+  });
+
+  describe('where the menus open', () => {
+    /**
+     * jsdom has no layout, so the filter bar is given a place in the window: `top` is where its
+     * buttons are, and every menu list is 200 px tall. The window is 768 px high.
+     */
+    const placeFilterBar = (top: number): void => {
+      vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function (
+        this: HTMLElement,
+      ) {
+        const inBar = this.closest('[data-testid="filter-bar"]') !== null;
+        return {
+          top: inBar ? top : 0,
+          bottom: inBar ? top + 20 : 0,
+          left: 0,
+          right: 0,
+          width: 0,
+          height: inBar ? 20 : 0,
+          x: 0,
+          y: inBar ? top : 0,
+          toJSON: () => ({}),
+        };
+      });
+      vi.spyOn(HTMLElement.prototype, 'offsetHeight', 'get').mockImplementation(function (
+        this: HTMLElement,
+      ) {
+        return this.getAttribute('role') === 'menu' ? 200 : 0;
+      });
+    };
+    afterEach(() => vi.restoreAllMocks());
+
+    const opened = async (name: RegExp | string): Promise<string | null> => {
+      await userEvent.setup().click(bar().getByRole('button', { name }));
+      return screen.getByRole('menu').getAttribute('data-placement');
+    };
+
+    it('open upwards in Develop, where the bar is at the bottom, so none runs off the window', async () => {
+      await renderApp();
+      placeFilterBar(720);
+      for (const name of [/^Status/, /^Camera/, /^Saved/, 'Rating: and up']) {
+        expect(await opened(name)).toBe('up');
+        await userEvent.setup().keyboard('{Escape}');
+        expect(screen.queryByRole('menu')).toBeNull();
+      }
+    });
+
+    it('open downwards in the Library, where the bar is at the top', async () => {
+      await renderApp();
+      placeFilterBar(40);
+      for (const name of [/^Status/, /^Camera/, /^Saved/, 'Rating: and up']) {
+        expect(await opened(name)).toBe('down');
+        await userEvent.setup().keyboard('{Escape}');
+      }
+    });
+
+    it('stay downwards when there is no more room above than below', async () => {
+      await renderApp();
+      // 120 px from the bottom, 650 from the top: the 200 px list does not fit below but there is
+      // plenty above, so it flips. Close to the top of a short window it would not.
+      placeFilterBar(650);
+      expect(await opened(/^Status/)).toBe('up');
+      await userEvent.setup().keyboard('{Escape}');
+      vi.restoreAllMocks();
+      placeFilterBar(30);
+      vi.spyOn(window, 'innerHeight', 'get').mockReturnValue(150);
+      expect(await opened(/^Status/)).toBe('down');
+    });
   });
 
   it('puts the camera bodies and the sources in one menu', async () => {

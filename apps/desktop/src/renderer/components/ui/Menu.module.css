@@ -52,6 +52,12 @@
   color: var(--text);
 }
 
+/* Opens upwards: the list would run past the bottom of the window. */
+.up {
+  top: auto;
+  bottom: calc(100% + 8px);
+}
+
 .right {
   right: 0;
   left: auto;
