@@ -80,6 +80,15 @@ const GROUPS: { title: string; rows: [string, string][] }[] = [
     ],
   },
   {
+    title: 'Compare',
+    rows: [
+      ['V', 'Compare the 2 to 4 selected photos side by side (Library)'],
+      ['← / →', 'Move the active pane. T, 1 – 5 and Ctrl/⌘ + 1 – 8 act on its photo'],
+      ['Z, Ctrl/⌘ + wheel, Space + drag', 'Zoom and pan every pane together'],
+      ['Esc', 'Back to the grid, selection kept'],
+    ],
+  },
+  {
     title: 'Cull and classify',
     rows: [
       ['T', 'Tag / untag photo'],

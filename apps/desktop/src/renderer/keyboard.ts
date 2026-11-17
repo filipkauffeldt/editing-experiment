@@ -216,6 +216,12 @@ export function useKeyboardShortcuts(store: AppStore): void {
           state.deleteRequest
         )
           return;
+        // Esc leaves the compare view first, with the selection kept.
+        if (state.module === 'library' && !typing && state.library.view === 'compare') {
+          event.preventDefault();
+          store.closeCompare();
+          return;
+        }
         if (state.module === 'library' && !typing && state.selection.length > 1) {
           event.preventDefault();
           store.clearLibrarySelection();
@@ -253,7 +259,12 @@ export function useKeyboardShortcuts(store: AppStore): void {
 
       const library = state.module === 'library';
       // The photo that zooms: Develop's, and the Library's when it is the loupe.
-      const zoomable = state.module === 'develop' || (library && state.library.view === 'loupe');
+      const comparing = library && state.library.view === 'compare';
+      const zoomable =
+        state.module === 'develop' ||
+        (library && (state.library.view === 'loupe' || state.library.view === 'compare'));
+      // In the compare view the label keys act on the active pane's photo, not on the selection.
+      const labelPhoto = comparing ? state.library.compare?.activeId : undefined;
       // The physical slash key, so the shortcut does not depend on where `/` sits. Not where that
       // key prints `-` (Swedish, German, ...): there Ctrl/Cmd+`-` zooms out, and F1 or `?` open the list.
       if (command && event.code === 'Slash' && event.key !== '-') {
@@ -440,13 +451,13 @@ export function useKeyboardShortcuts(store: AppStore): void {
       const rating = ratingFromKey(event);
       if (rating !== undefined) {
         event.preventDefault();
-        store.setRating(rating);
+        store.setRating(rating, labelPhoto);
         return;
       }
       const colorClass = colorClassFromKey(event, isMacPlatform());
       if (colorClass !== undefined) {
         event.preventDefault();
-        store.setColorClass(colorClass);
+        store.setColorClass(colorClass, labelPhoto);
         return;
       }
 
@@ -517,14 +528,24 @@ export function useKeyboardShortcuts(store: AppStore): void {
           event.preventDefault();
           store.openLibrary('loupe');
           break;
+        case 'v':
+        case 'V':
+          if (!library) break;
+          event.preventDefault();
+          if (event.repeat) break;
+          if (comparing) store.closeCompare();
+          else store.openCompare();
+          break;
         case 'ArrowLeft':
           event.preventDefault();
-          if (library) store.moveInLibrary(-1, event.shiftKey);
+          if (comparing) store.moveCompareActive(-1);
+          else if (library) store.moveInLibrary(-1, event.shiftKey);
           else store.selectRelative(-1);
           break;
         case 'ArrowRight':
           event.preventDefault();
-          if (library) store.moveInLibrary(1, event.shiftKey);
+          if (comparing) store.moveCompareActive(1);
+          else if (library) store.moveInLibrary(1, event.shiftKey);
           else store.selectRelative(1);
           break;
         case 'ArrowUp':
@@ -540,7 +561,7 @@ export function useKeyboardShortcuts(store: AppStore): void {
         case 't':
         case 'T':
           event.preventDefault();
-          store.toggleTag();
+          store.toggleTag(labelPhoto);
           break;
         case 'r':
         case 'R':
