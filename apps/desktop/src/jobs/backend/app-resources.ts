@@ -22,6 +22,7 @@ import { dirname, extname, join } from 'node:path';
 import type { AppBackendResponse } from '../../shared/jobs-protocol';
 import { retouchKey } from './edited-previews';
 import { FullImageCache, NoFullImageError } from './full-images';
+import { turnPixels, turnRgba } from './image-ops';
 import type { PhotoLibrary } from './photo-library';
 import { SAFE_PHOTO_ID, type PreviewCache, type PreviewKind, type ServedFile } from './previews';
 
@@ -39,6 +40,7 @@ const JPEG_EXTENSIONS = new Set(['.jpg', '.jpeg', '.jpe']);
 interface WarmRequest {
   key: string;
   path: string;
+  rotation: number;
   maxEdge: number | undefined;
   answer: (response: AppBackendResponse) => void;
 }
@@ -74,7 +76,7 @@ export interface AppResourcesOptions {
    */
   lensShot?: (
     path: string,
-    frame: { width: number; height: number },
+    frame: { width: number; height: number; rotation?: number },
   ) => Promise<LensShotInfo | undefined>;
   /** Test seam. */
   decode?: (path: string, options: DecodeLinearOptions) => Promise<LinearImage>;
@@ -133,6 +135,20 @@ export class AppResources {
     await this.fullImages.forget(asPhotoId(photoId));
     const prefix = `${photoId}|`;
     for (const key of this.inFlight.keys()) if (key.startsWith(prefix)) this.discarded.add(key);
+    for (const [key, entry] of [...this.entries]) {
+      if (!key.startsWith(prefix)) continue;
+      this.entries.delete(key);
+      await rm(entry.file, { force: true }).catch(() => undefined);
+    }
+  }
+
+  /**
+   * The photo was turned: its camera JPEG for zooming and its decoded images are of the old
+   * rotation. The decoded ones are keyed by rotation, so they only leave the cache sooner.
+   */
+  async rotated(photoId: string): Promise<void> {
+    await this.fullImages.forget(asPhotoId(photoId));
+    const prefix = `${photoId}|`;
     for (const [key, entry] of [...this.entries]) {
       if (!key.startsWith(prefix)) continue;
       this.entries.delete(key);
@@ -259,13 +275,20 @@ export class AppResources {
       try {
         if (isRawPath(photo.path)) {
           const preview = await extractPreview(photo.path);
-          const source = { jpeg: preview.jpeg, orientation: preview.orientation };
+          const source = {
+            jpeg: preview.jpeg,
+            orientation: preview.orientation,
+            ...(photo.rotation ? { rotation: photo.rotation } : {}),
+          };
           if (kind === 'thumb') await this.options.previews.generateThumb(photo.id, source);
           else await this.options.previews.generate(photo.id, source);
           return true;
         }
         if (!JPEG_EXTENSIONS.has(extname(photo.path).toLowerCase())) return false;
-        const source = { file: photo.path };
+        const source = {
+          file: photo.path,
+          ...(photo.rotation ? { rotation: photo.rotation } : {}),
+        };
         if (kind === 'thumb') await this.options.previews.generateThumb(photo.id, source);
         else await this.options.previews.generate(photo.id, source);
         return true;
@@ -331,19 +354,23 @@ export class AppResources {
       }
     }
     let path: string;
+    let rotation: number;
     try {
-      path = this.options.photos.get(photoId).path;
+      const photo = this.options.photos.get(photoId);
+      path = photo.path;
+      rotation = photo.rotation ?? 0;
     } catch (error) {
       if (error instanceof IpcError && error.code === 'not_found') {
         return text(404, `no such photo "${photoId}"`);
       }
       throw error;
     }
-    const key = `${photoId}|${maxEdge ?? 'full'}`;
-    if (warm) return this.warmLinear(key, path, maxEdge);
+    // The rotation is part of the key: a turned photo is a different image.
+    const key = `${photoId}|${rotation}|${maxEdge ?? 'full'}`;
+    if (warm) return this.warmLinear(key, path, rotation, maxEdge);
     this.liveDecodes += 1;
     try {
-      const entry = await this.linearEntry(key, path, maxEdge);
+      const entry = await this.linearEntry(key, path, rotation, maxEdge);
       return {
         status: 200,
         headers: {
@@ -376,11 +403,12 @@ export class AppResources {
   private warmLinear(
     key: string,
     path: string,
+    rotation: number,
     maxEdge: number | undefined,
   ): Promise<AppBackendResponse> {
     if (this.entries.has(key)) return Promise.resolve(warmAnswer('ready'));
     return new Promise((answer) => {
-      this.warmQueue.push({ key, path, maxEdge, answer });
+      this.warmQueue.push({ key, path, rotation, maxEdge, answer });
       while (this.warmQueue.length > WARM_PENDING)
         this.warmQueue.shift()?.answer(warmAnswer('dropped'));
       this.pumpWarm();
@@ -392,7 +420,7 @@ export class AppResources {
     const next = this.warmQueue.shift();
     if (!next) return;
     this.warming = true;
-    this.linearEntry(next.key, next.path, next.maxEdge)
+    this.linearEntry(next.key, next.path, next.rotation, next.maxEdge)
       .then(() => next.answer(warmAnswer('ready')))
       .catch(() => next.answer(warmAnswer('failed')))
       .finally(() => {
@@ -404,6 +432,7 @@ export class AppResources {
   private linearEntry(
     key: string,
     path: string,
+    rotation: number,
     maxEdge: number | undefined,
   ): Promise<LinearEntry> {
     const cached = this.entries.get(key);
@@ -418,16 +447,19 @@ export class AppResources {
 
     const run = (async (): Promise<LinearEntry> => {
       const image = isRawPath(path)
-        ? await this.decode(path, {
-            sampleType: 'f16',
-            ...(maxEdge === undefined ? {} : { maxEdge }),
-          })
-        : await decodeJpegLinear(path, maxEdge);
+        ? turnLinear(
+            await this.decode(path, {
+              sampleType: 'f16',
+              ...(maxEdge === undefined ? {} : { maxEdge }),
+            }),
+            rotation,
+          )
+        : await decodeJpegLinear(path, maxEdge, rotation);
       const file = join(this.options.linearDir, `${randomUUID()}.bin`);
       const temp = `${file}.tmp`;
       await writeFile(temp, image.data);
       await rename(temp, file);
-      const lens = await this.lensShot(path, image.header);
+      const lens = await this.lensShot(path, image.header, rotation);
       const header = lens === undefined ? image.header : { ...image.header, lens };
       if (this.discarded.delete(key)) {
         await rm(file, { force: true }).catch(() => undefined);
@@ -446,17 +478,21 @@ export class AppResources {
   }
 
   /** The lens facts of a raw, read once per file and size; a failure only means no lens correction. */
-  private lensShot(path: string, header: LinearImageHeader): Promise<LensShotInfo | undefined> {
+  private lensShot(
+    path: string,
+    header: LinearImageHeader,
+    rotation: number,
+  ): Promise<LensShotInfo | undefined> {
     const read = this.options.lensShot;
     if (!read || !isRawPath(path)) return Promise.resolve(undefined);
     const frame = {
       width: header.sourceWidth || header.width,
       height: header.sourceHeight || header.height,
     };
-    const key = `${path}|${frame.width}x${frame.height}`;
+    const key = `${path}|${frame.width}x${frame.height}|${rotation}`;
     let known = this.lensShots.get(key);
     if (!known) {
-      known = read(path, frame).catch((error: unknown) => {
+      known = read(path, { ...frame, rotation }).catch((error: unknown) => {
         console.warn(`lens data of ${path} could not be read: ${String(error)}`);
         return undefined;
       });
@@ -492,9 +528,13 @@ export class AppResources {
  * pipeline identical for raws and JPEGs (and makes the retouch demo's JPEG
  * export work).
  */
-async function decodeJpegLinear(path: string, maxEdge?: number): Promise<LinearImage> {
+async function decodeJpegLinear(
+  path: string,
+  maxEdge: number | undefined,
+  rotation: number,
+): Promise<LinearImage> {
   const file = await readFile(path);
-  const decoded = await decodeJpeg(file);
+  const decoded = turnRgba(await decodeJpeg(file), rotation);
   const fitted =
     maxEdge !== undefined && Math.max(decoded.width, decoded.height) > maxEdge
       ? await resizeRgba(decoded.rgba, decoded.width, decoded.height, { maxEdge })
@@ -519,6 +559,27 @@ async function decodeJpegLinear(path: string, maxEdge?: number): Promise<LinearI
       asShotMultipliers: { r: 1, g: 1, b: 1 },
       cameraToSrgb: [1, 0, 0, 0, 1, 0, 0, 0, 1],
       xyzToCamera: [1, 0, 0, 0, 1, 0, 0, 0, 1],
+    },
+  };
+}
+
+/**
+ * A decoded raw turned by the photo's rotation, in the buffer and in the header's sizes. The
+ * decoder already turned it to the camera's orientation, so this is the user's turn on top.
+ */
+function turnLinear(image: LinearImage, rotation: number): LinearImage {
+  if (rotation % 4 === 0) return image;
+  const { header } = image;
+  const bytesPerPixel = header.sampleType === 'f32' ? 16 : 8;
+  const turned = turnPixels(image.data, header.width, header.height, bytesPerPixel, rotation);
+  const swap = rotation % 2 !== 0;
+  return {
+    data: turned.data,
+    header: {
+      ...header,
+      width: turned.width,
+      height: turned.height,
+      ...(swap ? { sourceWidth: header.sourceHeight, sourceHeight: header.sourceWidth } : {}),
     },
   };
 }

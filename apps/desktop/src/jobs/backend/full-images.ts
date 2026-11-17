@@ -4,12 +4,14 @@ import { isRawPath } from '@ee/metadata';
 import { randomUUID } from 'node:crypto';
 import { copyFile, mkdir, open, readFile, rename, rm, stat, writeFile } from 'node:fs/promises';
 import { extname, join } from 'node:path';
-import { decodeOrientedRgba, jpegExifOrientation } from './image-ops';
+import { decodeOrientedRgba, jpegExifOrientation, turnRgba } from './image-ops';
 
 /** What {@link FullImageCache} needs to know of a photo. */
 export interface FullImageSource {
   id: PhotoId;
   path: string;
+  /** Clockwise quarter turns the user added on top of the camera's orientation. */
+  rotation?: number;
 }
 
 export interface FullImageEntry {
@@ -120,10 +122,15 @@ export class FullImageCache {
   private async write(photo: FullImageSource, target: string): Promise<void> {
     if (isRawPath(photo.path)) {
       const preview = await this.extract(photo.path);
-      if (preview.orientation >= 2 && preview.orientation <= 8) {
+      const turned = (photo.rotation ?? 0) % 4 !== 0;
+      if ((preview.orientation >= 2 && preview.orientation <= 8) || turned) {
         // Embedded previews are stored in sensor orientation, and the browser is told to ignore
-        // any tag in them (`image-orientation: none`), so a turned frame is turned here.
-        const upright = await decodeOrientedRgba(preview.jpeg, preview.orientation);
+        // any tag in them (`image-orientation: none`), so a turned frame is turned here. The
+        // user's own rotation is applied on top of the camera's.
+        const upright = turnRgba(
+          await decodeOrientedRgba(preview.jpeg, preview.orientation),
+          photo.rotation,
+        );
         await writeFile(
           target,
           await encodeJpeg(upright.rgba, upright.width, upright.height, {
@@ -144,9 +151,9 @@ export class FullImageCache {
     }
     // The file's own tag decides, not the index, which may not know it (an older entry).
     const orientation = await readOrientation(photo.path);
-    if (orientation >= 2 && orientation <= 8) {
+    if ((orientation >= 2 && orientation <= 8) || (photo.rotation ?? 0) % 4 !== 0) {
       // The decoder applies the file's own tag, and the copy carries none.
-      const upright = await decodeJpeg(await readFile(photo.path));
+      const upright = turnRgba(await decodeJpeg(await readFile(photo.path)), photo.rotation);
       await writeFile(
         target,
         await encodeJpeg(upright.rgba, upright.width, upright.height, {

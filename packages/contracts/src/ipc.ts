@@ -366,6 +366,22 @@ export interface ShiftCaptureTimeResult {
   failed: { photoId: PhotoId; message: string }[];
 }
 
+/** Arguments of `photos:rotate`. */
+export interface RotatePhotosArgs {
+  photoIds: PhotoId[];
+  /**
+   * Quarter turns to add to each photo's own rotation: 1 turns it right (clockwise), -1 left,
+   * 2 upside down. A whole number that is not a multiple of four.
+   */
+  turns: number;
+}
+
+/** Outcome of `photos:rotate`; a photo that fails does not stop the others. */
+export interface RotatePhotosResult {
+  updated: Photo[];
+  failed: { photoId: PhotoId; message: string }[];
+}
+
 /** Arguments of `photos:setEditedPreview`. */
 export interface SetEditedPreviewArgs {
   photoId: PhotoId;
@@ -643,6 +659,15 @@ export interface IpcApi {
    */
   'photos:shiftCaptureTime': (args: ShiftCaptureTimeArgs) => Promise<ShiftCaptureTimeResult>;
 
+  /**
+   * Turn each photo by a number of quarter turns, on top of its own rotation. The turn is an edit
+   * and the original is never written: a raw's orientation goes to its XMP sidecar as
+   * `tiff:Orientation` (the camera's own orientation with the turn applied, as Lightroom writes
+   * it), a JPEG's to its embedded XMP. The photo's crop is stored in sensor space and stays as it
+   * is. Retouch areas are turned with the picture, and the cached previews are drawn again.
+   */
+  'photos:rotate': (args: RotatePhotosArgs) => Promise<RotatePhotosResult>;
+
   // --- ingest ---
   /** Start ingesting every source in the config, in parallel. Returns one job per source. */
   'ingest:start': (args: { config: IngestConfig }) => Promise<IngestJobInfo[]>;
@@ -825,6 +850,7 @@ export const INVOKE_CHANNELS = [
   'photos:listAddedFolders',
   'photos:setEditedPreview',
   'photos:shiftCaptureTime',
+  'photos:rotate',
   'ingest:start',
   'ingest:stop',
   'ingest:status',
