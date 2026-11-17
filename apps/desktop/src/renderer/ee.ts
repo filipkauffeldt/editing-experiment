@@ -1,9 +1,12 @@
 import { createBridge, type BridgeTransport, type EeBridge } from '@ee/contracts';
+import type { EarlyKeys } from '../shared/early-keys';
 
 declare global {
   interface Window {
     /** Raw IPC transport injected by the preload script. Use {@link ee} instead. */
     eeTransport: BridgeTransport;
+    /** Keys pressed before the shell mounted its keyboard handler; absent in unit tests. */
+    eeEarlyKeys?: EarlyKeys;
     /** Environment flags from the preload; absent in unit tests. */
     eeEnvironment?: { screenshots?: boolean; lazyLibraryPhotos?: number };
   }
