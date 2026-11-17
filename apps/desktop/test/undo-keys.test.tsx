@@ -122,4 +122,31 @@ describe('Ctrl/Cmd+Z across labels and develop', () => {
     await new Promise((resolve) => setTimeout(resolve, 50));
     expect(ratingOf(store)).toBe(changed);
   });
+  it('records only the active pane’s photo in the compare view and takes it back alone', async () => {
+    const store = await renderApp();
+    store.setModule('library');
+    const [first, second, third] = store.getState().photos.map((photo) => photo.id);
+    store.select(first);
+    store.select(second, 'toggle');
+    store.select(third, 'toggle');
+    store.openCompare();
+    expect(store.getState().library.view).toBe('compare');
+    store.setCompareActive(second!);
+    const ratingFor = (id: typeof first) =>
+      store.getState().photos.find((photo) => photo.id === id)?.rating;
+    const before = [first, second, third].map(ratingFor);
+    const changed = before[1] === 4 ? 2 : 4;
+
+    press({ key: String(changed) });
+    expect([first, second, third].map(ratingFor)).toEqual([before[0], changed, before[2]]);
+
+    press(undoKey);
+    await vi.waitFor(() => expect(ratingFor(second)).toBe(before[1]));
+    expect([first, second, third].map(ratingFor)).toEqual(before);
+    await screen.findByText(/^Undid rating on /);
+
+    press(redoKey);
+    await vi.waitFor(() => expect(ratingFor(second)).toBe(changed));
+    expect([ratingFor(first), ratingFor(third)]).toEqual([before[0], before[2]]);
+  });
 });
