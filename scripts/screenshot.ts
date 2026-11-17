@@ -66,12 +66,18 @@ function watchErrors(window: Page): string[] {
   return problems;
 }
 
-const shooter = (window: Page, outDir: string) => async (name: string, selector?: string) => {
-  const path = join(outDir, name);
-  if (selector) await window.locator(selector).screenshot({ path });
-  else await window.screenshot({ path });
-  console.log(`wrote ${path}`);
-};
+const shooter =
+  (window: Page, outDir: string) =>
+  async (
+    name: string,
+    selector?: string,
+    clip?: { x: number; y: number; width: number; height: number },
+  ) => {
+    const path = join(outDir, name);
+    if (selector) await window.locator(selector).screenshot({ path });
+    else await window.screenshot({ path, ...(clip ? { clip } : {}) });
+    console.log(`wrote ${path}`);
+  };
 
 const UPLOAD_STATUS =
   '[data-testid="upload-summary"], [data-testid="upload-waiting-summary"], [data-testid="failed-summary"]';
@@ -293,6 +299,54 @@ async function runMock(outDir: string): Promise<void> {
     await window.getByTestId('auto-advance').click();
     await window.keyboard.press('z');
     await window.keyboard.press('g');
+    await window.locator('[data-testid="library-grid"]').waitFor();
+    // The filter bar in the Library, where its menus open downwards with room: a hidden colour,
+    // the rating mode menu and the saved filters menu. The shot is the bar and the open menu.
+    const shootFilterBar = async (name: string): Promise<void> => {
+      const bar = await window.getByTestId('filter-bar').boundingBox();
+      const open = window.getByRole('menu');
+      const menu = (await open.count()) > 0 ? await open.boundingBox() : null;
+      if (!bar) throw new Error('no filter bar');
+      const bottom = Math.max(bar.y + bar.height, menu ? menu.y + menu.height : 0);
+      await shoot(name, undefined, {
+        x: Math.max(0, bar.x),
+        y: Math.max(0, bar.y),
+        width: Math.min(bar.width, 960),
+        height: menu ? Math.max(bottom - bar.y + 48, 300) : bottom - bar.y + 12,
+      });
+    };
+    await window.getByRole('button', { name: 'Colour label 1', exact: true }).click();
+    await window.getByRole('button', { name: 'Colour label 1', exact: true }).click();
+    await window.getByRole('button', { name: 'Colour label 3', exact: true }).click();
+    await window.getByRole('button', { name: 'Colour label 3', exact: true }).click();
+    await window.getByRole('button', { name: 'Colour label 1 excluded' }).waitFor();
+    await shootFilterBar('36-filter-colour-exclude.png');
+
+    await window.getByTestId('filter-rating-mode').getByRole('button').click();
+    await window.getByRole('menuitemradio', { name: 'Exactly' }).click();
+    await window.getByRole('button', { name: '4 stars exactly' }).click();
+    await window.getByTestId('filter-rating-mode').getByRole('button').click();
+    await window.getByRole('menuitemradio', { name: 'Exactly' }).waitFor();
+    await shootFilterBar('37-filter-rating-mode.png');
+    await window.keyboard.press('Escape');
+
+    await window.getByTestId('filter-saved').getByRole('button').click();
+    await window.getByLabel('Name for the current filter').fill('Not red, not yellow, 4 stars');
+    await window.keyboard.press('Enter');
+    await window.getByRole('menuitem', { name: 'Not red, not yellow, 4 stars' }).waitFor();
+    await window.keyboard.press('Escape');
+    await window.getByTestId('filter-clear').click();
+    await window.getByRole('button', { name: '3 stars and up' }).click();
+    await window.getByTestId('filter-status').getByRole('button').click();
+    await window.getByRole('menuitemcheckbox', { name: /^Not exported/ }).click();
+    await window.keyboard.press('Escape');
+    await window.getByTestId('filter-saved').getByRole('button').click();
+    await window.getByLabel('Name for the current filter').fill('3 stars and up, not exported');
+    await window.keyboard.press('Enter');
+    await window.getByRole('menuitem', { name: '3 stars and up, not exported' }).waitFor();
+    await shootFilterBar('38-filter-saved-menu.png');
+    await window.keyboard.press('Escape');
+    await window.getByTestId('filter-clear').click();
 
     // Compare: two photos side by side, then four in a 2 x 2 grid.
     await cells.nth(0).click();
