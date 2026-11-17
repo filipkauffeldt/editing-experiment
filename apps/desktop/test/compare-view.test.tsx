@@ -247,6 +247,41 @@ describe('delete in the compare view', () => {
   });
 });
 
+describe('right-click in the compare view', () => {
+  it('makes the pane active and puts the menu actions on its photo only', async () => {
+    const { store, ids } = await openLibrary(3);
+    const user = userEvent.setup();
+    await user.keyboard('v');
+    await screen.findByTestId('compare-view');
+    expect(activeId()).toBe(ids[2]);
+    const before = ids.map((id) => photoOf(store, id).rating);
+
+    act(() => {
+      fireEvent.contextMenu(panes()[0]!, { clientX: 100, clientY: 100 });
+    });
+    const menu = await screen.findByTestId('photo-menu');
+    expect(activeId()).toBe(ids[0]);
+    // The whole selection stays selected, the menu is about the one pane.
+    expect(store.getState().selection).toEqual(ids);
+    await user.click(within(menu).getByLabelText('Rate 4'));
+
+    expect(photoOf(store, ids[0]!).rating).toBe(4);
+    expect(ids.slice(1).map((id) => photoOf(store, id).rating)).toEqual(before.slice(1));
+  });
+
+  it('asks to delete the photo of the pane, not the selection', async () => {
+    const { store, ids } = await openLibrary(3);
+    await userEvent.setup().keyboard('v');
+    await screen.findByTestId('compare-view');
+    act(() => {
+      fireEvent.contextMenu(panes()[1]!, { clientX: 100, clientY: 100 });
+    });
+    await userEvent.setup().click(await screen.findByTestId('photo-menu-delete'));
+    await screen.findByTestId('delete-photos-dialog');
+    expect(store.getState().deleteRequest?.photoIds).toEqual([ids[1]]);
+  });
+});
+
 describe('compare helpers', () => {
   it('orders the selection like the grid', () => {
     const grid = [{ id: 'a' }, { id: 'b' }, { id: 'c' }, { id: 'd' }] as { id: PhotoId }[];

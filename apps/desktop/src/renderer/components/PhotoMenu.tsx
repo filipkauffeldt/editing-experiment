@@ -1,16 +1,18 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { actionTargets } from '../store';
 import { useAppState, useAppStore } from '../store-context';
 import { COLOR_CLASSES, COLOR_CLASS_NAMES } from './PhotoOverlays';
 import styles from './PhotoMenu.module.css';
 
 /**
  * The right-click menu of a photo in the grid or film strip: Tag, a rating row and a colour row
- * (which act on the Library's selection, or the open photo in Develop), Shift capture time…,
+ * (which act on the Library's selection, the open photo in Develop, or the pane in the compare view), Shift capture time…,
  * then Delete… and Remove from Library….
  */
 export function PhotoMenu() {
   const store = useAppStore();
-  const { photoMenu, photos, selection, selectedId, module } = useAppState();
+  const state = useAppState();
+  const { photoMenu, photos } = state;
   const menuRef = useRef<HTMLDivElement>(null);
   const [position, setPosition] = useState<{ left: number; top: number }>();
 
@@ -51,7 +53,7 @@ export function PhotoMenu() {
 
   if (!photoMenu) return null;
   // The photos Tag, rating and colour apply to: the same ones the shortcuts act on.
-  const targetIds = module === 'library' && selection.length > 0 ? selection : [selectedId];
+  const targetIds = actionTargets(state);
   const targets = photos.filter((photo) => targetIds.includes(photo.id));
   const allTagged = targets.length > 0 && targets.every((photo) => photo.tagged);
   const sharedRating = targets.every((photo) => photo.rating === targets[0]?.rating)

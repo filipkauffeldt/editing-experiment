@@ -300,7 +300,23 @@ describe.skipIf(!haveDisplay)('the Library compare view (real Electron app)', ()
     expect(await activePhoto()).toBe(photos[3]!.id);
   });
 
+  it('opens the photo menu for the pane that was right-clicked', async () => {
+    await panes().nth(1).click({ button: 'right' });
+    await window.getByTestId('photo-menu').waitFor();
+    expect(await activePhoto()).toBe(photos[1]!.id);
+    await window.getByLabel('Rate 5').click();
+    await expect
+      .poll(async () =>
+        (await invoke<Photo[]>('photos:list'))
+          .filter((photo) => photo.rating === 5)
+          .map((photo) => photo.id),
+      )
+      .toEqual([photos[1]!.id]);
+    await expect(window.getByTestId('photo-menu').count()).resolves.toBe(0);
+  });
+
   it('deletes only the photo of the active pane and keeps comparing the others', async () => {
+    await panes().nth(3).click();
     expect(await activePhoto()).toBe(photos[3]!.id);
     await window.keyboard.press('Delete');
     const dialog = window.getByTestId('delete-photos-dialog');

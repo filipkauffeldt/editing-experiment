@@ -40,6 +40,11 @@ function ComparePane({ photo, active }: { photo: Photo; active: boolean }) {
       data-photo-id={photo.id}
       data-active={active ? 'true' : 'false'}
       onPointerDown={() => store.setCompareActive(photo.id)}
+      onContextMenu={(event) => {
+        event.preventDefault();
+        store.setCompareActive(photo.id);
+        store.openPhotoMenu(photo.id, event.clientX, event.clientY);
+      }}
     >
       <div
         ref={picture.bindStage}
