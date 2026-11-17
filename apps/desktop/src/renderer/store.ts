@@ -523,6 +523,20 @@ export function activeDevelopVersion(photo: Photo | undefined) {
   return photo?.versions.find((version) => version.kind === 'develop');
 }
 
+/**
+ * The photos a label key, the photo menu and Delete act on: the Library's selection, the open
+ * photo elsewhere, and in the compare view only the active pane's photo (the user deletes or
+ * labels the frame they are looking at, not the whole burst).
+ */
+export function actionTargets(state: AppState): PhotoId[] {
+  const { module, selection, selectedId, library } = state;
+  if (module === 'library' && library.view === 'compare' && library.compare) {
+    return [library.compare.activeId];
+  }
+  if (module === 'library' && selection.length > 0) return [...selection];
+  return selectedId ? [selectedId] : [];
+}
+
 export function activePhoto(state: AppState): Photo | undefined {
   return state.photos.find((photo) => photo.id === state.selectedId);
 }
@@ -1900,9 +1914,7 @@ export class AppStore {
   /** Photos a label shortcut applies to: the Library selection there, otherwise the open photo. */
   private labelTargets(photoId?: PhotoId): PhotoId[] {
     if (photoId) return [photoId];
-    const { module, selection, selectedId } = this.state;
-    if (module === 'library' && selection.length > 0) return [...selection];
-    return selectedId ? [selectedId] : [];
+    return actionTargets(this.state);
   }
 
   /** Tags every target; if all are tagged already, untags them (Photo Mechanic's behaviour). */
@@ -2249,9 +2261,11 @@ export class AppStore {
       this.setLibrary({ view: 'grid', compare: undefined });
       return;
     }
+    // The pane that took the removed one's place becomes active.
+    const at = Math.min(compare.ids.indexOf(compare.activeId), ids.length - 1);
     const activeId = ids.includes(compare.activeId)
       ? compare.activeId
-      : (ids[0] ?? compare.activeId);
+      : (ids[Math.max(0, at)] ?? compare.activeId);
     this.setLibrary({ compare: { ids, activeId } });
   }
 
@@ -5258,10 +5272,7 @@ export class AppStore {
 
   /** The photos Delete acts on: the Library's selection, the open photo elsewhere. */
   private deleteTargets(): PhotoId[] {
-    const { module, selection, selectedId } = this.state;
-    const ids =
-      module === 'library' && selection.length > 0 ? selection : selectedId ? [selectedId] : [];
-    return [...new Set(ids)];
+    return [...new Set(actionTargets(this.state))];
   }
 
   /** Whether a delete may start now: not while a crop or retouch session is open, nor in Ingest. */
@@ -5498,8 +5509,16 @@ export class AppStore {
     this.pruneCompare(gone);
     if (!selectionTouched) return;
 
+    // Deleting a frame from the compare view leaves the others compared and selected.
+    const comparing =
+      this.state.library.view === 'compare' ? this.state.library.compare : undefined;
     this.set({ selectedId: undefined, selection: [], selectionAnchor: undefined });
     this.editedPreviews?.setSelected(undefined);
+    if (comparing) {
+      this.applySelection(comparing.activeId);
+      this.set({ selection: comparing.ids });
+      return;
+    }
     if (next) {
       this.applySelection(next);
     } else if (module === 'develop') {

@@ -1,5 +1,5 @@
 import type { PhotoId } from '@ee/contracts';
-import { act, fireEvent, render, screen } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it } from 'vitest';
 import { App } from '../src/renderer/App';
@@ -197,6 +197,53 @@ describe('compare view', () => {
     act(() => fake.emit('photos:removed', { photoId: ids[1]! }));
     expect(screen.queryByTestId('compare-view')).toBeNull();
     expect(store.getState().library.view).toBe('grid');
+  });
+});
+
+describe('delete in the compare view', () => {
+  const deleteCalls = (fake: FakeBridge): PhotoId[][] =>
+    fake.calls
+      .filter((call) => call.channel === 'photos:delete')
+      .map((call) => (call.args[0] as { photoIds: PhotoId[] }).photoIds);
+
+  it('asks about the active pane only and keeps the other photos compared and selected', async () => {
+    const { store, ids, fake } = await openLibrary(3);
+    const user = userEvent.setup();
+    await user.keyboard('v');
+    await screen.findByTestId('compare-view');
+    key({ key: 'ArrowLeft' });
+    key({ key: 'ArrowLeft' });
+    const losing = activeId() as PhotoId;
+    expect(losing).toBe(ids[0]);
+
+    await user.keyboard('{Delete}');
+    const dialog = await screen.findByTestId('delete-photos-dialog');
+    expect(dialog.textContent).toContain(photoOf(store, losing).fileName);
+    expect(within(dialog).getByTestId('delete-photos-message').textContent).toMatch(/1 photo/);
+
+    await user.click(within(dialog).getByTestId('delete-photos-confirm'));
+    await waitFor(() => expect(paneIds()).toEqual([ids[1], ids[2]]));
+    expect(deleteCalls(fake)).toEqual([[losing]]);
+    expect(store.getState().library.view).toBe('compare');
+    expect(store.getState().selection).toEqual([ids[1], ids[2]]);
+    // The next pane took its place.
+    expect(activeId()).toBe(ids[1]);
+  });
+
+  it('goes back to the grid when only one photo is left', async () => {
+    const { store, ids } = await openLibrary(2);
+    const user = userEvent.setup();
+    await user.keyboard('v');
+    await screen.findByTestId('compare-view');
+    const losing = activeId();
+    await user.keyboard('{Delete}');
+    await user.click(await screen.findByTestId('delete-photos-confirm'));
+    await screen.findByTestId('library-grid');
+    expect(store.getState().library.view).toBe('grid');
+    const left = ids.filter((id) => id !== losing);
+    expect(store.getState().photos.some((photo) => photo.id === losing)).toBe(false);
+    expect(left).toHaveLength(1);
+    expect(store.getState().photos.some((photo) => photo.id === left[0])).toBe(true);
   });
 });
 

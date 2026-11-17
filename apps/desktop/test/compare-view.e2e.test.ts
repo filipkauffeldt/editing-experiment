@@ -12,8 +12,8 @@ import { repoRoot } from './helpers/fixtures';
 
 /**
  * The Library compare view in the real app, over five generated photos: a 2-up and a 2 x 2 grid,
- * one zoom and pan for every pane, labels on the active pane only, and Esc back to the grid with
- * the selection kept.
+ * one zoom and pan for every pane, labels and Delete on the active pane only, and Esc back to the
+ * grid with the selection kept.
  */
 const desktopDir = join(repoRoot, 'apps', 'desktop');
 const xvfb = process.platform === 'linux' && existsSync('/usr/bin/Xvfb');
@@ -160,6 +160,7 @@ describe.skipIf(!haveDisplay)('the Library compare view (real Electron app)', ()
         EE_MOCK: '',
         EE_SOFTWARE_GL: '1',
         EE_USER_DATA_DIR: join(root, 'userdata'),
+        EE_TRASH_DIR: join(root, 'trash'),
       },
     });
     window = await app.firstWindow();
@@ -299,13 +300,27 @@ describe.skipIf(!haveDisplay)('the Library compare view (real Electron app)', ()
     expect(await activePhoto()).toBe(photos[3]!.id);
   });
 
+  it('deletes only the photo of the active pane and keeps comparing the others', async () => {
+    expect(await activePhoto()).toBe(photos[3]!.id);
+    await window.keyboard.press('Delete');
+    const dialog = window.getByTestId('delete-photos-dialog');
+    await dialog.waitFor();
+    expect(await dialog.textContent()).toContain(photos[3]!.fileName);
+    await window.getByTestId('delete-photos-confirm').click();
+    await waitForPanes(3);
+    expect(await attributes('data-photo-id')).toEqual(photos.slice(0, 3).map((photo) => photo.id));
+    await expect
+      .poll(async () => (await invoke<Photo[]>('photos:list')).map((photo) => photo.id).sort())
+      .toEqual([...photos.slice(0, 3), photos[4]!].map((photo) => photo.id).sort());
+  });
+
   it('goes back to the grid on Esc and keeps the selection', async () => {
     await window.keyboard.press('Escape');
     await window.waitForSelector('[data-testid="library-grid"]');
     await expect(window.getByTestId('compare-view').count()).resolves.toBe(0);
     await expect(
       window.locator('[data-testid="library-cell"][aria-selected="true"]').count(),
-    ).resolves.toBe(4);
+    ).resolves.toBe(3);
     expect(problems).toEqual([]);
   });
 });
