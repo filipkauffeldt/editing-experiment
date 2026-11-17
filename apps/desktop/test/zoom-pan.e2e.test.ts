@@ -13,7 +13,7 @@ import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:
 import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
 import { repoRoot } from './helpers/fixtures';
 
 /**
@@ -301,6 +301,27 @@ describe.skipIf(!haveDisplay)('zoom and pan (real Electron app)', { timeout: 240
     display?.stop();
     if (root) rmSync(root, { recursive: true, force: true });
   }, 60_000);
+
+  afterEach(async () => {
+    // A failed test must not leave crop or retouch open: both hide the panels, so the Exposure
+    // controls the next tests use would not be on screen and one failure would show as three.
+    const crop = window.getByTestId('crop-overlay');
+    if ((await crop.count()) > 0) {
+      await window.keyboard.press('Escape');
+      await crop.waitFor({ state: 'detached' });
+    }
+    const retouch = window.getByTestId('retouch-toolbar');
+    if ((await retouch.count()) > 0) {
+      await window.keyboard.press('Escape');
+      await retouch.waitFor({ state: 'detached' });
+    }
+    const develop = window.getByTestId('develop-view');
+    if ((await develop.count()) > 0 && (await develop.getAttribute('data-panels')) === 'hidden') {
+      await window.keyboard.press('Tab');
+      await window.waitForSelector('[data-testid="develop-view"][data-panels="shown"]');
+    }
+    await settle();
+  });
 
   it('starts at Fit with the level selector in the footer', async () => {
     expect((await view()).zoom).toBe('fit');
@@ -1156,6 +1177,20 @@ describe.skipIf(!haveDisplay)('zoom and pan (real Electron app)', { timeout: 240
     await window.keyboard.press('c');
     const overlay = window.getByTestId('crop-overlay');
     await overlay.waitFor();
+    // Crop hides the panels, and the canvas measures its new size afterwards. The first crop
+    // frame still uses the old panel-width container, so wait for the stage to fill the area
+    // before reading the frame the drags aim at.
+    await window.waitForSelector('[data-testid="develop-view"][data-panels="hidden"]');
+    await window.waitForFunction(() => {
+      const stage = document.querySelector('[data-testid="photo-canvas"] [data-photo-id]');
+      const area = stage?.parentElement;
+      if (!stage || !area) return false;
+      const box = stage.getBoundingClientRect();
+      return (
+        Math.abs(box.width - area.clientWidth) <= 1 && Math.abs(box.height - area.clientHeight) <= 1
+      );
+    });
+    await settle();
     const frame = async (): Promise<Box> => {
       const [left, top, width, height] = (await overlay.getAttribute('data-frame'))!
         .split(',')
@@ -1178,6 +1213,7 @@ describe.skipIf(!haveDisplay)('zoom and pan (real Electron app)', { timeout: 240
       { x: before.x + before.width * 0.65, y: before.y },
       { x: before.x + before.width * 0.65, y: before.y + before.height * 0.25 },
     );
+    await settle();
     const after = await frame();
     expect(after.width).toBeLessThan(before.width * 0.8);
     await window.keyboard.press('Enter');
