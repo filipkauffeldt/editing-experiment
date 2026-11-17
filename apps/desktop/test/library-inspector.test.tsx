@@ -432,7 +432,14 @@ describe('Library right-click menu', () => {
       within(menu)
         .getAllByRole('menuitem')
         .map((item) => item.textContent),
-    ).toEqual(['TagT', 'Shift capture time…', 'Delete…', 'Remove from Library…']);
+    ).toEqual([
+      'TagT',
+      'Rotate leftCtrl/⌘ ←',
+      'Rotate rightCtrl/⌘ →',
+      'Shift capture time…',
+      'Delete…',
+      'Remove from Library…',
+    ]);
     expect(
       menu
         .querySelector('[data-testid=photo-menu-delete]')

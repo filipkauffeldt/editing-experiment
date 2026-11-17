@@ -103,6 +103,12 @@ export interface Photo {
    * backend converts between the two.
    */
   orientation?: number;
+  /**
+   * Clockwise quarter turns (1..3) the user added on top of `orientation`; absent means none. The
+   * sidecar (a JPEG's embedded XMP) holds the combined orientation as `tiff:Orientation`, the way
+   * Lightroom does, so this is derived from it. `width` and `height` are of the turned picture.
+   */
+  rotation?: number;
   sourceId: SourceId;
   status: PhotoStatus;
   /** Photo Mechanic style tag flag, persisted in the sidecar (`photomechanic:Tagged`). */

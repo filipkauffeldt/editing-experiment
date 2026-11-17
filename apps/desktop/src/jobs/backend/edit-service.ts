@@ -16,6 +16,7 @@ import {
   type VersionRef,
 } from '@ee/contracts';
 import {
+  orientationAfterTurns,
   readEditParams,
   readRawDefaults,
   readRetouchVersions,
@@ -26,15 +27,21 @@ import {
 } from '@ee/metadata';
 import { applyPreset } from '@ee/develop-gl/preset';
 import { randomUUID } from 'node:crypto';
-import type { EditedPreviews } from './edited-previews';
+import { developParams, type EditedPreviews } from './edited-previews';
 import type { PhotoLibrary } from './photo-library';
 
 /** The develop version of a photo. The sidecar holds exactly one set of `crs:` settings. */
 export const developVersionId = (photoId: PhotoId): VersionId => asVersionId(`${photoId}:develop`);
 
+/**
+ * The crop is stored in the sensor's pixel space, which a rotation does not change, so what the
+ * app shows is converted with the orientation the picture has with the user's turn applied.
+ */
 function cropSpaceFor(photo: Photo): CropSpace {
   return {
-    ...(photo.orientation === undefined ? {} : { orientation: photo.orientation }),
+    ...(photo.orientation === undefined && photo.rotation === undefined
+      ? {}
+      : { orientation: orientationAfterTurns(photo.orientation, photo.rotation ?? 0) }),
     ...(photo.width === undefined ? {} : { width: photo.width }),
     ...(photo.height === undefined ? {} : { height: photo.height }),
   };
@@ -147,6 +154,27 @@ export class EditService {
       });
     }
     return updated;
+  }
+
+  /**
+   * The photo was just turned (its rotation and size are already in the index): read its
+   * versions again, so the crop is in the new picture's space and the retouch areas are the
+   * turned ones, and have the renderer draw its edited previews again. Called under the photo lock.
+   */
+  async afterRotation(photoId: PhotoId): Promise<Photo> {
+    const photo = this.photos.get(photoId);
+    const versions = await this.readVersions(photo.path, photo.id, cropSpaceFor(photo));
+    await this.previews.afterRotation(photo.id);
+    // The renderer draws from the settings it reads now, which the previews are checked against.
+    this.previews.noteParams(photo.id, developParams(versions));
+    const edited = versionsEdited(versions);
+    return this.photos.update(photo.id, (current) => ({
+      ...current,
+      versions,
+      status: { ...current.status, edited },
+      previewRevision: (current.previewRevision ?? 0) + 1,
+      previewStale: edited,
+    }));
   }
 
   async getRetouch(ref: VersionRef): Promise<RetouchOp[]> {

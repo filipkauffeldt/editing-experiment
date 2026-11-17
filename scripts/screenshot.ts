@@ -595,6 +595,27 @@ async function runReal(outDir: string): Promise<void> {
     // The white balance sliders show the camera's as-shot Kelvin and tint.
     await shoot('31-real-white-balance.png', '[data-testid="white-balance"]');
 
+    // The raw turned right (Ctrl/Cmd + →): a portrait picture in the canvas and the film strip.
+    const widthBeforeTurn = Number(await canvas.getAttribute('data-image-width'));
+    await window.keyboard.press('ControlOrMeta+ArrowRight');
+    await window.waitForFunction(
+      ([selector, width]) =>
+        Number(document.querySelector(selector)?.getAttribute('data-image-width') ?? 0) !==
+          Number(width) &&
+        document.querySelector(selector)?.getAttribute('data-visible') === 'true',
+      ['[data-testid="develop-canvas"]', widthBeforeTurn] as const,
+    );
+    await window.waitForTimeout(800);
+    await shoot('32-real-rotated-right.png');
+    await window.keyboard.press('ControlOrMeta+z');
+    await window.waitForFunction(
+      ([selector, width]) =>
+        Number(document.querySelector(selector)?.getAttribute('data-image-width') ?? 0) ===
+          Number(width) &&
+        document.querySelector(selector)?.getAttribute('data-visible') === 'true',
+      ['[data-testid="develop-canvas"]', widthBeforeTurn] as const,
+    );
+
     // A slider change on the same raw.
     const exposure = window.locator('input[aria-label="Exposure value"]');
     const beforeExposure = await renderVersion();

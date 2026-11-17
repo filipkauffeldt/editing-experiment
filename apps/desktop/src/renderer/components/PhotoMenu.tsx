@@ -6,8 +6,8 @@ import styles from './PhotoMenu.module.css';
 
 /**
  * The right-click menu of a photo in the grid or film strip: Tag, a rating row and a colour row
- * (which act on the Library's selection, the open photo in Develop, or the pane in the compare view), Shift capture time…,
- * then Delete… and Remove from Library….
+ * (which act on the Library's selection, the open photo in Develop, or the pane in the compare view),
+ * Rotate left and right, Shift capture time…, then Delete… and Remove from Library….
  */
 export function PhotoMenu() {
   const store = useAppStore();
@@ -144,6 +144,26 @@ export function PhotoMenu() {
         </button>
       </div>
       <hr className={styles.separator} />
+      <button
+        type="button"
+        role="menuitem"
+        className={styles.item}
+        data-testid="photo-menu-rotate-left"
+        onClick={() => apply(() => void store.rotatePhotos(-1))}
+      >
+        Rotate left
+        <span className={`${styles.hint} mono`}>Ctrl/⌘ ←</span>
+      </button>
+      <button
+        type="button"
+        role="menuitem"
+        className={styles.item}
+        data-testid="photo-menu-rotate-right"
+        onClick={() => apply(() => void store.rotatePhotos(1))}
+      >
+        Rotate right
+        <span className={`${styles.hint} mono`}>Ctrl/⌘ →</span>
+      </button>
       <button
         type="button"
         role="menuitem"

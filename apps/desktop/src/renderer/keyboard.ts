@@ -449,6 +449,21 @@ export function useKeyboardShortcuts(store: AppStore): void {
         return;
       }
 
+      // Rotate: Ctrl/Cmd + Left turns the photo (or the Library's selection) left, + Right turns it
+      // right. Lightroom's Ctrl + [ and ] are AltGr characters on a Swedish keyboard, and the arrow
+      // keys are the same on every layout. Not with Shift or Alt, and a held key turns once.
+      if (
+        command &&
+        !event.shiftKey &&
+        !event.altKey &&
+        (event.key === 'ArrowLeft' || event.key === 'ArrowRight') &&
+        state.module !== 'ingest'
+      ) {
+        event.preventDefault();
+        if (!event.repeat) void store.rotatePhotos(event.key === 'ArrowRight' ? 1 : -1);
+        return;
+      }
+
       const rating = ratingFromKey(event);
       if (rating !== undefined) {
         event.preventDefault();

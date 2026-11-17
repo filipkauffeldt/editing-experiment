@@ -4,7 +4,7 @@ import { isRawPath } from '@ee/metadata';
 import { YUNET_MODEL_FILE, decodeImageFile, detectFaces } from '@ee/retouch/faces';
 import { existsSync } from 'node:fs';
 import { dirname, join } from 'node:path';
-import { decodeOrientedRgba } from './image-ops';
+import { decodeOrientedRgba, turnPixels } from './image-ops';
 import type { PhotoLibrary } from './photo-library';
 
 /**
@@ -70,9 +70,13 @@ export class FaceService {
     // no photo to read (a file open during a trash fails on Windows).
     const image = await this.photos.withLock(photoId, async () => {
       const photo = this.photos.get(photoId);
-      return isRawPath(photo.path)
-        ? decodeEmbeddedPreview(photo.path)
-        : decodeImageFile(photo.path);
+      // Boxes are in the picture as shown, so the user's rotation is applied before the search.
+      const upright = isRawPath(photo.path)
+        ? await decodeEmbeddedPreview(photo.path)
+        : await decodeImageFile(photo.path);
+      if (!photo.rotation) return upright;
+      const turned = turnPixels(upright.rgba, upright.width, upright.height, 4, photo.rotation);
+      return { rgba: turned.data, width: turned.width, height: turned.height };
     });
     return detectFaces(image.rgba, image.width, image.height, region, {
       modelPath: this.modelPath,

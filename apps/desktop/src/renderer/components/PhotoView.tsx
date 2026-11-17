@@ -5,7 +5,7 @@ import { useAppState, useAppStore } from '../store-context';
 import { setBeforeAfter, toggleBefore, useDevelopViewMode } from '../develop-view';
 import { zoomKey } from '../zoom-view';
 import { PhotoCanvas } from './PhotoCanvas';
-import { CropIcon, PenIcon, StackIcon, TrashIcon } from './icons';
+import { CropIcon, PenIcon, RotateLeftIcon, RotateRightIcon, StackIcon, TrashIcon } from './icons';
 import { ZoomLevels } from './ZoomLevels';
 import styles from './PhotoView.module.css';
 
@@ -90,6 +90,28 @@ export function PhotoView({ className, photo }: PhotoViewProps) {
                   >
                     <CropIcon size={11} /> Crop
                   </button>
+                  <span className={styles.rotate} role="group" aria-label="Rotate">
+                    <button
+                      type="button"
+                      className={`${styles.tool} ${styles.toolIcon}`}
+                      onClick={() => void store.rotatePhotos(-1)}
+                      title="Rotate left (Ctrl/⌘ ←)"
+                      aria-label="Rotate left"
+                      data-testid="rotate-left"
+                    >
+                      <RotateLeftIcon size={11} />
+                    </button>
+                    <button
+                      type="button"
+                      className={`${styles.tool} ${styles.toolIcon}`}
+                      onClick={() => void store.rotatePhotos(1)}
+                      title="Rotate right (Ctrl/⌘ →)"
+                      aria-label="Rotate right"
+                      data-testid="rotate-right"
+                    >
+                      <RotateRightIcon size={11} />
+                    </button>
+                  </span>
                   <button
                     type="button"
                     className={styles.tool}

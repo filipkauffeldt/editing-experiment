@@ -73,12 +73,15 @@ export interface LoupeUrls {
 
 /**
  * `previewRevision` busts the browser's cache when the edited render changes. The camera JPEG of a
- * photo without retouching never changes, so its URL stays put while develop edits come and go.
+ * photo without retouching or rotation never changes, so its URL stays put while develop edits come and go.
  */
 export function loupeUrls(photo: Photo): LoupeUrls {
+  // A turned photo's JPEG is another file than the one the camera made, so it carries the
+  // revision too, which a turn bumps; an unturned photo keeps the URL it always had.
+  const changes = hasRetouchOps(photo) || photo.rotation !== undefined;
   return {
     preview: appUrl.preview(photo.id, photo.previewRevision),
-    full: appUrl.full(photo.id, hasRetouchOps(photo) ? (photo.previewRevision ?? 0) : undefined),
+    full: appUrl.full(photo.id, changes ? (photo.previewRevision ?? 0) : undefined),
   };
 }
 

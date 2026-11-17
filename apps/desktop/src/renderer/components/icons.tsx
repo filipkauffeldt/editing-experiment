@@ -40,6 +40,26 @@ export function CropIcon(props: IconProps) {
   );
 }
 
+/** A quarter turn to the left: an arc whose arrow points counter-clockwise. */
+export function RotateLeftIcon(props: IconProps) {
+  return (
+    <Icon {...props}>
+      <path d="M3.2 8a4.8 4.8 0 1 0 1.5-3.5" />
+      <path d="M3.2 2.4v3.1h3.1" />
+    </Icon>
+  );
+}
+
+/** A quarter turn to the right: the arc mirrored. */
+export function RotateRightIcon(props: IconProps) {
+  return (
+    <Icon {...props}>
+      <path d="M12.8 8a4.8 4.8 0 1 1-1.5-3.5" />
+      <path d="M12.8 2.4v3.1H9.7" />
+    </Icon>
+  );
+}
+
 export function StackIcon(props: IconProps) {
   return (
     <Icon {...props}>

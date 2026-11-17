@@ -1,4 +1,4 @@
-import type { Point, Rect, Shape } from './geometry';
+import { rotateShape, type Point, type Rect, type Shape } from './geometry';
 
 /**
  * A detection kept with a mosaic area so the face can be switched on and off, and its padding
@@ -74,6 +74,28 @@ export function mapMosaicShapes(
     throw new RangeError(`mapMosaicShapes: ${op.areas.length} areas became ${moved.length} shapes`);
   }
   return { ...op, shapes, areas: op.areas.map((area, i) => ({ ...area, shape: moved[i]! })) };
+}
+
+/**
+ * The ops after the picture is turned `turns` quarter turns clockwise (negative: counter-clockwise):
+ * every area, and the box a face area keeps, covers the same picture content. The mosaic block
+ * size is relative to the longer edge, which a quarter turn does not change.
+ */
+export function rotateRetouchOps(ops: readonly RetouchOp[], turns: number): RetouchOp[] {
+  return ops.map((op) => {
+    const turned = mapMosaicShapes(op, (shapes) =>
+      shapes.map((shape) => rotateShape(shape, turns)),
+    );
+    if (!turned.areas) return turned;
+    return {
+      ...turned,
+      areas: turned.areas.map((area) => {
+        if (!area.face) return area;
+        const box = rotateShape(area.face.box, turns);
+        return box.type === 'rect' ? { ...area, face: { ...area.face, box } } : area;
+      }),
+    };
+  });
 }
 
 /** A retouch operation. Only mosaic exists for now; the union is where new ops go. */

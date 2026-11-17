@@ -1,4 +1,5 @@
 import type { BuiltinLensCorrection, LensShotInfo } from '@ee/contracts';
+import { composeOrientation } from '@ee/develop-gl/crop';
 import { open } from 'node:fs/promises';
 import { getExifToolService, type ExifToolService } from './exiftool';
 import { isRawPath } from './paths';
@@ -290,7 +291,7 @@ const leadingNumber = (value: unknown): number | undefined => {
  */
 export async function readLensShot(
   path: string,
-  frame: { width: number; height: number },
+  frame: { width: number; height: number; rotation?: number },
   service: ExifToolService = getExifToolService(),
 ): Promise<LensShotInfo | undefined> {
   if (!isRawPath(path)) return undefined;
@@ -318,7 +319,12 @@ export async function readLensShot(
     const builtin =
       blob === undefined
         ? undefined
-        : parseNefInfo(blob, { ...frame, ...(orientation === undefined ? {} : { orientation }) });
+        : parseNefInfo(blob, {
+            width: frame.width,
+            height: frame.height,
+            // The camera's offsets are in its own frame; the user's rotation turns them with it.
+            orientation: composeOrientation(orientation ?? 1, frame.rotation ?? 0),
+          });
     if (builtin) shot.builtin = builtin;
   }
   return shot.lensModel !== undefined || shot.builtin !== undefined ? shot : undefined;

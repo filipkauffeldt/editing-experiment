@@ -316,9 +316,14 @@ describe.skipIf(!haveDisplay)(
       const footer = await box('[data-testid="photo-view"] footer');
       const labels = await window
         .locator('[data-testid="photo-view"] footer button')
-        .evaluateAll((buttons) => buttons.map((button) => button.textContent));
-      expect(labels.slice(0, 4).map((label) => label?.trim())).toEqual([
+        .evaluateAll((buttons) =>
+          buttons.map((button) => button.textContent?.trim() || button.getAttribute('aria-label')),
+        );
+      // The rotate buttons are icons, named by their aria label.
+      expect(labels.slice(0, 6)).toEqual([
         'Crop',
+        'Rotate left',
+        'Rotate right',
         'Retouch',
         'Before',
         'Split',

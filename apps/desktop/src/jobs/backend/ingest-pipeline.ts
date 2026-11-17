@@ -12,10 +12,14 @@ import {
   asNumber,
   asString,
   isRawPath,
+  orientationAfterTurns,
   readPhotoLabels,
   readSidecarCaptureTime,
+  readXmpOrientation,
+  rotationFromOrientations,
   sidecarPathFor,
   toIsoDate,
+  xmpOrientationFromTags,
   type ExifToolService,
 } from '@ee/metadata';
 import { copyFile, stat, utimes } from 'node:fs/promises';
@@ -52,6 +56,8 @@ interface Basics {
   width?: number;
   height?: number;
   orientation?: number;
+  /** The orientation the file's XMP names (`tiff:Orientation`), which a rotation in Lightroom wrote. */
+  xmpOrientation?: number;
   preview?: PreviewSource;
 }
 
@@ -123,6 +129,7 @@ async function readImage(path: string, exiftool: ExifToolService): Promise<Basic
   // ExifTool reports the stored size; orientations 5..8 display it turned.
   const stored = [asNumber(tags['File:ImageWidth']), asNumber(tags['File:ImageHeight'])] as const;
   const orientationValue = validOrientation(asNumber(tags['IFD0:Orientation']));
+  const xmpOrientation = xmpOrientationFromTags(tags);
   const [w, h] =
     orientationValue !== undefined && orientationValue >= 5 && orientationValue <= 8
       ? [stored[1], stored[0]]
@@ -146,6 +153,7 @@ async function readImage(path: string, exiftool: ExifToolService): Promise<Basic
     ...(w === undefined ? {} : { width: w }),
     ...(h === undefined ? {} : { height: h }),
     ...(orientationValue === undefined ? {} : { orientation: orientationValue }),
+    ...(xmpOrientation === undefined ? {} : { xmpOrientation }),
     preview: { file: path },
   };
 }
@@ -212,6 +220,19 @@ export function createOnFileIngested(
       }
     }
 
+    // A rotation made in Lightroom is in the XMP: a raw's sidecar, a JPEG's embedded packet.
+    if (raw) {
+      basics.xmpOrientation = await readXmpOrientation(info.path, exiftool).catch(() => undefined);
+    }
+    const rotation = rotationFromOrientations(basics.orientation, basics.xmpOrientation);
+    if (rotation !== 0) {
+      // Sizes and previews are of the picture as turned, as the rest of the app sees it.
+      if (rotation % 2 === 1 && basics.width !== undefined && basics.height !== undefined) {
+        [basics.width, basics.height] = [basics.height, basics.width];
+      }
+      if (basics.preview) basics.preview = { ...basics.preview, rotation };
+    }
+
     if (basics.preview) {
       try {
         await previews.generate(info.photoId, basics.preview);
@@ -221,7 +242,9 @@ export function createOnFileIngested(
     }
 
     const cropSpace = {
-      ...(basics.orientation === undefined ? {} : { orientation: basics.orientation }),
+      ...(basics.orientation === undefined && rotation === 0
+        ? {}
+        : { orientation: orientationAfterTurns(basics.orientation, rotation) }),
       ...(basics.width === undefined ? {} : { width: basics.width }),
       ...(basics.height === undefined ? {} : { height: basics.height }),
     };
@@ -312,6 +335,7 @@ export function createOnFileIngested(
       ...(basics.width === undefined ? {} : { width: basics.width }),
       ...(basics.height === undefined ? {} : { height: basics.height }),
       ...(basics.orientation === undefined ? {} : { orientation: basics.orientation }),
+      ...(rotation === 0 ? {} : { rotation }),
       sourceId: info.sourceId,
       tagged: labels.tagged,
       colorClass: labels.colorClass,

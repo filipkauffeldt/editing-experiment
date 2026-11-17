@@ -6,6 +6,7 @@
  */
 import type { RenderedImage } from '@ee/contracts';
 import { decodeJpeg, encodeJpeg, makePreviews, resizeRgba, type RgbaImage } from '@ee/core';
+import { normalizeTurns } from '@ee/develop-gl/crop';
 import { readFile } from 'node:fs/promises';
 import { extname } from 'node:path';
 
@@ -17,8 +18,12 @@ export const THUMB_MAX_EDGE = 320;
 const PREVIEW_QUALITY = 85;
 const THUMB_QUALITY = 80;
 
-/** What a preview is made from: JPEG bytes in sensor orientation, or a JPEG file with its own EXIF tag. */
-export type PreviewSource = { jpeg: Buffer; orientation: number } | { file: string };
+/**
+ * What a preview is made from: JPEG bytes in sensor orientation, or a JPEG file with its own EXIF
+ * tag. `rotation` is the clockwise quarter turns the user added on top of that orientation.
+ */
+export type PreviewSource =
+  { jpeg: Buffer; orientation: number; rotation?: number } | { file: string; rotation?: number };
 
 export interface PreviewJpegs {
   /** At most {@link PREVIEW_MAX_EDGE} px on the long edge, upright, no EXIF. */
@@ -35,12 +40,16 @@ export async function makePreviewJpegs(source: PreviewSource): Promise<PreviewJp
     if (!JPEG_EXTENSIONS.has(extname(source.file).toLowerCase())) {
       throw new Error(`previews of ${extname(source.file) || 'this'} files are not supported`);
     }
-    // The file's own EXIF orientation is applied by the core.
-    return makePreviews(await readFile(source.file), {
-      thumbEdge: THUMB_MAX_EDGE,
-      previewEdge: PREVIEW_MAX_EDGE,
-      quality: PREVIEW_QUALITY,
-    });
+    const file = await readFile(source.file);
+    if (normalizeTurns(source.rotation ?? 0) === 0) {
+      // The file's own EXIF orientation is applied by the core.
+      return makePreviews(file, {
+        thumbEdge: THUMB_MAX_EDGE,
+        previewEdge: PREVIEW_MAX_EDGE,
+        quality: PREVIEW_QUALITY,
+      });
+    }
+    return previewsOf(await decodeJpeg(file), source.rotation);
   }
   // An embedded raw preview is in sensor orientation; the raw decoder says how to turn it,
   // so ignore any tag in the preview itself. Resizing first keeps the turn cheap.
@@ -48,12 +57,21 @@ export async function makePreviewJpegs(source: PreviewSource): Promise<PreviewJp
   const fitted = await resizeRgba(stored.rgba, stored.width, stored.height, {
     maxEdge: PREVIEW_MAX_EDGE,
   });
-  const upright = orientRgba(fitted, source.orientation);
-  const small = await resizeRgba(upright.rgba, upright.width, upright.height, {
+  return previewsOf(orientRgba(fitted, source.orientation), source.rotation);
+}
+
+/** The preview and thumbnail JPEGs of upright pixels, turned by the user's rotation first. */
+async function previewsOf(upright: RgbaImage, rotation?: number): Promise<PreviewJpegs> {
+  const turned = turnRgba(upright, rotation);
+  const fitted =
+    Math.max(turned.width, turned.height) > PREVIEW_MAX_EDGE
+      ? await resizeRgba(turned.rgba, turned.width, turned.height, { maxEdge: PREVIEW_MAX_EDGE })
+      : turned;
+  const small = await resizeRgba(fitted.rgba, fitted.width, fitted.height, {
     maxEdge: THUMB_MAX_EDGE,
   });
   const [preview, thumb] = await Promise.all([
-    encode(upright, PREVIEW_QUALITY),
+    encode(fitted, PREVIEW_QUALITY),
     encode(small, THUMB_QUALITY),
   ]);
   return { preview, thumb };
@@ -71,14 +89,14 @@ export async function makeThumbnailJpeg(source: PreviewSource): Promise<Buffer> 
     if (!JPEG_EXTENSIONS.has(extname(source.file).toLowerCase())) {
       throw new Error(`previews of ${extname(source.file) || 'this'} files are not supported`);
     }
-    const decoded = await decodeJpeg(await readFile(source.file));
+    const decoded = turnRgba(await decodeJpeg(await readFile(source.file)), source.rotation);
     const small = await resizeRgba(decoded.rgba, decoded.width, decoded.height, {
       maxEdge: THUMB_MAX_EDGE,
     });
     return encode(small, THUMB_QUALITY);
   }
   const stored = await decodeJpeg(source.jpeg, { skipOrientation: true });
-  const upright = orientRgba(stored, source.orientation);
+  const upright = turnRgba(orientRgba(stored, source.orientation), source.rotation);
   const small = await resizeRgba(upright.rgba, upright.width, upright.height, {
     maxEdge: THUMB_MAX_EDGE,
   });
@@ -152,6 +170,63 @@ export function orientRgba(image: RgbaImage, orientation: number): RgbaImage {
     }
   }
   return { width, height, rgba: Buffer.from(target.buffer) };
+}
+
+/**
+ * Turn the displayed pixels by the user's rotation: clockwise quarter turns, 0..3 (negative and
+ * larger counts wrap). Pixels move as whole `bytesPerPixel`-wide units, so 8-bit RGBA (4), half
+ * float RGBA (8) and float RGBA (16) all use it. A quarter turn swaps width and height.
+ */
+export function turnPixels(
+  pixels: Uint8Array,
+  width: number,
+  height: number,
+  bytesPerPixel: number,
+  turns: number | undefined,
+): { data: Buffer; width: number; height: number } {
+  const quarter = normalizeTurns(turns ?? 0);
+  if (quarter === 0) {
+    return {
+      data: Buffer.from(pixels.buffer, pixels.byteOffset, pixels.byteLength),
+      width,
+      height,
+    };
+  }
+  if (bytesPerPixel % 4 !== 0)
+    throw new RangeError('pixels must be a whole number of 32-bit words');
+  const words = bytesPerPixel / 4;
+  const count = width * height * words;
+  // A view over 32-bit words needs a 4-byte aligned start, which pooled buffers lack.
+  const aligned =
+    pixels.byteOffset % 4 === 0
+      ? pixels
+      : Uint8Array.from(pixels.subarray(0, width * height * bytesPerPixel));
+  const source = new Uint32Array(aligned.buffer, aligned.byteOffset, count);
+  const swap = quarter !== 2;
+  const outWidth = swap ? height : width;
+  const outHeight = swap ? width : height;
+  const target = new Uint32Array(count);
+  for (let y = 0; y < outHeight; y++) {
+    for (let x = 0; x < outWidth; x++) {
+      let sx: number;
+      let sy: number;
+      // The EXIF definitions of 6 (right), 3 (upside down) and 8 (left).
+      if (quarter === 1) [sx, sy] = [y, height - 1 - x];
+      else if (quarter === 2) [sx, sy] = [width - 1 - x, height - 1 - y];
+      else [sx, sy] = [width - 1 - y, x];
+      const from = (sy * width + sx) * words;
+      const to = (y * outWidth + x) * words;
+      for (let k = 0; k < words; k++) target[to + k] = source[from + k] as number;
+    }
+  }
+  return { data: Buffer.from(target.buffer), width: outWidth, height: outHeight };
+}
+
+/** 8-bit RGBA pixels turned by the user's rotation, see {@link turnPixels}. */
+export function turnRgba(image: RgbaImage, turns: number | undefined): RgbaImage {
+  if (normalizeTurns(turns ?? 0) === 0) return image;
+  const turned = turnPixels(image.rgba, image.width, image.height, 4, turns);
+  return { width: turned.width, height: turned.height, rgba: turned.data };
 }
 
 /**

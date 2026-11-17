@@ -738,6 +738,59 @@ export function storedToOrientedPoint(point: Point, orientation: number): Point 
   }
 }
 
+/** Wraps clockwise quarter turns into 0..3; fractions and non-numbers count as 0. */
+export function normalizeTurns(turns: number): 0 | 1 | 2 | 3 {
+  if (!Number.isInteger(turns)) return 0;
+  return (((turns % 4) + 4) % 4) as 0 | 1 | 2 | 3;
+}
+
+/** One clockwise quarter turn of the displayed image, on a normalized point. */
+function turnPointClockwise(point: Point): Point {
+  return { x: 1 - point.y, y: point.x };
+}
+
+const ORIENTATION_PROBES: readonly Point[] = [
+  { x: 0.2, y: 0.3 },
+  { x: 0.7, y: 0.9 },
+];
+
+/**
+ * The EXIF orientation an original stored with `base` has once its displayed image is turned
+ * `turns` quarter turns clockwise. This is the value Lightroom writes as `tiff:Orientation` after
+ * a rotation: the turn is applied on top of the camera's own orientation, mirrored or not.
+ */
+export function composeOrientation(base: number, turns: number): ExifOrientation {
+  const camera = normalizeOrientation(base);
+  const quarter = normalizeTurns(turns);
+  const matches = (candidate: ExifOrientation): boolean =>
+    ORIENTATION_PROBES.every((probe) => {
+      let shown = probe;
+      for (let i = 0; i < quarter; i++) shown = turnPointClockwise(shown);
+      const wanted = orientedToStoredPoint(probe, camera);
+      const got = orientedToStoredPoint(shown, candidate);
+      return Math.abs(wanted.x - got.x) < 1e-9 && Math.abs(wanted.y - got.y) < 1e-9;
+    });
+  for (const candidate of [1, 2, 3, 4, 5, 6, 7, 8] as const) {
+    if (matches(candidate)) return candidate;
+  }
+  return camera;
+}
+
+/**
+ * The clockwise quarter turns (0..3) that take an original stored with `base` to `effective`, or
+ * undefined when no turn does (the two differ by a mirror).
+ */
+export function turnsBetweenOrientations(
+  base: number,
+  effective: number,
+): 0 | 1 | 2 | 3 | undefined {
+  const target = normalizeOrientation(effective);
+  for (const turns of [0, 1, 2, 3] as const) {
+    if (composeOrientation(base, turns) === target) return turns;
+  }
+  return undefined;
+}
+
 /**
  * Oriented-space crop (the app's `EditParams.crop`) -> Lightroom's stored-space
  * `crs:Crop*`. EXIF orientations 5..8 swap the crop's width/height (a portrait
