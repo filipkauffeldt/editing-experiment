@@ -7,6 +7,7 @@ import {
   useDevelopViewMode,
   useHistogram,
 } from '../develop-view';
+import { shootingInfoLine } from '../shooting-info';
 import styles from './Histogram.module.css';
 
 const HEIGHT = 78;
@@ -71,24 +72,6 @@ function draw(canvas: HTMLCanvasElement, histogram: HistogramData | undefined): 
   context.globalAlpha = 1;
 }
 
-function shutterLabel(seconds: number | undefined): string | undefined {
-  if (seconds === undefined || !Number.isFinite(seconds) || seconds <= 0) return undefined;
-  if (seconds >= 1) return `${seconds.toFixed(seconds >= 10 ? 0 : 1)}s`;
-  return `1/${Math.round(1 / seconds)}s`;
-}
-
-function exifLine(photo: Photo | undefined): string | undefined {
-  if (!photo) return undefined;
-  const camera = photo.camera;
-  const parts = [
-    camera?.iso === undefined ? undefined : `ISO ${Math.round(camera.iso)}`,
-    camera?.focalLength === undefined ? undefined : `${Math.round(camera.focalLength)}mm`,
-    camera?.aperture === undefined ? undefined : `f/${camera.aperture.toFixed(1)}`,
-    shutterLabel(camera?.shutter),
-  ].filter((part): part is string => part !== undefined);
-  return parts.length > 0 ? parts.join(' · ') : undefined;
-}
-
 /** Lightroom-style histogram at the top of Develop, with the EXIF line and clipping switches. */
 export function Histogram({ photo }: { photo: Photo | undefined }) {
   const mode = useDevelopViewMode();
@@ -112,7 +95,7 @@ export function Histogram({ photo }: { photo: Photo | undefined }) {
     if (canvas) draw(canvas, histogram);
   }, [histogram, width]);
 
-  const exif = exifLine(photo);
+  const exif = shootingInfoLine(photo);
   return (
     <div
       className={styles.histogram}
