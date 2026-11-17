@@ -53,6 +53,24 @@
   color: var(--dim);
 }
 
+/* Shooting information: the compact monochrome overlay in the stage's bottom-left corner. */
+.shootingInfo {
+  position: absolute;
+  bottom: 10px;
+  left: 10px;
+  z-index: 2;
+  max-width: calc(100% - 20px);
+  padding: 1px 5px;
+  overflow: hidden;
+  background: var(--scrim);
+  color: var(--text);
+  font-family: var(--font-mono);
+  font-size: 9px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  pointer-events: none;
+}
+
 .strip {
   padding: 6px 8px 0;
   border-top: 1px solid var(--line);

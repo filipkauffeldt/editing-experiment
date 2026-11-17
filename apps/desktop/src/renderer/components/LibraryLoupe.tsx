@@ -11,8 +11,9 @@ import {
   neededUrl,
   neighbours,
 } from '../loupe-view';
-import { activePhoto } from '../store';
+import { activePhoto, panelsAreHidden } from '../store';
 import { useAppState } from '../store-context';
+import { shootingInfoLine } from '../shooting-info';
 import { wholeDevicePixels } from '../view-transform';
 import { useZoomControls } from '../zoom-view';
 import { FilmStrip } from './FilmStrip';
@@ -71,6 +72,8 @@ export function LibraryLoupe({ photos }: { photos: Photo[] }) {
   const [full, setFull] = useState<Loaded | undefined>();
   const urls = useMemo(() => (photo ? loupeUrls(photo) : undefined), [photo]);
   const retouched = photo !== undefined && hasRetouchOps(photo);
+  const shooting = photo ? shootingInfoLine(photo, { cameraBody: true }) : undefined;
+  const panelsHidden = panelsAreHidden(state);
 
   const frame = useMemo(
     () =>
@@ -192,6 +195,11 @@ export function LibraryLoupe({ photos }: { photos: Photo[] }) {
                 data-testid="loupe-pan-layer"
                 {...zoom.panHandlers}
               />
+            )}
+            {shooting && !panelsHidden && (
+              <div className={styles.shootingInfo} data-testid="loupe-shooting-info">
+                {shooting}
+              </div>
             )}
           </>
         ) : (
