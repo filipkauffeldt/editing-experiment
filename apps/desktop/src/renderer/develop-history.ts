@@ -202,6 +202,11 @@ export class DevelopHistory {
     return (this.histories.get(photoId)?.redo.length ?? 0) > 0;
   }
 
+  /** When the step an undo would take back last changed; undefined with nothing to undo. */
+  undoAt(photoId: PhotoId): number | undefined {
+    return this.histories.get(photoId)?.steps.at(-1)?.at;
+  }
+
   undoDepth(photoId: PhotoId): number {
     return this.histories.get(photoId)?.steps.length ?? 0;
   }
