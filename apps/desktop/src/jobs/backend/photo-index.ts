@@ -4,6 +4,7 @@ import type {
   PhotoFacets,
   PhotoId,
   PhotoQueryFilter,
+  PhotoStatusFilter,
   SourceId,
 } from '@ee/contracts';
 import { mkdirSync } from 'node:fs';
@@ -39,6 +40,8 @@ interface PhotoColumns {
   colorClass: number;
   edited: number;
   upload: string;
+  /** `status.export`: none, running, done or failed. */
+  exportState: string;
   metadataDiffers: number;
   cameraKey: string;
 }
@@ -89,12 +92,42 @@ function columnsOf(photo: Photo): PhotoColumns {
     colorClass: Number.isInteger(photo.colorClass) ? photo.colorClass : 0,
     edited: status.edited || versions.some((version) => version.kind === 'retouch') ? 1 : 0,
     upload: status.upload ?? 'none',
+    exportState: status.export ?? 'none',
     metadataDiffers: status.metadataDiffersFromTemplate ? 1 : 0,
     cameraKey: camera
       ? `${camera.model ?? camera.make ?? 'Unknown'}|${camera.serialNumber ?? ''}`
       : '',
   };
 }
+
+/** The SQL condition of one status filter, on the flat columns. Same rules as `matchesStatus`. */
+function statusSql(status: PhotoStatusFilter): string {
+  switch (status) {
+    case 'not-sent':
+      return "COALESCE(upload, 'none') != 'done'";
+    case 'not-exported':
+      return "COALESCE(export_state, 'none') != 'done'";
+    case 'exported':
+      return "export_state = 'done'";
+    case 'failed':
+      return "upload = 'failed'";
+    case 'edited':
+      return 'edited = 1';
+    case 'metadata-differs':
+      return 'metadata_differs = 1';
+  }
+}
+
+const statusAlias = (status: PhotoStatusFilter): string => `status_${status.replace(/-/g, '_')}`;
+
+const STATUS_FILTER_IDS: readonly PhotoStatusFilter[] = [
+  'not-sent',
+  'not-exported',
+  'exported',
+  'failed',
+  'edited',
+  'metadata-differs',
+];
 
 const normaliseFolder = (folder: string): string => {
   const trimmed = folder.replace(/[\\/]+$/, '');
@@ -157,6 +190,7 @@ export class PhotoIndex {
         color_class INTEGER,
         edited INTEGER,
         upload TEXT,
+        export_state TEXT,
         metadata_differs INTEGER,
         camera_key TEXT,
         template_path TEXT,
@@ -189,9 +223,15 @@ export class PhotoIndex {
     add('color_class', 'INTEGER');
     add('edited', 'INTEGER');
     add('upload', 'TEXT');
+    add('export_state', 'TEXT');
     add('metadata_differs', 'INTEGER');
     add('camera_key', 'TEXT');
     this.migrateFlatColumns();
+    // Rows saved before the export column existed: read the state from the stored photo once.
+    this.db.exec(
+      `UPDATE photos SET export_state = COALESCE(json_extract(json, '$.status.export'), 'none')
+       WHERE export_state IS NULL`,
+    );
     this.db.exec(`
       CREATE INDEX IF NOT EXISTS photos_folder ON photos (folder, capture_time, file_name);
       CREATE INDEX IF NOT EXISTS photos_capture ON photos (capture_time, file_name);
@@ -201,9 +241,10 @@ export class PhotoIndex {
     this.upsertStatement = this.db.prepare(
       `INSERT INTO photos (
          id, source_id, path, folder, file_name, capture_time, tagged, rating, color_class,
-         edited, upload, metadata_differs, camera_key, template_path, source_path, json
+         edited, upload, export_state, metadata_differs, camera_key, template_path, source_path,
+         json
        )
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
        ON CONFLICT(id) DO UPDATE SET
          json = excluded.json,
          source_id = excluded.source_id,
@@ -216,6 +257,7 @@ export class PhotoIndex {
          color_class = excluded.color_class,
          edited = excluded.edited,
          upload = excluded.upload,
+         export_state = excluded.export_state,
          metadata_differs = excluded.metadata_differs,
          camera_key = excluded.camera_key`,
     );
@@ -335,6 +377,7 @@ export class PhotoIndex {
       columns.colorClass,
       columns.edited,
       columns.upload,
+      columns.exportState,
       columns.metadataDiffers,
       columns.cameraKey,
       templatePath ?? null,
@@ -506,12 +549,7 @@ export class PhotoIndex {
     });
     const restSql = rest.sql === '' ? '1' : rest.sql.replace(/^ WHERE /, '');
     const ticked = filter.statuses ?? [];
-    const statusCondition = (status: NonNullable<PhotoQueryFilter['statuses']>[number]): string => {
-      if (status === 'not-sent') return "COALESCE(upload, 'none') != 'done'";
-      if (status === 'failed') return "upload = 'failed'";
-      if (status === 'edited') return 'edited = 1';
-      return 'metadata_differs = 1';
-    };
+    const statusCondition = statusSql;
     const all = (conditions: readonly string[]): string =>
       conditions.length === 0 ? '1' : conditions.join(' AND ');
     const allStatus = all(ticked.map(statusCondition));
@@ -532,10 +570,9 @@ export class PhotoIndex {
     sum([allStatus, 'tagged = 1'], 'tag_tagged');
     sum([allStatus, 'COALESCE(tagged, 0) = 0'], 'tag_untagged');
     sum([allStatus, tagOk], 'shown');
-    const statusKeys = ['not-sent', 'failed', 'edited', 'metadata-differs'] as const;
-    for (const status of statusKeys) {
+    for (const status of STATUS_FILTER_IDS) {
       const others = ticked.filter((candidate) => candidate !== status).map(statusCondition);
-      sum([tagOk, ...others, statusCondition(status)], `status_${status.replace('-', '_')}`);
+      sum([tagOk, ...others, statusCondition(status)], statusAlias(status));
     }
     const row = this.db
       .prepare(`SELECT COUNT(*) AS scope_total, ${sums.join(', ')} FROM photos${scope.sql}`)
@@ -567,12 +604,9 @@ export class PhotoIndex {
         tagged: Number(row.tag_tagged ?? 0),
         untagged: Number(row.tag_untagged ?? 0),
       },
-      status: {
-        'not-sent': Number(row.status_not_sent ?? 0),
-        failed: Number(row.status_failed ?? 0),
-        edited: Number(row.status_edited ?? 0),
-        'metadata-differs': Number(row.status_metadata_differs ?? 0),
-      },
+      status: Object.fromEntries(
+        STATUS_FILTER_IDS.map((status) => [status, Number(row[statusAlias(status)] ?? 0)]),
+      ) as PhotoFacets['status'],
       cameras: cameraRows.map((camera) => {
         const [model, serial] = camera.key.split('|');
         return {
@@ -628,13 +662,21 @@ export class PhotoIndex {
     if (filter) {
       if (filter.tag === 'tagged') parts.push('tagged = 1');
       else if (filter.tag === 'untagged') parts.push('COALESCE(tagged, 0) = 0');
-      if (filter.minRating !== undefined && filter.minRating > 0) {
-        parts.push('rating >= ?');
-        params.push(filter.minRating);
+      if (filter.rating !== undefined) {
+        const compare = { min: '>=', exact: '=', max: '<=' }[filter.rating.mode];
+        parts.push(`COALESCE(rating, 0) ${compare} ?`);
+        params.push(filter.rating.stars);
       }
       if (filter.colorClasses !== undefined && filter.colorClasses.length > 0) {
         parts.push(`color_class IN (${placeholders(filter.colorClasses.length)})`);
         params.push(...filter.colorClasses);
+      }
+      if (filter.excludeColorClasses !== undefined && filter.excludeColorClasses.length > 0) {
+        // A photo with no label is class 0 (or NULL in an old row) and is never excluded.
+        parts.push(
+          `COALESCE(color_class, 0) NOT IN (${placeholders(filter.excludeColorClasses.length)})`,
+        );
+        params.push(...filter.excludeColorClasses);
       }
       if (filter.camera !== undefined) {
         parts.push('camera_key = ?');
@@ -644,12 +686,7 @@ export class PhotoIndex {
         parts.push('source_id = ?');
         params.push(filter.sourceId);
       }
-      for (const status of filter.statuses ?? []) {
-        if (status === 'not-sent') parts.push("COALESCE(upload, 'none') != 'done'");
-        else if (status === 'failed') parts.push("upload = 'failed'");
-        else if (status === 'edited') parts.push('edited = 1');
-        else if (status === 'metadata-differs') parts.push('metadata_differs = 1');
-      }
+      for (const status of filter.statuses ?? []) parts.push(statusSql(status));
     }
     return {
       sql: parts.length === 0 ? '' : ` WHERE ${parts.join(' AND ')}`,

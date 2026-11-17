@@ -77,13 +77,33 @@ export interface ListPhotosArgs {
   limit?: number;
 }
 
+/** The status filters of the filter bar. A photo has to match every one that is ticked. */
+export type PhotoStatusFilter =
+  'not-sent' | 'not-exported' | 'exported' | 'failed' | 'edited' | 'metadata-differs';
+
+/** How a star filter compares a photo's rating with its stars. */
+export type PhotoRatingMode = 'min' | 'exact' | 'max';
+
+/**
+ * A rating filter: `min` is "N and up", `exact` is exactly N, `max` is "N or fewer" and so
+ * includes unrated photos. Unrated photos only are `exact` with 0 stars.
+ */
+export interface PhotoRatingFilter {
+  mode: PhotoRatingMode;
+  /** 0..5; 0 with `min` matches every photo. */
+  stars: number;
+}
+
 /** The filter a `photos:query` applies in the jobs process. */
 export interface PhotoQueryFilter {
   tag?: 'all' | 'tagged' | 'untagged';
-  /** 0 or absent is off, otherwise this many stars and up. */
-  minRating?: number;
+  /** Absent is off. */
+  rating?: PhotoRatingFilter;
+  /** Colour classes to show; absent or empty is every colour. */
   colorClasses?: number[];
-  statuses?: ('not-sent' | 'failed' | 'edited' | 'metadata-differs')[];
+  /** Colour classes to hide, whatever `colorClasses` says. Class 0 (no label) is never hidden. */
+  excludeColorClasses?: number[];
+  statuses?: PhotoStatusFilter[];
   camera?: string;
   sourceId?: SourceId;
   /** Free text search over file name, caption and keywords. */
@@ -129,7 +149,7 @@ export interface PhotoFacets {
   /** Photos in the scope before the filter. */
   scopeTotal: number;
   tag: Record<'all' | 'tagged' | 'untagged', number>;
-  status: Record<'not-sent' | 'failed' | 'edited' | 'metadata-differs', number>;
+  status: Record<PhotoStatusFilter, number>;
   /** Cameras in the scope with the rest of the filter applied (the camera choice itself left out). */
   cameras: PhotoFacetCamera[];
 }
@@ -404,6 +424,37 @@ export type PanelWidthId =
  */
 export type PanelWidths = Partial<Record<PanelWidthId, number>>;
 
+/**
+ * The filter bar's filter as the settings keep it. The folder the Library has open is not part
+ * of it, and neither is the sort.
+ */
+export interface StoredFilter {
+  tag: 'all' | 'tagged' | 'untagged';
+  /** 0 = no star picked. */
+  ratingStars: number;
+  ratingMode: PhotoRatingMode | 'unrated';
+  /** Colour classes to show. */
+  colorClasses: number[];
+  /** Colour classes to hide. */
+  excludedColors: number[];
+  statuses: PhotoStatusFilter[];
+  /** `cameraKey` of a body. */
+  camera?: string;
+  sourceId?: SourceId;
+  /** The text searched for, as typed. */
+  search: string;
+}
+
+/** The longest name a saved filter keeps. */
+export const MAX_SAVED_FILTER_NAME = 60;
+
+/** A filter the user saved under a name. */
+export interface SavedFilter {
+  id: string;
+  name: string;
+  filter: StoredFilter;
+}
+
 /** Persisted user settings. */
 export interface AppSettings {
   ingest: IngestSettings;
@@ -457,6 +508,13 @@ export interface AppSettings {
    * one computer and lives in `machine.json`; absent uses the 20 GB default.
    */
   cacheLimitBytes?: number;
+  /** Filters saved under a name, in the order the user made them. Shared between computers. */
+  savedFilters?: SavedFilter[];
+  /**
+   * The filter on screen when the app last ran, put back at the next start. It belongs to one
+   * computer and lives in `machine.json`, as it can name a camera or a source of this one.
+   */
+  currentFilter?: StoredFilter;
 }
 
 /** Arguments of `dialog:pick`. */

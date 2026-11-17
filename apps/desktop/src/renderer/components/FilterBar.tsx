@@ -5,19 +5,36 @@ import {
   STATUS_FILTERS,
   TAG_FILTERS,
   cameraOptions,
+  colorFilterState,
   filterCounts,
+  RATING_MODES,
   isFiltering,
-  toggleMinRating,
 } from '../filters';
 import type { SortMode } from '../store';
 import { useAppState, useAppStore } from '../store-context';
 import { COLOR_CLASSES, COLOR_CLASS_NAMES } from './PhotoOverlays';
 import { Button } from './ui/Button';
+import { SavedFilters } from './SavedFilters';
 import { Menu, MenuHeading, MenuItem } from './ui/Menu';
 import styles from './FilterBar.module.css';
 
 /** Typing waits this long before the search runs. */
 export const SEARCH_DEBOUNCE_MS = 250;
+
+/** The ending of a star's name: "3 stars and up", "3 stars exactly". */
+const RATING_PHRASE = {
+  min: 'and up',
+  exact: 'exactly',
+  max: 'at most',
+  unrated: 'and up',
+} as const;
+
+/** What the next click on a colour does, shown in its tooltip. */
+const COLOR_TITLE_HINT = {
+  off: 'click to show only',
+  include: 'click to hide',
+  exclude: 'click to clear',
+} as const;
 
 const SORTS: readonly { id: SortMode; label: string }[] = [
   { id: 'filename', label: 'Name' },
@@ -76,6 +93,9 @@ export function FilterBar({
   const scopeTotal = facets?.scopeTotal ?? scopeFallback;
   const shownTotal = facets?.shown ?? shown;
   const filtering = isFiltering(filter);
+  const unrated = filter.ratingMode === 'unrated';
+  const ratingModeLabel =
+    RATING_MODES.find((mode) => mode.id === filter.ratingMode)?.label ?? 'And up';
   const sort = SORTS.find((candidate) => candidate.id === state.sort) ?? SORTS[0];
 
   return (
@@ -95,37 +115,62 @@ export function FilterBar({
         ))}
       </div>
 
-      <div className={styles.stars} role="group" aria-label="Rating">
-        {[1, 2, 3, 4, 5].map((n) => (
-          <button
-            key={n}
-            type="button"
-            className={`${styles.star} ${n <= filter.minRating ? styles.starOn : ''}`}
-            aria-label={`${n} star${n === 1 ? '' : 's'} and up`}
-            aria-pressed={filter.minRating === n}
-            title={
-              filter.minRating === n ? 'Click to clear' : `${n} star${n === 1 ? '' : 's'} and up`
-            }
-            onClick={() => store.setMinRating(toggleMinRating(filter.minRating, n))}
-          >
-            ★
-          </button>
-        ))}
+      <div className={styles.rating}>
+        <div className={styles.stars} role="group" aria-label="Rating">
+          {[1, 2, 3, 4, 5].map((n) => {
+            const phrase = `${n} star${n === 1 ? '' : 's'} ${RATING_PHRASE[filter.ratingMode]}`;
+            const picked = filter.ratingMode !== 'unrated' && filter.ratingStars === n;
+            const lit =
+              filter.ratingMode === 'exact' ? picked : n <= filter.ratingStars && !unrated;
+            return (
+              <button
+                key={n}
+                type="button"
+                className={`${styles.star} ${lit ? styles.starOn : ''}`}
+                aria-label={phrase}
+                aria-pressed={picked}
+                title={picked ? 'Click to clear' : phrase}
+                onClick={() => store.clickRatingStar(n)}
+              >
+                ★
+              </button>
+            );
+          })}
+        </div>
+        <Menu
+          label={ratingModeLabel}
+          ariaLabel={`Rating: ${ratingModeLabel.toLowerCase()}`}
+          testId="filter-rating-mode"
+          active={filter.ratingMode === 'unrated'}
+          closeOnPick
+        >
+          {RATING_MODES.map(({ id, label }) => (
+            <MenuItem
+              key={id}
+              kind="radio"
+              checked={filter.ratingMode === id}
+              onSelect={() => store.setRatingMode(id)}
+            >
+              {label}
+            </MenuItem>
+          ))}
+        </Menu>
       </div>
 
       <div className={styles.colors} role="group" aria-label="Colour label">
         {COLOR_CLASSES.slice(1).map((color, index) => {
           const colorClass = index + 1;
-          const on = filter.colorClasses.includes(colorClass);
+          const mode = colorFilterState(filter, colorClass);
+          const name = COLOR_CLASS_NAMES[colorClass];
           return (
             <button
               key={colorClass}
               type="button"
-              className={`${styles.colorButton} ${on ? styles.colorOn : ''}`}
-              aria-pressed={on}
-              aria-label={`Colour label ${colorClass}`}
-              title={`Colour label ${colorClass} · ${COLOR_CLASS_NAMES[colorClass]}`}
-              onClick={() => store.toggleColorFilter(colorClass)}
+              className={`${styles.colorButton} ${mode === 'include' ? styles.colorOn : ''} ${mode === 'exclude' ? styles.colorExcluded : ''}`}
+              aria-pressed={mode === 'include'}
+              aria-label={`Colour label ${colorClass}${mode === 'exclude' ? ' excluded' : ''}`}
+              title={`Colour label ${colorClass} · ${name} · ${COLOR_TITLE_HINT[mode]}`}
+              onClick={() => store.cycleColorFilter(colorClass)}
             >
               <span className={styles.dot} style={{ background: color }} />
             </button>
@@ -200,6 +245,8 @@ export function FilterBar({
           </MenuItem>
         ))}
       </Menu>
+
+      <SavedFilters />
 
       <SearchBox />
 

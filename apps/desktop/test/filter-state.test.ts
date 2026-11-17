@@ -7,6 +7,7 @@ import {
   selectVisiblePhotos,
   type AppStore,
 } from '../src/renderer/store';
+import { initialFilter } from '../src/renderer/filters';
 import { mockPhotos } from '../src/shared/mock';
 import { createFakeBridge, type FakeBridge } from './fake-bridge';
 
@@ -52,12 +53,12 @@ describe('one filter for both views', () => {
   it('keeps the filter when the module changes, and both views list the same photos', async () => {
     const { store } = await setup();
     rate(store, [5, 3, 3, 1]);
-    store.setMinRating(3);
+    store.clickRatingStar(3);
     const expected = develop(store);
     expect(expected).toHaveLength(3);
 
     store.setModule('library');
-    expect(store.getState().filter.minRating).toBe(3);
+    expect(store.getState().filter.ratingStars).toBe(3);
     expect(library(store)).toEqual(expected);
     store.setModule('develop');
     expect(develop(store)).toEqual(expected);
@@ -66,7 +67,7 @@ describe('one filter for both views', () => {
   it('steps with the arrow keys only through the filtered photos, in Develop and the Library', async () => {
     const { store } = await setup();
     const photos = rate(store, [5, 1, 3, 1, 4]);
-    store.setMinRating(3);
+    store.clickRatingStar(3);
     const shown = [photos[0], photos[2], photos[4]].map((photo) => photo?.fileName);
 
     store.setModule('develop');
@@ -90,7 +91,7 @@ describe('one filter for both views', () => {
   it('keeps the Library folder out of Develop, and applies the filter inside the folder', async () => {
     const { store } = await setup();
     const photos = rate(store, [4, 4]);
-    store.setMinRating(4);
+    store.clickRatingStar(4);
     const folder = photos[0]?.path.replace(/[\\/][^\\/]*$/, '');
     store.setLibraryFolder(folder);
     expect(library(store)).toEqual(develop(store));
@@ -108,7 +109,7 @@ describe('when a filter hides the active photo', () => {
     store.select(photos[1]?.id ?? ('' as never), 'range');
     expect(store.getState().selection).toHaveLength(2);
 
-    store.setMinRating(5);
+    store.clickRatingStar(5);
     // The rule: the first photo still shown becomes active and the only one selected.
     expect(active(store)).toBe(photos[1]?.fileName);
     expect(store.getState().selection).toEqual([photos[1]?.id]);
@@ -123,14 +124,14 @@ describe('when a filter hides the active photo', () => {
     store.select(photos[0]?.id ?? ('' as never));
     store.select(photos[2]?.id ?? ('' as never), 'toggle');
     store.select(photos[1]?.id ?? ('' as never), 'toggle');
-    store.setMinRating(5);
+    store.clickRatingStar(5);
     expect(store.getState().selection.every((id) => id !== photos[1]?.id)).toBe(true);
     expect(library(store)).toContain(active(store));
   });
 
   it('leaves no active photo when nothing matches, and brings one back on clear', async () => {
     const { store } = await setup();
-    store.setMinRating(5);
+    store.clickRatingStar(5);
     expect(develop(store)).toEqual([]);
     expect(active(store)).toBeUndefined();
     expect(store.getState().selection).toEqual([]);
@@ -143,7 +144,7 @@ describe('when a filter hides the active photo', () => {
   it('does the same when a rating change makes the open photo drop out in Develop', async () => {
     const { store } = await setup();
     const photos = rate(store, [4, 4]);
-    store.setMinRating(4);
+    store.clickRatingStar(4);
     store.setModule('develop');
     expect(active(store)).toBe(photos[0]?.fileName);
     store.setRating(1);
@@ -156,8 +157,10 @@ describe('clear', () => {
     const { store } = await setup();
     store.setSort('capture-time');
     store.setTagFilter('tagged');
-    store.setMinRating(2);
-    store.toggleColorFilter(3);
+    store.clickRatingStar(2);
+    store.cycleColorFilter(3);
+    store.cycleColorFilter(4);
+    store.cycleColorFilter(4);
     store.toggleStatusFilter('edited');
     store.setCameraFilter('x|y');
     store.setSearch('abc');
@@ -165,8 +168,10 @@ describe('clear', () => {
     const { filter, sort, searchResult } = store.getState();
     expect(filter).toEqual({
       tag: 'all',
-      minRating: 0,
+      ratingStars: 0,
+      ratingMode: 'min',
       colorClasses: [],
+      excludedColors: [],
       statuses: [],
       search: '',
     });
@@ -266,5 +271,355 @@ describe('search', () => {
     release({ photoIds: [], pending: 0 });
     await Promise.resolve();
     expect(store.getState().searchResult?.query).toBe('new');
+  });
+});
+
+/** A second app start on the same backend: what the settings kept is all it has. */
+async function restart(
+  fake: FakeBridge,
+  options: Parameters<typeof createAppStore>[1] = {},
+): Promise<AppStore> {
+  const store = createAppStore(fake.bridge, {
+    renderForExport: async () => ({ width: 1, height: 1, rgba: new Uint8Array(4) }),
+    ...options,
+  });
+  stores.push(store);
+  await store.init();
+  return store;
+}
+
+const savedNames = (store: AppStore): string[] =>
+  (store.getState().settings?.savedFilters ?? []).map((entry) => entry.name);
+
+describe('saved filters', () => {
+  it('saves the current filter under a name and keeps it for the next start', async () => {
+    const { store, fake } = await setup();
+    store.clickRatingStar(3);
+    store.setRatingMode('exact');
+    store.cycleColorFilter(1);
+    store.cycleColorFilter(1);
+    store.toggleStatusFilter('not-exported');
+    await store.saveFilter('  Keepers not exported  ');
+
+    expect(savedNames(store)).toEqual(['Keepers not exported']);
+    const entry = store.getState().settings?.savedFilters?.[0];
+    expect(entry?.filter).toMatchObject({
+      ratingStars: 3,
+      ratingMode: 'exact',
+      excludedColors: [1],
+      statuses: ['not-exported'],
+    });
+    expect(fake.settings.savedFilters).toHaveLength(1);
+
+    const next = await restart(fake);
+    expect(savedNames(next)).toEqual(['Keepers not exported']);
+  });
+
+  it('replaces the whole filter when one is picked, and leaves the saved one alone afterwards', async () => {
+    const { store } = await setup();
+    store.setTagFilter('tagged');
+    store.cycleColorFilter(2);
+    await store.saveFilter('Tagged green');
+    const saved = store.getState().settings?.savedFilters?.[0];
+    if (!saved) throw new Error('not saved');
+
+    store.clearFilters();
+    store.clickRatingStar(5);
+    store.toggleStatusFilter('edited');
+    store.applySavedFilter(saved.id);
+    expect(store.getState().filter).toEqual({
+      ...initialFilter(),
+      tag: 'tagged',
+      colorClasses: [2],
+    });
+
+    store.setTagFilter('untagged');
+    store.cycleColorFilter(4);
+    expect(store.getState().settings?.savedFilters?.[0]?.filter).toEqual(saved.filter);
+    expect(store.getState().settings?.savedFilters?.[0]?.filter.tag).toBe('tagged');
+  });
+
+  it('keeps the search text in a saved filter and runs the search when it is picked', async () => {
+    const { store, fake } = await setup();
+    const target = (await fake.bridge.invoke('photos:list')).find(
+      (p) => p.fileName === '_DSC9215.NEF',
+    );
+    if (!target) throw new Error('no photo');
+    await fake.bridge.invoke('metadata:write', {
+      photoId: target.id,
+      fields: { caption: 'Hörnor' },
+    });
+    store.setSearch('hörnor');
+    await vi.waitFor(() => expect(store.getState().searchResult?.query).toBe('hörnor'));
+    await store.saveFilter('Corners');
+    const saved = store.getState().settings?.savedFilters?.[0];
+    expect(saved?.filter.search).toBe('hörnor');
+
+    store.clearFilters();
+    expect(develop(store)).toHaveLength(40);
+    store.applySavedFilter(saved?.id ?? '');
+    expect(store.getState().filter.search).toBe('hörnor');
+    await vi.waitFor(() => expect(store.getState().searchResult?.query).toBe('hörnor'));
+    expect(develop(store)).toEqual(['_DSC9215.NEF']);
+  });
+
+  it('does not keep the Library folder in a saved filter or move it when one is picked', async () => {
+    const { store } = await setup();
+    const folder = store.getVisiblePhotos()[0]?.path.replace(/[\\/][^\\/]*$/, '');
+    store.setLibraryFolder(folder);
+    store.setTagFilter('tagged');
+    await store.saveFilter('Tagged');
+    const saved = store.getState().settings?.savedFilters?.[0];
+    expect(JSON.stringify(saved)).not.toContain(folder ?? 'no folder');
+
+    store.setLibraryFolder('/somewhere/else');
+    store.clearFilters();
+    store.applySavedFilter(saved?.id ?? '');
+    expect(store.getState().library.folder).toBe('/somewhere/else');
+  });
+
+  it('renames, deletes and replaces by name', async () => {
+    const { store, fake } = await setup();
+    store.setTagFilter('tagged');
+    await store.saveFilter('Tagged');
+    store.clearFilters();
+    store.clickRatingStar(4);
+    await store.saveFilter('Four');
+    const [tagged, four] = store.getState().settings?.savedFilters ?? [];
+    if (!tagged || !four) throw new Error('not saved');
+
+    await store.renameSavedFilter(tagged.id, ' Keepers ');
+    expect(savedNames(store)).toEqual(['Keepers', 'Four']);
+
+    // The same name again, in another case, updates that filter and does not add a second.
+    store.clearFilters();
+    store.clickRatingStar(5);
+    await store.saveFilter('FOUR');
+    expect(savedNames(store)).toEqual(['Keepers', 'Four']);
+    expect(store.getState().settings?.savedFilters?.[1]?.filter.ratingStars).toBe(5);
+    expect(store.getState().settings?.savedFilters?.[1]?.id).toBe(four.id);
+
+    await store.renameSavedFilter(four.id, '   ');
+    expect(savedNames(store)).toEqual(['Keepers', 'Four']);
+
+    await store.deleteSavedFilter(tagged.id);
+    expect(savedNames(store)).toEqual(['Four']);
+    expect(savedNames(await restart(fake))).toEqual(['Four']);
+    await store.deleteSavedFilter(four.id);
+    expect(savedNames(await restart(fake))).toEqual([]);
+  });
+
+  it('saves nothing without a name', async () => {
+    const { store, fake } = await setup();
+    store.setTagFilter('tagged');
+    await store.saveFilter('   ');
+    expect(savedNames(store)).toEqual([]);
+    expect(fake.calls.some((call) => call.channel === 'settings:set')).toBe(false);
+  });
+});
+
+describe('the remembered filter', () => {
+  it('comes back at the next start, and clearing it is remembered too', async () => {
+    const { store, fake } = await setup();
+    store.setTagFilter('tagged');
+    store.clickRatingStar(2);
+    store.setRatingMode('max');
+    store.cycleColorFilter(3);
+    store.cycleColorFilter(3);
+    store.toggleStatusFilter('exported');
+    store.setCameraFilter('NIKON Z 9|1');
+    await store.dispose();
+    expect(fake.settings.currentFilter).toMatchObject({
+      tag: 'tagged',
+      ratingStars: 2,
+      ratingMode: 'max',
+      excludedColors: [3],
+      statuses: ['exported'],
+      camera: 'NIKON Z 9|1',
+    });
+
+    const next = await restart(fake);
+    expect(next.getState().filter).toEqual({
+      ...initialFilter(),
+      tag: 'tagged',
+      ratingStars: 2,
+      ratingMode: 'max',
+      excludedColors: [3],
+      statuses: ['exported'],
+      camera: 'NIKON Z 9|1',
+    });
+
+    next.clearFilters();
+    await next.dispose();
+    expect((await restart(fake)).getState().filter).toEqual(initialFilter());
+  });
+
+  it('writes a burst of changes once, shortly after the last', async () => {
+    const { store, fake } = await setup();
+    store.setTagFilter('tagged');
+    store.clickRatingStar(4);
+    store.cycleColorFilter(1);
+    expect(fake.calls.filter((call) => call.channel === 'settings:set')).toHaveLength(0);
+    await vi.waitFor(() =>
+      expect(fake.calls.filter((call) => call.channel === 'settings:set')).toHaveLength(1),
+    );
+    expect(fake.settings.currentFilter).toMatchObject({ tag: 'tagged', ratingStars: 4 });
+  });
+
+  it('is on screen at the first paint, without a flash of every photo', async () => {
+    const { store, fake } = await setup();
+    store.setTagFilter('tagged');
+    await store.dispose();
+
+    const next = createAppStore(fake.bridge, {
+      renderForExport: async () => ({ width: 1, height: 1, rgba: new Uint8Array(4) }),
+    });
+    stores.push(next);
+    const paints: { loading: boolean; shown: number; tag: string }[] = [];
+    next.subscribe(() => {
+      const state = next.getState();
+      paints.push({
+        loading: state.loading,
+        shown: selectVisiblePhotos(state).length,
+        tag: state.filter.tag,
+      });
+    });
+    await next.init();
+    const loaded = paints.filter((paint) => !paint.loading);
+    expect(loaded.length).toBeGreaterThan(0);
+    // Every state that has photos in it is already the filtered one.
+    expect(loaded.every((paint) => paint.tag === 'tagged' && paint.shown === 4)).toBe(true);
+    expect(paints.every((paint) => paint.shown === 0 || paint.tag === 'tagged')).toBe(true);
+  });
+
+  it('restores a search before the first paint and runs it once', async () => {
+    const { store, fake } = await setup();
+    const target = (await fake.bridge.invoke('photos:list')).find(
+      (p) => p.fileName === '_DSC9215.NEF',
+    );
+    if (!target) throw new Error('no photo');
+    await fake.bridge.invoke('metadata:write', {
+      photoId: target.id,
+      fields: { caption: 'Hörnor' },
+    });
+    store.setSearch('hörnor');
+    await vi.waitFor(() => expect(store.getState().searchResult?.query).toBe('hörnor'));
+    await store.dispose();
+    const before = fake.calls.filter((call) => call.channel === 'photos:search').length;
+
+    const next = await restart(fake);
+    expect(develop(next)).toEqual(['_DSC9215.NEF']);
+    expect(next.getState().searchResult?.query).toBe('hörnor');
+    expect(fake.calls.filter((call) => call.channel === 'photos:search').length - before).toBe(1);
+  });
+
+  it('starts unfiltered when nothing was remembered or the remembered filter is empty', async () => {
+    const { store, fake } = await setup();
+    expect(store.getState().filter).toEqual(initialFilter());
+    store.setTagFilter('tagged');
+    store.clearFilters();
+    await store.dispose();
+    const next = await restart(fake);
+    expect(next.getState().filter).toEqual(initialFilter());
+    expect(develop(next)).toHaveLength(40);
+  });
+
+  it('asks the index once for a large library, with the filter, and counts once', async () => {
+    const { store, fake } = await setup();
+    store.setTagFilter('tagged');
+    await store.dispose();
+    const before = fake.calls.length;
+
+    const next = await restart(fake, { lazyLibraryPhotos: 0 });
+    expect(next.getState().lazy).toBe(true);
+    await new Promise((resolve) => setTimeout(resolve, 600));
+    const after = fake.calls.slice(before);
+    const queries = after.filter((call) => call.channel === 'photos:query');
+    expect(queries).toHaveLength(1);
+    expect((queries[0]?.args[0] as { filter?: { tag?: string } }).filter?.tag).toBe('tagged');
+    expect(after.filter((call) => call.channel === 'photos:facets')).toHaveLength(1);
+    expect(next.getState().photos).toHaveLength(4);
+    expect(next.getState().developWindow?.total).toBe(4);
+  });
+
+  it('does not write a filter it only restored', async () => {
+    const { store, fake } = await setup();
+    store.setTagFilter('tagged');
+    await store.dispose();
+    const before = fake.calls.filter((call) => call.channel === 'settings:set').length;
+    const next = await restart(fake);
+    await next.dispose();
+    expect(fake.calls.filter((call) => call.channel === 'settings:set').length).toBe(before);
+  });
+});
+
+describe('filters and undo', () => {
+  const messages = (store: AppStore): string[] =>
+    store.getState().toasts.map((toast) => toast.message);
+  const undone = (store: AppStore, text: string) =>
+    vi.waitFor(() =>
+      expect(messages(store).some((message) => message.startsWith(text))).toBe(true),
+    );
+
+  it('does not take a filter change as an undo step', async () => {
+    const { store, fake } = await setup();
+    store.setTagFilter('tagged');
+    store.clickRatingStar(3);
+    store.cycleColorFilter(2);
+    await store.saveFilter('Tagged');
+    store.clearFilters();
+    const before = store.getState().filter;
+    store.undoLast();
+    await new Promise((resolve) => setTimeout(resolve, 30));
+    expect(store.getState().filter).toBe(before);
+    expect(messages(store)).toEqual([]);
+    expect(fake.calls.filter((call) => call.channel === 'photos:setLabels')).toHaveLength(0);
+  });
+
+  it('still undoes a label change made under a filter, and leaves the filter as it is', async () => {
+    const { store } = await setup();
+    const first = selectVisiblePhotos(store.getState())[0];
+    if (!first) throw new Error('no photo');
+    store.clickRatingStar(4);
+    expect(develop(store)).toEqual([]);
+
+    store.setRating(5, first.id);
+    await vi.waitFor(() => expect(develop(store)).toEqual([first.fileName]));
+    // Filter changes after the rating are not what an undo takes.
+    store.setTagFilter('all');
+    store.cycleColorFilter(3);
+    store.cycleColorFilter(3);
+    const filter = store.getState().filter;
+
+    store.undoLast();
+    await undone(store, 'Undid rating');
+    expect(store.getState().filter).toBe(filter);
+    expect(store.getState().photos.find((photo) => photo.id === first.id)?.rating).toBe(0);
+    // The photo no longer passes the star filter that is still on.
+    expect(develop(store)).toEqual([]);
+
+    store.redoLast();
+    await undone(store, 'Redid rating');
+    await vi.waitFor(() => expect(develop(store)).toEqual([first.fileName]));
+    expect(store.getState().filter).toBe(filter);
+  });
+
+  it('keeps picking a saved filter out of the history too', async () => {
+    const { store } = await setup();
+    const first = selectVisiblePhotos(store.getState())[0];
+    if (!first) throw new Error('no photo');
+    store.setTagFilter('tagged');
+    await store.saveFilter('Tagged');
+    const saved = store.getState().settings?.savedFilters?.[0];
+    store.clearFilters();
+
+    store.setColorClass(2, first.id);
+    await vi.waitFor(() =>
+      expect(store.getState().photos.find((p) => p.id === first.id)?.colorClass).toBe(2),
+    );
+    store.applySavedFilter(saved?.id ?? '');
+    store.undoLast();
+    await undone(store, 'Undid colour label');
+    expect(store.getState().filter.tag).toBe('tagged');
   });
 });

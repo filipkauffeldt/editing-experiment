@@ -1,6 +1,6 @@
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { App } from '../src/renderer/App';
 import {
   activePhoto,
@@ -96,6 +96,51 @@ describe('the filter bar in Develop and in the Library', () => {
     expect(count()).toBe('40');
   });
 
+  it('picks how the stars compare from a compact selector', async () => {
+    const { store } = await renderApp();
+    rate(store);
+    const user = userEvent.setup();
+    const mode = () => bar().getByTestId('filter-rating-mode');
+    expect(within(mode()).getByRole('button').textContent).toBe('And up');
+
+    await user.click(within(mode()).getByRole('button'));
+    expect(screen.getAllByRole('menuitemradio').map((item) => item.textContent)).toEqual([
+      'And up',
+      'Exactly',
+      'At most',
+      'Unrated',
+    ]);
+    await user.click(screen.getByRole('menuitemradio', { name: 'Exactly' }));
+    // The menu closes after a pick and nothing is filtered until a star is clicked.
+    expect(screen.queryByRole('menu')).toBeNull();
+    expect(stripNames()).toHaveLength(40);
+    expect(bar().getByRole('button', { name: '4 stars exactly' })).toBeTruthy();
+
+    await user.click(bar().getByRole('button', { name: '4 stars exactly' }));
+    await waitFor(() => expect(stripNames()).toHaveLength(2));
+    expect(count()).toBe('2 of 40');
+
+    // Changing the mode keeps the star: at most 4 stars is every photo here.
+    await user.click(within(mode()).getByRole('button'));
+    await user.click(screen.getByRole('menuitemradio', { name: 'At most' }));
+    await waitFor(() => expect(stripNames()).toHaveLength(40));
+
+    await user.click(bar().getByRole('button', { name: '2 stars at most' }));
+    await waitFor(() => expect(stripNames()).toHaveLength(38));
+
+    await user.click(within(mode()).getByRole('button'));
+    await user.click(screen.getByRole('menuitemradio', { name: 'Unrated' }));
+    await waitFor(() => expect(stripNames()).toHaveLength(37));
+    expect(count()).toBe('37 of 40');
+    for (const star of bar().getAllByRole('button', { name: /^\d stars? /u })) {
+      expect(star.getAttribute('aria-pressed')).toBe('false');
+    }
+    // A star after Unrated goes back to "and up".
+    await user.click(bar().getByRole('button', { name: '3 stars and up' }));
+    await waitFor(() => expect(stripNames()).toHaveLength(2));
+    expect(store.getState().filter.ratingMode).toBe('min');
+  });
+
   it('filter to 3 stars, press D, and the arrow keys step only through those', async () => {
     const { store } = await renderApp();
     rate(store);
@@ -142,6 +187,37 @@ describe('the filter bar in Develop and in the Library', () => {
     await waitFor(() => expect(stripNames()).toHaveLength(1));
   });
 
+  it('cycles a colour through shown, hidden and off', async () => {
+    const { store } = await renderApp();
+    const ids = store.getVisiblePhotos().map((photo) => photo.id);
+    store.setColorClass(1, ids[0]);
+    store.setColorClass(1, ids[1]);
+    store.setColorClass(3, ids[2]);
+    const user = userEvent.setup();
+    await user.click(bar().getByRole('button', { name: 'Colour label 1' }));
+    await waitFor(() => expect(stripNames()).toHaveLength(2));
+    expect(bar().getByRole('button', { name: 'Colour label 1' }).getAttribute('aria-pressed')).toBe(
+      'true',
+    );
+
+    await user.click(bar().getByRole('button', { name: 'Colour label 1' }));
+    // Hidden now: the other 38 photos stay, labelled or not.
+    await waitFor(() => expect(stripNames()).toHaveLength(38));
+    const struck = bar().getByRole('button', { name: 'Colour label 1 excluded' });
+    expect(struck.getAttribute('aria-pressed')).toBe('false');
+    expect(struck.getAttribute('title')).toContain('click to clear');
+    expect(count()).toBe('38 of 40');
+    expect(screen.getByTestId('filter-clear')).toBeTruthy();
+
+    await user.click(bar().getByRole('button', { name: 'Colour label 3' }));
+    await user.click(bar().getByRole('button', { name: 'Colour label 3' }));
+    await waitFor(() => expect(stripNames()).toHaveLength(37));
+
+    await user.click(struck);
+    await waitFor(() => expect(stripNames()).toHaveLength(39));
+    expect(bar().getByRole('button', { name: 'Colour label 1' })).toBeTruthy();
+  });
+
   it('ticks several statuses from the menu, with counts, and says what they mean', async () => {
     await renderApp();
     const user = userEvent.setup();
@@ -150,6 +226,8 @@ describe('the filter bar in Develop and in the Library', () => {
     expect(menu.getByText('Matches all ticked')).toBeTruthy();
     expect(menu.getAllByRole('menuitemcheckbox').map((item) => item.textContent)).toEqual([
       'Not sent38',
+      'Not exported36',
+      'Exported4',
       'Failed1',
       'Edited7',
       'Differs from template1',
@@ -161,6 +239,146 @@ describe('the filter bar in Develop and in the Library', () => {
     await waitFor(() => expect(screen.getByTestId('filter-empty')).toBeTruthy());
     await user.keyboard('{Escape}');
     expect(screen.queryByRole('menu')).toBeNull();
+  });
+
+  it('filters on export status and keeps the counts honest', async () => {
+    await renderApp();
+    const user = userEvent.setup();
+    await user.click(bar().getByRole('button', { name: /Status/ }));
+    const menu = within(screen.getByRole('menu'));
+    await user.click(menu.getByRole('menuitemcheckbox', { name: /^Exported/ }));
+    await waitFor(() => expect(stripNames()).toHaveLength(4));
+    expect(count()).toBe('4 of 40');
+    // With Exported ticked, Not exported would show nothing on top of it.
+    expect(menu.getByRole('menuitemcheckbox', { name: /^Not exported/ }).textContent).toBe(
+      'Not exported0',
+    );
+    await user.click(menu.getByRole('menuitemcheckbox', { name: /^Exported/ }));
+    await user.click(menu.getByRole('menuitemcheckbox', { name: /^Not exported/ }));
+    await waitFor(() => expect(stripNames()).toHaveLength(36));
+  });
+
+  it('saves a filter under a name, picks it again, renames it and deletes it', async () => {
+    const { store } = await renderApp();
+    const user = userEvent.setup();
+    const saved = () => bar().getByTestId('filter-saved');
+    const open = () => user.click(within(saved()).getByRole('button'));
+
+    // Nothing to save while nothing is filtered.
+    await open();
+    expect(screen.getByText('Nothing saved yet')).toBeTruthy();
+    expect(
+      (screen.getByLabelText('Name for the current filter') as HTMLInputElement).disabled,
+    ).toBe(true);
+    await user.keyboard('{Escape}');
+
+    await user.click(bar().getByRole('button', { name: /^Tagged/ }));
+    await user.click(bar().getByRole('button', { name: '5 stars and up' }));
+    await open();
+    await user.type(screen.getByLabelText('Name for the current filter'), 'Tagged fives{Enter}');
+    await waitFor(() =>
+      expect(screen.getByRole('menuitem', { name: 'Tagged fives' })).toBeTruthy(),
+    );
+    expect(store.getState().settings?.savedFilters?.map((entry) => entry.name)).toEqual([
+      'Tagged fives',
+    ]);
+    // It is the filter on screen, so it is marked as the one in use.
+    expect(
+      screen.getByRole('menuitem', { name: 'Tagged fives' }).getAttribute('aria-current'),
+    ).toBe('true');
+    await user.keyboard('{Escape}');
+
+    await user.click(screen.getByTestId('filter-clear'));
+    await waitFor(() => expect(stripNames()).toHaveLength(40));
+    await open();
+    await user.click(screen.getByRole('menuitem', { name: 'Tagged fives' }));
+    // Picking closes the menu and sets the filter again.
+    expect(screen.queryByRole('menu')).toBeNull();
+    expect(store.getState().filter).toMatchObject({ tag: 'tagged', ratingStars: 5 });
+    expect(bar().getByRole('button', { name: '5 stars and up' }).getAttribute('aria-pressed')).toBe(
+      'true',
+    );
+
+    await open();
+    await user.click(screen.getByRole('button', { name: 'Rename Tagged fives' }));
+    const field = screen.getByLabelText('New name for Tagged fives');
+    await user.clear(field);
+    await user.type(field, 'Best{Enter}');
+    await waitFor(() => expect(screen.getByRole('menuitem', { name: 'Best' })).toBeTruthy());
+
+    await user.click(screen.getByRole('button', { name: 'Delete Best' }));
+    await waitFor(() => expect(screen.getByText('Nothing saved yet')).toBeTruthy());
+    expect(store.getState().settings?.savedFilters ?? []).toEqual([]);
+    // Deleting a saved filter does not touch the filter on screen.
+    expect(store.getState().filter.tag).toBe('tagged');
+  });
+
+  describe('where the menus open', () => {
+    /**
+     * jsdom has no layout, so the filter bar is given a place in the window: `top` is where its
+     * buttons are, and every menu list is 200 px tall. The window is 768 px high.
+     */
+    const placeFilterBar = (top: number): void => {
+      vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function (
+        this: HTMLElement,
+      ) {
+        const inBar = this.closest('[data-testid="filter-bar"]') !== null;
+        return {
+          top: inBar ? top : 0,
+          bottom: inBar ? top + 20 : 0,
+          left: 0,
+          right: 0,
+          width: 0,
+          height: inBar ? 20 : 0,
+          x: 0,
+          y: inBar ? top : 0,
+          toJSON: () => ({}),
+        };
+      });
+      vi.spyOn(HTMLElement.prototype, 'offsetHeight', 'get').mockImplementation(function (
+        this: HTMLElement,
+      ) {
+        return this.getAttribute('role') === 'menu' ? 200 : 0;
+      });
+    };
+    afterEach(() => vi.restoreAllMocks());
+
+    const opened = async (name: RegExp | string): Promise<string | null> => {
+      await userEvent.setup().click(bar().getByRole('button', { name }));
+      return screen.getByRole('menu').getAttribute('data-placement');
+    };
+
+    it('open upwards in Develop, where the bar is at the bottom, so none runs off the window', async () => {
+      await renderApp();
+      placeFilterBar(720);
+      for (const name of [/^Status/, /^Camera/, /^Saved/, 'Rating: and up']) {
+        expect(await opened(name)).toBe('up');
+        await userEvent.setup().keyboard('{Escape}');
+        expect(screen.queryByRole('menu')).toBeNull();
+      }
+    });
+
+    it('open downwards in the Library, where the bar is at the top', async () => {
+      await renderApp();
+      placeFilterBar(40);
+      for (const name of [/^Status/, /^Camera/, /^Saved/, 'Rating: and up']) {
+        expect(await opened(name)).toBe('down');
+        await userEvent.setup().keyboard('{Escape}');
+      }
+    });
+
+    it('stay downwards when there is no more room above than below', async () => {
+      await renderApp();
+      // 120 px from the bottom, 650 from the top: the 200 px list does not fit below but there is
+      // plenty above, so it flips. Close to the top of a short window it would not.
+      placeFilterBar(650);
+      expect(await opened(/^Status/)).toBe('up');
+      await userEvent.setup().keyboard('{Escape}');
+      vi.restoreAllMocks();
+      placeFilterBar(30);
+      vi.spyOn(window, 'innerHeight', 'get').mockReturnValue(150);
+      expect(await opened(/^Status/)).toBe('down');
+    });
   });
 
   it('puts the camera bodies and the sources in one menu', async () => {
@@ -196,7 +414,7 @@ describe('the filter bar in Develop and in the Library', () => {
     expect(screen.getByTestId('filter-clear')).toBeTruthy();
     await user.click(screen.getByTestId('filter-clear'));
     expect(screen.queryByTestId('filter-clear')).toBeNull();
-    expect(store.getState().filter.minRating).toBe(0);
+    expect(store.getState().filter.ratingStars).toBe(0);
     expect(store.getState().filter.tag).toBe('all');
     expect(stripNames()).toHaveLength(40);
   });

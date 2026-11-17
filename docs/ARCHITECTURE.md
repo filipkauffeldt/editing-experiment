@@ -94,10 +94,10 @@ computers; `machine.json` under Electron's `userData` holds the paths that belon
 The default settings folder is `userData`, so both files sit there until the user picks another.
 
 ```
-machine.json         settings folder choice, ingest destination and backup folder, export root, folder and card sources, folder destinations, profile folders, preset folders, panel widths and the film strip height, and every metadata template or code replacement path outside the settings folder
+machine.json         settings folder choice, ingest destination and backup folder, export root, folder and card sources, folder destinations, profile folders, preset folders, panel widths and the film strip height, the filter on screen at the last run, and every metadata template or code replacement path outside the settings folder
 window-state.json    size, position and maximised state of the main window (this machine only, so it is not in settings.json)
 logs/                ee.log and ee.1.log … ee.4.log, see "Logging"
-index.sqlite         photo index, the search text of each photo, the folders added to the Library in place and the paths removed from the Library (cache; sidecars are the source of truth); flat folder, label, status and camera columns answer the Library queries from indexes
+index.sqlite         photo index, the search text of each photo, the folders added to the Library in place and the paths removed from the Library (cache; sidecars are the source of truth); flat folder, label, status (upload and export) and camera columns answer the Library queries from indexes
 seen.sqlite          files already ingested per source
 uploads.sqlite       upload queue
 export-jobs.json     resumable export batches (queued photos survive a restart)
@@ -110,7 +110,7 @@ exports/             default exportRoot (only a relative folder template uses it
 The settings folder holds:
 
 ```
-settings.json        FTP/SFTP sources and destinations (credentialRef only, never a secret), export presets and the active one, ingest naming and templates, template mode, develop preset, metadata template and code replacement references, copy/paste selections
+settings.json        FTP/SFTP sources and destinations (credentialRef only, never a secret), export presets and the active one, ingest naming and templates, template mode, develop preset, metadata template and code replacement references, copy/paste selections, saved filters
 presets/*.json       develop presets imported by hand (presets found in preset folders are not copied here)
 settings.json.pre-settings-folder   the old one-file settings, kept after the first split
 ```
@@ -384,7 +384,8 @@ step. Each computer still keeps its own paths.
 - **Two files, one `AppSettings`.** `settings.json` in the settings folder holds what every computer
   has in common. `userData/machine.json` holds the choice of settings folder and the paths of this
   computer: ingest destination, backup folder, export root, folder and card sources, folder
-  destinations, profile and preset folders, panel widths and the film strip height. `settings:get` and `settings:set` merge
+  destinations, profile and preset folders, panel widths, the film strip height and the filter on
+  screen at the last run. `settings:get` and `settings:set` merge
   and split them, so the renderer and every service still see one object.
 - **Template paths.** A metadata template or code replacement file at or below the settings folder
   is stored relative to it with forward slashes, so it resolves on both computers. Any other path is
@@ -1482,11 +1483,33 @@ Design tokens and component rules are in `docs/DESIGN.md`.
   elsewhere, in one `photos:setLabels` call. Export… and Export & send
   use `openExportDialog` and `exportSelected(true)`.
 - **Filters** (`AppState.filter`, `renderer/filters.ts`, `components/FilterBar.tsx`): one `FilterState` for
-  the Library and Develop, in memory only (a restart starts unfiltered; panel widths and the film
-  strip height are the only persisted UI state). It is AND between filters: tag (`all`, `tagged`, `untagged`), `minRating`
-  (0 off; star N means "N and up", and unrated photos are out while it is on), `colorClasses`
-  (several, OR), `statuses` (several, a photo must match every ticked one: Not sent, Failed, Edited,
-  Metadata differs), `camera` and `sourceId` (one each, the Camera menu's two groups) and `search`.
+  the Library and Develop. It is AND between filters: tag (`all`, `tagged`, `untagged`), rating
+  (`ratingStars` 0..5 with `ratingMode`: `min` is "N and up" and the default, `exact`, `max` is "N or
+  fewer" and counts unrated photos, and `unrated` shows only photos with no rating and ignores the
+  stars; clicking the active star clears it and the mode stays), colour (`colorClasses` to show, OR
+  among themselves, and `excludedColors` to hide, subtracted from them, so "not red, not yellow" shows
+  every other photo with unlabelled ones; a click cycles a colour through shown, hidden and off, and a
+  hidden colour is struck through), `statuses` (several, a photo must match every ticked one: Not sent,
+  Not exported, Exported, Failed, Edited, Metadata differs; exported is `status.export === 'done'`),
+  `camera` and `sourceId` (one each, the Camera menu's two groups) and `search`.
+  The same filter is applied in two places that must agree, the renderer (`filters.ts`, which also
+  gives `filterCounts`) and the index (`PhotoQueryFilter` through `queryFilter` in `store.ts`, with
+  `photos:query` and `photos:facets` in `photo-index.ts`, where the export state is the flat column
+  `export_state`, filled for older rows when the index opens). `photo-index.test.ts` runs the same
+  filters through both and compares the lists and the counts.
+  **Saved and remembered filters.** The Saved menu in the filter bar keeps the current filter under a
+  name (`AppSettings.savedFilters`, in the shared `settings.json`), picks one (it replaces the whole
+  filter and later changes never touch the saved one), renames and deletes. The text search is part of
+  a saved filter, the Library folder is not. Saving under an existing name (any case) replaces that
+  filter. The filter on screen is also written to `AppSettings.currentFilter` in `machine.json` (it can
+  name this computer's cameras and sources) 400 ms after it last changed and when the store is
+  disposed, and read back by `loadAll` before the first paint: the first Develop page of a large
+  library is asked for with that filter and a restored search runs before the photos are published,
+  so there is no unfiltered paint and no second query. Stored filters are sanitised when the files are
+  read, so a damaged or older value never stops the filter bar.
+  A filter change, a picked saved filter and the remembered filter are not undo steps (see "Undo and redo of
+  labels and metadata"). `Ctrl/Cmd+Z` still takes the newest label or metadata change, and the filter stays as
+  it is.
   `filterPhotos` is pure; `filterCounts` gives the numbers beside the options as "what this option
   would show with the rest of the filter kept". The Library list is its folder (library state), then
   the filter; Develop's list (`getVisiblePhotos`, the film strip, arrow keys, Next & send) is every

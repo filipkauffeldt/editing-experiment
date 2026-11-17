@@ -2,13 +2,17 @@ import { asPhotoId, asSourceId, type Photo } from '@ee/contracts';
 import { describe, expect, it } from 'vitest';
 import {
   cameraKey,
+  colorFilterState,
+  cycleColorClass,
   filterCounts,
   filterPhotos,
   initialFilter,
   isFiltering,
   matchesFilter,
   toggleInList,
-  toggleMinRating,
+  clickRatingStar,
+  pickRatingMode,
+  ratingFilter,
   type FilterState,
 } from '../src/renderer/filters';
 
@@ -67,20 +71,94 @@ describe('filters', () => {
     const all = [none, two, three, five];
 
     it('keeps N stars and more, and drops unrated photos', () => {
-      expect(ids(filterPhotos(all, withFilter({ minRating: 3 })))).toEqual([three.id, five.id]);
-      expect(ids(filterPhotos(all, withFilter({ minRating: 1 })))).toEqual([
+      expect(ids(filterPhotos(all, withFilter({ ratingStars: 3 })))).toEqual([three.id, five.id]);
+      expect(ids(filterPhotos(all, withFilter({ ratingStars: 1 })))).toEqual([
         two.id,
         three.id,
         five.id,
       ]);
-      expect(ids(filterPhotos(all, withFilter({ minRating: 5 })))).toEqual([five.id]);
+      expect(ids(filterPhotos(all, withFilter({ ratingStars: 5 })))).toEqual([five.id]);
     });
 
     it('sets the filter on a click and clears it on a click on the active star', () => {
-      expect(toggleMinRating(0, 3)).toBe(3);
-      expect(toggleMinRating(3, 4)).toBe(4);
-      expect(toggleMinRating(3, 3)).toBe(0);
-      expect(isFiltering(withFilter({ minRating: 3 }))).toBe(true);
+      const off = withFilter({});
+      const three = withFilter(clickRatingStar(off, 3));
+      expect(three).toMatchObject({ ratingStars: 3, ratingMode: 'min' });
+      expect(withFilter(clickRatingStar(three, 4)).ratingStars).toBe(4);
+      expect(withFilter(clickRatingStar(three, 3)).ratingStars).toBe(0);
+      expect(isFiltering(withFilter({ ratingStars: 3 }))).toBe(true);
+    });
+  });
+
+  describe('rating modes', () => {
+    const unrated = photo({ rating: 0 });
+    const one = photo({ rating: 1 });
+    const three = photo({ rating: 3 });
+    const four = photo({ rating: 4 });
+    const five = photo({ rating: 5 });
+    const all = [unrated, one, three, four, five];
+    const rated = (ratingMode: FilterState['ratingMode'], ratingStars: number): string[] =>
+      ids(filterPhotos(all, withFilter({ ratingMode, ratingStars })));
+
+    it('and up is the default and keeps N stars and more', () => {
+      expect(initialFilter().ratingMode).toBe('min');
+      expect(rated('min', 3)).toEqual([three.id, four.id, five.id]);
+    });
+
+    it('exactly keeps only that many stars', () => {
+      expect(rated('exact', 3)).toEqual([three.id]);
+      expect(rated('exact', 2)).toEqual([]);
+    });
+
+    it('at most keeps that many stars or fewer, unrated photos included', () => {
+      expect(rated('max', 3)).toEqual([unrated.id, one.id, three.id]);
+      expect(rated('max', 1)).toEqual([unrated.id, one.id]);
+    });
+
+    it('unrated keeps only photos with no rating and ignores the stars', () => {
+      expect(rated('unrated', 0)).toEqual([unrated.id]);
+      expect(rated('unrated', 4)).toEqual([unrated.id]);
+      expect(ratingFilter(withFilter({ ratingMode: 'unrated' }))).toEqual({
+        mode: 'exact',
+        stars: 0,
+      });
+    });
+
+    it('is off with no star picked, whatever the mode', () => {
+      for (const mode of ['min', 'exact', 'max'] as const) {
+        expect(rated(mode, 0)).toEqual(ids(all));
+        expect(isFiltering(withFilter({ ratingMode: mode }))).toBe(false);
+      }
+      expect(isFiltering(withFilter({ ratingMode: 'unrated' }))).toBe(true);
+    });
+
+    it('keeps the star when the mode changes, and clears it on a click on the active star', () => {
+      const exact = withFilter(pickRatingMode(withFilter({ ratingStars: 3 }), 'exact'));
+      expect(exact).toMatchObject({ ratingStars: 3, ratingMode: 'exact' });
+      const cleared = withFilter(clickRatingStar(exact, 3));
+      expect(cleared).toMatchObject({ ratingStars: 0, ratingMode: 'exact' });
+      // The mode stays picked, so the next star is "exactly".
+      expect(withFilter(clickRatingStar(cleared, 4))).toMatchObject({
+        ratingStars: 4,
+        ratingMode: 'exact',
+      });
+    });
+
+    it('picking Unrated drops the stars, and a star after it goes back to and up', () => {
+      const picked = withFilter(pickRatingMode(withFilter({ ratingStars: 4 }), 'unrated'));
+      expect(picked).toMatchObject({ ratingStars: 0, ratingMode: 'unrated' });
+      expect(withFilter(clickRatingStar(picked, 2))).toMatchObject({
+        ratingStars: 2,
+        ratingMode: 'min',
+      });
+    });
+
+    it('counts follow the mode', () => {
+      const counts = filterCounts(all, withFilter({ ratingMode: 'exact', ratingStars: 3 }));
+      expect(counts.tag.all).toBe(1);
+      expect(counts.shown).toBe(1);
+      expect(filterCounts(all, withFilter({ ratingMode: 'unrated' })).shown).toBe(1);
+      expect(filterCounts(all, withFilter({ ratingMode: 'max', ratingStars: 1 })).shown).toBe(2);
     });
   });
 
@@ -97,6 +175,47 @@ describe('filters', () => {
         blue.id,
       ]);
       expect(ids(filterPhotos(all, withFilter({ colorClasses: [3] })))).toEqual([yellow.id]);
+    });
+
+    it('not red and not yellow shows everything else, unlabelled photos included', () => {
+      expect(ids(filterPhotos(all, withFilter({ excludedColors: [1, 3] })))).toEqual([
+        blue.id,
+        plain.id,
+      ]);
+    });
+
+    it('takes the excluded classes away from the included ones', () => {
+      const filter = withFilter({ colorClasses: [1, 3], excludedColors: [3] });
+      expect(ids(filterPhotos(all, filter))).toEqual([red.id]);
+      // Excluding every included class leaves nothing, it does not fall back to every colour.
+      const none = withFilter({ colorClasses: [1], excludedColors: [1] });
+      expect(filterPhotos(all, none)).toEqual([]);
+    });
+
+    it('counts the filter with excluded colours the way it lists it', () => {
+      const filter = withFilter({ excludedColors: [1] });
+      expect(filterCounts(all, filter).shown).toBe(3);
+      expect(filterCounts(all, filter).tag.all).toBe(3);
+      expect(isFiltering(filter)).toBe(true);
+    });
+
+    it('cycles a colour from off to shown to hidden and back to off', () => {
+      const off = withFilter({});
+      const shown = withFilter(cycleColorClass(off, 2));
+      expect(colorFilterState(shown, 2)).toBe('include');
+      const hidden = withFilter(cycleColorClass(shown, 2));
+      expect(colorFilterState(hidden, 2)).toBe('exclude');
+      expect(hidden.colorClasses).toEqual([]);
+      const back = withFilter(cycleColorClass(hidden, 2));
+      expect(colorFilterState(back, 2)).toBe('off');
+      expect(isFiltering(back)).toBe(false);
+    });
+
+    it('keeps the other colours as they are when one cycles', () => {
+      const filter = withFilter({ colorClasses: [1], excludedColors: [4] });
+      expect(cycleColorClass(filter, 2)).toEqual({ colorClasses: [1, 2], excludedColors: [4] });
+      expect(cycleColorClass(filter, 1)).toEqual({ colorClasses: [], excludedColors: [4, 1] });
+      expect(cycleColorClass(filter, 4)).toEqual({ colorClasses: [1], excludedColors: [] });
     });
 
     it('toggles classes in and out of the list', () => {
@@ -120,6 +239,29 @@ describe('filters', () => {
       expect(ids(filterPhotos(all, withFilter({ statuses: ['not-sent'] })))).toEqual(
         ids(all.filter((p) => p !== sent)),
       );
+    });
+
+    it('not exported is everything the export has not finished for, exported is the rest', () => {
+      const exported = photo({ status: { export: 'done' } });
+      const exporting = photo({ status: { export: 'encoding' } });
+      const exportFailed = photo({ status: { export: 'failed' } });
+      const untouched = photo();
+      const set = [exported, exporting, exportFailed, untouched];
+      expect(ids(filterPhotos(set, withFilter({ statuses: ['exported'] })))).toEqual([exported.id]);
+      expect(ids(filterPhotos(set, withFilter({ statuses: ['not-exported'] })))).toEqual([
+        exporting.id,
+        exportFailed.id,
+        untouched.id,
+      ]);
+    });
+
+    it('3 stars and up that are not exported and not sent', () => {
+      const keep = photo({ rating: 4 });
+      const exportedOne = photo({ rating: 4, status: { export: 'done' } });
+      const sentOne = photo({ rating: 4, status: { upload: 'done' } });
+      const low = photo({ rating: 2 });
+      const filter = withFilter({ ratingStars: 3, statuses: ['not-exported', 'not-sent'] });
+      expect(ids(filterPhotos([keep, exportedOne, sentOne, low], filter))).toEqual([keep.id]);
     });
 
     it('failed, edited (retouch counts) and metadata differs', () => {
@@ -216,7 +358,7 @@ describe('filters', () => {
     ];
     const filter = withFilter({
       tag: 'tagged',
-      minRating: 3,
+      ratingStars: 3,
       colorClasses: [2, 6],
       statuses: ['edited'],
       camera: cameraKey(wanted),
@@ -228,7 +370,7 @@ describe('filters', () => {
     it('applies every filter at once, and each one on its own removes its photo', () => {
       expect(ids(filterPhotos(all, filter, found))).toEqual([wanted.id]);
       for (const [wrong, relax] of [
-        [wrongRating, { minRating: 0 }],
+        [wrongRating, { ratingStars: 0 }],
         [wrongColour, { colorClasses: [] }],
         [wrongTag, { tag: 'all' as const }],
         [wrongCamera, { camera: undefined }],
@@ -254,16 +396,33 @@ describe('filters', () => {
       expect(none.tag).toEqual({ all: 4, tagged: 2, untagged: 2 });
       expect(none.status).toEqual({
         'not-sent': 3,
+        'not-exported': 4,
+        exported: 0,
         failed: 1,
         edited: 2,
         'metadata-differs': 0,
       });
       expect(none.shown).toBe(4);
 
-      const rated = filterCounts(all, withFilter({ minRating: 3 }));
+      const rated = filterCounts(all, withFilter({ ratingStars: 3 }));
       expect(rated.tag).toEqual({ all: 2, tagged: 1, untagged: 1 });
       expect(rated.status['not-sent']).toBe(1);
       expect(rated.shown).toBe(2);
+    });
+
+    it('counts the export statuses against the rest of the filter', () => {
+      const done = photo({ rating: 5, status: { export: 'done' } });
+      const waiting = photo({ rating: 5 });
+      const lowDone = photo({ rating: 1, status: { export: 'done' } });
+      const set = [done, waiting, lowDone];
+      const counts = filterCounts(set, withFilter({ ratingStars: 3 }));
+      expect(counts.status.exported).toBe(1);
+      expect(counts.status['not-exported']).toBe(1);
+      // Ticking one makes the other count what it would show on top of it: nothing.
+      const exportedOnly = filterCounts(set, withFilter({ statuses: ['exported'] }));
+      expect(exportedOnly.status.exported).toBe(2);
+      expect(exportedOnly.status['not-exported']).toBe(0);
+      expect(exportedOnly.shown).toBe(2);
     });
 
     it('keeps the tag counts when a tag is picked, and the status counts follow the tag', () => {
@@ -283,7 +442,7 @@ describe('filters', () => {
     });
 
     it('matches the length of the filtered list', () => {
-      const filter = withFilter({ tag: 'untagged', statuses: ['not-sent'], minRating: 1 });
+      const filter = withFilter({ tag: 'untagged', statuses: ['not-sent'], ratingStars: 1 });
       expect(filterCounts(all, filter).shown).toBe(filterPhotos(all, filter).length);
     });
   });

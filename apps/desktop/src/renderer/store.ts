@@ -32,6 +32,7 @@ import {
 } from '@ee/develop-gl';
 import {
   DEFAULT_COPY_SETTING_GROUPS,
+  MAX_SAVED_FILTER_NAME,
   SLIDER_SPECS,
   type AppSettings,
   type CacheStats,
@@ -64,6 +65,8 @@ import {
   type PhotoId,
   type PhotoProfiles,
   type PhotoQueryFilter,
+  type SavedFilter,
+  type StoredFilter,
   type Point,
   type ProfileIndex,
   type ProfileListing,
@@ -100,7 +103,15 @@ import {
 import {
   cameraKey,
   filterPhotos,
+  clickRatingStar,
+  cycleColorClass,
+  fromStoredFilter,
   initialFilter,
+  isFiltering,
+  pickRatingMode,
+  ratingFilter,
+  toStoredFilter,
+  type RatingMode,
   hasSearch,
   matchesStatus,
   toggleInList,
@@ -674,10 +685,14 @@ function sortPhotos(photos: Photo[], sort: SortMode): Photo[] {
 
 /** The renderer filter as the jobs process applies it to a page of the index. */
 export function queryFilter(filter: FilterState): PhotoQueryFilter {
+  const rating = ratingFilter(filter);
   return {
     tag: filter.tag,
-    minRating: filter.minRating,
+    ...(rating === undefined ? {} : { rating }),
     colorClasses: [...filter.colorClasses],
+    ...(filter.excludedColors.length === 0
+      ? {}
+      : { excludeColorClasses: [...filter.excludedColors] }),
     statuses: [...filter.statuses],
     ...(filter.camera === undefined ? {} : { camera: filter.camera }),
     ...(filter.sourceId === undefined ? {} : { sourceId: filter.sourceId }),
@@ -775,6 +790,12 @@ const DEVELOP_THROTTLE_MS = 80;
 
 /** How long to wait before asking the search again while captions are still being read. */
 const SEARCH_POLL_MS = 1000;
+
+/** A burst of filter clicks is written to the settings once, this long after the last. */
+const FILTER_SAVE_MS = 400;
+
+const newSavedFilterId = (): string =>
+  `filter-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`;
 
 /** After photos are added or a caption written, the search is asked again after this. */
 const SEARCH_REFRESH_MS = 400;
@@ -890,6 +911,9 @@ export class AppStore {
   private visibleCache: VisibleCache | undefined;
   private searchRun = 0;
   private searchTimer: ReturnType<typeof setTimeout> | undefined;
+  /** The remembered filter waits here a moment so a burst of clicks is one write. */
+  private filterSaveTimer: ReturnType<typeof setTimeout> | undefined;
+  private filterSaveRun: Promise<void> = Promise.resolve();
   private beforeUnload: (() => void) | undefined;
   private toastId = 0;
   private started = false;
@@ -1088,6 +1112,7 @@ export class AppStore {
     this.editedPreviews?.dispose();
     this.searchRun += 1;
     clearTimeout(this.searchTimer);
+    await this.flushFilterSave();
     clearTimeout(this.foldersTimer);
     clearTimeout(this.developTimer);
     this.cancelPhotoFlush();
@@ -1098,6 +1123,10 @@ export class AppStore {
   };
 
   private async loadAll(): Promise<void> {
+    // The settings come first: they hold the filter of the last run, and the first page and the
+    // first paint have to be for that filter, not for every photo and then again.
+    const settingsRequest = this.bridge.invoke('settings:get');
+    const restored = await this.restoredFilter(settingsRequest);
     const [
       overview,
       sources,
@@ -1113,7 +1142,7 @@ export class AppStore {
       this.bridge.invoke('photos:folders'),
       this.bridge.invoke('sources:list'),
       this.bridge.invoke('destinations:list'),
-      this.bridge.invoke('settings:get'),
+      settingsRequest,
       this.bridge.invoke('develop:presetIndex'),
       this.bridge.invoke('upload:list'),
       this.bridge.invoke('ingest:status'),
@@ -1150,6 +1179,7 @@ export class AppStore {
       // The default view is Develop: a bounded page of the newest photos.
       const result = await this.bridge
         .invoke('photos:query', {
+          ...(restored === undefined ? {} : { filter: queryFilter(restored.filter) }),
           limit: LAZY_DEVELOP_WINDOW,
           sort: 'capture-time',
           fromEnd: true,
@@ -1196,6 +1226,9 @@ export class AppStore {
     }
 
     this.set({
+      ...(restored === undefined
+        ? {}
+        : { filter: restored.filter, searchResult: restored.searchResult }),
       photos: loadedPhotos,
       folders: tree?.folders ?? [],
       totalPhotos: total || loadedPhotos.length,
@@ -1217,6 +1250,9 @@ export class AppStore {
     });
 
     if (lazy) void this.loadFacets();
+    if (restored?.searchResult !== undefined && restored.searchResult.pending > 0) {
+      this.refreshSearch(SEARCH_POLL_MS);
+    }
 
     const loadedSettings = value(settings);
     const path =
@@ -1465,9 +1501,15 @@ export class AppStore {
       return true;
     if (cameraKey(previous) !== cameraKey(next) || previous.sourceId !== next.sourceId) return true;
     // Only what an active filter reads can change membership; an upload tick must not reorder.
-    const { statuses, minRating, colorClasses } = this.state.filter;
-    if (minRating > 0 && previous.rating !== next.rating) return true;
-    if (colorClasses.length > 0 && previous.colorClass !== next.colorClass) return true;
+    const { statuses, colorClasses, excludedColors } = this.state.filter;
+    const rating = ratingFilter(this.state.filter);
+    if (rating !== undefined && previous.rating !== next.rating) return true;
+    if (
+      (colorClasses.length > 0 || excludedColors.length > 0) &&
+      previous.colorClass !== next.colorClass
+    ) {
+      return true;
+    }
     return statuses.some(
       (status) => matchesStatus(previous, status) !== matchesStatus(next, status),
     );
@@ -1793,7 +1835,11 @@ export class AppStore {
   // ------------------------------------------------------------------- filter
 
   private applyFilter(patch: Partial<FilterState>): void {
-    const filter = { ...this.state.filter, ...patch };
+    this.setFilter({ ...this.state.filter, ...patch });
+  }
+
+  /** Make `filter` the filter: what the list and the counts show, and what a restart restores. */
+  private setFilter(filter: FilterState): void {
     if (hasSearch(filter)) {
       this.set({ filter, ...(this.state.lazy ? { facets: undefined } : {}) });
     } else {
@@ -1811,15 +1857,21 @@ export class AppStore {
       if (this.state.module === 'develop') void this.loadDevelopPhotos();
       else if (this.state.library.folder === undefined) void this.loadLibraryFolder(undefined);
     }
+    this.rememberFilter();
   }
 
   readonly setTagFilter = (tag: TagFilter): void => this.applyFilter({ tag });
 
-  /** Stars and up; 0 turns it off. */
-  readonly setMinRating = (minRating: number): void => this.applyFilter({ minRating });
+  /** Click a star: it is the filter in the chosen mode, and the active star clears it. */
+  readonly clickRatingStar = (stars: number): void =>
+    this.applyFilter(clickRatingStar(this.state.filter, stars));
 
-  readonly toggleColorFilter = (colorClass: number): void =>
-    this.applyFilter({ colorClasses: toggleInList(this.state.filter.colorClasses, colorClass) });
+  readonly setRatingMode = (mode: RatingMode): void =>
+    this.applyFilter(pickRatingMode(this.state.filter, mode));
+
+  /** Click a colour: shown, then hidden, then off. */
+  readonly cycleColorFilter = (colorClass: number): void =>
+    this.applyFilter(cycleColorClass(this.state.filter, colorClass));
 
   readonly toggleStatusFilter = (status: StatusFilter): void =>
     this.applyFilter({ statuses: toggleInList(this.state.filter.statuses, status) });
@@ -1841,7 +1893,122 @@ export class AppStore {
     this.ensureSelectionVisible();
     this.refreshFacetsSoon();
     if (this.state.lazy && this.state.module === 'develop') void this.loadDevelopPhotos();
+    this.rememberFilter();
   };
+
+  // ----------------------------------------------------- remembered and saved filters
+
+  /**
+   * The filter the last run ended with, and the search result it needs, read before the first
+   * paint. Nothing is restored when the filter is empty or the settings could not be read.
+   */
+  private async restoredFilter(
+    request: Promise<AppSettings>,
+  ): Promise<{ filter: FilterState; searchResult: AppState['searchResult'] } | undefined> {
+    let stored: StoredFilter | undefined;
+    try {
+      stored = (await request).currentFilter;
+    } catch {
+      // loadAll reports a settings failure as it always has; the list just starts unfiltered.
+      return undefined;
+    }
+    if (stored === undefined) return undefined;
+    const filter = fromStoredFilter(stored);
+    if (!isFiltering(filter)) return undefined;
+    if (!hasSearch(filter)) return { filter, searchResult: undefined };
+    // The search has to be known before the first paint, or the list would show every photo
+    // until it arrives.
+    const query = filter.search.trim();
+    try {
+      const result = await this.bridge.invoke('photos:search', { query });
+      return {
+        filter,
+        searchResult: { query, ids: new Set(result.photoIds), pending: result.pending },
+      };
+    } catch (cause) {
+      this.toast('error', `Search failed: ${messageOf(cause)}`);
+      return { filter, searchResult: undefined };
+    }
+  }
+
+  /** Write the filter to the settings soon, so the next start comes back to it. */
+  private rememberFilter(): void {
+    clearTimeout(this.filterSaveTimer);
+    this.filterSaveTimer = setTimeout(() => {
+      this.filterSaveTimer = undefined;
+      void this.writeRememberedFilter();
+    }, FILTER_SAVE_MS);
+  }
+
+  private writeRememberedFilter(): Promise<void> {
+    const currentFilter = toStoredFilter(this.state.filter);
+    this.filterSaveRun = this.filterSaveRun.then(async () => {
+      try {
+        await this.bridge.invoke('settings:set', { currentFilter });
+      } catch (cause) {
+        // Losing it costs one click after a restart; it must not interrupt the work.
+        console.warn(`Could not remember the filter: ${messageOf(cause)}`);
+      }
+    });
+    return this.filterSaveRun;
+  }
+
+  private async flushFilterSave(): Promise<void> {
+    if (this.filterSaveTimer !== undefined) {
+      clearTimeout(this.filterSaveTimer);
+      this.filterSaveTimer = undefined;
+      await this.writeRememberedFilter();
+    }
+    await this.filterSaveRun;
+  }
+
+  /** Keep the current filter under a name. The same name again replaces that saved filter. */
+  readonly saveFilter = async (name: string): Promise<void> => {
+    const trimmed = name.trim().slice(0, MAX_SAVED_FILTER_NAME);
+    if (trimmed === '') return;
+    const filter = toStoredFilter(this.state.filter);
+    const saved = this.savedFilters();
+    const same = saved.find((entry) => entry.name.toLowerCase() === trimmed.toLowerCase());
+    await this.writeSavedFilters(
+      same === undefined
+        ? [...saved, { id: newSavedFilterId(), name: trimmed, filter }]
+        : saved.map((entry) => (entry === same ? { ...entry, filter } : entry)),
+    );
+  };
+
+  /** Replace the filter with a saved one. Later changes to the filter leave the saved one alone. */
+  readonly applySavedFilter = (id: string): void => {
+    const saved = this.savedFilters().find((entry) => entry.id === id);
+    if (!saved) return;
+    const filter = fromStoredFilter(saved.filter);
+    this.setFilter(filter);
+    if (hasSearch(filter)) this.runSearch();
+  };
+
+  readonly renameSavedFilter = async (id: string, name: string): Promise<void> => {
+    const trimmed = name.trim().slice(0, MAX_SAVED_FILTER_NAME);
+    if (trimmed === '') return;
+    await this.writeSavedFilters(
+      this.savedFilters().map((entry) => (entry.id === id ? { ...entry, name: trimmed } : entry)),
+    );
+  };
+
+  readonly deleteSavedFilter = async (id: string): Promise<void> => {
+    await this.writeSavedFilters(this.savedFilters().filter((entry) => entry.id !== id));
+  };
+
+  private savedFilters(): SavedFilter[] {
+    return this.state.settings?.savedFilters ?? [];
+  }
+
+  private async writeSavedFilters(savedFilters: SavedFilter[]): Promise<void> {
+    try {
+      const settings = await this.bridge.invoke('settings:set', { savedFilters });
+      this.set({ settings });
+    } catch (cause) {
+      this.toast('error', `Could not save the filter: ${messageOf(cause)}`);
+    }
+  }
 
   /**
    * Set the search text (the bar debounces typing). The backend looks in file names, captions and

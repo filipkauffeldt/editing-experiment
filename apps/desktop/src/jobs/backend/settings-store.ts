@@ -48,6 +48,8 @@ import {
   sanitizeCopyMetadataFields,
   sanitizeCopySettingGroups,
   sanitizePanelWidths,
+  sanitizeSavedFilters,
+  sanitizeStoredFilter,
 } from './settings-values';
 
 /** The folder the shared settings live in, as Settings → Settings folder shows it. */
@@ -658,6 +660,11 @@ export class SettingsStore {
         };
       }
       if (patch.autoAdvance !== undefined) next = { ...next, autoAdvance: patch.autoAdvance };
+      if (patch.savedFilters !== undefined) {
+        const saved = sanitizeSavedFilters(patch.savedFilters) ?? [];
+        // An empty list is the same as never saved: the key goes, as with the other lists.
+        next = { ...next, savedFilters: saved.length === 0 ? undefined : saved };
+      }
       return next;
     };
 
@@ -687,6 +694,9 @@ export class SettingsStore {
         ? {}
         : { panelWidths: sanitizePanelWidths(patch.panelWidths) ?? {} }),
       ...(patch.cacheLimitBytes === undefined ? {} : { cacheLimitBytes: patch.cacheLimitBytes }),
+      ...(patch.currentFilter === undefined
+        ? {}
+        : { currentFilter: sanitizeStoredFilter(patch.currentFilter) }),
       paths,
     });
 
