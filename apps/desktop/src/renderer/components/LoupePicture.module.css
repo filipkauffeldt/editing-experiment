@@ -1,0 +1,43 @@
+/* The corner of the stage is on a whole pixel, which the one-to-one view relies on. */
+.stage {
+  position: relative;
+  display: grid;
+  flex: 1;
+  place-items: center;
+  min-height: 0;
+  padding: 16px;
+  overflow: hidden;
+  background: var(--bg);
+}
+
+.preview,
+.full {
+  /* The embedded JPEG's own orientation tag is not the camera's word on how it was shot. */
+  image-orientation: none;
+}
+
+.preview {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+}
+
+/* Zoomed, an image is placed by the layout (inline left, top, width and height). */
+.preview[data-zoomed='true'],
+.full {
+  position: absolute;
+  max-width: none;
+  max-height: none;
+}
+
+.panLayer {
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+  cursor: grab;
+  touch-action: none;
+}
+
+.panDragging {
+  cursor: grabbing;
+}
