@@ -325,7 +325,7 @@ export function useKeyboardShortcuts(store: AppStore): void {
         return;
       }
       // Undo and redo. A text field keeps their text meaning, Retouch keeps its own shape
-      // history, and Crop has no history of its own: the develop history never steps in there.
+      // history, and Crop has no history of its own: nothing steps in there.
       if (command && !event.altKey) {
         const z = event.key === 'z' || event.key === 'Z';
         const y = event.key === 'y' || event.key === 'Y';
@@ -346,10 +346,11 @@ export function useKeyboardShortcuts(store: AppStore): void {
             event.preventDefault();
             return;
           }
-          if (state.module === 'develop') {
+          // Library and Develop share the label and metadata history; Develop adds its own steps.
+          if (state.module === 'develop' || state.module === 'library') {
             event.preventDefault();
-            if (undo) store.undoDevelop();
-            else store.redoDevelop();
+            if (undo) store.undoLast();
+            else store.redoLast();
             return;
           }
         }

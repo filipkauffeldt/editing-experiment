@@ -1,4 +1,5 @@
 import { CodeReplacementTables } from './code-replacements';
+import { EditHistory, type EditStep } from './edit-history';
 import type { InstantReplacement } from '@ee/metadata/code-replacement-tokens';
 import {
   DevelopHistory,
@@ -769,6 +770,13 @@ const SEARCH_POLL_MS = 1000;
 /** After photos are added or a caption written, the search is asked again after this. */
 const SEARCH_REFRESH_MS = 400;
 
+/** How a label change is called in the undo toast. */
+const LABEL_NAMES: Record<keyof PhotoFlags, string> = {
+  tagged: 'tag',
+  colorClass: 'colour label',
+  rating: 'rating',
+};
+
 interface VisibleCache {
   ids: PhotoId[];
   filter: FilterState;
@@ -853,6 +861,8 @@ export class AppStore {
   private readonly editedPhotoIds = new Set<PhotoId>();
   /** Per-photo undo and redo of develop settings, for this session only. */
   private readonly developHistory = new DevelopHistory();
+  /** App-wide undo and redo of labels and metadata, for this session only. */
+  private readonly editHistory = new EditHistory();
   /** Batch settings calls (Paste, Sync, Previous) still running, by affected photo. */
   private readonly pendingDevelopApplies = new Map<PhotoId, Promise<void>>();
   private readonly photoById = new Map<PhotoId, Photo>();
@@ -1886,10 +1896,7 @@ export class AppStore {
     this.set({ photos });
   }
 
-  private persistLabels(
-    photoIds: PhotoId[],
-    patch: Partial<PhotoFlags> & { toggleTagged?: boolean },
-  ): void {
+  private persistLabels(photoIds: PhotoId[], patch: Partial<PhotoFlags>): Promise<void> {
     const previous = Promise.all(
       photoIds.map((id) => this.labelWrites.get(id) ?? Promise.resolve()),
     );
@@ -1909,6 +1916,7 @@ export class AppStore {
           if (this.labelWrites.get(id) === write) this.labelWrites.delete(id);
       });
     for (const id of photoIds) this.labelWrites.set(id, write);
+    return write;
   }
 
   /** Photos a label shortcut applies to: the Library selection there, otherwise the open photo. */
@@ -1921,35 +1929,97 @@ export class AppStore {
   readonly toggleTag = (photoId?: PhotoId): void => {
     const ids = this.labelTargets(photoId);
     if (ids.length === 0) return;
-    const advance = this.nextToAdvanceTo(ids);
-    const loaded = ids.map((id) => this.photoById.get(id));
-    const tagged = loaded.every((photo) => photo !== undefined)
-      ? !loaded.every((photo) => photo?.tagged === true)
-      : undefined;
-    if (tagged !== undefined) this.applyLabelPatch(ids, { tagged });
-    this.persistLabels(ids, tagged === undefined ? { toggleTagged: true } : { tagged });
-    this.afterLabel(advance);
+    this.changeLabel(ids, 'tagged', (before) => ![...before.values()].every(Boolean));
   };
 
   readonly setColorClass = (colorClass: number, photoId?: PhotoId): void => {
     if (!Number.isInteger(colorClass) || colorClass < 0 || colorClass > 8) return;
     const ids = this.labelTargets(photoId);
     if (ids.length === 0) return;
-    const advance = this.nextToAdvanceTo(ids);
-    this.applyLabelPatch(ids, { colorClass });
-    this.persistLabels(ids, { colorClass });
-    this.afterLabel(advance);
+    this.changeLabel(ids, 'colorClass', () => colorClass);
   };
 
   readonly setRating = (rating: number, photoId?: PhotoId): void => {
     if (!Number.isInteger(rating) || rating < 0 || rating > 5) return;
     const ids = this.labelTargets(photoId);
     if (ids.length === 0) return;
-    const advance = this.nextToAdvanceTo(ids);
-    this.applyLabelPatch(ids, { rating });
-    this.persistLabels(ids, { rating });
-    this.afterLabel(advance);
+    this.changeLabel(ids, 'rating', () => rating);
   };
+
+  /**
+   * Change one label on every target as one undo step. What each photo had is read first (from
+   * the index for a photo outside the loaded page), because the step puts those values back.
+   */
+  private changeLabel<K extends keyof PhotoFlags>(
+    ids: PhotoId[],
+    key: K,
+    valueFor: (before: ReadonlyMap<PhotoId, PhotoFlags[K]>) => PhotoFlags[K],
+  ): void {
+    const before = new Map<PhotoId, PhotoFlags[K]>();
+    const missing: PhotoId[] = [];
+    for (const id of ids) {
+      const photo = this.photoById.get(id);
+      if (photo) before.set(id, photo[key]);
+      else missing.push(id);
+    }
+    const run = (): void => {
+      const value = valueFor(before);
+      const patch = { [key]: value } as Partial<PhotoFlags>;
+      const advance = this.nextToAdvanceTo(ids);
+      this.applyLabelPatch(ids, patch);
+      void this.persistLabels(ids, patch);
+      this.editHistory.record(this.labelStep(key, before, value));
+      this.afterLabel(advance);
+    };
+    if (missing.length === 0) {
+      run();
+      return;
+    }
+    Promise.all(missing.map((photoId) => this.bridge.invoke('photos:get', { photoId })))
+      .then((photos) => {
+        for (const photo of photos) before.set(photo.id, photo[key]);
+        run();
+      })
+      .catch((cause: unknown) => {
+        this.toast('error', `Could not read labels: ${messageOf(cause)}`);
+      });
+  }
+
+  /** The undo step of a label change: each photo goes back to the value it had. */
+  private labelStep<K extends keyof PhotoFlags>(
+    key: K,
+    before: ReadonlyMap<PhotoId, PhotoFlags[K]>,
+    after: PhotoFlags[K],
+  ): EditStep {
+    const photoIds = [...before.keys()];
+    const undoGroups = new Map<PhotoFlags[K], PhotoId[]>();
+    for (const [photoId, value] of before) {
+      undoGroups.set(value, [...(undoGroups.get(value) ?? []), photoId]);
+    }
+    return {
+      what: LABEL_NAMES[key],
+      photoIds,
+      at: Date.now(),
+      undo: () => this.writeLabels(key, undoGroups),
+      redo: () => this.writeLabels(key, new Map([[after, photoIds]])),
+    };
+  }
+
+  /** Put label values back through the normal write path: the store now, then the sidecar. */
+  private async writeLabels<K extends keyof PhotoFlags>(
+    key: K,
+    groups: ReadonlyMap<PhotoFlags[K], PhotoId[]>,
+  ): Promise<void> {
+    const writes: Promise<void>[] = [];
+    for (const [value, photoIds] of groups) {
+      const alive = photoIds.filter((photoId) => !this.isGoing(photoId));
+      if (alive.length === 0) continue;
+      const patch = { [key]: value } as Partial<PhotoFlags>;
+      this.applyLabelPatch(alive, patch);
+      writes.push(this.persistLabels(alive, patch));
+    }
+    await Promise.all(writes);
+  }
 
   /**
    * The photo auto-advance moves to after a label change, worked out before the change (which can
@@ -3668,6 +3738,75 @@ export class AppStore {
     }
     return this.performRedo(photo.id);
   };
+
+  /**
+   * Which history the last undos came from, newest last, so a redo takes back the newest undo
+   * first even when it was a develop step and the one before it a label.
+   */
+  private readonly undoneSources: ('develop' | 'edit')[] = [];
+
+  /**
+   * Ctrl/Cmd+Z outside a text field and outside Retouch and Crop. The newest change wins: a
+   * rating, tag, colour label, caption or keyword step (any photo, any module), or, in Develop,
+   * the open photo's newest develop step. A Library has no develop steps to take.
+   */
+  readonly undoLast = (): void => {
+    const photo = this.state.module === 'develop' ? activePhoto(this.state) : undefined;
+    // A Paste, Sync or Previous that is still running records its step when it settles: it is the
+    // newest change, so the develop undo waits for it.
+    const developAt = photo
+      ? this.pendingDevelopApplies.has(photo.id)
+        ? Number.POSITIVE_INFINITY
+        : this.developHistory.undoAt(photo.id)
+      : undefined;
+    const editAt = this.editHistory.undoAt();
+    if (developAt !== undefined && (editAt === undefined || developAt >= editAt)) {
+      if (this.undoDevelop()) this.undoneSources.push('develop');
+      return;
+    }
+    if (editAt === undefined) return;
+    this.undoneSources.push('edit');
+    this.stepEditHistory('undo');
+  };
+
+  /** Ctrl/Cmd+Shift+Z and Ctrl/Cmd+Y: the change the newest undo took back. */
+  readonly redoLast = (): void => {
+    const photo = this.state.module === 'develop' ? activePhoto(this.state) : undefined;
+    const canDevelop =
+      photo !== undefined &&
+      (this.developHistory.canRedo(photo.id) || this.pendingDevelopApplies.has(photo.id));
+    const canEdit = this.editHistory.canRedo();
+    if (!canDevelop && !canEdit) return;
+    let source: 'develop' | 'edit' | undefined;
+    for (let index = this.undoneSources.length - 1; index >= 0; index--) {
+      const candidate = this.undoneSources[index];
+      if ((candidate === 'develop' && canDevelop) || (candidate === 'edit' && canEdit)) {
+        source = candidate;
+        this.undoneSources.splice(index, 1);
+        break;
+      }
+    }
+    source ??= canEdit ? 'edit' : 'develop';
+    if (source === 'develop') this.redoDevelop();
+    else this.stepEditHistory('redo');
+  };
+
+  /** Undo or redo the newest label or metadata step, and say what it was. */
+  private stepEditHistory(direction: 'undo' | 'redo'): void {
+    this.editHistory[direction]()
+      .then((step) => {
+        if (!step) return;
+        const names = step.photoIds.map((id) => this.photoById.get(id)?.fileName);
+        const where =
+          step.photoIds.length === 1 && names[0] !== undefined
+            ? names[0]
+            : `${step.photoIds.length} photo${step.photoIds.length === 1 ? '' : 's'}`;
+        this.toast('info', `${direction === 'undo' ? 'Undid' : 'Redid'} ${step.what} on ${where}`);
+      })
+      .catch((cause: unknown) => {
+        this.toast('error', `Could not ${direction}: ${messageOf(cause)}`);
+      });
+  }
 
   /** The develop params of any photo as saved or edited (without raw defaults), including edits that have not reached the sidecar yet. */
   private async currentParams(photoId: PhotoId): Promise<EditParams> {
