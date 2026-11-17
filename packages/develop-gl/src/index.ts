@@ -33,6 +33,7 @@ export {
   cropOrientedToStored,
   cropStoredToOriented,
   cropViewToImage,
+  composeOrientation,
   croppedToSource,
   croppedToSourcePixels,
   drawCrop,
@@ -41,6 +42,7 @@ export {
   largestCropForAspect,
   minCropSize,
   normalizeOrientation,
+  normalizeTurns,
   orientedToStoredPoint,
   panCrop,
   pointerAngleDelta,
@@ -56,6 +58,7 @@ export {
   storedSizeForOrientation,
   storedToOrientedPoint,
   sourceToCroppedPixels,
+  turnsBetweenOrientations,
   unrotatePoint,
 } from './crop';
 export type {
