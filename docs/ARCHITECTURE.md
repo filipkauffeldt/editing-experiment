@@ -779,11 +779,11 @@ LibRaw) only; TIFF, PNG, HEIF and WebP are ingested but have no decoded preview.
   delimiter of an unknown token may open the next (`=x=t1=`); blur and Ctrl+Space pair delimiters
   from the left, across lines, and do not. Only a typed edit does it (`insertText` of one character,
   Backspace / Delete, also by word; never during composition): paste, drop, cut, undo and redo do
-  not, so after Ctrl+Z restores what was typed nothing expands until the next typed edit. The edit is
-  made with `execCommand('insertText')` so Ctrl+Z gives back what was typed (see "Undo and redo of
-  labels and metadata"). Ctrl+Space makes its edit the same way: only the stretch that changed is
-  replaced, never the whole value, because setting a textarea's value from code empties the
-  browser's undo stack.
+  not, so after an undo nothing expands until the next typed edit. The edit is made with
+  `execCommand('insertText')`, so it is a step of the field's own undo stack, and Ctrl+Space makes
+  its edit the same way: only the stretch that changed is replaced, never the whole value, because
+  setting a textarea's value from code empties the browser's undo stack. What the next Ctrl+Z does
+  after a replacement is described in "Undo and redo of labels and metadata".
 
 ## Linear image format
 
@@ -1285,12 +1285,24 @@ undoes, `Shift+Ctrl/Cmd+Z` and `Ctrl/Cmd+Y` redo, and a toast says what happened
   `photos:setLabels` call per value. A metadata undo writes `''` or `[]` for a field that was empty,
   which removes the tag. Photos deleted or removed since are skipped. Undo and redo run one after
   another, and each waits for the writes of the step.
-- **Code replacement.** The browser's own undo handles it, and the caption only fixes the
-  selection. A code replaced while typing, or by Ctrl+Space, is a separate edit of the field's undo
-  stack, so the next `Ctrl/Cmd+Z` gives back the text as typed. Chromium then selects what the
-  replacement had replaced, so the caption puts the caret back where it was (`historyUndo` in
-  `CaptionArea`), and the next undo goes on with the typing. The expansion on blur still sets the
-  value from code, as the field is not focused then.
+- **Code replacement.** The first `Ctrl/Cmd+Z` after a replacement removes it, code included, as if
+  the code had never been typed. "hello =a1= goodbye" that became "hello Name Namesson goodbye"
+  goes to "hello goodbye". Where the removal leaves a space on each side, one of them goes too, and
+  the caret ends where the code was. This holds for a code replaced while typing and for
+  Ctrl+Space, where one press removes every code and `{variable}` it expanded. `CaptionArea` takes
+  the key itself while the field still holds the replaced text and nothing was typed since. It
+  knows the replaced stretches from the expansion (`ReplacedRange`, carried back to the typed text
+  by `typedSpans`) and makes the removal as one more edit of the field, so the browser's undo stack
+  stays real. Redo (`Shift+Ctrl/Cmd+Z`, `Ctrl/Cmd+Y`) takes that edit back and shows the replacement
+  again, with the caret after it. The next `Ctrl/Cmd+Z` after the removal goes on with the field's
+  own undo as if neither the replacement nor its removal had happened, so it undoes the typing of
+  the code the way the browser groups it. Any other edit ends this and the browser's undo
+  takes over.
+- **Expansion on blur.** It sets the value from code, which empties the browser's undo stack, but
+  the caption keeps what it replaced. Back in the field, the first `Ctrl/Cmd+Z` removes the
+  expansion and Redo brings it back, as above. There is no typing history left in the field, so
+  the next `Ctrl/Cmd+Z` does nothing. The app-level undo outside the field is as before: typing and
+  its blur expansion are one step.
 
 ## Copy, paste and sync develop settings
 

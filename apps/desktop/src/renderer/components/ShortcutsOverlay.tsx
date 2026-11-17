@@ -68,7 +68,7 @@ const GROUPS: { title: string; rows: [string, string][] }[] = [
       ['Shift + Ctrl/⌘ + Z, Ctrl/⌘ + Y', 'Redo what the last undo took back'],
       [
         'Ctrl/⌘ + Z in a text field',
-        'Undo the typing. Right after a code was replaced, it gives back the code as typed',
+        'Undo the typing. Right after a code was replaced, it removes the code and what it wrote, and Redo brings it back',
       ],
     ],
   },
