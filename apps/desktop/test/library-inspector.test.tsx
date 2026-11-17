@@ -326,7 +326,7 @@ describe('Library inspector with several photos', () => {
 });
 
 describe('Library bottom bar', () => {
-  it('has only the count on the left and the four actions on the right', async () => {
+  it('has only the count on the left and the five actions on the right', async () => {
     await openLibrary();
     selectNames('_DSC8330.NEF', '_DSC8331.NEF', '_DSC8332.NEF');
     const bar = screen.getByTestId('library-action-bar');
@@ -335,7 +335,7 @@ describe('Library bottom bar', () => {
       within(bar)
         .getAllByRole('button')
         .map((button) => button.textContent?.replace(/⇧.*$/, '')),
-    ).toEqual(['Caption…', 'Sync settings…', 'Export…', 'Export & send']);
+    ).toEqual(['Compare', 'Caption…', 'Sync settings…', 'Export…', 'Export & send']);
     expect(within(bar).getByRole('button', { name: /Export & send/ }).textContent).toMatch(/Enter/);
     expect(within(bar).queryByRole('group')).toBeNull();
     expect(screen.queryByTestId('library-label-hints')).toBeNull();
