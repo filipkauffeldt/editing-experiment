@@ -1182,6 +1182,11 @@ The button is disabled with a tooltip for any other count, and `V` then only say
   outline. `T`, `1`-`5` and Ctrl/Cmd+`1`-`8` pass its photo id to `toggleTag`, `setRating` and
   `setColorClass`, so they never touch the rest of the selection and never auto-advance. Each pane's
   footer shows its file name, tag, rating and colour.
+- **Delete and the photo menu.** `actionTargets` (`store.ts`) gives the photos a label key, the photo menu,
+  Delete, Remove from Library and Shift capture time act on. In the compare view that is the active
+  pane's photo only, so the user deletes the losing frame and the dialog names it. A right-click on a
+  pane makes it active and opens the menu for its photo. The deleted pane leaves the view, the next
+  pane takes its place and the others stay compared and selected.
 
 ## Develop undo, redo and Reset all
 
