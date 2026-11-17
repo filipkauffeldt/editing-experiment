@@ -10,7 +10,9 @@ import {
   isFiltering,
   matchesFilter,
   toggleInList,
-  toggleMinRating,
+  clickRatingStar,
+  pickRatingMode,
+  ratingFilter,
   type FilterState,
 } from '../src/renderer/filters';
 
@@ -69,20 +71,94 @@ describe('filters', () => {
     const all = [none, two, three, five];
 
     it('keeps N stars and more, and drops unrated photos', () => {
-      expect(ids(filterPhotos(all, withFilter({ minRating: 3 })))).toEqual([three.id, five.id]);
-      expect(ids(filterPhotos(all, withFilter({ minRating: 1 })))).toEqual([
+      expect(ids(filterPhotos(all, withFilter({ ratingStars: 3 })))).toEqual([three.id, five.id]);
+      expect(ids(filterPhotos(all, withFilter({ ratingStars: 1 })))).toEqual([
         two.id,
         three.id,
         five.id,
       ]);
-      expect(ids(filterPhotos(all, withFilter({ minRating: 5 })))).toEqual([five.id]);
+      expect(ids(filterPhotos(all, withFilter({ ratingStars: 5 })))).toEqual([five.id]);
     });
 
     it('sets the filter on a click and clears it on a click on the active star', () => {
-      expect(toggleMinRating(0, 3)).toBe(3);
-      expect(toggleMinRating(3, 4)).toBe(4);
-      expect(toggleMinRating(3, 3)).toBe(0);
-      expect(isFiltering(withFilter({ minRating: 3 }))).toBe(true);
+      const off = withFilter({});
+      const three = withFilter(clickRatingStar(off, 3));
+      expect(three).toMatchObject({ ratingStars: 3, ratingMode: 'min' });
+      expect(withFilter(clickRatingStar(three, 4)).ratingStars).toBe(4);
+      expect(withFilter(clickRatingStar(three, 3)).ratingStars).toBe(0);
+      expect(isFiltering(withFilter({ ratingStars: 3 }))).toBe(true);
+    });
+  });
+
+  describe('rating modes', () => {
+    const unrated = photo({ rating: 0 });
+    const one = photo({ rating: 1 });
+    const three = photo({ rating: 3 });
+    const four = photo({ rating: 4 });
+    const five = photo({ rating: 5 });
+    const all = [unrated, one, three, four, five];
+    const rated = (ratingMode: FilterState['ratingMode'], ratingStars: number): string[] =>
+      ids(filterPhotos(all, withFilter({ ratingMode, ratingStars })));
+
+    it('and up is the default and keeps N stars and more', () => {
+      expect(initialFilter().ratingMode).toBe('min');
+      expect(rated('min', 3)).toEqual([three.id, four.id, five.id]);
+    });
+
+    it('exactly keeps only that many stars', () => {
+      expect(rated('exact', 3)).toEqual([three.id]);
+      expect(rated('exact', 2)).toEqual([]);
+    });
+
+    it('at most keeps that many stars or fewer, unrated photos included', () => {
+      expect(rated('max', 3)).toEqual([unrated.id, one.id, three.id]);
+      expect(rated('max', 1)).toEqual([unrated.id, one.id]);
+    });
+
+    it('unrated keeps only photos with no rating and ignores the stars', () => {
+      expect(rated('unrated', 0)).toEqual([unrated.id]);
+      expect(rated('unrated', 4)).toEqual([unrated.id]);
+      expect(ratingFilter(withFilter({ ratingMode: 'unrated' }))).toEqual({
+        mode: 'exact',
+        stars: 0,
+      });
+    });
+
+    it('is off with no star picked, whatever the mode', () => {
+      for (const mode of ['min', 'exact', 'max'] as const) {
+        expect(rated(mode, 0)).toEqual(ids(all));
+        expect(isFiltering(withFilter({ ratingMode: mode }))).toBe(false);
+      }
+      expect(isFiltering(withFilter({ ratingMode: 'unrated' }))).toBe(true);
+    });
+
+    it('keeps the star when the mode changes, and clears it on a click on the active star', () => {
+      const exact = withFilter(pickRatingMode(withFilter({ ratingStars: 3 }), 'exact'));
+      expect(exact).toMatchObject({ ratingStars: 3, ratingMode: 'exact' });
+      const cleared = withFilter(clickRatingStar(exact, 3));
+      expect(cleared).toMatchObject({ ratingStars: 0, ratingMode: 'exact' });
+      // The mode stays picked, so the next star is "exactly".
+      expect(withFilter(clickRatingStar(cleared, 4))).toMatchObject({
+        ratingStars: 4,
+        ratingMode: 'exact',
+      });
+    });
+
+    it('picking Unrated drops the stars, and a star after it goes back to and up', () => {
+      const picked = withFilter(pickRatingMode(withFilter({ ratingStars: 4 }), 'unrated'));
+      expect(picked).toMatchObject({ ratingStars: 0, ratingMode: 'unrated' });
+      expect(withFilter(clickRatingStar(picked, 2))).toMatchObject({
+        ratingStars: 2,
+        ratingMode: 'min',
+      });
+    });
+
+    it('counts follow the mode', () => {
+      const counts = filterCounts(all, withFilter({ ratingMode: 'exact', ratingStars: 3 }));
+      expect(counts.tag.all).toBe(1);
+      expect(counts.shown).toBe(1);
+      expect(filterCounts(all, withFilter({ ratingMode: 'unrated' })).shown).toBe(1);
+      expect(filterCounts(all, withFilter({ ratingMode: 'max', ratingStars: 1 })).shown).toBe(2);
     });
   });
 
@@ -184,7 +260,7 @@ describe('filters', () => {
       const exportedOne = photo({ rating: 4, status: { export: 'done' } });
       const sentOne = photo({ rating: 4, status: { upload: 'done' } });
       const low = photo({ rating: 2 });
-      const filter = withFilter({ minRating: 3, statuses: ['not-exported', 'not-sent'] });
+      const filter = withFilter({ ratingStars: 3, statuses: ['not-exported', 'not-sent'] });
       expect(ids(filterPhotos([keep, exportedOne, sentOne, low], filter))).toEqual([keep.id]);
     });
 
@@ -282,7 +358,7 @@ describe('filters', () => {
     ];
     const filter = withFilter({
       tag: 'tagged',
-      minRating: 3,
+      ratingStars: 3,
       colorClasses: [2, 6],
       statuses: ['edited'],
       camera: cameraKey(wanted),
@@ -294,7 +370,7 @@ describe('filters', () => {
     it('applies every filter at once, and each one on its own removes its photo', () => {
       expect(ids(filterPhotos(all, filter, found))).toEqual([wanted.id]);
       for (const [wrong, relax] of [
-        [wrongRating, { minRating: 0 }],
+        [wrongRating, { ratingStars: 0 }],
         [wrongColour, { colorClasses: [] }],
         [wrongTag, { tag: 'all' as const }],
         [wrongCamera, { camera: undefined }],
@@ -328,7 +404,7 @@ describe('filters', () => {
       });
       expect(none.shown).toBe(4);
 
-      const rated = filterCounts(all, withFilter({ minRating: 3 }));
+      const rated = filterCounts(all, withFilter({ ratingStars: 3 }));
       expect(rated.tag).toEqual({ all: 2, tagged: 1, untagged: 1 });
       expect(rated.status['not-sent']).toBe(1);
       expect(rated.shown).toBe(2);
@@ -339,7 +415,7 @@ describe('filters', () => {
       const waiting = photo({ rating: 5 });
       const lowDone = photo({ rating: 1, status: { export: 'done' } });
       const set = [done, waiting, lowDone];
-      const counts = filterCounts(set, withFilter({ minRating: 3 }));
+      const counts = filterCounts(set, withFilter({ ratingStars: 3 }));
       expect(counts.status.exported).toBe(1);
       expect(counts.status['not-exported']).toBe(1);
       // Ticking one makes the other count what it would show on top of it: nothing.
@@ -366,7 +442,7 @@ describe('filters', () => {
     });
 
     it('matches the length of the filtered list', () => {
-      const filter = withFilter({ tag: 'untagged', statuses: ['not-sent'], minRating: 1 });
+      const filter = withFilter({ tag: 'untagged', statuses: ['not-sent'], ratingStars: 1 });
       expect(filterCounts(all, filter).shown).toBe(filterPhotos(all, filter).length);
     });
   });

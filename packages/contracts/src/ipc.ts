@@ -81,11 +81,24 @@ export interface ListPhotosArgs {
 export type PhotoStatusFilter =
   'not-sent' | 'not-exported' | 'exported' | 'failed' | 'edited' | 'metadata-differs';
 
+/** How a star filter compares a photo's rating with its stars. */
+export type PhotoRatingMode = 'min' | 'exact' | 'max';
+
+/**
+ * A rating filter: `min` is "N and up", `exact` is exactly N, `max` is "N or fewer" and so
+ * includes unrated photos. Unrated photos only are `exact` with 0 stars.
+ */
+export interface PhotoRatingFilter {
+  mode: PhotoRatingMode;
+  /** 0..5; 0 with `min` matches every photo. */
+  stars: number;
+}
+
 /** The filter a `photos:query` applies in the jobs process. */
 export interface PhotoQueryFilter {
   tag?: 'all' | 'tagged' | 'untagged';
-  /** 0 or absent is off, otherwise this many stars and up. */
-  minRating?: number;
+  /** Absent is off. */
+  rating?: PhotoRatingFilter;
   /** Colour classes to show; absent or empty is every colour. */
   colorClasses?: number[];
   /** Colour classes to hide, whatever `colorClasses` says. Class 0 (no label) is never hidden. */

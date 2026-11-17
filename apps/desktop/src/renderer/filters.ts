@@ -1,4 +1,11 @@
-import type { Photo, PhotoId, PhotoStatusFilter, SourceId } from '@ee/contracts';
+import type {
+  Photo,
+  PhotoId,
+  PhotoRatingFilter,
+  PhotoRatingMode,
+  PhotoStatusFilter,
+  SourceId,
+} from '@ee/contracts';
 
 /**
  * The one filter both the Library and Develop apply. Pure: a photo, a filter and (when a text
@@ -25,10 +32,25 @@ export const STATUS_FILTERS: readonly { id: StatusFilter; label: string }[] = [
   { id: 'metadata-differs', label: 'Differs from template' },
 ];
 
+/** What the rating selector offers: the three comparisons, and the unrated photos on their own. */
+export type RatingMode = PhotoRatingMode | 'unrated';
+
+export const RATING_MODES: readonly { id: RatingMode; label: string }[] = [
+  { id: 'min', label: 'And up' },
+  { id: 'exact', label: 'Exactly' },
+  { id: 'max', label: 'At most' },
+  { id: 'unrated', label: 'Unrated' },
+];
+
 export interface FilterState {
   tag: TagFilter;
-  /** 0 = off, 1..5 = this many stars and up; unrated photos are out while it is on. */
-  minRating: number;
+  /** 0 = no stars picked, 1..5 = the star clicked. What it means depends on `ratingMode`. */
+  ratingStars: number;
+  /**
+   * `min` (and up, the default), `exact`, `max` (and fewer, unrated included) compare with
+   * `ratingStars`; `unrated` shows photos with no rating and ignores the stars.
+   */
+  ratingMode: RatingMode;
   /** Colour classes 1..8 to show; empty = every colour. */
   colorClasses: readonly number[];
   /** Colour classes 1..8 to hide. A class is never both shown and hidden. */
@@ -44,7 +66,8 @@ export interface FilterState {
 
 export const initialFilter = (): FilterState => ({
   tag: 'all',
-  minRating: 0,
+  ratingStars: 0,
+  ratingMode: 'min',
   colorClasses: [],
   excludedColors: [],
   statuses: [],
@@ -57,7 +80,7 @@ export const hasSearch = (filter: FilterState): boolean => filter.search.trim() 
 export function isFiltering(filter: FilterState): boolean {
   return (
     filter.tag !== 'all' ||
-    filter.minRating > 0 ||
+    ratingFilter(filter) !== undefined ||
     filter.colorClasses.length > 0 ||
     filter.excludedColors.length > 0 ||
     filter.statuses.length > 0 ||
@@ -65,6 +88,28 @@ export function isFiltering(filter: FilterState): boolean {
     filter.sourceId !== undefined ||
     hasSearch(filter)
   );
+}
+
+/** The rating filter in the form the index takes, or nothing when it is off. */
+export function ratingFilter(
+  filter: Pick<FilterState, 'ratingStars' | 'ratingMode'>,
+): PhotoRatingFilter | undefined {
+  if (filter.ratingMode === 'unrated') return { mode: 'exact', stars: 0 };
+  return filter.ratingStars > 0
+    ? { mode: filter.ratingMode, stars: filter.ratingStars }
+    : undefined;
+}
+
+export function matchesRating(rating: number, wanted: PhotoRatingFilter | undefined): boolean {
+  if (wanted === undefined) return true;
+  switch (wanted.mode) {
+    case 'min':
+      return rating >= wanted.stars;
+    case 'exact':
+      return rating === wanted.stars;
+    case 'max':
+      return rating <= wanted.stars;
+  }
 }
 
 export function cameraKey(photo: Photo): string {
@@ -122,7 +167,7 @@ function matchesRest(
   filter: FilterState,
   searchIds: ReadonlySet<PhotoId> | undefined,
 ): boolean {
-  if (filter.minRating > 0 && photo.rating < filter.minRating) return false;
+  if (!matchesRating(photo.rating, ratingFilter(filter))) return false;
   if (filter.colorClasses.length > 0 && !filter.colorClasses.includes(photo.colorClass))
     return false;
   if (filter.excludedColors.includes(photo.colorClass)) return false;
@@ -199,8 +244,23 @@ export function filterCounts(
   return counts;
 }
 
-/** Click star `n`: "n and up"; the star that is already the filter clears it. */
-export const toggleMinRating = (current: number, n: number): number => (current === n ? 0 : n);
+/** Click star `n`: it becomes the filter, and the star that is already the filter clears it. */
+export function clickRatingStar(
+  filter: Pick<FilterState, 'ratingStars' | 'ratingMode'>,
+  n: number,
+): Pick<FilterState, 'ratingStars' | 'ratingMode'> {
+  // A star means nothing next to Unrated, so it goes back to the default comparison.
+  if (filter.ratingMode === 'unrated') return { ratingStars: n, ratingMode: 'min' };
+  return { ratingStars: filter.ratingStars === n ? 0 : n, ratingMode: filter.ratingMode };
+}
+
+/** Pick a comparison. The stars stay, so "3 and up" becomes "exactly 3"; Unrated drops them. */
+export function pickRatingMode(
+  filter: Pick<FilterState, 'ratingStars'>,
+  mode: RatingMode,
+): Pick<FilterState, 'ratingStars' | 'ratingMode'> {
+  return { ratingStars: mode === 'unrated' ? 0 : filter.ratingStars, ratingMode: mode };
+}
 
 export type ColorFilterState = 'off' | 'include' | 'exclude';
 

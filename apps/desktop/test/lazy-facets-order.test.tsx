@@ -44,13 +44,18 @@ const facets = (shown: number, scopeTotal: number): PhotoFacets => ({
 describe('filter counts during a filter change', () => {
   it('drops an answer that was requested for the previous filter', async () => {
     const photos = [photo(1, 5), photo(2, 4), photo(3, 3), photo(4, 1), photo(5, 0)];
-    const requests: { filter?: { minRating?: number }; resolve(facets: PhotoFacets): void }[] = [];
+    const requests: {
+      filter?: { rating?: { mode: string; stars: number } };
+      resolve(facets: PhotoFacets): void;
+    }[] = [];
     const fake = createFakeBridge({
       photos,
       handlers: {
         'photos:facets': (...args) =>
           new Promise<PhotoFacets>((resolve) => {
-            const filter = (args[0] as { filter?: { minRating?: number } } | undefined)?.filter;
+            const filter = (
+              args[0] as { filter?: { rating?: { mode: string; stars: number } } } | undefined
+            )?.filter;
             requests.push({ filter, resolve });
           }),
       },
@@ -59,9 +64,9 @@ describe('filter counts during a filter change', () => {
     try {
       await store.init();
       await expect.poll(() => requests.length).toBe(1);
-      expect(requests[0]?.filter?.minRating).toBe(0);
+      expect(requests[0]?.filter?.rating).toBeUndefined();
 
-      store.setMinRating(3);
+      store.clickRatingStar(3);
       // The first request is still open when the next counts are asked for.
       await new Promise((resolve) => setTimeout(resolve, 250));
       expect(requests).toHaveLength(1);
@@ -72,7 +77,7 @@ describe('filter counts during a filter change', () => {
       expect(store.getState().facets).toBeUndefined();
 
       await expect.poll(() => requests.length).toBe(2);
-      expect(requests[1]?.filter?.minRating).toBe(3);
+      expect(requests[1]?.filter?.rating).toEqual({ mode: 'min', stars: 3 });
       requests[1]!.resolve(facets(3, 5));
       await expect.poll(() => store.getState().facets?.shown).toBe(3);
       expect(store.getState().facets?.scopeTotal).toBe(5);

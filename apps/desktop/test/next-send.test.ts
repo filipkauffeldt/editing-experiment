@@ -173,7 +173,7 @@ describe('Next & send in the background', () => {
       photoId: picked[2]!.id,
       fields: { keywords: ['åkerlund'] },
     });
-    store.setMinRating(4);
+    store.clickRatingStar(4);
     store.setSearch('ÅKERLUND');
     await vi.waitFor(() => expect(store.getState().searchResult?.query).toBe('ÅKERLUND'));
     expect(names(store)).toEqual([picked[0]?.fileName, picked[2]?.fileName]);

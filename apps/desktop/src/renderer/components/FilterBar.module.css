@@ -53,6 +53,12 @@
   color: var(--dim);
 }
 
+.rating {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
 .stars {
   display: flex;
   align-items: center;

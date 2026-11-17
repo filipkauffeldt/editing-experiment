@@ -14,6 +14,7 @@ import {
   type IptcFields,
   type Photo,
   type PhotoId,
+  type PhotoRatingFilter,
   type PhotoStatusFilter,
   type SourceConfig,
   type SourceId,
@@ -27,6 +28,7 @@ import {
   filterCounts,
   filterPhotos,
   initialFilter,
+  type FilterState,
 } from '../src/renderer/filters';
 import { formatCaptureDateTime, parseCaptureDateTime, shiftCaptureDateTime } from '@ee/metadata';
 import {
@@ -55,6 +57,16 @@ export interface FakeBridge {
   settings: ReturnType<typeof mockSettings>;
   exportPresets: ExportPreset[];
 }
+
+/** The renderer's rating fields for a query's rating filter (the reverse of `ratingFilter`). */
+const ratingState = (
+  rating: PhotoRatingFilter | undefined,
+): Pick<FilterState, 'ratingStars' | 'ratingMode'> =>
+  rating === undefined
+    ? { ratingStars: 0, ratingMode: 'min' }
+    : rating.mode === 'exact' && rating.stars === 0
+      ? { ratingStars: 0, ratingMode: 'unrated' }
+      : { ratingStars: rating.stars, ratingMode: rating.mode };
 
 const versionKey = (photoId: PhotoId, versionId?: VersionId): string =>
   `${photoId}:${versionId ?? 'active'}`;
@@ -166,7 +178,7 @@ export function createFakeBridge(
         anchorId?: PhotoId;
         filter?: {
           tag?: 'all' | 'tagged' | 'untagged';
-          minRating?: number;
+          rating?: PhotoRatingFilter;
           colorClasses?: number[];
           excludeColorClasses?: number[];
           statuses?: PhotoStatusFilter[];
@@ -194,7 +206,7 @@ export function createFakeBridge(
         {
           ...initialFilter(),
           tag: filter?.tag ?? 'all',
-          minRating: filter?.minRating ?? 0,
+          ...ratingState(filter?.rating),
           colorClasses: filter?.colorClasses ?? [],
           excludedColors: filter?.excludeColorClasses ?? [],
           statuses: filter?.statuses ?? [],
@@ -231,7 +243,7 @@ export function createFakeBridge(
         folder?: string;
         filter?: {
           tag?: 'all' | 'tagged' | 'untagged';
-          minRating?: number;
+          rating?: PhotoRatingFilter;
           colorClasses?: number[];
           excludeColorClasses?: number[];
           statuses?: PhotoStatusFilter[];
@@ -256,7 +268,7 @@ export function createFakeBridge(
       const state = {
         ...initialFilter(),
         tag: filter?.tag ?? 'all',
-        minRating: filter?.minRating ?? 0,
+        ...ratingState(filter?.rating),
         colorClasses: filter?.colorClasses ?? [],
         excludedColors: filter?.excludeColorClasses ?? [],
         statuses: filter?.statuses ?? [],

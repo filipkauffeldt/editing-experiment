@@ -64,7 +64,9 @@ describe('photo index queries', () => {
     expect(index.query({ filter: { tag: 'tagged' }, limit: 10 }).photos.map((p) => p.id)).toEqual([
       'a',
     ]);
-    expect(index.query({ filter: { minRating: 4 }, limit: 10 }).photos).toHaveLength(1);
+    expect(
+      index.query({ filter: { rating: { mode: 'min', stars: 4 } }, limit: 10 }).photos,
+    ).toHaveLength(1);
     expect(
       index.query({ filter: { statuses: ['edited'] }, limit: 10 }).photos.map((p) => p.id),
     ).toEqual(['b']);
@@ -119,7 +121,10 @@ describe('photo index queries', () => {
     const tagged = index.facets({ folder: '/photos/game', filter: { tag: 'tagged' } });
     expect(tagged.shown).toBe(1);
     expect(tagged.status['not-sent']).toBe(1);
-    const rated = index.facets({ folder: '/photos/game', filter: { minRating: 4 } });
+    const rated = index.facets({
+      folder: '/photos/game',
+      filter: { rating: { mode: 'min', stars: 4 } },
+    });
     expect(rated.scopeTotal).toBe(3);
     expect(rated.shown).toBe(1);
     expect(rated.tag).toEqual({ all: 1, tagged: 1, untagged: 0 });
@@ -278,7 +283,7 @@ describe('the index and the renderer filter agree', () => {
         withFilter({ statuses: ['not-exported'] }),
         withFilter({ statuses: ['not-exported', 'not-sent'] }),
         withFilter({ statuses: ['exported', 'not-exported'] }),
-        withFilter({ minRating: 3, statuses: ['not-exported', 'not-sent'] }),
+        withFilter({ ratingStars: 3, statuses: ['not-exported', 'not-sent'] }),
         withFilter({ tag: 'tagged', statuses: ['not-exported'] }),
       ]) {
         expectSameAsRenderer(index, photos, filter);
@@ -287,6 +292,39 @@ describe('the index and the renderer filter agree', () => {
       expect(facets.status.exported).toBe(0);
       expect(facets.status['not-exported']).toBe(5);
       expect(index.facets({}).status.exported).toBe(2);
+    });
+  });
+
+  it('rating modes: and up, exactly, at most and unrated', async () => {
+    await withIndex((index) => {
+      const modes = ['min', 'exact', 'max'] as const;
+      for (const ratingMode of modes) {
+        for (const ratingStars of [0, 1, 3, 4, 5]) {
+          expectSameAsRenderer(index, photos, withFilter({ ratingMode, ratingStars }));
+        }
+      }
+      expectSameAsRenderer(index, photos, withFilter({ ratingMode: 'unrated' }));
+      expectSameAsRenderer(index, photos, withFilter({ ratingMode: 'unrated', ratingStars: 3 }));
+      expectSameAsRenderer(
+        index,
+        photos,
+        withFilter({ ratingMode: 'max', ratingStars: 3, tag: 'tagged', excludedColors: [2] }),
+      );
+      expectSameAsRenderer(
+        index,
+        photos,
+        withFilter({ ratingMode: 'exact', ratingStars: 3, statuses: ['exported'] }),
+      );
+      const ids = (rating: { mode: 'min' | 'exact' | 'max'; stars: number }): string[] =>
+        index
+          .query({ filter: { rating } })
+          .photos.map((entry) => entry.id)
+          .sort();
+      expect(ids({ mode: 'min', stars: 4 })).toEqual(['a', 'f']);
+      expect(ids({ mode: 'exact', stars: 3 })).toEqual(['b', 'c']);
+      expect(ids({ mode: 'max', stars: 1 })).toEqual(['d', 'e', 'g']);
+      expect(ids({ mode: 'exact', stars: 0 })).toEqual(['d', 'g']);
+      expect(index.facets({ filter: { rating: { mode: 'exact', stars: 0 } } }).shown).toBe(2);
     });
   });
 

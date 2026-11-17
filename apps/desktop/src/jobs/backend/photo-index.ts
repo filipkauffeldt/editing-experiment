@@ -662,9 +662,10 @@ export class PhotoIndex {
     if (filter) {
       if (filter.tag === 'tagged') parts.push('tagged = 1');
       else if (filter.tag === 'untagged') parts.push('COALESCE(tagged, 0) = 0');
-      if (filter.minRating !== undefined && filter.minRating > 0) {
-        parts.push('rating >= ?');
-        params.push(filter.minRating);
+      if (filter.rating !== undefined) {
+        const compare = { min: '>=', exact: '=', max: '<=' }[filter.rating.mode];
+        parts.push(`COALESCE(rating, 0) ${compare} ?`);
+        params.push(filter.rating.stars);
       }
       if (filter.colorClasses !== undefined && filter.colorClasses.length > 0) {
         parts.push(`color_class IN (${placeholders(filter.colorClasses.length)})`);

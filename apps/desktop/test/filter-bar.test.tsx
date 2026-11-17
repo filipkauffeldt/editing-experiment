@@ -96,6 +96,51 @@ describe('the filter bar in Develop and in the Library', () => {
     expect(count()).toBe('40');
   });
 
+  it('picks how the stars compare from a compact selector', async () => {
+    const { store } = await renderApp();
+    rate(store);
+    const user = userEvent.setup();
+    const mode = () => bar().getByTestId('filter-rating-mode');
+    expect(within(mode()).getByRole('button').textContent).toBe('And up');
+
+    await user.click(within(mode()).getByRole('button'));
+    expect(screen.getAllByRole('menuitemradio').map((item) => item.textContent)).toEqual([
+      'And up',
+      'Exactly',
+      'At most',
+      'Unrated',
+    ]);
+    await user.click(screen.getByRole('menuitemradio', { name: 'Exactly' }));
+    // The menu closes after a pick and nothing is filtered until a star is clicked.
+    expect(screen.queryByRole('menu')).toBeNull();
+    expect(stripNames()).toHaveLength(40);
+    expect(bar().getByRole('button', { name: '4 stars exactly' })).toBeTruthy();
+
+    await user.click(bar().getByRole('button', { name: '4 stars exactly' }));
+    await waitFor(() => expect(stripNames()).toHaveLength(2));
+    expect(count()).toBe('2 of 40');
+
+    // Changing the mode keeps the star: at most 4 stars is every photo here.
+    await user.click(within(mode()).getByRole('button'));
+    await user.click(screen.getByRole('menuitemradio', { name: 'At most' }));
+    await waitFor(() => expect(stripNames()).toHaveLength(40));
+
+    await user.click(bar().getByRole('button', { name: '2 stars at most' }));
+    await waitFor(() => expect(stripNames()).toHaveLength(38));
+
+    await user.click(within(mode()).getByRole('button'));
+    await user.click(screen.getByRole('menuitemradio', { name: 'Unrated' }));
+    await waitFor(() => expect(stripNames()).toHaveLength(37));
+    expect(count()).toBe('37 of 40');
+    for (const star of bar().getAllByRole('button', { name: /^\d stars? /u })) {
+      expect(star.getAttribute('aria-pressed')).toBe('false');
+    }
+    // A star after Unrated goes back to "and up".
+    await user.click(bar().getByRole('button', { name: '3 stars and up' }));
+    await waitFor(() => expect(stripNames()).toHaveLength(2));
+    expect(store.getState().filter.ratingMode).toBe('min');
+  });
+
   it('filter to 3 stars, press D, and the arrow keys step only through those', async () => {
     const { store } = await renderApp();
     rate(store);
@@ -246,7 +291,7 @@ describe('the filter bar in Develop and in the Library', () => {
     expect(screen.getByTestId('filter-clear')).toBeTruthy();
     await user.click(screen.getByTestId('filter-clear'));
     expect(screen.queryByTestId('filter-clear')).toBeNull();
-    expect(store.getState().filter.minRating).toBe(0);
+    expect(store.getState().filter.ratingStars).toBe(0);
     expect(store.getState().filter.tag).toBe('all');
     expect(stripNames()).toHaveLength(40);
   });

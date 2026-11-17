@@ -183,7 +183,7 @@ describe('lazy Develop', () => {
       store.setModule('library');
       await expect.poll(() => store.getState().library.folder).toBe('/photos/match-a');
       await expect.poll(() => store.getState().facets?.scopeTotal).toBe(2_500);
-      store.setMinRating(4);
+      store.clickRatingStar(4);
       await expect.poll(() => store.getState().facets?.shown).toBe(500);
       expect(store.getState().facets?.tag).toEqual({ all: 500, tagged: 167, untagged: 333 });
       expect(store.getState().facets?.status['not-sent']).toBe(500);

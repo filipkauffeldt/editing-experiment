@@ -7,8 +7,8 @@ import {
   cameraOptions,
   colorFilterState,
   filterCounts,
+  RATING_MODES,
   isFiltering,
-  toggleMinRating,
 } from '../filters';
 import type { SortMode } from '../store';
 import { useAppState, useAppStore } from '../store-context';
@@ -19,6 +19,14 @@ import styles from './FilterBar.module.css';
 
 /** Typing waits this long before the search runs. */
 export const SEARCH_DEBOUNCE_MS = 250;
+
+/** The ending of a star's name: "3 stars and up", "3 stars exactly". */
+const RATING_PHRASE = {
+  min: 'and up',
+  exact: 'exactly',
+  max: 'at most',
+  unrated: 'and up',
+} as const;
 
 /** What the next click on a colour does, shown in its tooltip. */
 const COLOR_TITLE_HINT = {
@@ -84,6 +92,9 @@ export function FilterBar({
   const scopeTotal = facets?.scopeTotal ?? scopeFallback;
   const shownTotal = facets?.shown ?? shown;
   const filtering = isFiltering(filter);
+  const unrated = filter.ratingMode === 'unrated';
+  const ratingModeLabel =
+    RATING_MODES.find((mode) => mode.id === filter.ratingMode)?.label ?? 'And up';
   const sort = SORTS.find((candidate) => candidate.id === state.sort) ?? SORTS[0];
 
   return (
@@ -103,22 +114,46 @@ export function FilterBar({
         ))}
       </div>
 
-      <div className={styles.stars} role="group" aria-label="Rating">
-        {[1, 2, 3, 4, 5].map((n) => (
-          <button
-            key={n}
-            type="button"
-            className={`${styles.star} ${n <= filter.minRating ? styles.starOn : ''}`}
-            aria-label={`${n} star${n === 1 ? '' : 's'} and up`}
-            aria-pressed={filter.minRating === n}
-            title={
-              filter.minRating === n ? 'Click to clear' : `${n} star${n === 1 ? '' : 's'} and up`
-            }
-            onClick={() => store.setMinRating(toggleMinRating(filter.minRating, n))}
-          >
-            ★
-          </button>
-        ))}
+      <div className={styles.rating}>
+        <div className={styles.stars} role="group" aria-label="Rating">
+          {[1, 2, 3, 4, 5].map((n) => {
+            const phrase = `${n} star${n === 1 ? '' : 's'} ${RATING_PHRASE[filter.ratingMode]}`;
+            const picked = filter.ratingMode !== 'unrated' && filter.ratingStars === n;
+            const lit =
+              filter.ratingMode === 'exact' ? picked : n <= filter.ratingStars && !unrated;
+            return (
+              <button
+                key={n}
+                type="button"
+                className={`${styles.star} ${lit ? styles.starOn : ''}`}
+                aria-label={phrase}
+                aria-pressed={picked}
+                title={picked ? 'Click to clear' : phrase}
+                onClick={() => store.clickRatingStar(n)}
+              >
+                ★
+              </button>
+            );
+          })}
+        </div>
+        <Menu
+          label={ratingModeLabel}
+          ariaLabel={`Rating: ${ratingModeLabel.toLowerCase()}`}
+          testId="filter-rating-mode"
+          active={filter.ratingMode === 'unrated'}
+          closeOnPick
+        >
+          {RATING_MODES.map(({ id, label }) => (
+            <MenuItem
+              key={id}
+              kind="radio"
+              checked={filter.ratingMode === id}
+              onSelect={() => store.setRatingMode(id)}
+            >
+              {label}
+            </MenuItem>
+          ))}
+        </Menu>
       </div>
 
       <div className={styles.colors} role="group" aria-label="Colour label">

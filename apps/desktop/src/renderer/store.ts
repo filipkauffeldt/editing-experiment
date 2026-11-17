@@ -100,8 +100,12 @@ import {
 import {
   cameraKey,
   filterPhotos,
+  clickRatingStar,
   cycleColorClass,
   initialFilter,
+  pickRatingMode,
+  ratingFilter,
+  type RatingMode,
   hasSearch,
   matchesStatus,
   toggleInList,
@@ -675,9 +679,10 @@ function sortPhotos(photos: Photo[], sort: SortMode): Photo[] {
 
 /** The renderer filter as the jobs process applies it to a page of the index. */
 export function queryFilter(filter: FilterState): PhotoQueryFilter {
+  const rating = ratingFilter(filter);
   return {
     tag: filter.tag,
-    minRating: filter.minRating,
+    ...(rating === undefined ? {} : { rating }),
     colorClasses: [...filter.colorClasses],
     ...(filter.excludedColors.length === 0
       ? {}
@@ -1469,8 +1474,9 @@ export class AppStore {
       return true;
     if (cameraKey(previous) !== cameraKey(next) || previous.sourceId !== next.sourceId) return true;
     // Only what an active filter reads can change membership; an upload tick must not reorder.
-    const { statuses, minRating, colorClasses, excludedColors } = this.state.filter;
-    if (minRating > 0 && previous.rating !== next.rating) return true;
+    const { statuses, colorClasses, excludedColors } = this.state.filter;
+    const rating = ratingFilter(this.state.filter);
+    if (rating !== undefined && previous.rating !== next.rating) return true;
     if (
       (colorClasses.length > 0 || excludedColors.length > 0) &&
       previous.colorClass !== next.colorClass
@@ -1824,8 +1830,12 @@ export class AppStore {
 
   readonly setTagFilter = (tag: TagFilter): void => this.applyFilter({ tag });
 
-  /** Stars and up; 0 turns it off. */
-  readonly setMinRating = (minRating: number): void => this.applyFilter({ minRating });
+  /** Click a star: it is the filter in the chosen mode, and the active star clears it. */
+  readonly clickRatingStar = (stars: number): void =>
+    this.applyFilter(clickRatingStar(this.state.filter, stars));
+
+  readonly setRatingMode = (mode: RatingMode): void =>
+    this.applyFilter(pickRatingMode(this.state.filter, mode));
 
   /** Click a colour: shown, then hidden, then off. */
   readonly cycleColorFilter = (colorClass: number): void =>

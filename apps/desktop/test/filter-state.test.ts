@@ -52,12 +52,12 @@ describe('one filter for both views', () => {
   it('keeps the filter when the module changes, and both views list the same photos', async () => {
     const { store } = await setup();
     rate(store, [5, 3, 3, 1]);
-    store.setMinRating(3);
+    store.clickRatingStar(3);
     const expected = develop(store);
     expect(expected).toHaveLength(3);
 
     store.setModule('library');
-    expect(store.getState().filter.minRating).toBe(3);
+    expect(store.getState().filter.ratingStars).toBe(3);
     expect(library(store)).toEqual(expected);
     store.setModule('develop');
     expect(develop(store)).toEqual(expected);
@@ -66,7 +66,7 @@ describe('one filter for both views', () => {
   it('steps with the arrow keys only through the filtered photos, in Develop and the Library', async () => {
     const { store } = await setup();
     const photos = rate(store, [5, 1, 3, 1, 4]);
-    store.setMinRating(3);
+    store.clickRatingStar(3);
     const shown = [photos[0], photos[2], photos[4]].map((photo) => photo?.fileName);
 
     store.setModule('develop');
@@ -90,7 +90,7 @@ describe('one filter for both views', () => {
   it('keeps the Library folder out of Develop, and applies the filter inside the folder', async () => {
     const { store } = await setup();
     const photos = rate(store, [4, 4]);
-    store.setMinRating(4);
+    store.clickRatingStar(4);
     const folder = photos[0]?.path.replace(/[\\/][^\\/]*$/, '');
     store.setLibraryFolder(folder);
     expect(library(store)).toEqual(develop(store));
@@ -108,7 +108,7 @@ describe('when a filter hides the active photo', () => {
     store.select(photos[1]?.id ?? ('' as never), 'range');
     expect(store.getState().selection).toHaveLength(2);
 
-    store.setMinRating(5);
+    store.clickRatingStar(5);
     // The rule: the first photo still shown becomes active and the only one selected.
     expect(active(store)).toBe(photos[1]?.fileName);
     expect(store.getState().selection).toEqual([photos[1]?.id]);
@@ -123,14 +123,14 @@ describe('when a filter hides the active photo', () => {
     store.select(photos[0]?.id ?? ('' as never));
     store.select(photos[2]?.id ?? ('' as never), 'toggle');
     store.select(photos[1]?.id ?? ('' as never), 'toggle');
-    store.setMinRating(5);
+    store.clickRatingStar(5);
     expect(store.getState().selection.every((id) => id !== photos[1]?.id)).toBe(true);
     expect(library(store)).toContain(active(store));
   });
 
   it('leaves no active photo when nothing matches, and brings one back on clear', async () => {
     const { store } = await setup();
-    store.setMinRating(5);
+    store.clickRatingStar(5);
     expect(develop(store)).toEqual([]);
     expect(active(store)).toBeUndefined();
     expect(store.getState().selection).toEqual([]);
@@ -143,7 +143,7 @@ describe('when a filter hides the active photo', () => {
   it('does the same when a rating change makes the open photo drop out in Develop', async () => {
     const { store } = await setup();
     const photos = rate(store, [4, 4]);
-    store.setMinRating(4);
+    store.clickRatingStar(4);
     store.setModule('develop');
     expect(active(store)).toBe(photos[0]?.fileName);
     store.setRating(1);
@@ -156,7 +156,7 @@ describe('clear', () => {
     const { store } = await setup();
     store.setSort('capture-time');
     store.setTagFilter('tagged');
-    store.setMinRating(2);
+    store.clickRatingStar(2);
     store.cycleColorFilter(3);
     store.cycleColorFilter(4);
     store.cycleColorFilter(4);
@@ -167,7 +167,8 @@ describe('clear', () => {
     const { filter, sort, searchResult } = store.getState();
     expect(filter).toEqual({
       tag: 'all',
-      minRating: 0,
+      ratingStars: 0,
+      ratingMode: 'min',
       colorClasses: [],
       excludedColors: [],
       statuses: [],
