@@ -59,10 +59,22 @@ const GROUPS: { title: string; rows: [string, string][] }[] = [
     ],
   },
   {
+    title: 'Undo and redo',
+    rows: [
+      [
+        'Ctrl/⌘ + Z',
+        'Undo the last tag, rating, colour label, caption or keyword change. In Develop the open photo’s last develop change counts too, whichever came last',
+      ],
+      ['Shift + Ctrl/⌘ + Z, Ctrl/⌘ + Y', 'Redo what the last undo took back'],
+      [
+        'Ctrl/⌘ + Z in a text field',
+        'Undo the typing. Right after a code was replaced, it gives back the code as typed',
+      ],
+    ],
+  },
+  {
     title: 'Develop',
     rows: [
-      ['Ctrl/⌘ + Z', 'Undo the last develop change'],
-      ['Shift + Ctrl/⌘ + Z, Ctrl/⌘ + Y', 'Redo the last develop change'],
       ['Y', 'Before / after'],
       ['J', 'Show clipping (red highlights, blue shadows)'],
       ['W', 'White balance picker (Esc cancels)'],

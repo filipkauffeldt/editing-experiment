@@ -765,7 +765,10 @@ LibRaw) only; TIFF, PNG, HEIF and WebP are ingested but have no decoded preview.
   from the left, across lines, and do not. Only a typed edit does it (`insertText` of one character,
   Backspace / Delete, also by word; never during composition): paste, drop, cut, undo and redo do
   not, so after Ctrl+Z restores what was typed nothing expands until the next typed edit. The edit is
-  made with `execCommand('insertText')` so Ctrl+Z gives back what was typed.
+  made with `execCommand('insertText')` so Ctrl+Z gives back what was typed (see "Undo and redo of
+  labels and metadata"). Ctrl+Space makes its edit the same way: only the stretch that changed is
+  replaced, never the whole value, because setting a textarea's value from code empties the
+  browser's undo stack.
 
 ## Linear image format
 
@@ -1223,13 +1226,48 @@ switched-off sections, so an undo restores a section switch with its settings.
   A new change clears the redo steps. In a text field the keys keep their native text undo. During
   Retouch, `Ctrl/Cmd+Z` keeps stepping through the session's areas. During Crop, undo and redo are
   ignored: the draft crop is saved as one step on Done, so its own gestures never mix with the
-  develop history.
+  develop history. Labels and metadata are not in this history, they have their own (see "Undo and
+  redo of labels and metadata"), and in Develop the key takes whichever of the two changed last.
 - **Bounds.** At most 100 steps per photo. The renderer keeps histories for at most 200 photos and
   drops the least recently edited. Deleting or removing a photo drops its history. Retouch,
   metadata, ratings, labels, tags, zoom and view toggles are not in it.
 - **Reset all.** The Develop panel's `Reset all` button writes an empty parameter set and clears the
   section parking, in one step. The sidecar holds no `crs:` settings again, raw defaults apply, and
   the crop is back to the whole image. It does not touch retouch or metadata.
+
+## Undo and redo of labels and metadata
+
+Tags, star ratings, colour labels, captions and keywords have one app-wide undo and redo history,
+in the renderer for the session only (`renderer/edit-history.ts`, gone on restart, at most 200
+steps). Develop keeps its own per-photo history and Retouch its own list of shapes. `Ctrl/Cmd+Z`
+undoes, `Shift+Ctrl/Cmd+Z` and `Ctrl/Cmd+Y` redo, and a toast says what happened ("Undid rating on
+12 photos", or the file name for one photo).
+
+- **What `Ctrl/Cmd+Z` takes.** In a text field it is the browser's text undo and nothing else.
+  Outside one, during Retouch it steps back through the areas and during Crop it does nothing, as
+  before. Otherwise it takes the newest change that is not a text edit in progress: in the Library
+  the newest label or metadata step, in Develop the newer of that step and the open photo's newest
+  develop step. Steps carry a counter from `renderer/change-order.ts`, not a clock, so two changes in
+  one millisecond still have an order. The label and metadata steps are in time order across photos
+  and modules: a rating given in the Library is taken back from Develop too, and the toast names the
+  photos. Redo takes back the newest undo first, whichever history it came from, and a new change
+  ends that history's redo steps.
+- **Steps.** One applied change is one step: a tag, rating or colour label on a selection, one
+  Apply of the batch caption dialog, one Paste of copied metadata, one keyword added or removed.
+  Typing in a metadata field is one step that grows until the field is left, and typing back to
+  the old text removes the step. Applying a template and shifting the capture time are not steps.
+- **Persistence.** A step keeps each photo's old and new values. Undo and redo put them back through
+  the normal write path, so the store, the index and the sidecar (or the JPEG's embedded XMP)
+  change together and survive a restart. A label undo groups photos by old value, one
+  `photos:setLabels` call per value. A metadata undo writes `''` or `[]` for a field that was empty,
+  which removes the tag. Photos deleted or removed since are skipped. Undo and redo run one after
+  another, and each waits for the writes of the step.
+- **Code replacement.** The browser's own undo handles it, and the caption only fixes the
+  selection. A code replaced while typing, or by Ctrl+Space, is a separate edit of the field's undo
+  stack, so the next `Ctrl/Cmd+Z` gives back the text as typed. Chromium then selects what the
+  replacement had replaced, so the caption puts the caret back where it was (`historyUndo` in
+  `CaptionArea`), and the next undo goes on with the typing. The expansion on blur still sets the
+  value from code, as the field is not focused then.
 
 ## Copy, paste and sync develop settings
 

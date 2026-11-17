@@ -519,8 +519,8 @@ modules.
 | `Ctrl/⌘`+wheel or pinch            | Zoom around the pointer                                                                                             |
 | `Scroll`                           | Pan the zoomed photo in any mode (does nothing at Fit); `Shift`+scroll pans sideways                                |
 | `Space`+drag                       | Pan the zoomed photo in any mode and in the loupe; the active tool is paused while Space is held                    |
-| `Ctrl/⌘`+`Z`                       | Undo the last develop change (Develop); undo the last retouch shape (Retouch)                                       |
-| `Shift`+`Ctrl/⌘`+`Z`, `Ctrl/⌘`+`Y` | Redo the last develop change (Develop)                                                                              |
+| `Ctrl/⌘`+`Z`                       | Undo the last rating, tag, label, caption or keyword change, a develop change (Develop) or a shape (Retouch)        |
+| `Shift`+`Ctrl/⌘`+`Z`, `Ctrl/⌘`+`Y` | Redo what the last undo took back                                                                                   |
 | `Ctrl/⌘`+`I`                       | Focus the caption field (Library and Develop). Several photos in the Library: batch caption                         |
 | `Ctrl/⌘`+`K`                       | Focus the keywords field (Library and Develop). Several photos in the Library: batch caption                        |
 | `Ctrl/⌘`+`A`                       | Select all in the Library                                                                                           |
