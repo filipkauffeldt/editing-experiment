@@ -183,6 +183,35 @@ describe.skipIf(nefs.length < 1 || !haveDisplay)(
       expect((await state()).value).toBe('Goal for =t1=');
     });
 
+    it('puts back the typed text with the caret after it on the very next Ctrl+Z', async () => {
+      await startOver();
+      await window.keyboard.type('Goal =t1=');
+      expect(await state()).toEqual({ value: 'Goal GAIS', start: 9, end: 9 });
+
+      await window.keyboard.press('Control+z');
+      expect(await state()).toEqual({ value: 'Goal =t1=', start: 9, end: 9 });
+      // The text undo goes on from there instead of expanding again or stopping.
+      await window.keyboard.press('Control+z');
+      expect((await state()).value.length).toBeLessThan('Goal =t1='.length);
+    });
+
+    it('does the same for a code expanded by Ctrl+Space', async () => {
+      await startOver();
+      await window.keyboard.insertText('Goal =t1= by Foo');
+      for (let i = 0; i < ' by Foo'.length; i++) await window.keyboard.press('ArrowLeft');
+      await window.keyboard.press('Control+Space');
+      await until(
+        'the caption to expand',
+        async () => (await state()).value === 'Goal GAIS by Foo',
+      );
+      expect(await state()).toEqual({ value: 'Goal GAIS by Foo', start: 9, end: 9 });
+
+      await window.keyboard.press('Control+z');
+      expect(await state()).toEqual({ value: 'Goal =t1= by Foo', start: 9, end: 9 });
+      await window.keyboard.press('Control+z');
+      expect((await state()).value).toBe('');
+    });
+
     it('leaves what does not match alone and handles Å', async () => {
       await startOver();
       await window.keyboard.type('a=b =zz= =T1= =x=');
