@@ -552,3 +552,74 @@ describe('the remembered filter', () => {
     expect(fake.calls.filter((call) => call.channel === 'settings:set').length).toBe(before);
   });
 });
+
+describe('filters and undo', () => {
+  const messages = (store: AppStore): string[] =>
+    store.getState().toasts.map((toast) => toast.message);
+  const undone = (store: AppStore, text: string) =>
+    vi.waitFor(() =>
+      expect(messages(store).some((message) => message.startsWith(text))).toBe(true),
+    );
+
+  it('does not take a filter change as an undo step', async () => {
+    const { store, fake } = await setup();
+    store.setTagFilter('tagged');
+    store.clickRatingStar(3);
+    store.cycleColorFilter(2);
+    await store.saveFilter('Tagged');
+    store.clearFilters();
+    const before = store.getState().filter;
+    store.undoLast();
+    await new Promise((resolve) => setTimeout(resolve, 30));
+    expect(store.getState().filter).toBe(before);
+    expect(messages(store)).toEqual([]);
+    expect(fake.calls.filter((call) => call.channel === 'photos:setLabels')).toHaveLength(0);
+  });
+
+  it('still undoes a label change made under a filter, and leaves the filter as it is', async () => {
+    const { store } = await setup();
+    const first = selectVisiblePhotos(store.getState())[0];
+    if (!first) throw new Error('no photo');
+    store.clickRatingStar(4);
+    expect(develop(store)).toEqual([]);
+
+    store.setRating(5, first.id);
+    await vi.waitFor(() => expect(develop(store)).toEqual([first.fileName]));
+    // Filter changes after the rating are not what an undo takes.
+    store.setTagFilter('all');
+    store.cycleColorFilter(3);
+    store.cycleColorFilter(3);
+    const filter = store.getState().filter;
+
+    store.undoLast();
+    await undone(store, 'Undid rating');
+    expect(store.getState().filter).toBe(filter);
+    expect(store.getState().photos.find((photo) => photo.id === first.id)?.rating).toBe(0);
+    // The photo no longer passes the star filter that is still on.
+    expect(develop(store)).toEqual([]);
+
+    store.redoLast();
+    await undone(store, 'Redid rating');
+    await vi.waitFor(() => expect(develop(store)).toEqual([first.fileName]));
+    expect(store.getState().filter).toBe(filter);
+  });
+
+  it('keeps picking a saved filter out of the history too', async () => {
+    const { store } = await setup();
+    const first = selectVisiblePhotos(store.getState())[0];
+    if (!first) throw new Error('no photo');
+    store.setTagFilter('tagged');
+    await store.saveFilter('Tagged');
+    const saved = store.getState().settings?.savedFilters?.[0];
+    store.clearFilters();
+
+    store.setColorClass(2, first.id);
+    await vi.waitFor(() =>
+      expect(store.getState().photos.find((p) => p.id === first.id)?.colorClass).toBe(2),
+    );
+    store.applySavedFilter(saved?.id ?? '');
+    store.undoLast();
+    await undone(store, 'Undid colour label');
+    expect(store.getState().filter.tag).toBe('tagged');
+  });
+});

@@ -1507,6 +1507,9 @@ Design tokens and component rules are in `docs/DESIGN.md`.
   library is asked for with that filter and a restored search runs before the photos are published,
   so there is no unfiltered paint and no second query. Stored filters are sanitised when the files are
   read, so a damaged or older value never stops the filter bar.
+  A filter change, a picked saved filter and the remembered filter are not undo steps (see "Undo and redo of
+  labels and metadata"). `Ctrl/Cmd+Z` still takes the newest label or metadata change, and the filter stays as
+  it is.
   `filterPhotos` is pure; `filterCounts` gives the numbers beside the options as "what this option
   would show with the rest of the filter kept". The Library list is its folder (library state), then
   the filter; Develop's list (`getVisiblePhotos`, the film strip, arrow keys, Next & send) is every
