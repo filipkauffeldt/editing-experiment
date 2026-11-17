@@ -98,6 +98,7 @@ import {
   type StatusFilter,
   type TagFilter,
 } from './filters';
+import { COMPARE_HINT, COMPARE_MIN, canCompare, compareOrder, movedActive } from './compare-view';
 import {
   baseName,
   folderIsAtOrBelow,
@@ -1995,7 +1996,13 @@ export class AppStore {
       if (this.state.crop) this.applyCrop();
       if (this.state.retouch) void this.requestExitRetouch();
     }
-    this.set({ module });
+    this.set({
+      module,
+      // The compare view is a Library view: leaving the Library ends it.
+      ...(module !== 'library' && this.state.library.view === 'compare'
+        ? { library: { ...this.state.library, view: 'grid' as const, compare: undefined } }
+        : {}),
+    });
     if (module === 'develop') {
       if (this.state.lazy) void this.loadDevelopPhotos();
       if (!this.state.selectedId) {
@@ -2183,9 +2190,70 @@ export class AppStore {
   /** G (grid) and E (loupe) both live in the Library module. */
   readonly openLibrary = (view: LibraryState['view'] = 'grid'): void => {
     if (view === 'loupe' && !this.state.selectedId) return;
+    if (view === 'compare') {
+      this.openCompare();
+      return;
+    }
     this.setModule('library');
-    this.setLibrary({ view });
+    this.setLibrary({ view, compare: undefined });
   };
+
+  /**
+   * V: the selected 2 to 4 photos side by side. The selection is untouched, so leaving the view
+   * returns to the grid with it intact. The active pane starts on the open photo.
+   */
+  readonly openCompare = (): void => {
+    const { selection, selectedId } = this.state;
+    if (!canCompare(selection.length)) {
+      this.toast('info', COMPARE_HINT);
+      return;
+    }
+    const ids = compareOrder(selection, this.getLibraryPhotos());
+    const first = ids[0];
+    if (first === undefined || !ids.every((id) => this.photoById.has(id))) return;
+    this.setModule('library');
+    this.setLibrary({
+      view: 'compare',
+      compare: {
+        ids,
+        activeId: selectedId !== undefined && ids.includes(selectedId) ? selectedId : first,
+      },
+    });
+  };
+
+  /** Esc, or V again: back to the grid. */
+  readonly closeCompare = (): void => {
+    if (this.state.library.view !== 'compare') return;
+    this.setLibrary({ view: 'grid', compare: undefined });
+  };
+
+  /** ←/→ and a click in the compare view: the pane the label keys act on. */
+  readonly setCompareActive = (photoId: PhotoId): void => {
+    const { compare } = this.state.library;
+    if (!compare || !compare.ids.includes(photoId) || compare.activeId === photoId) return;
+    this.setLibrary({ compare: { ...compare, activeId: photoId } });
+  };
+
+  readonly moveCompareActive = (delta: number): void => {
+    const { compare } = this.state.library;
+    if (compare) this.setCompareActive(movedActive(compare.ids, compare.activeId, delta));
+  };
+
+  /** A removed photo leaves the compare view; with fewer than two left the view closes. */
+  private pruneCompare(gone: ReadonlySet<PhotoId>): void {
+    const { compare } = this.state.library;
+    if (!compare) return;
+    const ids = compare.ids.filter((id) => !gone.has(id));
+    if (ids.length === compare.ids.length) return;
+    if (ids.length < COMPARE_MIN) {
+      this.setLibrary({ view: 'grid', compare: undefined });
+      return;
+    }
+    const activeId = ids.includes(compare.activeId)
+      ? compare.activeId
+      : (ids[0] ?? compare.activeId);
+    this.setLibrary({ compare: { ids, activeId } });
+  }
 
   /** Every photo in the grid becomes selected (Ctrl/Cmd+A); the open photo stays open. */
   readonly selectAllInLibrary = (): void => {
@@ -5427,6 +5495,7 @@ export class AppStore {
       ...(crop && gone.has(crop.photoId) ? { crop: undefined } : {}),
       ...(previousEdit && gone.has(previousEdit.photoId) ? { previousEdit: undefined } : {}),
     });
+    this.pruneCompare(gone);
     if (!selectionTouched) return;
 
     this.set({ selectedId: undefined, selection: [], selectionAnchor: undefined });
