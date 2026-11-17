@@ -65,7 +65,7 @@
   background: var(--scrim);
   color: var(--text);
   font-family: var(--font-mono);
-  font-size: 9px;
+  font-size: var(--fs-small);
   text-overflow: ellipsis;
   white-space: nowrap;
   pointer-events: none;
