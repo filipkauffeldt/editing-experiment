@@ -659,6 +659,9 @@ Key types (names are binding, fields can grow):
   filesImported, filesSkipped, currentFile?, error? }`, sent as `library.progress` and
   `library.state`; `photos:addFolder`, `photos:rescanFolder`, `photos:stopFolderImport`,
   `photos:removeFolder` and `photos:listAddedFolders` are the added-folder channels.
+- `photos:rotate { photoIds, turns }` turns each photo by `turns` quarter turns (1 right, -1 left)
+  on top of its own rotation and returns `{ updated, failed }`. `Photo.rotation` is the turns
+  (1..3, absent for none) on top of `Photo.orientation`, the camera's own.
 - `photos:shiftCaptureTime { photoIds, offsetSeconds }` moves each photo from its own
   capture time and returns the updated photos with the new IPTC creation date, the ids
   left alone without a clock time, and per-photo failures. `offsetSeconds` is a signed
@@ -716,6 +719,17 @@ LibRaw) only; TIFF, PNG, HEIF and WebP are ingested but have no decoded preview.
   `photos:updated`, so sorting, the film strip, Next & send, `{date}`/`{time}` variables,
   the Metadata panel's IPTC date and exports follow at once. Photos without a clock time
   are left alone and reported. One failure does not stop the rest.
+- Rotation (the photo menu's **Rotate left / right**, `Ctrl/⌘ + ←` and `→`): a photo is turned in
+  quarter turns, on top of the orientation its camera recorded. It is an edit and the original is
+  never written. The result goes where Lightroom and Camera Raw keep it, `tiff:Orientation` in the
+  XMP (a raw's sidecar, a JPEG's embedded packet): the EXIF orientation the picture has with the
+  turn applied to the camera's own, so a raw shot upright (1) turned right is 6, and a frame the
+  camera recorded as 6 turned right again is 3 (`composeOrientation`, `@ee/develop-gl/crop`). No
+  turn removes the property. `Photo.orientation` stays the camera's, `Photo.rotation` (1..3 turns
+  clockwise) is read back from the XMP as the turns between the two (`rotationFromOrientations`),
+  also when a sidecar that came with a raw, or a JPEG, was turned in Lightroom before ingest, and
+  `Photo.width` and `height` are the turned picture's. ExifTool takes the number only through the
+  `#` form of the tag (`XMP-tiff:Orientation#`).
 - Raws: metadata in `<basename>.xmp` sidecar (Lightroom/Photo Mechanic
   compatible naming). JPEGs: embedded (IIM + XMP, kept in sync, UTF-8).
 - Tag and colour class use Photo Mechanic's XMP namespace
@@ -1229,6 +1243,14 @@ switched-off sections, so an undo restores a section switch with its settings.
   ignored: the draft crop is saved as one step on Done, so its own gestures never mix with the
   develop history. Labels and metadata are not in this history, they have their own (see "Undo and
   redo of labels and metadata"), and in Develop the key takes whichever of the two changed last.
+- **Turns.** A rotation is a step of the same history (`record(…, { turns })`), also when no
+  setting changed, because the crop follows the picture. It never merges with the steps around it.
+  The sidecar's `crs:Crop*` is in the sensor's pixel space, which a turn does not change, so nothing
+  is saved for it: the backend answers with the photo's develop settings read again under the new
+  orientation and the store publishes them without a save. Undoing a turn asks the backend to turn
+  the other way and only then moves the step, so the settings of the steps around it are always the
+  ones of the picture as it was when they were made. A turn is not an edit for Previous. Not
+  offered during Crop or Retouch.
 - **Bounds.** At most 100 steps per photo. The renderer keeps histories for at most 200 photos and
   drops the least recently edited. Deleting or removing a photo drops its history. Retouch,
   metadata, ratings, labels, tags, zoom and view toggles are not in it.
@@ -1408,6 +1430,39 @@ resize is needed. Neighbourhood radii are in full-resolution source pixels and
 `blockSizeRel` is relative to the image edge, so the smaller render has the same
 look; a browser test compares a 2048 px direct render with a full-resolution
 render downscaled to 2048 px.
+
+## Rotation
+
+`photos:rotate { photoIds, turns }` (`RotateService`, jobs process) turns each photo under its own
+lock and one failure does not stop the others. Per photo, in this order:
+
+1. The XMP orientation is written (see "Metadata conventions"). A raw gets its sidecar and nothing
+   else is written.
+2. Every retouch version's areas, and the box each face area keeps, are turned with the picture
+   (`rotateRetouchOps`, `@ee/contracts`). They are in normalised oriented coordinates, so a right turn
+   maps `(x, y)` to `(1 - y, x)`. The mosaic block size is relative to the longer edge and stays.
+   If this write fails the orientation is put back.
+3. The crop is left alone: it is stored in the sensor's pixel space (`crs:Crop*`, see
+   `cropOrientedToStored`). What the app shows is converted with the orientation the picture has
+   now (`orientationAfterTurns(photo.orientation, photo.rotation)` in `EditService`), so it lands on
+   the same content, and a crop made in Lightroom after a turn reads back right.
+4. The index gets `rotation` and the swapped size, the camera previews (`thumb` and `preview`) are
+   drawn again from the camera's picture with the turn applied (`PreviewSource.rotation`), the
+   edited previews are dropped (`EditedPreviews.afterRotation`) and the photo is `previewStale` and
+   `previewRevision`-bumped when it has edits, so the renderer draws them again. A photo with
+   retouching shows the grey placeholder until then, as for any retouch change.
+5. The decoded images (`app://linear`) are keyed by rotation and turned in the jobs process
+   after the decode (`turnPixels`, whole pixels of 4, 8 or 16 bytes), the header's sizes follow, and
+   the lens facts get the turn on the camera's optical centre offset. The zoom JPEG (`app://full`) is
+   rebuilt turned; its URL carries the revision for a turned photo. Face detection runs on the turned
+   preview, so its boxes are in the picture as shown.
+
+Because the renderer always draws from the turned linear image, the canvas, the edited previews, the
+histogram and the export need nothing else. **Exports carry no orientation:** the encoder writes no
+EXIF and `EXIF_TAGS` copies none of the orientation tags, so the file's pixels are the turned picture
+and no viewer turns it again. Develop and the Library act on the open photo and on the Library's
+selection through `AppStore.rotatePhotos`; `PhotoCanvas` loads the image again when the rotation
+changes and draws no frame of the old way up.
 
 ## Retouch editing
 
