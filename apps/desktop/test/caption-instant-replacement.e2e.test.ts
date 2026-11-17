@@ -183,33 +183,102 @@ describe.skipIf(nefs.length < 1 || !haveDisplay)(
       expect((await state()).value).toBe('Goal for =t1=');
     });
 
-    it('puts back the typed text with the caret after it on the very next Ctrl+Z', async () => {
+    it('removes the code on the very next Ctrl+Z, with the caret where it was', async () => {
       await startOver();
       await window.keyboard.type('Goal =t1=');
       expect(await state()).toEqual({ value: 'Goal GAIS', start: 9, end: 9 });
 
       await window.keyboard.press('Control+z');
-      expect(await state()).toEqual({ value: 'Goal =t1=', start: 9, end: 9 });
-      // The text undo goes on from there instead of expanding again or stopping.
+      expect(await state()).toEqual({ value: 'Goal ', start: 5, end: 5 });
+      // Redo brings the replacement back, with the caret after it.
+      await window.keyboard.press('Control+Shift+z');
+      expect(await state()).toEqual({ value: 'Goal GAIS', start: 9, end: 9 });
+      await window.keyboard.press('Control+y');
+      expect((await state()).value).toBe('Goal GAIS');
       await window.keyboard.press('Control+z');
-      expect((await state()).value.length).toBeLessThan('Goal =t1='.length);
+      expect(await state()).toEqual({ value: 'Goal ', start: 5, end: 5 });
+      // The next Ctrl+Z goes on with the field's own undo of the typing. How many characters one
+      // undo takes back is the browser's grouping, so the check is that some of it went.
+      await window.keyboard.press('Control+z');
+      const earlier = (await state()).value;
+      expect(earlier.length).toBeLessThan('Goal =t1='.length);
+      expect('Goal =t1='.startsWith(earlier)).toBe(true);
     });
 
-    it('does the same for a code expanded by Ctrl+Space', async () => {
+    it('collapses the two spaces the code leaves, and keeps the caret where the code was', async () => {
       await startOver();
-      await window.keyboard.insertText('Goal =t1= by Foo');
-      for (let i = 0; i < ' by Foo'.length; i++) await window.keyboard.press('ArrowLeft');
+      await window.keyboard.insertText('hello  goodbye');
+      for (let i = 0; i < ' goodbye'.length; i++) await window.keyboard.press('ArrowLeft');
+      await window.keyboard.type('=t1=');
+      expect(await state()).toEqual({ value: 'hello GAIS goodbye', start: 10, end: 10 });
+
+      await window.keyboard.press('Control+z');
+      expect(await state()).toEqual({ value: 'hello goodbye', start: 6, end: 6 });
+      await window.keyboard.press('Control+Shift+z');
+      expect(await state()).toEqual({ value: 'hello GAIS goodbye', start: 10, end: 10 });
+    });
+
+    it('removes a code expanded by Ctrl+Space the same way', async () => {
+      await startOver();
+      await window.keyboard.insertText('hello =t1= goodbye');
+      for (let i = 0; i < ' goodbye'.length; i++) await window.keyboard.press('ArrowLeft');
       await window.keyboard.press('Control+Space');
       await until(
         'the caption to expand',
-        async () => (await state()).value === 'Goal GAIS by Foo',
+        async () => (await state()).value === 'hello GAIS goodbye',
       );
-      expect(await state()).toEqual({ value: 'Goal GAIS by Foo', start: 9, end: 9 });
+      expect(await state()).toEqual({ value: 'hello GAIS goodbye', start: 10, end: 10 });
 
       await window.keyboard.press('Control+z');
-      expect(await state()).toEqual({ value: 'Goal =t1= by Foo', start: 9, end: 9 });
+      expect(await state()).toEqual({ value: 'hello goodbye', start: 6, end: 6 });
+      await window.keyboard.press('Control+Shift+z');
+      expect(await state()).toEqual({ value: 'hello GAIS goodbye', start: 10, end: 10 });
+      await window.keyboard.press('Control+z');
+      expect((await state()).value).toBe('hello goodbye');
       await window.keyboard.press('Control+z');
       expect((await state()).value).toBe('');
+    });
+
+    it('removes every code and variable of one Ctrl+Space with one Ctrl+Z', async () => {
+      await startOver();
+      await window.keyboard.insertText('Goal =t1= and =Å1= in {filename} end');
+      await window.keyboard.press('Control+Space');
+      await until('the caption to expand', async () =>
+        (await state()).value.includes('game_1.NEF'),
+      );
+      expect((await state()).value).toBe('Goal GAIS and Ångelholm in game_1.NEF end');
+
+      await window.keyboard.press('Control+z');
+      expect(await state()).toEqual({ value: 'Goal and in end', start: 15, end: 15 });
+      await window.keyboard.press('Control+Shift+z');
+      expect((await state()).value).toBe('Goal GAIS and Ångelholm in game_1.NEF end');
+      await window.keyboard.press('Control+z');
+      await window.keyboard.press('Control+z');
+      expect((await state()).value).toBe('');
+    });
+
+    it('does not take Ctrl+Alt+Z (AltGr) for an undo of the replacement', async () => {
+      await startOver();
+      await window.keyboard.type('Goal =t1=');
+      await window.keyboard.press('Control+Alt+z');
+      expect((await state()).value).toBe('Goal GAIS');
+    });
+
+    it('removes what an expansion on blur wrote when the user comes back and presses Ctrl+Z', async () => {
+      await startOver();
+      await window.keyboard.insertText('Goal =t1= by Foo');
+      await window.keyboard.press('Tab');
+      await until('blur to expand', async () => (await state()).value === 'Goal GAIS by Foo');
+
+      await caption().focus();
+      await window.keyboard.press('Control+z');
+      expect((await state()).value).toBe('Goal by Foo');
+      await window.keyboard.press('Control+Shift+z');
+      expect((await state()).value).toBe('Goal GAIS by Foo');
+      await window.keyboard.press('Control+z');
+      // Nothing of the typing is in the field's own undo history any more, so it stays.
+      await window.keyboard.press('Control+z');
+      expect((await state()).value).toBe('Goal by Foo');
     });
 
     it('leaves what does not match alone and handles Å', async () => {
@@ -277,17 +346,24 @@ describe.skipIf(nefs.length < 1 || !haveDisplay)(
       await startOver();
       await window.keyboard.type('Goal =t1=');
       expect((await state()).value).toBe('Goal GAIS');
-      // Ctrl+Z gives back =t1=; the undo itself expands nothing, and neither does moving around.
+      // Ctrl+Z takes the code out, and the next one the typing of it: neither expands anything,
+      // and neither does moving around.
       await window.keyboard.press('Control+z');
-      expect((await state()).value).toBe('Goal =t1=');
+      expect((await state()).value).toBe('Goal ');
+      await window.keyboard.press('Control+z');
+      const earlier = (await state()).value;
+      expect('Goal =t1='.startsWith(earlier) && earlier.length < 'Goal =t1='.length).toBe(true);
+      await sleep(300);
+      expect((await state()).value).toBe(earlier);
+      // Redo is not a typed edit either: the typed code comes back as typed.
+      await window.keyboard.press('Control+Shift+z');
+      expect('Goal =t1='.startsWith((await state()).value)).toBe(true);
+      for (let presses = 0; presses < 4 && (await state()).value !== 'Goal =t1='; presses++) {
+        await window.keyboard.press('Control+Shift+z');
+      }
       await window.keyboard.press('ArrowLeft');
       await window.keyboard.press('ArrowRight');
       await sleep(300);
-      expect((await state()).value).toBe('Goal =t1=');
-      // Redo is not a typed edit either.
-      await window.keyboard.press('Control+Shift+z');
-      expect((await state()).value).toBe('Goal GAIS');
-      await window.keyboard.press('Control+z');
       expect((await state()).value).toBe('Goal =t1=');
       // The next typed edit that leaves an exact known code expands it.
       await window.keyboard.press('End');

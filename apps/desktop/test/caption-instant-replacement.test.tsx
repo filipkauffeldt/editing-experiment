@@ -576,4 +576,82 @@ describe('Ctrl+Space and the caret', () => {
 
     expect(caption.value.slice(caption.selectionStart, caption.selectionEnd)).toBe(' by ');
   });
+  describe('Ctrl+Z right after a replacement', () => {
+    /** A key press on the field; false when the app took it (preventDefault). */
+    const press = (caption: HTMLTextAreaElement, init: KeyboardEventInit): boolean =>
+      fireEvent.keyDown(caption, { ctrlKey: true, ...init });
+    const caret = (caption: HTMLTextAreaElement): [number, number] => [
+      caption.selectionStart,
+      caption.selectionEnd,
+    ];
+
+    it('removes a typed code with the caret where it was, and Redo brings it back', async () => {
+      const { user } = await renderApp(standardDisk(), [FIRST]);
+      const caption = await startEmpty(user);
+      await user.keyboard('Goal =t1=');
+      expect(caption.value).toBe('Goal GAIS');
+
+      expect(press(caption, { key: 'z' })).toBe(false);
+      expect(caption.value).toBe('Goal ');
+      expect(caret(caption)).toEqual([5, 5]);
+
+      expect(press(caption, { key: 'Z', shiftKey: true })).toBe(false);
+      expect(caption.value).toBe('Goal GAIS');
+      expect(caret(caption)).toEqual([9, 9]);
+      // Nothing to redo with the replacement showing: the browser's redo must not run.
+      expect(press(caption, { key: 'y' })).toBe(false);
+      expect(caption.value).toBe('Goal GAIS');
+
+      expect(press(caption, { key: 'z' })).toBe(false);
+      expect(caption.value).toBe('Goal ');
+    });
+
+    it('collapses the two spaces a code in the middle leaves', async () => {
+      const { user } = await renderApp(standardDisk(), [FIRST]);
+      const caption = await startEmpty(user);
+      await user.paste('hello  goodbye');
+      caption.setSelectionRange(6, 6);
+      await user.keyboard('=t1=');
+      expect(caption.value).toBe('hello GAIS goodbye');
+      expect(caret(caption)).toEqual([10, 10]);
+
+      press(caption, { key: 'z' });
+      expect(caption.value).toBe('hello goodbye');
+      expect(caret(caption)).toEqual([6, 6]);
+    });
+
+    it('removes every code and variable that one Ctrl+Space expanded', async () => {
+      const { user } = await renderApp(standardDisk(), [FIRST]);
+      const caption = await startEmpty(user);
+      await user.paste('=t1= at {location} and =t2= end');
+      fireEvent.keyDown(caption, { key: ' ', ctrlKey: true });
+      await waitFor(() =>
+        expect(caption.value).toBe('Manchester City at Etihad Stadium and Liverpool end'),
+      );
+
+      expect(press(caption, { key: 'z' })).toBe(false);
+      expect(caption.value).toBe(' at and end');
+      expect(caret(caption)).toEqual([' at and end'.length, ' at and end'.length]);
+
+      press(caption, { key: 'Z', shiftKey: true });
+      expect(caption.value).toBe('Manchester City at Etihad Stadium and Liverpool end');
+    });
+
+    it('leaves Ctrl+Z to the browser once something else was typed', async () => {
+      const { user } = await renderApp(standardDisk(), [FIRST]);
+      const caption = await startEmpty(user);
+      await user.keyboard('Goal =t1=');
+      await user.keyboard(' x');
+      expect(press(caption, { key: 'z' })).toBe(true);
+      expect(caption.value).toBe('Goal GAIS x');
+    });
+
+    it('does not take Ctrl+Alt+Z (AltGr) for the removal', async () => {
+      const { user } = await renderApp(standardDisk(), [FIRST]);
+      const caption = await startEmpty(user);
+      await user.keyboard('Goal =t1=');
+      expect(press(caption, { key: 'z', altKey: true })).toBe(true);
+      expect(caption.value).toBe('Goal GAIS');
+    });
+  });
 });

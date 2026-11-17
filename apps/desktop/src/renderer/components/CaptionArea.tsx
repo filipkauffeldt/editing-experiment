@@ -1,7 +1,13 @@
 import type { PhotoId } from '@ee/contracts';
 import { mapCaretThrough } from '@ee/metadata/code-replacement-tokens';
 import { useRef, type ChangeEvent, type KeyboardEvent } from 'react';
-import { caretThroughChange, changedRange } from '../caption-expansion';
+import {
+  caretThroughChange,
+  changedRange,
+  removeSpans,
+  typedSpans,
+  type Span,
+} from '../caption-expansion';
 import { useAppStore } from '../store-context';
 import { TextArea } from './ui/Field';
 
@@ -28,15 +34,51 @@ function replaceRange(area: HTMLTextAreaElement, start: number, end: number, tex
   if (area.value !== expected) area.setRangeText(text, start, end, 'end');
 }
 
-/** A code replacement that Ctrl+Z can take back, and where the caret was before it. */
-interface ExpansionUndo {
+/** A selection `[start, end]` of the field. */
+type Caret = readonly [number, number];
+
+/**
+ * The newest code replacement, for the Ctrl+Z that takes it out. That Ctrl+Z removes the codes
+ * (and `{variables}`) the replacement wrote, as if they had never been typed, instead of giving
+ * back the typed codes.
+ */
+interface Expansion {
   photoId: PhotoId;
-  /** The text as typed, before the replacement. */
-  before: string;
-  /** The text the replacement made, which the field must still hold for the undo to apply. */
-  after: string;
-  start: number;
-  end: number;
+  /** The text with the replacement in it, which the field must hold for Ctrl+Z to apply. */
+  expanded: string;
+  /** The typed text without the codes, and where the caret goes in it. */
+  removed: string;
+  removedCaret: Caret;
+  /** Where the caret goes when Redo brings the replacement back. */
+  expandedCaret: Caret;
+  phase: 'expanded' | 'removed';
+  /**
+   * The field's own undo stack holds the typing and the replacement, so the next Ctrl+Z can go on
+   * through it. Not after an expansion on blur, which sets the value and empties that stack.
+   */
+  native: boolean;
+}
+
+function expansionOf(
+  photoId: PhotoId,
+  typed: string,
+  expanded: string,
+  spans: readonly Span[],
+  typedCaret: Caret,
+  expandedCaret: Caret,
+  native: boolean,
+): Expansion | undefined {
+  const removal = removeSpans(typed, spans);
+  if (spans.length === 0 || removal.text === expanded) return undefined;
+  return {
+    photoId,
+    expanded,
+    removed: removal.text,
+    removedCaret: [removal.caretAt(typedCaret[0]), removal.caretAt(typedCaret[1])],
+    expandedCaret,
+    phase: 'expanded',
+    native,
+  };
 }
 
 /**
@@ -60,8 +102,35 @@ export function CaptionArea({
   const areaRef = useRef<HTMLTextAreaElement>(null);
   /** Our own edit sends an `input` event of its own; it must not be read as typing. */
   const replacing = useRef(false);
-  /** The newest code replacement, until the next edit that is not its undo. */
-  const lastExpansion = useRef<ExpansionUndo | undefined>(undefined);
+  /** The newest code replacement, until the next edit of the field. */
+  const expansion = useRef<Expansion | undefined>(undefined);
+
+  /** An edit of the field's text that the browser's undo stack keeps as one step. */
+  const edit = (area: HTMLTextAreaElement, start: number, end: number, text: string): void => {
+    replacing.current = true;
+    try {
+      replaceRange(area, start, end, text);
+    } finally {
+      replacing.current = false;
+    }
+  };
+
+  /** The browser's own undo, `times` steps. Its input events only sync the store. */
+  const undoNatively = (times: number): void => {
+    replacing.current = true;
+    try {
+      for (let step = 0; step < times; step++) document.execCommand('undo');
+    } catch {
+      // No execCommand here (jsdom): nothing to undo.
+    } finally {
+      replacing.current = false;
+    }
+  };
+
+  const showCaret = (area: HTMLTextAreaElement, caret: Caret): void => {
+    area.setSelectionRange(caret[0], caret[1]);
+    store.updateMetadataField(photoId, 'caption', area.value);
+  };
   const replaceTypedCode = (area: HTMLTextAreaElement, event: InputEvent): void => {
     // Only a typed edit: a character, or Backspace / Delete (also by word). Not a paste, a drop, an
     // undo or redo, a cut or composition (IME, dead keys): those wait for blur.
@@ -72,46 +141,31 @@ export function CaptionArea({
     if (caret !== area.selectionEnd) return;
     const hit = store.instantCodeReplacement(area.value, caret);
     if (!hit) return;
-    const before = area.value;
-    replacing.current = true;
-    try {
-      replaceRange(area, hit.start, hit.end, hit.replacement);
-    } finally {
-      replacing.current = false;
-    }
-    lastExpansion.current = { photoId, before, after: area.value, start: caret, end: caret };
+    const typed = area.value;
+    edit(area, hit.start, hit.end, hit.replacement);
+    expansion.current = expansionOf(
+      photoId,
+      typed,
+      area.value,
+      [{ from: hit.start, to: hit.end }],
+      [caret, caret],
+      [area.selectionStart, area.selectionEnd],
+      true,
+    );
     store.updateMetadataField(photoId, 'caption', area.value);
-  };
-
-  /**
-   * The browser's undo gives back the typed text but selects what the replacement had replaced.
-   * Right after it, put the caret back where it was when the code was replaced.
-   */
-  const restoreCaretAfterUndo = (area: HTMLTextAreaElement): void => {
-    const undone = lastExpansion.current;
-    lastExpansion.current = undefined;
-    if (undone?.photoId === photoId && area.value === undone.before) {
-      area.setSelectionRange(undone.start, undone.end);
-    }
   };
 
   const onChange = (event: ChangeEvent<HTMLTextAreaElement>): void => {
     const area = event.currentTarget;
-    const { inputType } = event.nativeEvent as InputEvent;
     store.updateMetadataField(photoId, 'caption', area.value);
     if (replacing.current) return;
-    if (inputType === 'historyUndo') {
-      restoreCaretAfterUndo(area);
-      return;
-    }
-    lastExpansion.current = undefined;
+    expansion.current = undefined;
     replaceTypedCode(area, event.nativeEvent as InputEvent);
   };
 
   /**
    * Ctrl+Space: expand every code and variable. The new text goes in as an edit of the field, not
-   * as a new value, so the browser's undo stack survives and the next Ctrl+Z gives back the text
-   * as it was typed.
+   * as a new value, so the browser's undo stack survives. The next Ctrl+Z takes the expansion out.
    */
   const expandAll = async (area: HTMLTextAreaElement): Promise<void> => {
     const { selectionStart, selectionEnd, value: text } = area;
@@ -129,23 +183,91 @@ export function CaptionArea({
         result.edits
           ? mapCaretThrough(position, result.edits)
           : caretThroughChange(position, change);
-      replacing.current = true;
-      try {
-        replaceRange(area, change.start, change.end, change.text);
-      } finally {
-        replacing.current = false;
-      }
-      lastExpansion.current = {
-        photoId,
-        before: text,
-        after: result.text,
-        start: selectionStart,
-        end: selectionEnd,
-      };
+      edit(area, change.start, change.end, change.text);
+      const expandedCaret: Caret = [caret(selectionStart), caret(selectionEnd)];
+      expansion.current = result.edits
+        ? expansionOf(
+            photoId,
+            text,
+            result.text,
+            typedSpans(result.edits),
+            [selectionStart, selectionEnd],
+            expandedCaret,
+            true,
+          )
+        : undefined;
       store.updateMetadataField(photoId, 'caption', area.value);
-      area.setSelectionRange(caret(selectionStart), caret(selectionEnd));
+      area.setSelectionRange(expandedCaret[0], expandedCaret[1]);
     }
     store.setUnresolvedCodes(photoId, result.unresolved);
+  };
+
+  /** Blur: expand, and keep what a Ctrl+Z after coming back removes. */
+  const expandOnBlur = (area: HTMLTextAreaElement): void => {
+    const typed = area.value;
+    const { selectionStart, selectionEnd } = area;
+    expansion.current = undefined;
+    // The expansion is part of the typing that led to it: one undo step for both.
+    void store
+      .expandCaption(photoId)
+      .then((result) => {
+        if (!result?.edits || result.text === typed) return;
+        expansion.current = expansionOf(
+          photoId,
+          typed,
+          result.text,
+          typedSpans(result.edits),
+          [selectionStart, selectionEnd],
+          [
+            mapCaretThrough(selectionStart, result.edits),
+            mapCaretThrough(selectionEnd, result.edits),
+          ],
+          false,
+        );
+      })
+      .finally(store.endMetadataTyping);
+  };
+
+  /**
+   * Ctrl+Z right after a replacement takes the replacement out with the codes. The next one goes
+   * on with the field's own undo, as if neither the codes nor their removal had happened.
+   */
+  const undoExpansion = (area: HTMLTextAreaElement): boolean => {
+    const current = expansion.current;
+    if (current?.photoId !== photoId) return false;
+    if (current.phase === 'expanded' && area.value === current.expanded) {
+      const change = changedRange(current.expanded, current.removed);
+      edit(area, change.start, change.end, change.text);
+      current.phase = 'removed';
+      showCaret(area, current.removedCaret);
+      return true;
+    }
+    if (current.phase === 'removed' && area.value === current.removed) {
+      expansion.current = undefined;
+      // The removal, the replacement and the typing of the codes.
+      if (current.native) undoNatively(3);
+      return true;
+    }
+    return false;
+  };
+
+  /**
+   * Redo after that removal brings the replacement back. With the replacement showing there is
+   * nothing to redo, and the browser's own redo would apply the removal again, so it is held back.
+   */
+  const redoExpansion = (area: HTMLTextAreaElement): boolean => {
+    const current = expansion.current;
+    if (current?.photoId !== photoId) return false;
+    if (current.phase === 'expanded') return area.value === current.expanded;
+    if (area.value !== current.removed) return false;
+    undoNatively(1);
+    if (area.value !== current.expanded) {
+      const change = changedRange(area.value, current.expanded);
+      edit(area, change.start, change.end, change.text);
+    }
+    current.phase = 'expanded';
+    showCaret(area, current.expandedCaret);
+    return true;
   };
 
   return (
@@ -157,16 +279,23 @@ export function CaptionArea({
       value={value}
       onChange={onChange}
       onFocus={() => void store.refreshCodeReplacements()}
-      onBlur={() => {
-        lastExpansion.current = undefined;
-        // The expansion is part of the typing that led to it: one undo step for both.
-        void store.expandCaption(photoId).finally(store.endMetadataTyping);
-      }}
+      onBlur={(event) => expandOnBlur(event.currentTarget)}
       onKeyDown={(event: KeyboardEvent<HTMLTextAreaElement>) => {
-        if ((event.ctrlKey || event.metaKey) && event.key === ' ') {
+        const area = event.currentTarget;
+        const command = event.ctrlKey || event.metaKey;
+        if (command && event.key === ' ') {
           event.preventDefault();
-          void expandAll(event.currentTarget);
+          void expandAll(area);
+          return;
         }
+        // AltGr is Ctrl+Alt on Windows and Linux and never a command.
+        if (!command || event.altKey || event.nativeEvent.isComposing) return;
+        const z = event.key === 'z' || event.key === 'Z';
+        const y = event.key === 'y' || event.key === 'Y';
+        const handled =
+          (z && !event.shiftKey && undoExpansion(area)) ||
+          ((y || (z && event.shiftKey)) && redoExpansion(area));
+        if (handled) event.preventDefault();
       }}
     />
   );
