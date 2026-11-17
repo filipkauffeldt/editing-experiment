@@ -15,6 +15,7 @@ import type { IngestService } from './ingest-service';
 import type { LabelService } from './label-service';
 import type { MetadataService } from './metadata-service';
 import type { PhotoDeleter } from './photo-deleter';
+import type { RotateService } from './rotate-service';
 import type { DiskCache } from './disk-cache';
 import type { SearchIndex } from './search-index';
 import type { PresetLibrary } from './preset-library';
@@ -34,6 +35,7 @@ export interface HandlerDeps {
   edits: EditService;
   editedPreviews: EditedPreviews;
   labels: LabelService;
+  rotator: RotateService;
   faces: FaceService;
   presets: PresetStore;
   presetLibrary: PresetLibrary;
@@ -103,6 +105,7 @@ export function createBackendHandlers(deps: HandlerDeps): IpcHandlers {
     'photos:listAddedFolders': async () => photos.addedFolders(),
     'photos:setEditedPreview': async (args) => editedPreviews.set(args),
     'photos:shiftCaptureTime': (args) => metadata.shiftCaptureTime(args),
+    'photos:rotate': (args) => deps.rotator.rotate(args),
 
     'ingest:start': ({ config }) => ingest.start(config),
     'ingest:stop': async (args) => ingest.stop(args?.sourceId),

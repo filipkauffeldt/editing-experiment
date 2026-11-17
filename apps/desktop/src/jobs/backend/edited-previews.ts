@@ -171,6 +171,16 @@ export class EditedPreviews {
   }
 
   /**
+   * The photo was turned: its edited previews show it the old way up. They are dropped, so the
+   * camera previews (drawn again, turned) are served until the renderer draws the edited ones.
+   * Called under the photo lock.
+   */
+  async afterRotation(photoId: PhotoId): Promise<void> {
+    await this.cache.removeEdited(photoId);
+    this.newest.delete(photoId);
+  }
+
+  /**
    * The camera profiles on disk changed (a folder was added or removed, a file replaced): every
    * edited photo whose stored previews went through another default profile than the one that
    * applies now is marked `previewStale`, so the renderer draws it again when it is shown. Photos

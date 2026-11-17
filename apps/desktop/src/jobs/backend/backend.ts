@@ -19,6 +19,7 @@ import { IngestService } from './ingest-service';
 import { userDataLayout, type UserDataLayout } from './layout';
 import { MetadataService } from './metadata-service';
 import { PhotoDeleter, type TrashItem } from './photo-deleter';
+import { RotateService } from './rotate-service';
 import { PhotoIndex } from './photo-index';
 import { PhotoLibrary, type Emit } from './photo-library';
 import { PresetFolders } from './preset-folders';
@@ -161,6 +162,14 @@ export async function createBackend(options: BackendOptions): Promise<Backend> {
     lensShot: (path, frame) => readLensShot(path, frame, exiftool),
   });
   await apps.init();
+  const rotator = new RotateService({
+    photos,
+    exiftool,
+    edits,
+    previews,
+    onRotated: (photoId) => apps.rotated(photoId),
+    warn: (message) => console.warn(message),
+  });
 
   const reportJobError = (event: { jobId?: JobId; scope: string; message: string }): void =>
     emitJob({ type: 'job.error', at: Date.now(), ...event });
@@ -324,6 +333,7 @@ export async function createBackend(options: BackendOptions): Promise<Backend> {
       edits,
       editedPreviews,
       labels,
+      rotator,
       faces,
       presets,
       presetLibrary,
