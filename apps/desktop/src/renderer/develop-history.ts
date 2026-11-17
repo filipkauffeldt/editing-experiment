@@ -28,6 +28,11 @@ export interface RecordDevelopStepOptions {
    * when no setting changed. It never joins the steps around it.
    */
   turns?: number;
+  /**
+   * {@link nextChangeOrder} taken when the change was made, for a step recorded later (a turn is
+   * recorded when the backend has answered, and a rating made meanwhile came after it).
+   */
+  order?: number;
   /** Clock for tests; `Date.now()` otherwise. */
   now?: number;
 }
@@ -180,7 +185,7 @@ export class DevelopHistory {
         before: cloneDevelopSnapshot(before),
         after: cloneDevelopSnapshot(after),
         at: now,
-        order: nextChangeOrder(),
+        order: options.order ?? nextChangeOrder(),
         ...(gesture === undefined ? {} : { gesture }),
         ...(nudgeKey === undefined ? {} : { nudgeKey }),
         ...(turns === undefined ? {} : { turns }),

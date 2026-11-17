@@ -3887,6 +3887,8 @@ export class AppStore {
       history?: DevelopSettingsSnapshot | false;
       /** The change turned the photo by this many quarter turns clockwise (see `rotatePhotos`). */
       turns?: number;
+      /** `nextChangeOrder` of the press, for a turn that is recorded when the backend answers. */
+      order?: number;
     } = {},
   ): void {
     const before =
@@ -3912,6 +3914,7 @@ export class AppStore {
       this.developHistory.record(photoId, before, snapshot, {
         ...(options.nudgeKey === undefined ? {} : { nudgeKey: options.nudgeKey }),
         ...(options.turns === undefined ? {} : { turns: options.turns }),
+        ...(options.order === undefined ? {} : { order: options.order }),
       });
     }
   }
@@ -4019,6 +4022,8 @@ export class AppStore {
     const ids = this.deleteTargets().filter((id) => !this.turning.has(id) && !this.isGoing(id));
     if (ids.length === 0) return;
     this.endDevelopGestures();
+    // Where the turn stands among the label and develop changes is where it was asked for.
+    const order = nextChangeOrder();
     for (const id of ids) this.turning.add(id);
     try {
       // What the sidecar will be turned from has to be what the user sees.
@@ -4041,6 +4046,7 @@ export class AppStore {
       for (const photo of result.updated) {
         this.applyRotated(photo, {
           turns,
+          order,
           ...(before.has(photo.id) ? { before: before.get(photo.id) } : {}),
         });
       }
@@ -4097,7 +4103,7 @@ export class AppStore {
    */
   private applyRotated(
     photo: Photo,
-    options: { turns?: number; before?: DevelopSettingsSnapshot },
+    options: { turns?: number; order?: number; before?: DevelopSettingsSnapshot },
   ): void {
     const develop = photo.versions.find((version) => version.kind === 'develop');
     if (develop?.kind === 'develop') {
@@ -4111,6 +4117,7 @@ export class AppStore {
           schedulePreview: false,
           history: options.before ?? false,
           ...(options.turns === undefined ? {} : { turns: options.turns }),
+          ...(options.order === undefined ? {} : { order: options.order }),
         },
       );
     }
