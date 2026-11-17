@@ -5,6 +5,7 @@ import type {
   PhotoRatingMode,
   PhotoStatusFilter,
   SourceId,
+  StoredFilter,
 } from '@ee/contracts';
 
 /**
@@ -75,6 +76,31 @@ export const initialFilter = (): FilterState => ({
 });
 
 export const hasSearch = (filter: FilterState): boolean => filter.search.trim() !== '';
+
+/** The filter as the settings keep it (what saved filters and the remembered filter hold). */
+export const toStoredFilter = (filter: FilterState): StoredFilter => ({
+  tag: filter.tag,
+  ratingStars: filter.ratingStars,
+  ratingMode: filter.ratingMode,
+  colorClasses: [...filter.colorClasses],
+  excludedColors: [...filter.excludedColors],
+  statuses: [...filter.statuses],
+  ...(filter.camera === undefined ? {} : { camera: filter.camera }),
+  ...(filter.sourceId === undefined ? {} : { sourceId: filter.sourceId }),
+  search: filter.search,
+});
+
+export const fromStoredFilter = (stored: StoredFilter): FilterState => ({
+  tag: stored.tag,
+  ratingStars: stored.ratingStars,
+  ratingMode: stored.ratingMode,
+  colorClasses: [...stored.colorClasses],
+  excludedColors: [...stored.excludedColors],
+  statuses: [...stored.statuses],
+  ...(stored.camera === undefined ? {} : { camera: stored.camera }),
+  ...(stored.sourceId === undefined ? {} : { sourceId: stored.sourceId }),
+  search: stored.search,
+});
 
 /** Whether any filter narrows the photos (what the clear button and the empty state react to). */
 export function isFiltering(filter: FilterState): boolean {

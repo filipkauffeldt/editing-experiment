@@ -258,6 +258,61 @@ describe('the filter bar in Develop and in the Library', () => {
     await waitFor(() => expect(stripNames()).toHaveLength(36));
   });
 
+  it('saves a filter under a name, picks it again, renames it and deletes it', async () => {
+    const { store } = await renderApp();
+    const user = userEvent.setup();
+    const saved = () => bar().getByTestId('filter-saved');
+    const open = () => user.click(within(saved()).getByRole('button'));
+
+    // Nothing to save while nothing is filtered.
+    await open();
+    expect(screen.getByText('Nothing saved yet')).toBeTruthy();
+    expect(
+      (screen.getByLabelText('Name for the current filter') as HTMLInputElement).disabled,
+    ).toBe(true);
+    await user.keyboard('{Escape}');
+
+    await user.click(bar().getByRole('button', { name: /^Tagged/ }));
+    await user.click(bar().getByRole('button', { name: '5 stars and up' }));
+    await open();
+    await user.type(screen.getByLabelText('Name for the current filter'), 'Tagged fives{Enter}');
+    await waitFor(() =>
+      expect(screen.getByRole('menuitem', { name: 'Tagged fives' })).toBeTruthy(),
+    );
+    expect(store.getState().settings?.savedFilters?.map((entry) => entry.name)).toEqual([
+      'Tagged fives',
+    ]);
+    // It is the filter on screen, so it is marked as the one in use.
+    expect(
+      screen.getByRole('menuitem', { name: 'Tagged fives' }).getAttribute('aria-current'),
+    ).toBe('true');
+    await user.keyboard('{Escape}');
+
+    await user.click(screen.getByTestId('filter-clear'));
+    await waitFor(() => expect(stripNames()).toHaveLength(40));
+    await open();
+    await user.click(screen.getByRole('menuitem', { name: 'Tagged fives' }));
+    // Picking closes the menu and sets the filter again.
+    expect(screen.queryByRole('menu')).toBeNull();
+    expect(store.getState().filter).toMatchObject({ tag: 'tagged', ratingStars: 5 });
+    expect(bar().getByRole('button', { name: '5 stars and up' }).getAttribute('aria-pressed')).toBe(
+      'true',
+    );
+
+    await open();
+    await user.click(screen.getByRole('button', { name: 'Rename Tagged fives' }));
+    const field = screen.getByLabelText('New name for Tagged fives');
+    await user.clear(field);
+    await user.type(field, 'Best{Enter}');
+    await waitFor(() => expect(screen.getByRole('menuitem', { name: 'Best' })).toBeTruthy());
+
+    await user.click(screen.getByRole('button', { name: 'Delete Best' }));
+    await waitFor(() => expect(screen.getByText('Nothing saved yet')).toBeTruthy());
+    expect(store.getState().settings?.savedFilters ?? []).toEqual([]);
+    // Deleting a saved filter does not touch the filter on screen.
+    expect(store.getState().filter.tag).toBe('tagged');
+  });
+
   it('puts the camera bodies and the sources in one menu', async () => {
     await renderApp();
     const user = userEvent.setup();

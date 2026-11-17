@@ -14,6 +14,7 @@ import type { SortMode } from '../store';
 import { useAppState, useAppStore } from '../store-context';
 import { COLOR_CLASSES, COLOR_CLASS_NAMES } from './PhotoOverlays';
 import { Button } from './ui/Button';
+import { SavedFilters } from './SavedFilters';
 import { Menu, MenuHeading, MenuItem } from './ui/Menu';
 import styles from './FilterBar.module.css';
 
@@ -244,6 +245,8 @@ export function FilterBar({
           </MenuItem>
         ))}
       </Menu>
+
+      <SavedFilters />
 
       <SearchBox />
 

@@ -1,0 +1,94 @@
+.none {
+  margin: 0;
+  padding: 6px 12px;
+  color: var(--dim);
+  font-size: var(--fs-small);
+}
+
+.row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding-right: 8px;
+}
+
+.row:hover {
+  background: var(--raised);
+}
+
+.pick {
+  flex: 1;
+  min-width: 0;
+  padding: 6px 4px 6px 12px;
+  overflow: hidden;
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  font-size: var(--fs-small);
+  text-align: left;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pick:hover,
+.pick:focus-visible,
+.active {
+  color: var(--text);
+  outline: none;
+}
+
+/* The filter on screen is this saved one: the same 1 px underline as an active tab. */
+.active {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.small {
+  padding: 2px 4px;
+  border: 0;
+  background: transparent;
+  color: var(--dim);
+  font-size: var(--fs-small);
+}
+
+.small:hover:not(:disabled),
+.small:focus-visible {
+  color: var(--text);
+  outline: none;
+}
+
+.small:disabled {
+  opacity: 0.5;
+}
+
+.input {
+  flex: 1;
+  width: 100%;
+  min-width: 0;
+  margin: 4px 0 4px 12px;
+  padding: 2px 0 3px;
+  border: 0;
+  border-bottom: 1px solid var(--line-strong);
+  background: transparent;
+  color: var(--text);
+  font-size: var(--fs-small);
+  user-select: text;
+}
+
+.input:focus {
+  border-bottom-color: var(--text);
+  outline: none;
+}
+
+.input::placeholder {
+  color: var(--dim);
+}
+
+.save {
+  margin-top: 4px;
+  border-top: 1px solid var(--line);
+}
+
+.save:hover {
+  background: transparent;
+}
