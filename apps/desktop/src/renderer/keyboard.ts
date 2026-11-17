@@ -623,6 +623,12 @@ export function useKeyboardShortcuts(store: AppStore): void {
       store.endDevelopGestures();
     };
     window.addEventListener('keydown', onKeyDown);
+    // Keys that arrived while the page was loading, before this handler existed.
+    for (const early of window.eeEarlyKeys?.take() ?? []) {
+      document.body.dispatchEvent(
+        new KeyboardEvent('keydown', { ...early, bubbles: true, cancelable: true }),
+      );
+    }
     window.addEventListener('keyup', onKeyUp);
     window.addEventListener('blur', onBlur);
     window.addEventListener('pointerdown', beginPointerGesture, true);

@@ -1,5 +1,6 @@
 import type { BridgeTransport, EventChannel, InvokeChannel } from '@ee/contracts';
 import { contextBridge, ipcRenderer } from 'electron';
+import { collectEarlyKeys, type KeyTarget } from '../shared/early-keys';
 
 /**
  * Only the raw transport crosses the context bridge. The typed `EeBridge` (and
@@ -19,6 +20,13 @@ const transport: BridgeTransport = {
 };
 
 contextBridge.exposeInMainWorld('eeTransport', transport);
+
+// Collected from the first moment the page exists, so a key pressed before the renderer has
+// mounted its handler is replayed by it instead of lost.
+contextBridge.exposeInMainWorld(
+  'eeEarlyKeys',
+  collectEarlyKeys(globalThis as unknown as KeyTarget),
+);
 
 contextBridge.exposeInMainWorld('eeEnvironment', {
   screenshots: process.argv.includes('--ee-screenshots'),
