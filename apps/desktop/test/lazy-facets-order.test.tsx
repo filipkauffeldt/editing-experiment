@@ -30,7 +30,14 @@ const facets = (shown: number, scopeTotal: number): PhotoFacets => ({
   shown,
   scopeTotal,
   tag: { all: shown, tagged: 0, untagged: shown },
-  status: { 'not-sent': shown, failed: 0, edited: 0, 'metadata-differs': 0 },
+  status: {
+    'not-sent': shown,
+    'not-exported': shown,
+    exported: 0,
+    failed: 0,
+    edited: 0,
+    'metadata-differs': 0,
+  },
   cameras: [],
 });
 

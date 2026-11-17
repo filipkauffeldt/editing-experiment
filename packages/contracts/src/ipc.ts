@@ -77,13 +77,17 @@ export interface ListPhotosArgs {
   limit?: number;
 }
 
+/** The status filters of the filter bar. A photo has to match every one that is ticked. */
+export type PhotoStatusFilter =
+  'not-sent' | 'not-exported' | 'exported' | 'failed' | 'edited' | 'metadata-differs';
+
 /** The filter a `photos:query` applies in the jobs process. */
 export interface PhotoQueryFilter {
   tag?: 'all' | 'tagged' | 'untagged';
   /** 0 or absent is off, otherwise this many stars and up. */
   minRating?: number;
   colorClasses?: number[];
-  statuses?: ('not-sent' | 'failed' | 'edited' | 'metadata-differs')[];
+  statuses?: PhotoStatusFilter[];
   camera?: string;
   sourceId?: SourceId;
   /** Free text search over file name, caption and keywords. */
@@ -129,7 +133,7 @@ export interface PhotoFacets {
   /** Photos in the scope before the filter. */
   scopeTotal: number;
   tag: Record<'all' | 'tagged' | 'untagged', number>;
-  status: Record<'not-sent' | 'failed' | 'edited' | 'metadata-differs', number>;
+  status: Record<PhotoStatusFilter, number>;
   /** Cameras in the scope with the rest of the filter applied (the camera choice itself left out). */
   cameras: PhotoFacetCamera[];
 }

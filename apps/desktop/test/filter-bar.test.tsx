@@ -150,6 +150,8 @@ describe('the filter bar in Develop and in the Library', () => {
     expect(menu.getByText('Matches all ticked')).toBeTruthy();
     expect(menu.getAllByRole('menuitemcheckbox').map((item) => item.textContent)).toEqual([
       'Not sent38',
+      'Not exported36',
+      'Exported4',
       'Failed1',
       'Edited7',
       'Differs from template1',
@@ -161,6 +163,23 @@ describe('the filter bar in Develop and in the Library', () => {
     await waitFor(() => expect(screen.getByTestId('filter-empty')).toBeTruthy());
     await user.keyboard('{Escape}');
     expect(screen.queryByRole('menu')).toBeNull();
+  });
+
+  it('filters on export status and keeps the counts honest', async () => {
+    await renderApp();
+    const user = userEvent.setup();
+    await user.click(bar().getByRole('button', { name: /Status/ }));
+    const menu = within(screen.getByRole('menu'));
+    await user.click(menu.getByRole('menuitemcheckbox', { name: /^Exported/ }));
+    await waitFor(() => expect(stripNames()).toHaveLength(4));
+    expect(count()).toBe('4 of 40');
+    // With Exported ticked, Not exported would show nothing on top of it.
+    expect(menu.getByRole('menuitemcheckbox', { name: /^Not exported/ }).textContent).toBe(
+      'Not exported0',
+    );
+    await user.click(menu.getByRole('menuitemcheckbox', { name: /^Exported/ }));
+    await user.click(menu.getByRole('menuitemcheckbox', { name: /^Not exported/ }));
+    await waitFor(() => expect(stripNames()).toHaveLength(36));
   });
 
   it('puts the camera bodies and the sources in one menu', async () => {

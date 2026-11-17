@@ -122,6 +122,29 @@ describe('filters', () => {
       );
     });
 
+    it('not exported is everything the export has not finished for, exported is the rest', () => {
+      const exported = photo({ status: { export: 'done' } });
+      const exporting = photo({ status: { export: 'encoding' } });
+      const exportFailed = photo({ status: { export: 'failed' } });
+      const untouched = photo();
+      const set = [exported, exporting, exportFailed, untouched];
+      expect(ids(filterPhotos(set, withFilter({ statuses: ['exported'] })))).toEqual([exported.id]);
+      expect(ids(filterPhotos(set, withFilter({ statuses: ['not-exported'] })))).toEqual([
+        exporting.id,
+        exportFailed.id,
+        untouched.id,
+      ]);
+    });
+
+    it('3 stars and up that are not exported and not sent', () => {
+      const keep = photo({ rating: 4 });
+      const exportedOne = photo({ rating: 4, status: { export: 'done' } });
+      const sentOne = photo({ rating: 4, status: { upload: 'done' } });
+      const low = photo({ rating: 2 });
+      const filter = withFilter({ minRating: 3, statuses: ['not-exported', 'not-sent'] });
+      expect(ids(filterPhotos([keep, exportedOne, sentOne, low], filter))).toEqual([keep.id]);
+    });
+
     it('failed, edited (retouch counts) and metadata differs', () => {
       expect(ids(filterPhotos(all, withFilter({ statuses: ['failed'] })))).toEqual([failed.id]);
       expect(ids(filterPhotos(all, withFilter({ statuses: ['edited'] })))).toEqual([
@@ -254,6 +277,8 @@ describe('filters', () => {
       expect(none.tag).toEqual({ all: 4, tagged: 2, untagged: 2 });
       expect(none.status).toEqual({
         'not-sent': 3,
+        'not-exported': 4,
+        exported: 0,
         failed: 1,
         edited: 2,
         'metadata-differs': 0,
@@ -264,6 +289,21 @@ describe('filters', () => {
       expect(rated.tag).toEqual({ all: 2, tagged: 1, untagged: 1 });
       expect(rated.status['not-sent']).toBe(1);
       expect(rated.shown).toBe(2);
+    });
+
+    it('counts the export statuses against the rest of the filter', () => {
+      const done = photo({ rating: 5, status: { export: 'done' } });
+      const waiting = photo({ rating: 5 });
+      const lowDone = photo({ rating: 1, status: { export: 'done' } });
+      const set = [done, waiting, lowDone];
+      const counts = filterCounts(set, withFilter({ minRating: 3 }));
+      expect(counts.status.exported).toBe(1);
+      expect(counts.status['not-exported']).toBe(1);
+      // Ticking one makes the other count what it would show on top of it: nothing.
+      const exportedOnly = filterCounts(set, withFilter({ statuses: ['exported'] }));
+      expect(exportedOnly.status.exported).toBe(2);
+      expect(exportedOnly.status['not-exported']).toBe(0);
+      expect(exportedOnly.shown).toBe(2);
     });
 
     it('keeps the tag counts when a tag is picked, and the status counts follow the tag', () => {

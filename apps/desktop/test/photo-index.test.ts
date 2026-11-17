@@ -6,6 +6,13 @@ import { DatabaseSync } from 'node:sqlite';
 import { afterEach, describe, expect, it } from 'vitest';
 import type { Photo, PhotoId } from '@ee/contracts';
 import { PhotoIndex } from '../src/jobs/backend/photo-index';
+import {
+  filterCounts,
+  filterPhotos,
+  initialFilter,
+  type FilterState,
+} from '../src/renderer/filters';
+import { queryFilter } from '../src/renderer/store';
 
 const dirs: string[] = [];
 afterEach(async () => {
@@ -207,5 +214,120 @@ describe('photo index queries', () => {
     expect([...index.excludedPaths()]).toHaveLength(3);
     index.close();
     await sleep();
+  });
+});
+
+const withFilter = (patch: Partial<FilterState>): FilterState => ({ ...initialFilter(), ...patch });
+
+const withStatus = (patch: Partial<Photo['status']>): Photo['status'] => ({
+  ...photo('x', 'x').status,
+  ...patch,
+});
+
+/**
+ * The renderer filter and the index have to agree: the same photos in the same order, and the
+ * same numbers next to the options. Each case runs both and compares.
+ */
+function expectSameAsRenderer(index: PhotoIndex, photos: Photo[], filter: FilterState): void {
+  const expected = filterPhotos(photos, filter).map((entry) => entry.id);
+  const page = index.query({ filter: queryFilter(filter), sort: 'filename', limit: 1000 });
+  expect(page.photos.map((entry) => entry.id).sort()).toEqual([...expected].sort());
+  expect(page.total).toBe(expected.length);
+
+  const counts = filterCounts(photos, filter);
+  const facets = index.facets({ filter: queryFilter(filter) });
+  expect(facets.shown).toBe(counts.shown);
+  expect(facets.tag).toEqual(counts.tag);
+  expect(facets.status).toEqual(counts.status);
+}
+
+describe('the index and the renderer filter agree', () => {
+  const photos: Photo[] = [
+    photo('a', '/p/a.NEF', { rating: 5, colorClass: 1, tagged: true }),
+    photo('b', '/p/b.NEF', { rating: 3, colorClass: 3, status: withStatus({ export: 'done' }) }),
+    photo('c', '/p/c.NEF', {
+      rating: 3,
+      colorClass: 0,
+      status: withStatus({ export: 'done', upload: 'done' }),
+    }),
+    photo('d', '/p/d.NEF', { rating: 0, colorClass: 5, status: withStatus({ export: 'failed' }) }),
+    photo('e', '/p/e.NEF', { rating: 1, colorClass: 1, status: withStatus({ upload: 'failed' }) }),
+    photo('f', '/p/f.NEF', {
+      rating: 4,
+      colorClass: 0,
+      status: withStatus({ export: 'encoding' }),
+    }),
+    photo('g', '/p/g.NEF', { rating: 0, colorClass: 2, tagged: true }),
+  ];
+  const withIndex = async (run: (index: PhotoIndex) => void): Promise<void> => {
+    const dir = await mkdtemp(join(tmpdir(), 'ee-index-parity-'));
+    dirs.push(dir);
+    const index = new PhotoIndex(join(dir, 'index.sqlite'));
+    try {
+      for (const entry of photos) index.save(entry);
+      run(index);
+    } finally {
+      index.close();
+    }
+  };
+
+  it('the export statuses, alone and with the others', async () => {
+    await withIndex((index) => {
+      for (const filter of [
+        withFilter({ statuses: ['exported'] }),
+        withFilter({ statuses: ['not-exported'] }),
+        withFilter({ statuses: ['not-exported', 'not-sent'] }),
+        withFilter({ statuses: ['exported', 'not-exported'] }),
+        withFilter({ minRating: 3, statuses: ['not-exported', 'not-sent'] }),
+        withFilter({ tag: 'tagged', statuses: ['not-exported'] }),
+      ]) {
+        expectSameAsRenderer(index, photos, filter);
+      }
+      const facets = index.facets({ filter: { statuses: ['not-exported'] } });
+      expect(facets.status.exported).toBe(0);
+      expect(facets.status['not-exported']).toBe(5);
+      expect(index.facets({}).status.exported).toBe(2);
+    });
+  });
+
+  it('counts exported and not exported for an index saved before the export column existed', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'ee-index-export-old-'));
+    dirs.push(dir);
+    const file = join(dir, 'index.sqlite');
+    const done = photo('done', '/p/done.NEF', { status: withStatus({ export: 'done' }) });
+    const fresh = photo('fresh', '/p/fresh.NEF');
+    const db = new DatabaseSync(file);
+    db.exec(`
+      CREATE TABLE photos (
+        seq INTEGER PRIMARY KEY AUTOINCREMENT,
+        id TEXT NOT NULL UNIQUE,
+        source_id TEXT NOT NULL,
+        path TEXT NOT NULL,
+        folder TEXT, file_name TEXT, capture_time TEXT, tagged INTEGER, rating INTEGER,
+        color_class INTEGER, edited INTEGER, upload TEXT, metadata_differs INTEGER,
+        camera_key TEXT, template_path TEXT, source_path TEXT, search_text TEXT,
+        json TEXT NOT NULL
+      );
+    `);
+    const insert = db.prepare(
+      `INSERT INTO photos (id, source_id, path, folder, file_name, tagged, rating, color_class,
+         edited, upload, metadata_differs, camera_key, json)
+       VALUES (?, ?, ?, '/p', ?, 0, 0, 0, 0, 'none', 0, '', ?)`,
+    );
+    for (const entry of [done, fresh]) {
+      insert.run(entry.id, entry.sourceId, entry.path, entry.fileName, JSON.stringify(entry));
+    }
+    db.close();
+    const index = new PhotoIndex(file);
+    try {
+      expect(index.query({ filter: { statuses: ['exported'] } }).photos.map((p) => p.id)).toEqual([
+        'done',
+      ]);
+      expect(
+        index.query({ filter: { statuses: ['not-exported'] } }).photos.map((p) => p.id),
+      ).toEqual(['fresh']);
+    } finally {
+      index.close();
+    }
   });
 });

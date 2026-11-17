@@ -51,12 +51,21 @@ export function photosHandlers(
         (photo) => args?.folder === undefined || dirname(photo.path) === args.folder,
       );
       const tag = { all: scoped.length, tagged: 0, untagged: 0 };
-      const status = { 'not-sent': 0, failed: 0, edited: 0, 'metadata-differs': 0 };
+      const status = {
+        'not-sent': 0,
+        'not-exported': 0,
+        exported: 0,
+        failed: 0,
+        edited: 0,
+        'metadata-differs': 0,
+      };
       const cameras = new Map<string, number>();
       for (const photo of scoped) {
         if (photo.tagged) tag.tagged += 1;
         else tag.untagged += 1;
         if (photo.status.upload !== 'done') status['not-sent'] += 1;
+        if (photo.status.export !== 'done') status['not-exported'] += 1;
+        else status.exported += 1;
         if (photo.status.upload === 'failed') status.failed += 1;
         if (photo.status.edited) status.edited += 1;
         if (photo.status.metadataDiffersFromTemplate) status['metadata-differs'] += 1;

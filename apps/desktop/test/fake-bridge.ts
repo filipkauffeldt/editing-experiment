@@ -14,6 +14,7 @@ import {
   type IptcFields,
   type Photo,
   type PhotoId,
+  type PhotoStatusFilter,
   type SourceConfig,
   type SourceId,
   type UploadItem,
@@ -167,7 +168,7 @@ export function createFakeBridge(
           tag?: 'all' | 'tagged' | 'untagged';
           minRating?: number;
           colorClasses?: number[];
-          statuses?: ('not-sent' | 'failed' | 'edited' | 'metadata-differs')[];
+          statuses?: PhotoStatusFilter[];
           camera?: string;
           sourceId?: SourceId;
           search?: string;
@@ -230,7 +231,7 @@ export function createFakeBridge(
           tag?: 'all' | 'tagged' | 'untagged';
           minRating?: number;
           colorClasses?: number[];
-          statuses?: ('not-sent' | 'failed' | 'edited' | 'metadata-differs')[];
+          statuses?: PhotoStatusFilter[];
           camera?: string;
           sourceId?: SourceId;
           search?: string;

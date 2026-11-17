@@ -1,4 +1,4 @@
-import type { Photo, PhotoId, SourceId } from '@ee/contracts';
+import type { Photo, PhotoId, PhotoStatusFilter, SourceId } from '@ee/contracts';
 
 /**
  * The one filter both the Library and Develop apply. Pure: a photo, a filter and (when a text
@@ -13,10 +13,12 @@ export const TAG_FILTERS: readonly { id: TagFilter; label: string }[] = [
   { id: 'untagged', label: 'Untagged' },
 ];
 
-export type StatusFilter = 'not-sent' | 'failed' | 'edited' | 'metadata-differs';
+export type StatusFilter = PhotoStatusFilter;
 
 export const STATUS_FILTERS: readonly { id: StatusFilter; label: string }[] = [
   { id: 'not-sent', label: 'Not sent' },
+  { id: 'not-exported', label: 'Not exported' },
+  { id: 'exported', label: 'Exported' },
   { id: 'failed', label: 'Failed' },
   { id: 'edited', label: 'Edited' },
   { id: 'metadata-differs', label: 'Differs from template' },
@@ -90,6 +92,10 @@ export function matchesStatus(photo: Photo, status: StatusFilter): boolean {
   switch (status) {
     case 'not-sent':
       return photo.status.upload !== 'done';
+    case 'not-exported':
+      return photo.status.export !== 'done';
+    case 'exported':
+      return photo.status.export === 'done';
     case 'failed':
       return photo.status.upload === 'failed';
     case 'edited':
@@ -161,7 +167,10 @@ export function filterCounts(
 ): FilterCounts {
   const counts: FilterCounts = {
     tag: { all: 0, tagged: 0, untagged: 0 },
-    status: { 'not-sent': 0, failed: 0, edited: 0, 'metadata-differs': 0 },
+    status: Object.fromEntries(STATUS_FILTERS.map(({ id }) => [id, 0])) as Record<
+      StatusFilter,
+      number
+    >,
     shown: 0,
   };
   for (const photo of photos) {
