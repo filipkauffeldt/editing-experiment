@@ -63,13 +63,20 @@ const GROUPS: { title: string; rows: [string, string][] }[] = [
     rows: [
       [
         'Ctrl/⌘ + Z',
-        'Undo the last tag, rating, colour label, caption or keyword change. In Develop the open photo’s last develop change counts too, whichever came last',
+        'Undo the last tag, rating, colour label, caption or keyword change. In Develop the open photo’s last develop change counts too, a turn included, whichever came last',
       ],
       ['Shift + Ctrl/⌘ + Z, Ctrl/⌘ + Y', 'Redo what the last undo took back'],
       [
         'Ctrl/⌘ + Z in a text field',
         'Undo the typing. Right after a code was replaced, it gives back the code as typed',
       ],
+    ],
+  },
+  {
+    title: 'Rotate',
+    rows: [
+      ['Ctrl/⌘ + ←', 'Turn the photo left, or every selected photo in the Library'],
+      ['Ctrl/⌘ + →', 'Turn the photo right, or every selected photo in the Library'],
     ],
   },
   {
@@ -107,7 +114,7 @@ const GROUPS: { title: string; rows: [string, string][] }[] = [
       ['1 – 5', 'Set the star rating (0 clears)'],
       ['Ctrl/⌘ + 1 – 8', 'Set the colour label (Ctrl/⌘ + 0 clears)'],
       ['Delete (⌫ on a Mac)', 'Move the selected photos to the trash, after asking'],
-      ['Right-click a photo', 'Open its menu: Delete…, Remove from Library…'],
+      ['Right-click a photo', 'Open its menu: Rotate, Delete…, Remove from Library…'],
     ],
   },
   {
