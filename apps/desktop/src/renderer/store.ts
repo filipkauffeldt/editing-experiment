@@ -100,6 +100,7 @@ import {
 import {
   cameraKey,
   filterPhotos,
+  cycleColorClass,
   initialFilter,
   hasSearch,
   matchesStatus,
@@ -678,6 +679,9 @@ export function queryFilter(filter: FilterState): PhotoQueryFilter {
     tag: filter.tag,
     minRating: filter.minRating,
     colorClasses: [...filter.colorClasses],
+    ...(filter.excludedColors.length === 0
+      ? {}
+      : { excludeColorClasses: [...filter.excludedColors] }),
     statuses: [...filter.statuses],
     ...(filter.camera === undefined ? {} : { camera: filter.camera }),
     ...(filter.sourceId === undefined ? {} : { sourceId: filter.sourceId }),
@@ -1465,9 +1469,14 @@ export class AppStore {
       return true;
     if (cameraKey(previous) !== cameraKey(next) || previous.sourceId !== next.sourceId) return true;
     // Only what an active filter reads can change membership; an upload tick must not reorder.
-    const { statuses, minRating, colorClasses } = this.state.filter;
+    const { statuses, minRating, colorClasses, excludedColors } = this.state.filter;
     if (minRating > 0 && previous.rating !== next.rating) return true;
-    if (colorClasses.length > 0 && previous.colorClass !== next.colorClass) return true;
+    if (
+      (colorClasses.length > 0 || excludedColors.length > 0) &&
+      previous.colorClass !== next.colorClass
+    ) {
+      return true;
+    }
     return statuses.some(
       (status) => matchesStatus(previous, status) !== matchesStatus(next, status),
     );
@@ -1818,8 +1827,9 @@ export class AppStore {
   /** Stars and up; 0 turns it off. */
   readonly setMinRating = (minRating: number): void => this.applyFilter({ minRating });
 
-  readonly toggleColorFilter = (colorClass: number): void =>
-    this.applyFilter({ colorClasses: toggleInList(this.state.filter.colorClasses, colorClass) });
+  /** Click a colour: shown, then hidden, then off. */
+  readonly cycleColorFilter = (colorClass: number): void =>
+    this.applyFilter(cycleColorClass(this.state.filter, colorClass));
 
   readonly toggleStatusFilter = (status: StatusFilter): void =>
     this.applyFilter({ statuses: toggleInList(this.state.filter.statuses, status) });

@@ -670,6 +670,13 @@ export class PhotoIndex {
         parts.push(`color_class IN (${placeholders(filter.colorClasses.length)})`);
         params.push(...filter.colorClasses);
       }
+      if (filter.excludeColorClasses !== undefined && filter.excludeColorClasses.length > 0) {
+        // A photo with no label is class 0 (or NULL in an old row) and is never excluded.
+        parts.push(
+          `COALESCE(color_class, 0) NOT IN (${placeholders(filter.excludeColorClasses.length)})`,
+        );
+        params.push(...filter.excludeColorClasses);
+      }
       if (filter.camera !== undefined) {
         parts.push('camera_key = ?');
         params.push(filter.camera);

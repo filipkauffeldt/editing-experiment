@@ -86,7 +86,10 @@ export interface PhotoQueryFilter {
   tag?: 'all' | 'tagged' | 'untagged';
   /** 0 or absent is off, otherwise this many stars and up. */
   minRating?: number;
+  /** Colour classes to show; absent or empty is every colour. */
   colorClasses?: number[];
+  /** Colour classes to hide, whatever `colorClasses` says. Class 0 (no label) is never hidden. */
+  excludeColorClasses?: number[];
   statuses?: PhotoStatusFilter[];
   camera?: string;
   sourceId?: SourceId;

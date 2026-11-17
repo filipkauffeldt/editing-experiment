@@ -3,7 +3,8 @@ import type { Photo, PhotoId, PhotoStatusFilter, SourceId } from '@ee/contracts'
 /**
  * The one filter both the Library and Develop apply. Pure: a photo, a filter and (when a text
  * search is on) the ids the search found. Everything here is AND between filters; inside the
- * colour filter the classes are OR (a photo has one colour).
+ * colour filter the included classes are OR (a photo has one colour) and the excluded ones are
+ * taken away from them.
  */
 export type TagFilter = 'all' | 'tagged' | 'untagged';
 
@@ -30,6 +31,8 @@ export interface FilterState {
   minRating: number;
   /** Colour classes 1..8 to show; empty = every colour. */
   colorClasses: readonly number[];
+  /** Colour classes 1..8 to hide. A class is never both shown and hidden. */
+  excludedColors: readonly number[];
   /** A photo has to match every ticked status. */
   statuses: readonly StatusFilter[];
   /** `cameraKey` of a body. */
@@ -43,6 +46,7 @@ export const initialFilter = (): FilterState => ({
   tag: 'all',
   minRating: 0,
   colorClasses: [],
+  excludedColors: [],
   statuses: [],
   search: '',
 });
@@ -55,6 +59,7 @@ export function isFiltering(filter: FilterState): boolean {
     filter.tag !== 'all' ||
     filter.minRating > 0 ||
     filter.colorClasses.length > 0 ||
+    filter.excludedColors.length > 0 ||
     filter.statuses.length > 0 ||
     filter.camera !== undefined ||
     filter.sourceId !== undefined ||
@@ -120,6 +125,7 @@ function matchesRest(
   if (filter.minRating > 0 && photo.rating < filter.minRating) return false;
   if (filter.colorClasses.length > 0 && !filter.colorClasses.includes(photo.colorClass))
     return false;
+  if (filter.excludedColors.includes(photo.colorClass)) return false;
   if (filter.camera !== undefined && cameraKey(photo) !== filter.camera) return false;
   if (filter.sourceId !== undefined && photo.sourceId !== filter.sourceId) return false;
   if (hasSearch(filter) && searchIds !== undefined && !searchIds.has(photo.id)) return false;
@@ -195,6 +201,41 @@ export function filterCounts(
 
 /** Click star `n`: "n and up"; the star that is already the filter clears it. */
 export const toggleMinRating = (current: number, n: number): number => (current === n ? 0 : n);
+
+export type ColorFilterState = 'off' | 'include' | 'exclude';
+
+export function colorFilterState(filter: FilterState, colorClass: number): ColorFilterState {
+  if (filter.colorClasses.includes(colorClass)) return 'include';
+  if (filter.excludedColors.includes(colorClass)) return 'exclude';
+  return 'off';
+}
+
+/** A click on a colour: off, then shown, then hidden, then off again. */
+export function cycleColorClass(
+  filter: Pick<FilterState, 'colorClasses' | 'excludedColors'>,
+  colorClass: number,
+): Pick<FilterState, 'colorClasses' | 'excludedColors'> {
+  const included = filter.colorClasses.includes(colorClass);
+  const excluded = filter.excludedColors.includes(colorClass);
+  const without = (list: readonly number[]): number[] =>
+    list.filter((candidate) => candidate !== colorClass);
+  if (included) {
+    return {
+      colorClasses: without(filter.colorClasses),
+      excludedColors: [...filter.excludedColors, colorClass],
+    };
+  }
+  if (excluded) {
+    return {
+      colorClasses: [...filter.colorClasses],
+      excludedColors: without(filter.excludedColors),
+    };
+  }
+  return {
+    colorClasses: [...filter.colorClasses, colorClass],
+    excludedColors: [...filter.excludedColors],
+  };
+}
 
 export const toggleInList = <T>(list: readonly T[], item: T): T[] =>
   list.includes(item) ? list.filter((candidate) => candidate !== item) : [...list, item];

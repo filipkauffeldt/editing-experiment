@@ -142,6 +142,37 @@ describe('the filter bar in Develop and in the Library', () => {
     await waitFor(() => expect(stripNames()).toHaveLength(1));
   });
 
+  it('cycles a colour through shown, hidden and off', async () => {
+    const { store } = await renderApp();
+    const ids = store.getVisiblePhotos().map((photo) => photo.id);
+    store.setColorClass(1, ids[0]);
+    store.setColorClass(1, ids[1]);
+    store.setColorClass(3, ids[2]);
+    const user = userEvent.setup();
+    await user.click(bar().getByRole('button', { name: 'Colour label 1' }));
+    await waitFor(() => expect(stripNames()).toHaveLength(2));
+    expect(bar().getByRole('button', { name: 'Colour label 1' }).getAttribute('aria-pressed')).toBe(
+      'true',
+    );
+
+    await user.click(bar().getByRole('button', { name: 'Colour label 1' }));
+    // Hidden now: the other 38 photos stay, labelled or not.
+    await waitFor(() => expect(stripNames()).toHaveLength(38));
+    const struck = bar().getByRole('button', { name: 'Colour label 1 excluded' });
+    expect(struck.getAttribute('aria-pressed')).toBe('false');
+    expect(struck.getAttribute('title')).toContain('click to clear');
+    expect(count()).toBe('38 of 40');
+    expect(screen.getByTestId('filter-clear')).toBeTruthy();
+
+    await user.click(bar().getByRole('button', { name: 'Colour label 3' }));
+    await user.click(bar().getByRole('button', { name: 'Colour label 3' }));
+    await waitFor(() => expect(stripNames()).toHaveLength(37));
+
+    await user.click(struck);
+    await waitFor(() => expect(stripNames()).toHaveLength(39));
+    expect(bar().getByRole('button', { name: 'Colour label 1' })).toBeTruthy();
+  });
+
   it('ticks several statuses from the menu, with counts, and says what they mean', async () => {
     await renderApp();
     const user = userEvent.setup();

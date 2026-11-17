@@ -5,6 +5,7 @@ import {
   STATUS_FILTERS,
   TAG_FILTERS,
   cameraOptions,
+  colorFilterState,
   filterCounts,
   isFiltering,
   toggleMinRating,
@@ -18,6 +19,13 @@ import styles from './FilterBar.module.css';
 
 /** Typing waits this long before the search runs. */
 export const SEARCH_DEBOUNCE_MS = 250;
+
+/** What the next click on a colour does, shown in its tooltip. */
+const COLOR_TITLE_HINT = {
+  off: 'click to show only',
+  include: 'click to hide',
+  exclude: 'click to clear',
+} as const;
 
 const SORTS: readonly { id: SortMode; label: string }[] = [
   { id: 'filename', label: 'Name' },
@@ -116,16 +124,17 @@ export function FilterBar({
       <div className={styles.colors} role="group" aria-label="Colour label">
         {COLOR_CLASSES.slice(1).map((color, index) => {
           const colorClass = index + 1;
-          const on = filter.colorClasses.includes(colorClass);
+          const mode = colorFilterState(filter, colorClass);
+          const name = COLOR_CLASS_NAMES[colorClass];
           return (
             <button
               key={colorClass}
               type="button"
-              className={`${styles.colorButton} ${on ? styles.colorOn : ''}`}
-              aria-pressed={on}
-              aria-label={`Colour label ${colorClass}`}
-              title={`Colour label ${colorClass} · ${COLOR_CLASS_NAMES[colorClass]}`}
-              onClick={() => store.toggleColorFilter(colorClass)}
+              className={`${styles.colorButton} ${mode === 'include' ? styles.colorOn : ''} ${mode === 'exclude' ? styles.colorExcluded : ''}`}
+              aria-pressed={mode === 'include'}
+              aria-label={`Colour label ${colorClass}${mode === 'exclude' ? ' excluded' : ''}`}
+              title={`Colour label ${colorClass} · ${name} · ${COLOR_TITLE_HINT[mode]}`}
+              onClick={() => store.cycleColorFilter(colorClass)}
             >
               <span className={styles.dot} style={{ background: color }} />
             </button>

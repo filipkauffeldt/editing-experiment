@@ -157,7 +157,9 @@ describe('clear', () => {
     store.setSort('capture-time');
     store.setTagFilter('tagged');
     store.setMinRating(2);
-    store.toggleColorFilter(3);
+    store.cycleColorFilter(3);
+    store.cycleColorFilter(4);
+    store.cycleColorFilter(4);
     store.toggleStatusFilter('edited');
     store.setCameraFilter('x|y');
     store.setSearch('abc');
@@ -167,6 +169,7 @@ describe('clear', () => {
       tag: 'all',
       minRating: 0,
       colorClasses: [],
+      excludedColors: [],
       statuses: [],
       search: '',
     });

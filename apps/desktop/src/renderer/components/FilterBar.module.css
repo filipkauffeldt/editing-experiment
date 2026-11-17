@@ -92,6 +92,26 @@
   border-color: var(--text);
 }
 
+/* Hidden: the colour is dimmed and struck through, so it reads as "not this one". */
+.colorExcluded {
+  position: relative;
+}
+
+.colorExcluded .dot {
+  opacity: 0.45;
+}
+
+.colorExcluded::after {
+  position: absolute;
+  top: 50%;
+  right: 0;
+  left: 0;
+  height: 1px;
+  background: var(--text);
+  content: '';
+  transform: rotate(-45deg);
+}
+
 .dot {
   width: 7px;
   height: 7px;

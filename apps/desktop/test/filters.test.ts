@@ -2,6 +2,8 @@ import { asPhotoId, asSourceId, type Photo } from '@ee/contracts';
 import { describe, expect, it } from 'vitest';
 import {
   cameraKey,
+  colorFilterState,
+  cycleColorClass,
   filterCounts,
   filterPhotos,
   initialFilter,
@@ -97,6 +99,47 @@ describe('filters', () => {
         blue.id,
       ]);
       expect(ids(filterPhotos(all, withFilter({ colorClasses: [3] })))).toEqual([yellow.id]);
+    });
+
+    it('not red and not yellow shows everything else, unlabelled photos included', () => {
+      expect(ids(filterPhotos(all, withFilter({ excludedColors: [1, 3] })))).toEqual([
+        blue.id,
+        plain.id,
+      ]);
+    });
+
+    it('takes the excluded classes away from the included ones', () => {
+      const filter = withFilter({ colorClasses: [1, 3], excludedColors: [3] });
+      expect(ids(filterPhotos(all, filter))).toEqual([red.id]);
+      // Excluding every included class leaves nothing, it does not fall back to every colour.
+      const none = withFilter({ colorClasses: [1], excludedColors: [1] });
+      expect(filterPhotos(all, none)).toEqual([]);
+    });
+
+    it('counts the filter with excluded colours the way it lists it', () => {
+      const filter = withFilter({ excludedColors: [1] });
+      expect(filterCounts(all, filter).shown).toBe(3);
+      expect(filterCounts(all, filter).tag.all).toBe(3);
+      expect(isFiltering(filter)).toBe(true);
+    });
+
+    it('cycles a colour from off to shown to hidden and back to off', () => {
+      const off = withFilter({});
+      const shown = withFilter(cycleColorClass(off, 2));
+      expect(colorFilterState(shown, 2)).toBe('include');
+      const hidden = withFilter(cycleColorClass(shown, 2));
+      expect(colorFilterState(hidden, 2)).toBe('exclude');
+      expect(hidden.colorClasses).toEqual([]);
+      const back = withFilter(cycleColorClass(hidden, 2));
+      expect(colorFilterState(back, 2)).toBe('off');
+      expect(isFiltering(back)).toBe(false);
+    });
+
+    it('keeps the other colours as they are when one cycles', () => {
+      const filter = withFilter({ colorClasses: [1], excludedColors: [4] });
+      expect(cycleColorClass(filter, 2)).toEqual({ colorClasses: [1, 2], excludedColors: [4] });
+      expect(cycleColorClass(filter, 1)).toEqual({ colorClasses: [], excludedColors: [4, 1] });
+      expect(cycleColorClass(filter, 4)).toEqual({ colorClasses: [1], excludedColors: [] });
     });
 
     it('toggles classes in and out of the list', () => {

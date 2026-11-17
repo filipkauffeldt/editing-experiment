@@ -168,6 +168,7 @@ export function createFakeBridge(
           tag?: 'all' | 'tagged' | 'untagged';
           minRating?: number;
           colorClasses?: number[];
+          excludeColorClasses?: number[];
           statuses?: PhotoStatusFilter[];
           camera?: string;
           sourceId?: SourceId;
@@ -195,6 +196,7 @@ export function createFakeBridge(
           tag: filter?.tag ?? 'all',
           minRating: filter?.minRating ?? 0,
           colorClasses: filter?.colorClasses ?? [],
+          excludedColors: filter?.excludeColorClasses ?? [],
           statuses: filter?.statuses ?? [],
           ...(filter?.camera === undefined ? {} : { camera: filter.camera }),
           ...(filter?.sourceId === undefined ? {} : { sourceId: filter.sourceId }),
@@ -231,6 +233,7 @@ export function createFakeBridge(
           tag?: 'all' | 'tagged' | 'untagged';
           minRating?: number;
           colorClasses?: number[];
+          excludeColorClasses?: number[];
           statuses?: PhotoStatusFilter[];
           camera?: string;
           sourceId?: SourceId;
@@ -255,6 +258,7 @@ export function createFakeBridge(
         tag: filter?.tag ?? 'all',
         minRating: filter?.minRating ?? 0,
         colorClasses: filter?.colorClasses ?? [],
+        excludedColors: filter?.excludeColorClasses ?? [],
         statuses: filter?.statuses ?? [],
         ...(filter?.camera === undefined ? {} : { camera: filter.camera }),
         ...(filter?.sourceId === undefined ? {} : { sourceId: filter.sourceId }),

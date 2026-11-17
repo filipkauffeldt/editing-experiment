@@ -290,6 +290,26 @@ describe('the index and the renderer filter agree', () => {
     });
   });
 
+  it('colours: shown, hidden, and hidden taken from shown', async () => {
+    await withIndex((index) => {
+      for (const filter of [
+        withFilter({ colorClasses: [1] }),
+        withFilter({ colorClasses: [1, 3, 5] }),
+        withFilter({ excludedColors: [1] }),
+        withFilter({ excludedColors: [1, 5] }),
+        withFilter({ colorClasses: [1, 5], excludedColors: [5] }),
+        withFilter({ colorClasses: [1], excludedColors: [1] }),
+        withFilter({ excludedColors: [1], tag: 'tagged' }),
+        withFilter({ excludedColors: [1], statuses: ['not-exported'] }),
+      ]) {
+        expectSameAsRenderer(index, photos, filter);
+      }
+      // Not red, not blue: unlabelled photos stay.
+      const page = index.query({ filter: { excludeColorClasses: [1, 5] } });
+      expect(page.photos.map((entry) => entry.id).sort()).toEqual(['b', 'c', 'f', 'g']);
+    });
+  });
+
   it('counts exported and not exported for an index saved before the export column existed', async () => {
     const dir = await mkdtemp(join(tmpdir(), 'ee-index-export-old-'));
     dirs.push(dir);
