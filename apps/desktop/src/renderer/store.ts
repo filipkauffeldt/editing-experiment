@@ -90,6 +90,14 @@ import { renderFullResolution } from './export-render';
 import { nextPhotoAfterRemoval, photoIdOfKey, withoutPhotos } from './photo-removal';
 import { copyMetadataFields, type MetadataFieldName } from './metadata-fields';
 import {
+  fieldsWhat,
+  pickFields,
+  sameField,
+  snapshotField,
+  snapshotFields,
+  type MetadataEntry,
+} from './metadata-history';
+import {
   cameraKey,
   filterPhotos,
   initialFilter,
@@ -2373,6 +2381,7 @@ export class AppStore {
     if (photoIds.length === 0 || edits.length === 0) return 0;
     let written = 0;
     const failed: string[] = [];
+    const entries: MetadataEntry[] = [];
     for (const photoId of photoIds) {
       try {
         await this.saveMetadata(photoId);
@@ -2390,9 +2399,15 @@ export class AppStore {
           }),
         );
         const fields = mergeFieldEdits(current, resolved);
+        const names = Object.keys(fields) as (keyof IptcFields)[];
         const photo = await this.bridge.invoke('metadata:write', { photoId, fields });
         this.upsertPhoto(photo);
         this.set({ metadata: { ...this.state.metadata, [photoId]: { ...current, ...fields } } });
+        entries.push({
+          photoId,
+          before: pickFields(current, names),
+          after: snapshotFields(fields),
+        });
         written += 1;
       } catch (cause) {
         failed.push(`${this.photoById.get(photoId)?.fileName ?? photoId}: ${messageOf(cause)}`);
@@ -2402,7 +2417,13 @@ export class AppStore {
       this.toast('error', `Could not caption ${failed.length} photo(s): ${failed[0]}`);
     }
     if (written > 0) this.refreshSearch(SEARCH_REFRESH_MS);
-    if (written > 0) this.toast('success', `Captioned ${written} photo${written === 1 ? '' : 's'}`);
+    if (written > 0) {
+      // One applied edit is one step that restores every photo it wrote.
+      this.editHistory.record(
+        this.metadataStep(entries, fieldsWhat(edits.map((edit) => edit.field))),
+      );
+      this.toast('success', `Captioned ${written} photo${written === 1 ? '' : 's'}`);
+    }
     return written;
   };
 
@@ -3164,23 +3185,90 @@ export class AppStore {
     return selectedId ? [selectedId] : [];
   }
 
+  /**
+   * A typed or clicked change to one field of one photo. Typing in a text field grows one undo
+   * step until another change comes in or the field is left; a keyword added or removed is a step
+   * of its own.
+   */
   readonly updateMetadataField = (
     photoId: PhotoId,
     field: keyof IptcFields,
     value: IptcFields[keyof IptcFields],
   ): void => {
-    const fields = { ...(this.state.metadata[photoId] ?? {}) } as IptcFields;
-    (fields as Record<string, unknown>)[field] = value;
+    this.recordTypedMetadata(photoId, field, value);
+    this.putMetadataFields(photoId, { [field]: value } as Partial<IptcFields>);
+  };
+
+  /** The typed edit whose step is still the newest, so more typing in the field goes into it. */
+  private typedMetadata:
+    { photoId: PhotoId; field: keyof IptcFields; entry: MetadataEntry; step: EditStep } | undefined;
+
+  /** The field was left: typing in it again is a new undo step. */
+  readonly endMetadataTyping = (): void => {
+    this.typedMetadata = undefined;
+  };
+
+  private recordTypedMetadata(
+    photoId: PhotoId,
+    field: keyof IptcFields,
+    value: IptcFields[keyof IptcFields],
+  ): void {
+    const open = this.typedMetadata;
+    if (open?.photoId === photoId && open.field === field && this.editHistory.isLast(open.step)) {
+      open.entry.after[field] = snapshotField(field, value) as never;
+      open.step.order = nextChangeOrder();
+      // Typed back to where it started: nothing to undo.
+      if (sameField(field, open.entry.before[field], value)) {
+        this.editHistory.discard(open.step);
+        this.typedMetadata = undefined;
+      }
+      return;
+    }
+    this.typedMetadata = undefined;
+    const before = this.state.metadata[photoId] ?? {};
+    if (sameField(field, before[field], value)) return;
+    const entry: MetadataEntry = {
+      photoId,
+      before: pickFields(before, [field]),
+      after: snapshotFields({ [field]: value } as Partial<IptcFields>),
+    };
+    const step = this.metadataStep([entry], fieldsWhat([field]));
+    this.editHistory.record(step);
+    if (field !== 'keywords') this.typedMetadata = { photoId, field, entry, step };
+  }
+
+  /** The undo step of a metadata change: each photo's touched fields go back, or forward again. */
+  private metadataStep(entries: readonly MetadataEntry[], what: string): EditStep {
+    const write = async (side: 'before' | 'after'): Promise<void> => {
+      await Promise.all(
+        entries
+          .filter((entry) => !this.isGoing(entry.photoId))
+          .map(async (entry) => {
+            this.putMetadataFields(entry.photoId, snapshotFields(entry[side]));
+            await this.saveMetadata(entry.photoId);
+          }),
+      );
+    };
+    return {
+      what,
+      photoIds: entries.map((entry) => entry.photoId),
+      order: nextChangeOrder(),
+      undo: () => write('before'),
+      redo: () => write('after'),
+    };
+  }
+
+  /** Show fields now and queue them for the debounced save. */
+  private putMetadataFields(photoId: PhotoId, patch: Partial<IptcFields>): void {
+    const fields = { ...(this.state.metadata[photoId] ?? {}), ...patch } as IptcFields;
     this.metadataEditVersion.set(photoId, (this.metadataEditVersion.get(photoId) ?? 0) + 1);
     this.set({
       metadata: { ...this.state.metadata, [photoId]: fields },
       metadataUnresolved: { ...this.state.metadataUnresolved, [photoId]: [] },
     });
-    const pending = this.pendingMetadata.get(photoId) ?? {};
-    (pending as Record<string, unknown>)[field] = value;
-    this.pendingMetadata.set(photoId, pending);
+    this.pendingMetadata.set(photoId, { ...(this.pendingMetadata.get(photoId) ?? {}), ...patch });
     this.scheduleMetadataSave(photoId);
-  };
+  }
 
   private scheduleMetadataSave(photoId: PhotoId): void {
     const existing = this.metadataTimers.get(photoId);
@@ -3247,7 +3335,13 @@ export class AppStore {
     ]);
   }
 
-  readonly expandCaption = async (photoId?: PhotoId): Promise<ExpandCaptionResult | undefined> => {
+  /**
+   * Ask the backend to expand the caption's codes and variables without changing it. Resolves
+   * with nothing when the caption was edited while the answer was on its way.
+   */
+  readonly requestCaptionExpansion = async (
+    photoId?: PhotoId,
+  ): Promise<ExpandCaptionResult | undefined> => {
     const id = photoId ?? this.state.selectedId;
     if (!id) return undefined;
     const text = this.state.metadata[id]?.caption ?? '';
@@ -3255,15 +3349,25 @@ export class AppStore {
     try {
       const result = await this.bridge.invoke('metadata:expandCaption', { photoId: id, text });
       if ((this.state.metadata[id]?.caption ?? '') !== text) return undefined;
-      this.updateMetadataField(id, 'caption', result.text);
-      this.set({
-        metadataUnresolved: { ...this.state.metadataUnresolved, [id]: result.unresolved },
-      });
       return result;
     } catch (cause) {
       this.toast('error', `Could not expand caption: ${messageOf(cause)}`);
       return undefined;
     }
+  };
+
+  /** The codes an expansion could not resolve, shown under the caption. */
+  readonly setUnresolvedCodes = (photoId: PhotoId, unresolved: string[]): void =>
+    this.set({ metadataUnresolved: { ...this.state.metadataUnresolved, [photoId]: unresolved } });
+
+  /** Expand the caption and put the result in the store (blur). */
+  readonly expandCaption = async (photoId?: PhotoId): Promise<ExpandCaptionResult | undefined> => {
+    const id = photoId ?? this.state.selectedId;
+    const result = await this.requestCaptionExpansion(id);
+    if (!id || !result) return undefined;
+    this.updateMetadataField(id, 'caption', result.text);
+    this.setUnresolvedCodes(id, result.unresolved);
+    return result;
   };
 
   /**
@@ -3396,10 +3500,27 @@ export class AppStore {
     try {
       // Flush debounced typing first so it cannot land after (and undo) the paste.
       await Promise.all(targets.map((photoId) => this.saveMetadata(photoId)));
+      // What each target holds now, for the undo step.
+      const names = Object.keys(copied.fields) as (keyof IptcFields)[];
+      const previous = new Map(
+        await Promise.all(
+          targets.map(
+            async (photoId) =>
+              [photoId, await this.bridge.invoke('metadata:read', { photoId })] as const,
+          ),
+        ),
+      );
       const result = await this.bridge.invoke('metadata:writeFields', {
         photoIds: targets,
         fields: copied.fields,
       });
+      const entries = result.updated.map((photoId): MetadataEntry => ({
+        photoId,
+        before: pickFields(previous.get(photoId) ?? {}, names),
+        after: snapshotFields(copied.fields),
+      }));
+      if (entries.length > 0)
+        this.editHistory.record(this.metadataStep(entries, fieldsWhat(names)));
       this.refreshSearch(SEARCH_REFRESH_MS);
       const fieldsByPhoto = await Promise.all(
         result.updated.map(

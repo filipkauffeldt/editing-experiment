@@ -139,11 +139,13 @@ function FieldRow({
           placeholder={field.placeholder}
           value={value}
           onChange={(event) => store.updateMetadataField(photo.id, field.name, event.target.value)}
+          onBlur={store.endMetadataTyping}
         />
       ) : (
         <TextInput
           value={value}
           onChange={(event) => store.updateMetadataField(photo.id, field.name, event.target.value)}
+          onBlur={store.endMetadataTyping}
         />
       )}
     </label>
