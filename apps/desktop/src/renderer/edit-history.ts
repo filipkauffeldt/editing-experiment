@@ -12,15 +12,15 @@ export interface EditStep {
   what: string;
   /** The photos the step restores, for the toast ("12 photos"). */
   photoIds: readonly PhotoId[];
-  /** When the newest change of the step happened, to order it against a develop step. */
-  at: number;
+  /** {@link nextChangeOrder} of the step's newest change, to order it against a develop step. */
+  order: number;
   undo(): Promise<void>;
   redo(): Promise<void>;
 }
 
 /**
  * The app-wide undo history of tags, ratings, colour labels, captions and keywords for the
- * session. Develop and Retouch keep their own history; the store picks between them by time.
+ * session. Develop and Retouch keep their own history; the store picks between them by which change was newer.
  * Undo and redo run one after another, so two quick key presses never overlap their writes.
  */
 export class EditHistory {
@@ -46,9 +46,9 @@ export class EditHistory {
     return this.done.at(-1) === step;
   }
 
-  /** When the step an undo would take back happened; undefined with nothing to undo. */
-  undoAt(): number | undefined {
-    return this.done.at(-1)?.at;
+  /** The order of the step an undo would take back; undefined with nothing to undo. */
+  undoOrder(): number | undefined {
+    return this.done.at(-1)?.order;
   }
 
   canUndo(): boolean {

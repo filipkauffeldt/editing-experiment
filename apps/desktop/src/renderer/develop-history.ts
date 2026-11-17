@@ -1,4 +1,5 @@
 import type { EditParams, PhotoId } from '@ee/contracts';
+import { nextChangeOrder } from './change-order';
 
 /**
  * The develop settings of one photo as a step restores them. The parked values are the sliders of
@@ -30,6 +31,8 @@ interface DevelopStep {
   after: DevelopSettingsSnapshot;
   /** When the newest change of the step arrived. */
   at: number;
+  /** {@link nextChangeOrder} of that change, to order the step against a label or caption. */
+  order: number;
   /** The gesture the step belongs to, while a pointer or typed edit is open. */
   gesture?: number;
   nudgeKey?: string;
@@ -156,12 +159,14 @@ export class DevelopHistory {
       else {
         top.after = merged;
         top.at = now;
+        top.order = nextChangeOrder();
       }
     } else {
       history.steps.push({
         before: cloneDevelopSnapshot(before),
         after: cloneDevelopSnapshot(after),
         at: now,
+        order: nextChangeOrder(),
         ...(gesture === undefined ? {} : { gesture }),
         ...(nudgeKey === undefined ? {} : { nudgeKey }),
       });
@@ -202,9 +207,9 @@ export class DevelopHistory {
     return (this.histories.get(photoId)?.redo.length ?? 0) > 0;
   }
 
-  /** When the step an undo would take back last changed; undefined with nothing to undo. */
-  undoAt(photoId: PhotoId): number | undefined {
-    return this.histories.get(photoId)?.steps.at(-1)?.at;
+  /** The order of the step an undo would take back; undefined with nothing to undo. */
+  undoOrder(photoId: PhotoId): number | undefined {
+    return this.histories.get(photoId)?.steps.at(-1)?.order;
   }
 
   undoDepth(photoId: PhotoId): number {

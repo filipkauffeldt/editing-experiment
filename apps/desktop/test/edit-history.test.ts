@@ -4,11 +4,11 @@ import { EDIT_HISTORY_LIMIT, EditHistory, type EditStep } from '../src/renderer/
 
 const photo = asPhotoId('p1');
 
-function step(log: string[], name: string, at = 0): EditStep {
+function step(log: string[], name: string, order = 0): EditStep {
   return {
     what: name,
     photoIds: [photo],
-    at,
+    order,
     undo: async () => void log.push(`undo ${name}`),
     redo: async () => void log.push(`redo ${name}`),
   };
@@ -47,7 +47,7 @@ describe('EditHistory', () => {
       history.record({
         what: name,
         photoIds: [photo],
-        at: 0,
+        order: 0,
         undo: async () => {
           log.push(`start ${name}`);
           await new Promise((resolve) => setTimeout(resolve, 10));
@@ -65,14 +65,14 @@ describe('EditHistory', () => {
     history.record({
       what: 'ok',
       photoIds: [photo],
-      at: 0,
+      order: 0,
       undo: async () => undefined,
       redo: async () => undefined,
     });
     history.record({
       what: 'bad',
       photoIds: [photo],
-      at: 0,
+      order: 0,
       undo: async () => {
         throw new Error('disk full');
       },
@@ -84,16 +84,16 @@ describe('EditHistory', () => {
 
   it('reports when the newest step happened and whether a step is the newest', () => {
     const history = new EditHistory();
-    expect(history.undoAt()).toBeUndefined();
+    expect(history.undoOrder()).toBeUndefined();
     const first = step([], 'a', 10);
     const second = step([], 'b', 20);
     history.record(first);
     history.record(second);
-    expect(history.undoAt()).toBe(20);
+    expect(history.undoOrder()).toBe(20);
     expect(history.isLast(second)).toBe(true);
     expect(history.isLast(first)).toBe(false);
     history.discard(second);
-    expect(history.undoAt()).toBe(10);
+    expect(history.undoOrder()).toBe(10);
   });
 
   it('keeps a bounded number of steps', async () => {

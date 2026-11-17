@@ -1,4 +1,5 @@
 import { CodeReplacementTables } from './code-replacements';
+import { nextChangeOrder } from './change-order';
 import { EditHistory, type EditStep } from './edit-history';
 import type { InstantReplacement } from '@ee/metadata/code-replacement-tokens';
 import {
@@ -1999,7 +2000,7 @@ export class AppStore {
     return {
       what: LABEL_NAMES[key],
       photoIds,
-      at: Date.now(),
+      order: nextChangeOrder(),
       undo: () => this.writeLabels(key, undoGroups),
       redo: () => this.writeLabels(key, new Map([[after, photoIds]])),
     };
@@ -3757,9 +3758,9 @@ export class AppStore {
     const developAt = photo
       ? this.pendingDevelopApplies.has(photo.id)
         ? Number.POSITIVE_INFINITY
-        : this.developHistory.undoAt(photo.id)
+        : this.developHistory.undoOrder(photo.id)
       : undefined;
-    const editAt = this.editHistory.undoAt();
+    const editAt = this.editHistory.undoOrder();
     if (developAt !== undefined && (editAt === undefined || developAt >= editAt)) {
       if (this.undoDevelop()) this.undoneSources.push('develop');
       return;
