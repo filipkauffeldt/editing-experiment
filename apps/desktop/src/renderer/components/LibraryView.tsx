@@ -2,6 +2,7 @@ import { useMemo } from 'react';
 import { panelsAreHidden, selectLibraryPhotos, selectLibraryScope } from '../store';
 import { isFiltering } from '../filters';
 import { THUMB_SIZE_RANGE } from '../library';
+import { COMPARE_HINT, COMPARE_ZOOM_KEY, canCompare } from '../compare-view';
 import { LOUPE_ZOOM_KEY } from '../loupe-view';
 import { modKeyLabel } from '../platform';
 import { usePanelLayout, type ResizablePanelDefinition } from '../panel-resize';
@@ -10,6 +11,7 @@ import { ActionBar, barStyles } from './ActionBar';
 import { LibraryGrid } from './LibraryGrid';
 import { LibraryInspector } from './LibraryInspector';
 import { AutoAdvanceToggle } from './AutoAdvanceToggle';
+import { CompareView } from './CompareView';
 import { LibraryLoupe } from './LibraryLoupe';
 import { ZoomLevels } from './ZoomLevels';
 import { LibrarySidebar } from './LibrarySidebar';
@@ -75,7 +77,14 @@ export function LibraryView() {
       </div>
       <div className={styles.centre}>
         <FilterBar scope={scope} shown={photos.length}>
-          {library.view === 'loupe' ? (
+          {library.view === 'compare' ? (
+            <>
+              <Button size="small" variant="ghost" hint="Esc" onClick={store.closeCompare}>
+                Back to grid
+              </Button>
+              <ZoomLevels viewKey={COMPARE_ZOOM_KEY} />
+            </>
+          ) : library.view === 'loupe' ? (
             <>
               <AutoAdvanceToggle />
               <ZoomLevels viewKey={LOUPE_ZOOM_KEY} />
@@ -99,6 +108,8 @@ export function LibraryView() {
         </FilterBar>
         {hiddenByFilter ? (
           <FilterEmpty hidden={scopeTotal} />
+        ) : library.view === 'compare' ? (
+          <CompareView />
         ) : library.view === 'loupe' ? (
           <LibraryLoupe photos={photos} />
         ) : (
@@ -125,6 +136,19 @@ export function LibraryView() {
           }
           right={
             <>
+              <Button
+                data-testid="compare-button"
+                disabled={!canCompare(selected.length)}
+                title={
+                  canCompare(selected.length) ? 'Compare the selected photos (V)' : COMPARE_HINT
+                }
+                active={library.view === 'compare'}
+                onClick={() =>
+                  library.view === 'compare' ? store.closeCompare() : store.openCompare()
+                }
+              >
+                Compare
+              </Button>
               <Button
                 disabled={none}
                 title={`Caption (${mod}+I)`}

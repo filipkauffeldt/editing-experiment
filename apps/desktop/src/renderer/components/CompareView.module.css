@@ -1,0 +1,78 @@
+.compare {
+  display: grid;
+  flex: 1;
+  gap: 8px;
+  min-height: 0;
+  padding: 8px;
+  background: var(--bg);
+}
+
+/* Two photos share one row, three or four fill a 2 x 2 grid. */
+.compare[data-count='2'] {
+  grid-template-columns: 1fr 1fr;
+  grid-template-rows: minmax(0, 1fr);
+}
+
+.compare[data-count='3'],
+.compare[data-count='4'] {
+  grid-template-columns: 1fr 1fr;
+  grid-template-rows: minmax(0, 1fr) minmax(0, 1fr);
+}
+
+.pane {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  background: var(--bg);
+  /* The picture stage paints over an outline, so the border is drawn on top of it. */
+  box-shadow: inset 0 0 0 1px var(--line-strong);
+}
+
+/* The active pane is the white outline, like a selected thumbnail. */
+.active::after {
+  position: absolute;
+  inset: 0;
+  z-index: 4;
+  border: 2px solid var(--text);
+  content: '';
+  pointer-events: none;
+}
+
+.pane .stage {
+  /* Panes are small, so the stage keeps less room around the photo. */
+  padding: 8px;
+  /* One track that is the stage itself, so the photo is fitted to the pane and not the other way round. */
+  grid-template: minmax(0, 1fr) / minmax(0, 1fr);
+}
+
+.info {
+  display: flex;
+  flex: none;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  height: 24px;
+  padding: 0 8px;
+  border-top: 1px solid var(--line);
+  background: var(--panel);
+}
+
+.name {
+  overflow: hidden;
+  color: var(--muted);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.active .name {
+  color: var(--text);
+}
+
+.flags {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 8px;
+}

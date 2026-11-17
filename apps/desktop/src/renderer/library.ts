@@ -1,12 +1,20 @@
-import type { IptcFields, LibraryFolderInfo, Photo } from '@ee/contracts';
+import type { IptcFields, LibraryFolderInfo, Photo, PhotoId } from '@ee/contracts';
 
 export const THUMB_SIZE_RANGE = { min: 96, max: 280, default: 160 } as const;
 
 export interface LibraryState {
   /** Folder (directory of the local copy) shown in the grid; absent means every folder. */
   folder?: string;
-  view: 'grid' | 'loupe';
+  view: 'grid' | 'loupe' | 'compare';
+  /** The photos side by side while `view` is `compare`, and the pane the keys act on. */
+  compare?: CompareState;
   thumbSize: number;
+}
+
+export interface CompareState {
+  /** Two to four photos, in the grid's order. */
+  ids: PhotoId[];
+  activeId: PhotoId;
 }
 
 export const initialLibrary = (): LibraryState => ({

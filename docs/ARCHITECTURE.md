@@ -1157,6 +1157,37 @@ the photo on screen is bounded and never delays it.
   apply to a multi-selection, in the grid, on the last photo or while a crop or retouch session is
   open. The switch is in the filter row of the loupe and of Develop.
 
+## Compare view
+
+`V` in the Library (or the **Compare** button in its action bar) puts the 2 to 4 selected photos side by
+side to pick the sharpest frame of a burst: two photos share one row, three or four make a 2×2 grid.
+The button is disabled with a tooltip for any other count, and `V` then only says so. `V` again, `Esc`,
+`G` or **Back to grid** return to the grid and the selection stays as it was.
+
+- **State.** `LibraryState.view` is `'compare'` and `LibraryState.compare` holds the photos in the
+  grid's order and the active one (`compare-view.ts`, `AppStore.openCompare`, `closeCompare`,
+  `setCompareActive`). It is a snapshot of the selection at the time it opened. A removed photo
+  leaves it, and with fewer than two left the view closes. Leaving the Library ends it.
+- **Pictures.** Each pane is drawn exactly as the loupe draws its photo (`useLoupePicture` in
+  `LoupePicture.tsx`, shared with `LibraryLoupe`): `app://preview` at Fit, the camera's full-size JPEG
+  once zoomed, the edited preview for a photo with retouch ops, so a retouch never shows camera
+  pixels. A pane at Fit with its preview on screen fetches the full-size JPEG that zooming shows,
+  so a zoom does not wait for it (the loupe's preload, applied to the panes).
+- **One zoom.** The panes share the zoom key `compare`, so `zoom-view.ts` holds one view for all of
+  them, in CSS pixels per picture pixel and a pan. `Z`, Ctrl/Cmd `+` and `-`, Ctrl/Cmd+wheel, a plain
+  wheel, Space+drag and the zoom buttons behave as in the loupe and move every pane together. The
+  pane under the pointer takes the keyboard's zoom (`claimController`), which matters for the
+  anchor of `Z`. Photos of a burst share a frame size, so the same view shows the same spot.
+- **Active pane.** A click, `←` and `→` (stopping at the ends) move the active pane, which has the white
+  outline. `T`, `1`-`5` and Ctrl/Cmd+`1`-`8` pass its photo id to `toggleTag`, `setRating` and
+  `setColorClass`, so they never touch the rest of the selection and never auto-advance. Each pane's
+  footer shows its file name, tag, rating and colour.
+- **Delete and the photo menu.** `actionTargets` (`store.ts`) gives the photos a label key, the photo menu,
+  Delete, Remove from Library and Shift capture time act on. In the compare view that is the active
+  pane's photo only, so the user deletes the losing frame and the dialog names it. A right-click on a
+  pane makes it active and opens the menu for its photo. The deleted pane leaves the view, the next
+  pane takes its place and the others stay compared and selected.
+
 ## Develop undo, redo and Reset all
 
 Develop keeps one undo and redo history per photo, in the renderer for the session only. It is not

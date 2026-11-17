@@ -91,6 +91,11 @@ const registerController = (next: ZoomController): (() => void) => {
   };
 };
 
+/** A view of several photos at once: the pane the pointer is over takes the keyboard's zoom. */
+const claimController = (next: ZoomController | undefined): void => {
+  if (next) controller = next;
+};
+
 /**
  * What the zoom maths needs of the canvas: where Fit puts the picture (CSS pixels of the canvas
  * container), the picture being shown in its own pixels (the full-resolution crop output, or the
@@ -133,6 +138,7 @@ export function useZoomControls(
     latest.current = geometry;
   });
   const pointer = useRef<Point | null>(null);
+  const own = useRef<ZoomController | undefined>(undefined);
   const drag = useRef<{ id: number; last: Point } | null>(null);
   const [dragging, setDragging] = useState(false);
 
@@ -146,7 +152,7 @@ export function useZoomControls(
       x: latest.current.viewport.width / 2,
       y: latest.current.viewport.height / 2,
     });
-    const unregister = registerController({
+    const mine: ZoomController = {
       toggle() {
         const { view: now, context } = current();
         if (now.scale !== null) {
@@ -174,7 +180,9 @@ export function useZoomControls(
         zoomStore.update((state) => ({ ...state, level }));
         setView(key, zoomTo(now, context, centre(), levelScale(level, context.dpr)));
       },
-    });
+    };
+    own.current = mine;
+    const unregister = registerController(mine);
     return () => {
       unregister();
       clearView(key);
@@ -210,6 +218,7 @@ export function useZoomControls(
       );
     };
     const onMove = (event: PointerEvent): void => {
+      claimController(own.current);
       const box = target.getBoundingClientRect();
       pointer.current = { x: event.clientX - box.left, y: event.clientY - box.top };
     };

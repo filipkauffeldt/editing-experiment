@@ -9,7 +9,7 @@
 // mid-rotation with the fine grid and the committed crop, and (23) the Library
 // over the ingested files, (31) retouch with a face switched off and a subtracted area, and (32-34)
 // the photo at Fit, at 100% from the full-resolution decode, and retouch zoomed in on a face, and (35)
-// the Library loupe zoomed in with Auto-advance on.
+// the Library loupe zoomed in with Auto-advance on, and (36, 37) the compare view with two and four photos.
 import { _electron as electron, type ElectronApplication, type Page } from '@playwright/test';
 import { spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, copyFileSync } from 'node:fs';
@@ -293,6 +293,31 @@ async function runMock(outDir: string): Promise<void> {
     await window.getByTestId('auto-advance').click();
     await window.keyboard.press('z');
     await window.keyboard.press('g');
+
+    // Compare: two photos side by side, then four in a 2 x 2 grid.
+    await cells.nth(0).click();
+    await cells.nth(1).click({ modifiers: ['Shift'] });
+    await window.keyboard.press('v');
+    await window.locator('[data-testid="compare-view"][data-count="2"]').waitFor();
+    await window.waitForFunction(() =>
+      [...document.querySelectorAll('[data-testid="compare-pane"] img')].every(
+        (img) => (img as HTMLImageElement).complete,
+      ),
+    );
+    await shoot('36-library-compare-2up.png');
+    await window.keyboard.press('Escape');
+    await cells.nth(0).click();
+    await cells.nth(3).click({ modifiers: ['Shift'] });
+    await window.keyboard.press('v');
+    await window.locator('[data-testid="compare-view"][data-count="4"]').waitFor();
+    await window.keyboard.press('ArrowLeft');
+    await window.waitForFunction(() =>
+      [...document.querySelectorAll('[data-testid="compare-pane"] img')].every(
+        (img) => (img as HTMLImageElement).complete,
+      ),
+    );
+    await shoot('37-library-compare-4up.png');
+    await window.keyboard.press('Escape');
 
     // Retouch session: the retouch on the Develop layout.
     await window.keyboard.press('d');
