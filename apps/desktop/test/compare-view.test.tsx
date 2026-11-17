@@ -282,6 +282,53 @@ describe('right-click in the compare view', () => {
   });
 });
 
+describe('rotating in the compare view', () => {
+  const rotateCalls = (fake: FakeBridge): { photoIds: PhotoId[]; turns: number }[] =>
+    fake.calls
+      .filter((call) => call.channel === 'photos:rotate')
+      .map((call) => call.args[0] as { photoIds: PhotoId[]; turns: number });
+
+  it("turns the active pane's photo only, and plain arrows still move the active pane", async () => {
+    const { store, ids, fake } = await openLibrary(3);
+    await userEvent.setup().keyboard('v');
+    await screen.findByTestId('compare-view');
+    expect(activeId()).toBe(ids[2]);
+
+    key({ key: 'ArrowLeft', code: 'ArrowLeft' });
+    expect(activeId()).toBe(ids[1]);
+    expect(rotateCalls(fake)).toEqual([]);
+
+    key({ key: 'ArrowRight', code: 'ArrowRight', ctrlKey: true });
+    await waitFor(() => expect(rotateCalls(fake)).toHaveLength(1));
+    expect(rotateCalls(fake)[0]).toEqual({ photoIds: [ids[1]], turns: 1 });
+    await waitFor(() => expect(photoOf(store, ids[1]!).rotation).toBe(1));
+    expect(ids.filter((id) => photoOf(store, id).rotation !== undefined)).toEqual([ids[1]]);
+    // The turn did not move the active pane or change the selection.
+    expect(activeId()).toBe(ids[1]);
+    expect(store.getState().selection).toEqual(ids);
+
+    key({ key: 'ArrowLeft', code: 'ArrowLeft', ctrlKey: true });
+    await waitFor(() => expect(rotateCalls(fake)).toHaveLength(2));
+    expect(rotateCalls(fake)[1]).toEqual({ photoIds: [ids[1]], turns: -1 });
+  });
+
+  it('turns the photo of the pane that was right-clicked from the menu', async () => {
+    const { store, ids, fake } = await openLibrary(3);
+    const user = userEvent.setup();
+    await user.keyboard('v');
+    await screen.findByTestId('compare-view');
+    act(() => {
+      fireEvent.contextMenu(panes()[0]!, { clientX: 100, clientY: 100 });
+    });
+
+    await user.click(await screen.findByTestId('photo-menu-rotate-left'));
+
+    await waitFor(() => expect(rotateCalls(fake)).toHaveLength(1));
+    expect(rotateCalls(fake)[0]).toEqual({ photoIds: [ids[0]], turns: -1 });
+    expect(store.getState().photoMenu).toBeUndefined();
+  });
+});
+
 describe('compare helpers', () => {
   it('orders the selection like the grid', () => {
     const grid = [{ id: 'a' }, { id: 'b' }, { id: 'c' }, { id: 'd' }] as { id: PhotoId }[];
